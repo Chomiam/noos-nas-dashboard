@@ -214,10 +214,11 @@ fn customize_nix_content(
     if let Some(m_dir) = media_dir {
         let trimmed = m_dir.trim().trim_end_matches('/');
         if !trimmed.is_empty() {
-            let default_media = "mediaDir = \"/home/${user}/video\";";
             let custom_media = format!("mediaDir = \"{}\";", trimmed);
-            if res.contains(default_media) {
-                res = res.replace(default_media, &custom_media);
+            if res.contains("mediaDir = \"/home/${user}/videos\";") {
+                res = res.replace("mediaDir = \"/home/${user}/videos\";", &custom_media);
+            } else if res.contains("mediaDir = \"/home/${user}/video\";") {
+                res = res.replace("mediaDir = \"/home/${user}/video\";", &custom_media);
             } else if let Some(idx) = res.find("mediaDir = \"") {
                 if let Some(end_idx) = res[idx..].find("\";") {
                     let old_val = &res[idx..idx + end_idx + 2];
@@ -374,7 +375,7 @@ pub async fn install_store_app(req: InstallAppRequest) -> Result<String, String>
 
     // Gestion spécifique des dossiers médias pour Jellyfin (ou apps multimédias)
     if clean_id == "jellyfin" || req.media_dir.is_some() {
-        let media_path = req.media_dir.clone().unwrap_or_else(|| format!("/home/{}/video", user));
+        let media_path = req.media_dir.clone().unwrap_or_else(|| format!("/home/{}/videos", user));
         let m_path = std::path::PathBuf::from(&media_path);
 
         let movies_dir = m_path.join("movies");
@@ -733,7 +734,7 @@ fn get_embedded_app_nix(app_id: &str) -> Result<String, String> {
 let
   user = config.steveos.user.username;
   dataDir = "/home/${user}/docker/jellyfin";
-  mediaDir = "/home/${user}/video";
+  mediaDir = "/home/${user}/videos";
   gpuType = config.steveos.hardware.gpu or "intel";
 
   isNvidia = gpuType == "nvidia" || gpuType == "nvidia-legacy";

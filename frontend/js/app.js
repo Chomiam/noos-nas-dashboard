@@ -6276,10 +6276,10 @@ function openDockerConfigModal(appId, customData = null) {
       mediaSection.style.display = "flex";
       const mediaInput = document.getElementById("config-app-media-dir");
       if (mediaInput && (!mediaInput.value || mediaInput.dataset.app !== appId)) {
-        mediaInput.value = "/home/chomiam/video";
+        mediaInput.value = "/home/chomiam/videos";
         mediaInput.dataset.app = appId;
       }
-      selectMediaPreset(mediaInput ? mediaInput.value : "/home/chomiam/video", false);
+      selectMediaPreset(mediaInput ? mediaInput.value : "/home/chomiam/videos", false);
     } else {
       mediaSection.style.display = "none";
     }
@@ -6347,7 +6347,7 @@ function selectMediaPreset(path, updateInput = true) {
 
 function updateMediaFolderPreviews() {
   const mediaInput = document.getElementById("config-app-media-dir");
-  const base = (mediaInput && mediaInput.value.trim()) ? mediaInput.value.trim().replace(/\/+$/, "") : "/home/chomiam/video";
+  const base = (mediaInput && mediaInput.value.trim()) ? mediaInput.value.trim().replace(/\/+$/, "") : "/home/chomiam/videos";
 
   const pMovies = document.getElementById("preview-folder-movies");
   const pTv = document.getElementById("preview-folder-tv");

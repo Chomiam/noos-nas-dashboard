@@ -2246,13 +2246,13 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
             Choisissez l'emplacement de vos médias. Les sous-dossiers <code style="color:var(--peach);">movies</code>, <code style="color:var(--peach);">tv_shows</code> et <code style="color:var(--peach);">anims</code> y seront créés automatiquement avec les permissions lecture/écriture nécessaires.
           </div>
 
-          <!-- Choix rapide entre /home/{user}/video et /mnt/storage -->
+          <!-- Choix rapide entre /home/{user}/videos et /mnt/storage -->
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px;">
-            <button type="button" id="btn-media-opt-home" class="media-choice-btn active" onclick="selectMediaPreset('/home/chomiam/video')">
+            <button type="button" id="btn-media-opt-home" class="media-choice-btn active" onclick="selectMediaPreset('/home/chomiam/videos')">
               <div style="font-weight: 700; font-size: 0.84rem; display: flex; align-items: center; gap: 6px; color: var(--text);">
                 <span>📁 Dossier Personnel</span>
               </div>
-              <div style="font-size: 0.75rem; color: var(--subtext0); margin-top: 2px; font-family: monospace;">/home/chomiam/video</div>
+              <div style="font-size: 0.75rem; color: var(--subtext0); margin-top: 2px; font-family: monospace;">/home/chomiam/videos</div>
             </button>
             <button type="button" id="btn-media-opt-storage" class="media-choice-btn" onclick="selectMediaPreset('/mnt/storage')">
               <div style="font-weight: 700; font-size: 0.84rem; display: flex; align-items: center; gap: 6px; color: var(--text);">
@@ -2263,7 +2263,7 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
           </div>
 
           <div style="margin-top: 4px;">
-            <input type="text" id="config-app-media-dir" class="form-input docker-path-input" placeholder="/home/chomiam/video" style="width: 100%;" oninput="updateMediaFolderPreviews()">
+            <input type="text" id="config-app-media-dir" class="form-input docker-path-input" placeholder="/home/chomiam/videos" style="width: 100%;" oninput="updateMediaFolderPreviews()">
           </div>
 
           <!-- Dossiers créés automatiquement -->
