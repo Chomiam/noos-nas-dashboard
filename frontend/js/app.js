@@ -5915,7 +5915,7 @@ async function loadDockerContainers() {
     const host = window.location.hostname;
     container.innerHTML = containers.map(c => {
       const portLink = c.web_port
-        ? `<a href="http://${host}:${c.web_port}" target="_blank" class="btn btn-primary btn-xs" style="text-decoration:none;">🚀 Ouvrir (Port ${c.web_port}) ↗</a>`
+        ? `<a href="http://${host}:${c.web_port}" target="_blank" class="store-open-link"><span>🚀</span> Ouvrir (Port ${c.web_port}) ↗</a>`
         : "";
 
       return `
@@ -6026,7 +6026,7 @@ function filterStoreApps() {
     const isInstalled = app.is_installed;
     const isRunning = app.is_running;
     const openLink = (isInstalled && isRunning && app.default_port)
-      ? `<a href="http://${host}:${app.default_port}" target="_blank" class="btn btn-primary btn-xs" style="text-decoration:none;">🚀 Ouvrir ↗</a>`
+      ? `<a href="http://${host}:${app.default_port}" target="_blank" class="store-open-link"><span>🚀</span> Ouvrir (Port ${app.default_port}) ↗</a>`
       : "";
 
     return `
@@ -6051,24 +6051,31 @@ function filterStoreApps() {
         </div>
 
         <div class="store-app-bottom">
-          <div>
-            ${isInstalled ? `
-              <span class="store-installed-pill">
-                ✔ Installée ${isRunning ? '(🟢 Active)' : '(🟡 Arrêtée)'}
-              </span>
-            ` : `
-              <span style="font-size:0.78rem; color:var(--subtext0);">Non installée</span>
-            `}
+          <div class="store-bottom-status-row">
+            <div class="store-status-pill ${isInstalled ? (isRunning ? 'status-active' : 'status-stopped') : 'status-available'}">
+              ${isInstalled ? (isRunning ? '🟢 Active' : '🟡 Arrêtée') : '⚪ Non installée'}
+            </div>
+            ${openLink}
           </div>
 
-          <div style="display:flex; gap:6px; align-items:center;">
-            ${openLink}
-            <button type="button" class="btn btn-secondary btn-xs" onclick="openStoreAppModal('${escapeHtml(app.id)}')">Détails</button>
+          <div class="store-bottom-actions-row">
             ${isInstalled ? `
-              <button type="button" class="btn btn-secondary btn-xs" onclick="openDockerConfigModal('${escapeHtml(app.id)}')" title="Modifier variables et ports">⚙️ Variables</button>
-              <button type="button" class="btn btn-danger btn-xs" onclick="uninstallStoreApp('${escapeHtml(app.id)}', '${escapeHtml(app.name)}')">Désinstaller</button>
+              <button type="button" class="btn btn-secondary btn-xs store-btn-action" onclick="openStoreAppModal('${escapeHtml(app.id)}')">
+                <span>ℹ️</span> Détails
+              </button>
+              <button type="button" class="btn btn-secondary btn-xs store-btn-action" onclick="openDockerConfigModal('${escapeHtml(app.id)}')">
+                <span>⚙️</span> Variables
+              </button>
+              <button type="button" class="btn btn-danger btn-xs store-btn-action" onclick="uninstallStoreApp('${escapeHtml(app.id)}', '${escapeHtml(app.name)}')">
+                <span>🗑️</span> Désinstaller
+              </button>
             ` : `
-              <button type="button" class="btn btn-success btn-xs" onclick="openDockerConfigModal('${escapeHtml(app.id)}')">📥 Installer</button>
+              <button type="button" class="btn btn-secondary btn-xs store-btn-action" onclick="openStoreAppModal('${escapeHtml(app.id)}')">
+                <span>ℹ️</span> Détails
+              </button>
+              <button type="button" class="btn btn-success btn-xs store-btn-action store-btn-install" onclick="openDockerConfigModal('${escapeHtml(app.id)}')">
+                <span>📥</span> Installer
+              </button>
             `}
           </div>
         </div>
@@ -6248,10 +6255,10 @@ function addDockerConfigEnvRow(key = '', val = '') {
   const row = document.createElement("div");
   row.className = "docker-env-row";
   row.innerHTML = `
-    <input type="text" class="form-input env-key-input" placeholder="VARIABLE" value="${escapeHtml(key)}">
+    <input type="text" class="form-input env-key-input" placeholder="NOM_VARIABLE" value="${escapeHtml(key)}" spellcheck="false" autocomplete="off">
     <span class="env-sep">=</span>
-    <input type="text" class="form-input env-val-input" placeholder="valeur" value="${escapeHtml(val)}">
-    <button type="button" class="btn btn-secondary btn-xs" onclick="this.closest('.docker-env-row').remove()" title="Supprimer la variable" style="color:var(--red);">✕</button>
+    <input type="text" class="form-input env-val-input" placeholder="valeur" value="${escapeHtml(val)}" spellcheck="false" autocomplete="off">
+    <button type="button" class="env-delete-btn" onclick="this.closest('.docker-env-row').remove()" title="Supprimer la variable">✕</button>
   `;
   container.appendChild(row);
 }
