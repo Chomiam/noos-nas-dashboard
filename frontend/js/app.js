@@ -5950,6 +5950,7 @@ async function loadDockerContainers() {
             ` : `
               <button type="button" class="btn btn-success btn-xs" onclick="dockerContainerAction('${escapeHtml(c.name)}', 'start')">▶ Démarrer</button>
             `}
+            <button type="button" class="btn btn-secondary btn-xs" onclick="openDockerConfigModalForContainer('${escapeHtml(c.name)}')" title="Modifier les variables du conteneur">⚙️ Variables</button>
             <button type="button" class="btn btn-secondary btn-xs" onclick="openDockerLogsModal('${escapeHtml(c.name)}')">📜 Logs</button>
           </div>
         </div>
@@ -6064,9 +6065,10 @@ function filterStoreApps() {
             ${openLink}
             <button type="button" class="btn btn-secondary btn-xs" onclick="openStoreAppModal('${escapeHtml(app.id)}')">Détails</button>
             ${isInstalled ? `
+              <button type="button" class="btn btn-secondary btn-xs" onclick="openDockerConfigModal('${escapeHtml(app.id)}')" title="Modifier variables et ports">⚙️ Variables</button>
               <button type="button" class="btn btn-danger btn-xs" onclick="uninstallStoreApp('${escapeHtml(app.id)}', '${escapeHtml(app.name)}')">Désinstaller</button>
             ` : `
-              <button type="button" class="btn btn-success btn-xs" onclick="installStoreApp('${escapeHtml(app.id)}', '${escapeHtml(app.name)}')">📥 Installer</button>
+              <button type="button" class="btn btn-success btn-xs" onclick="openDockerConfigModal('${escapeHtml(app.id)}')">📥 Installer</button>
             `}
           </div>
         </div>
@@ -6106,12 +6108,15 @@ function openStoreAppModal(appId) {
   if (actionsEl) {
     const isInstalled = app.is_installed;
     actionsEl.innerHTML = isInstalled ? `
+      <button type="button" class="btn btn-secondary btn-sm" onclick="openDockerConfigModal('${app.id}'); closeStoreAppModal();">
+        ⚙️ Modifier les variables
+      </button>
       <button type="button" class="btn btn-danger btn-sm" onclick="uninstallStoreApp('${app.id}', '${escapeHtml(app.name)}'); closeStoreAppModal();">
         🗑️ Désinstaller du NAS
       </button>
     ` : `
-      <button type="button" class="btn btn-success btn-sm" onclick="installStoreApp('${app.id}', '${escapeHtml(app.name)}'); closeStoreAppModal();">
-        📥 Installer en 1-clic
+      <button type="button" class="btn btn-success btn-sm" onclick="openDockerConfigModal('${app.id}'); closeStoreAppModal();">
+        📥 Installer l'application
       </button>
     `;
   }
@@ -6124,27 +6129,190 @@ function closeStoreAppModal() {
   if (modal) modal.style.display = "none";
 }
 
-async function installStoreApp(appId, appName) {
-  if (!confirm(`Souhaitez-vous installer et activer l'application '${appName}' sur votre NAS ?\n\nLe module déclaratif sera ajouté à votre configuration NixOS et les données créées dans /home/chomiam/docker/${appId}.`)) {
+const DEFAULT_DOCKER_ENVS = {
+  "arcane": [
+    { key: "PORT", value: "3552" },
+    { key: "ENCRYPTION_KEY", value: "0c8f24b63e073f21f04431b2bd81f6f65bbf5b2571ccaf9eda3dc5eab3486f85" }
+  ],
+  "uptime-kuma": [
+    { key: "TZ", value: "Europe/Paris" },
+    { key: "UPTIME_KUMA_PORT", value: "3001" }
+  ],
+  "qbittorrent": [
+    { key: "TZ", value: "Europe/Paris" },
+    { key: "PUID", value: "1000" },
+    { key: "PGID", value: "100" },
+    { key: "WEBUI_PORT", value: "8085" }
+  ],
+  "vaultwarden": [
+    { key: "WEBSOCKET_ENABLED", value: "true" },
+    { key: "SIGNUPS_ALLOWED", value: "true" },
+    { key: "ROCKET_PORT", value: "80" }
+  ],
+  "jellyseerr": [
+    { key: "TZ", value: "Europe/Paris" },
+    { key: "LOG_LEVEL", value: "debug" },
+    { key: "PORT", value: "5055" }
+  ],
+  "immich": [
+    { key: "TZ", value: "Europe/Paris" },
+    { key: "DB_HOSTNAME", value: "immich-postgres" },
+    { key: "DB_USERNAME", value: "postgres" },
+    { key: "DB_DATABASE_NAME", value: "immich" }
+  ]
+};
+
+function installStoreApp(appId, appName) {
+  openDockerConfigModal(appId);
+}
+
+function openDockerConfigModal(appId, customData = null) {
+  const modal = document.getElementById("docker-config-modal");
+  if (!modal) return;
+
+  let app = (currentStoreCatalog && currentStoreCatalog.apps)
+    ? currentStoreCatalog.apps.find(a => a.id === appId)
+    : null;
+
+  if (!app && customData) {
+    app = customData;
+  }
+
+  const title = app ? app.name : appId;
+  const icon = app && app.icon ? app.icon : "/favicon.ico";
+  const defaultPort = app && app.default_port ? app.default_port : "";
+  const dataDir = `/home/chomiam/docker/${appId}`;
+
+  document.getElementById("config-app-id").value = appId;
+  document.getElementById("config-app-title").textContent = `Configuration : ${title}`;
+  document.getElementById("config-app-subtitle").textContent = app && app.tagline ? app.tagline : "Variables d'environnement, port et volumes";
+  document.getElementById("config-app-icon").src = icon;
+  document.getElementById("config-app-port").value = defaultPort;
+  document.getElementById("config-app-data-dir").value = dataDir;
+  
+  const nixTarget = document.getElementById("config-app-nix-target");
+  if (nixTarget) nixTarget.textContent = `/etc/nixos/docker/${appId}.nix`;
+
+  updateConfigUrlPreview();
+
+  // Remplir les variables d'environnement
+  const container = document.getElementById("config-env-rows-container");
+  if (container) {
+    container.innerHTML = "";
+    const envs = DEFAULT_DOCKER_ENVS[appId] || [
+      { key: "TZ", value: "Europe/Paris" },
+      { key: "PUID", value: "1000" },
+      { key: "PGID", value: "100" }
+    ];
+    envs.forEach(e => addDockerConfigEnvRow(e.key, e.value));
+  }
+
+  modal.style.display = "flex";
+}
+
+function openDockerConfigModalForContainer(containerName) {
+  let app = (currentStoreCatalog && currentStoreCatalog.apps)
+    ? currentStoreCatalog.apps.find(a => a.id === containerName)
+    : null;
+
+  if (app) {
+    openDockerConfigModal(app.id);
+  } else {
+    openDockerConfigModal(containerName, {
+      id: containerName,
+      name: containerName,
+      icon: "/favicon.ico",
+      default_port: "",
+      tagline: `Conteneur actif : ${containerName}`
+    });
+  }
+}
+
+function closeDockerConfigModal() {
+  const modal = document.getElementById("docker-config-modal");
+  if (modal) modal.style.display = "none";
+}
+
+function updateConfigUrlPreview() {
+  const port = document.getElementById("config-app-port").value.trim();
+  const preview = document.getElementById("config-app-url-preview");
+  if (preview) {
+    preview.textContent = port ? `http://${window.location.hostname}:${port}` : "Non exposé";
+  }
+}
+
+function addDockerConfigEnvRow(key = '', val = '') {
+  const container = document.getElementById("config-env-rows-container");
+  if (!container) return;
+
+  const row = document.createElement("div");
+  row.className = "docker-env-row";
+  row.innerHTML = `
+    <input type="text" class="form-input env-key-input" placeholder="VARIABLE" value="${escapeHtml(key)}">
+    <span class="env-sep">=</span>
+    <input type="text" class="form-input env-val-input" placeholder="valeur" value="${escapeHtml(val)}">
+    <button type="button" class="btn btn-secondary btn-xs" onclick="this.closest('.docker-env-row').remove()" title="Supprimer la variable" style="color:var(--red);">✕</button>
+  `;
+  container.appendChild(row);
+}
+
+async function submitDockerDeploy() {
+  const appId = document.getElementById("config-app-id").value.trim();
+  if (!appId) {
+    showToast("Identifiant d'application manquant", "error");
     return;
   }
 
-  showToast(`Préparation de l'application ${appName}...`, "info");
+  const portVal = document.getElementById("config-app-port").value.trim();
+  const dataDir = document.getElementById("config-app-data-dir").value.trim();
+
+  const envVars = {};
+  const rows = document.querySelectorAll("#config-env-rows-container .docker-env-row");
+  rows.forEach(r => {
+    const k = r.querySelector(".env-key-input").value.trim();
+    const v = r.querySelector(".env-val-input").value.trim();
+    if (k) {
+      envVars[k] = v;
+    }
+  });
+
+  const btn = document.getElementById("btn-submit-docker-deploy");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "⏳ Déploiement en cours...";
+  }
+
+  showToast(`Déploiement de ${appId} en cours...`, "info");
+  closeDockerConfigModal();
+
   try {
+    const payload = {
+      app_id: appId,
+      port: portVal ? parseInt(portVal, 10) : null,
+      data_dir: dataDir || null,
+      env_vars: envVars
+    };
+
     const res = await fetch("/api/docker/store/install", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ app_id: appId })
+      body: JSON.stringify(payload)
     });
+
     const json = await res.json();
     if (json.success) {
-      showToast(json.data || `Installation de ${appName} en cours de déploiement !`, "success");
-      setTimeout(() => refreshContainersAndStore(), 2000);
+      showToast(json.data || `Application ${appId} configurée avec succès !`, "success");
+      setTimeout(() => refreshContainersAndStore(), 2500);
     } else {
-      showToast(`Erreur d'installation : ${json.message}`, "error");
+      showToast(`Erreur de déploiement : ${json.message}`, "error");
     }
   } catch (err) {
-    showToast(`Erreur de requête : ${err}`, "error");
+    showToast(`Erreur requête : ${err}`, "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "🚀 Déployer l'application";
+    }
   }
 }
 

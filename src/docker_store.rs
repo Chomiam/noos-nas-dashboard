@@ -52,6 +52,9 @@ pub struct StoreCatalog {
 #[derive(Debug, Deserialize)]
 pub struct InstallAppRequest {
     pub app_id: String,
+    pub port: Option<u16>,
+    pub data_dir: Option<String>,
+    pub env_vars: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,8 +69,8 @@ pub struct ContainerActionRequest {
     pub action: String,
 }
 
-#[derive(Debug, Serialize)]
 #[allow(dead_code)]
+#[derive(Debug, Serialize)]
 pub struct DockerActionResponse {
     pub success: bool,
     pub message: String,
@@ -106,7 +109,6 @@ pub fn get_running_containers_map() -> HashMap<String, (String, String, bool)> {
                 let status = parts[2].to_string();
                 let is_running = parts[3].to_lowercase() == "running";
 
-                // Le nom peut être direct "arcane" ou "docker-arcane"
                 let clean_name = name.strip_prefix("docker-").unwrap_or(&name).to_string();
                 map.insert(clean_name.clone(), (id.clone(), status.clone(), is_running));
                 map.insert(name, (id, status, is_running));
@@ -155,6 +157,9 @@ pub fn get_store_catalog() -> StoreCatalog {
         get_embedded_catalog()
     };
 
+    // Filtrer d'éventuelles entrées supprimées
+    catalog.apps.retain(|a| a.id != "homepage" && a.id != "filebrowser");
+
     // 4. Enrichir avec l'état du système NixOS et de Docker
     let config_dir = get_config_dir();
     let docker_dir = config_dir.join("docker");
@@ -178,8 +183,107 @@ pub fn get_store_catalog() -> StoreCatalog {
     catalog
 }
 
-pub async fn install_store_app(app_id: &str) -> Result<String, String> {
-    let clean_id = app_id.trim().to_lowercase();
+fn customize_nix_content(
+    base_nix: &str,
+    app_id: &str,
+    port: Option<u16>,
+    data_dir: Option<&str>,
+    env_vars: Option<&HashMap<String, String>>,
+) -> String {
+    let mut res = base_nix.to_string();
+
+    // 1. Personnalisation du dossier de données
+    if let Some(dir) = data_dir {
+        let trimmed = dir.trim();
+        if !trimmed.is_empty() {
+            let default_pattern = format!("dataDir = \"/home/${{user}}/docker/{}\";", app_id);
+            let custom_pattern = format!("dataDir = \"{}\";", trimmed);
+            if res.contains(&default_pattern) {
+                res = res.replace(&default_pattern, &custom_pattern);
+            }
+        }
+    }
+
+    // 2. Personnalisation du port
+    if let Some(new_port) = port {
+        // Remplacement dans allowedTCPPorts
+        if let Some(tcp_idx) = res.find("networking.firewall.allowedTCPPorts = [") {
+            if let Some(end_bracket) = res[tcp_idx..].find(']') {
+                let full_end = tcp_idx + end_bracket;
+                let prefix = &res[..tcp_idx + "networking.firewall.allowedTCPPorts = [".len()];
+                let suffix = &res[full_end..];
+                res = format!("{} {} {}", prefix, new_port, suffix);
+            }
+        }
+
+        // Remplacement dans ports = [ "XXXX:
+        if let Some(p_idx) = res.find("ports = [") {
+            if let Some(p_end) = res[p_idx..].find(']') {
+                let ports_block = &res[p_idx..p_idx + p_end];
+                let mut new_block = ports_block.to_string();
+                for chunk in ports_block.split('"') {
+                    if let Some(colon) = chunk.find(':') {
+                        let host_p = &chunk[..colon];
+                        let cont_p = &chunk[colon + 1..];
+                        if host_p.chars().all(|c| c.is_ascii_digit()) {
+                            let old_str = format!("\"{}:{}\"", host_p, cont_p);
+                            let new_str = format!("\"{}:{}\"", new_port, cont_p);
+                            new_block = new_block.replace(&old_str, &new_str);
+                            break;
+                        }
+                    }
+                }
+                res = res[..p_idx].to_string() + &new_block + &res[p_idx + p_end..];
+            }
+        }
+    }
+
+    // 3. Personnalisation des variables d'environnement
+    if let Some(envs) = env_vars {
+        if !envs.is_empty() {
+            if !res.contains("environment = {") {
+                if let Some(auto_idx) = res.find("autoStart = true;") {
+                    let insert_pt = auto_idx + "autoStart = true;".len();
+                    res.insert_str(insert_pt, "
+    environment = {
+    };");
+                }
+            }
+
+            if let Some(env_idx) = res.find("environment = {") {
+                if let Some(env_end) = res[env_idx..].find("};") {
+                    let mut env_block = res[env_idx + "environment = {".len()..env_idx + env_end].to_string();
+                    for (k, v) in envs {
+                        let clean_k = k.trim().replace('"', "");
+                        let clean_v = v.trim().replace('"', "");
+                        if !clean_k.is_empty() {
+                            let key_match = format!("{} =", clean_k);
+                            let key_match_space = format!("{} =", clean_k);
+                            let mut found = false;
+                            for line in env_block.lines() {
+                                let trimmed_line = line.trim();
+                                if trimmed_line.starts_with(&key_match) || trimmed_line.starts_with(&key_match_space) {
+                                    env_block = env_block.replace(line, &format!("      {} = \"{}\";", clean_k, clean_v));
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if !found {
+                                env_block.push_str(&format!("\n      {} = \"{}\";", clean_k, clean_v));
+                            }
+                        }
+                    }
+                    res = res[..env_idx + "environment = {".len()].to_string() + &env_block + &res[env_idx + env_end..];
+                }
+            }
+        }
+    }
+
+    res
+}
+
+pub async fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
+    let clean_id = req.app_id.trim().to_lowercase();
     if clean_id.is_empty() || !clean_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
         return Err("Identifiant d'application invalide".to_string());
     }
@@ -188,8 +292,7 @@ pub async fn install_store_app(app_id: &str) -> Result<String, String> {
     let docker_dir = config_dir.join("docker");
     let target_nix_file = docker_dir.join(format!("{}.nix", clean_id));
 
-    // Récupérer le contenu du .nix :
-    // 1. Depuis GitHub raw
+    // Récupérer le contenu du .nix de base
     let url = format!(
         "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/{}/{}.nix",
         clean_id, clean_id
@@ -198,7 +301,7 @@ pub async fn install_store_app(app_id: &str) -> Result<String, String> {
         .args(["-s", "--connect-timeout", "5", "--max-time", "15", &url])
         .output();
 
-    let nix_content = match curl_res {
+    let base_nix = match curl_res {
         Ok(out) => {
             let s = String::from_utf8_lossy(&out.stdout).to_string();
             if s.contains("virtualisation.oci-containers") {
@@ -210,21 +313,29 @@ pub async fn install_store_app(app_id: &str) -> Result<String, String> {
         Err(_) => get_embedded_app_nix(&clean_id)?,
     };
 
+    // Appliquer les personnalisations (port, data_dir, env_vars)
+    let user = get_target_user();
+    let customized_nix = customize_nix_content(
+        &base_nix,
+        &clean_id,
+        req.port,
+        req.data_dir.as_deref(),
+        req.env_vars.as_ref(),
+    );
+
     // Assurer le dossier docker/ dans NixOS
     if let Err(e) = std::fs::create_dir_all(&docker_dir) {
         return Err(format!("Impossible de créer le dossier docker dans NixOS : {}", e));
     }
 
     // Assurer le dossier persistant dans /home/<user>/docker/<app_id>
-    let user = get_target_user();
-    let user_home = format!("/home/{}", user);
-    let app_data_dir = format!("{}/docker/{}", user_home, clean_id);
+    let app_data_dir = req.data_dir.clone().unwrap_or_else(|| format!("/home/{}/docker/{}", user, clean_id));
     let _ = std::fs::create_dir_all(&app_data_dir);
-    let _ = Command::new("chown").args(["-R", &format!("{}:users", user), &format!("{}/docker", user_home)]).status();
-    let _ = Command::new("chmod").args(["-R", "0775", &format!("{}/docker", user_home)]).status();
+    let _ = Command::new("chown").args(["-R", &format!("{}:users", user), &app_data_dir]).status();
+    let _ = Command::new("chmod").args(["-R", "0775", &app_data_dir]).status();
 
     // Écrire le fichier .nix
-    if let Err(e) = std::fs::write(&target_nix_file, nix_content) {
+    if let Err(e) = std::fs::write(&target_nix_file, customized_nix) {
         return Err(format!("Impossible d'écrire le module Nix : {}", e));
     }
 
@@ -242,7 +353,7 @@ pub async fn install_store_app(app_id: &str) -> Result<String, String> {
     });
 
     Ok(format!(
-        "Application '{}' configurée avec succès ! Le déploiement NixOS a été lancé.",
+        "Application '{}' configurée et déploiement NixOS initié avec succès !",
         clean_id
     ))
 }
@@ -335,7 +446,7 @@ pub fn get_docker_logs(name_or_id: &str, lines: usize) -> Result<String, String>
 fn get_embedded_catalog() -> StoreCatalog {
     StoreCatalog {
         version: "1.0.0".to_string(),
-        updated_at: "2026-09-29T19:00:00Z".to_string(),
+        updated_at: "2026-09-29T19:20:00Z".to_string(),
         repository: "https://github.com/Chomiam/steveos_nas_store".to_string(),
         categories: vec![
             "Tous".into(),
@@ -344,7 +455,6 @@ fn get_embedded_catalog() -> StoreCatalog {
             "Téléchargement".into(),
             "Sécurité".into(),
             "Monitoring".into(),
-            "Outils".into(),
         ],
         apps: vec![
             StoreApp {
@@ -501,60 +611,43 @@ fn get_embedded_catalog() -> StoreCatalog {
                 container_id: None,
                 container_status: None,
             },
-            StoreApp {
-                id: "homepage".into(),
-                name: "Homepage".into(),
-                version: "latest".into(),
-                category: "Administration".into(),
-                tagline: "Tableau de bord moderne et personnalisable pour homelab".into(),
-                description: "Page d'accueil élégante regroupant vos services NAS, métriques d'état et liens rapides.".into(),
-                website: "https://gethomepage.dev/".into(),
-                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/homepage/icon.svg".into(),
-                default_port: 3000,
-                recommended: false,
-                volumes: vec![
-                    StoreVolume {
-                        host: "/home/{USER}/docker/homepage/config".into(),
-                        container: "/app/config".into(),
-                        description: "Configuration YAML".into(),
-                    },
-                ],
-                nix_file: "homepage.nix".into(),
-                is_installed: false,
-                is_running: false,
-                container_id: None,
-                container_status: None,
-            },
-            StoreApp {
-                id: "filebrowser".into(),
-                name: "FileBrowser".into(),
-                version: "latest".into(),
-                category: "Outils".into(),
-                tagline: "Explorateur de fichiers Web simple et rapide".into(),
-                description: "Interface web pour téléverser, télécharger et gérer facilement vos fichiers depuis n'importe quel navigateur.".into(),
-                website: "https://filebrowser.org/".into(),
-                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/filebrowser/icon.svg".into(),
-                default_port: 8082,
-                recommended: false,
-                volumes: vec![
-                    StoreVolume {
-                        host: "/home/{USER}/docker/filebrowser/data".into(),
-                        container: "/srv".into(),
-                        description: "Dossier fichiers".into(),
-                    },
-                ],
-                nix_file: "filebrowser.nix".into(),
-                is_installed: false,
-                is_running: false,
-                container_id: None,
-                container_status: None,
-            },
         ],
     }
 }
 
 fn get_embedded_app_nix(app_id: &str) -> Result<String, String> {
     match app_id {
+        "arcane" => Ok(r#"{ config, lib, pkgs, ... }:
+
+let
+  user = config.steveos.user.username;
+  dataDir = "/home/${user}/docker/arcane";
+in
+{
+  systemd.tmpfiles.rules = [
+    "d /home/${user}/docker 0775 ${user} users -"
+    "d ${dataDir} 0775 ${user} users -"
+    "d ${dataDir}/data 0775 ${user} users -"
+  ];
+
+  virtualisation.oci-containers.backend = "docker";
+  virtualisation.oci-containers.containers.arcane = {
+    image = "ghcr.io/getarcaneapp/arcane:latest";
+    autoStart = true;
+    ports = [ "3552:3552" ];
+    volumes = [
+      "/var/run/docker.sock:/var/run/docker.sock"
+      "${dataDir}/data:/app/data"
+    ];
+    environment = {
+      PORT = "3552";
+      ENCRYPTION_KEY = "0c8f24b63e073f21f04431b2bd81f6f65bbf5b2571ccaf9eda3dc5eab3486f85";
+    };
+  };
+
+  networking.firewall.allowedTCPPorts = [ 3552 ];
+}
+"#.to_string()),
         "immich" => Ok(r#"{ config, lib, pkgs, ... }:
 
 let
@@ -713,65 +806,6 @@ in
   };
 
   networking.firewall.allowedTCPPorts = [ 3001 ];
-}
-"#.to_string()),
-        "homepage" => Ok(r#"{ config, lib, pkgs, ... }:
-
-let
-  user = config.steveos.user.username;
-  dataDir = "/home/${user}/docker/homepage";
-in
-{
-  systemd.tmpfiles.rules = [
-    "d /home/${user}/docker 0775 ${user} users -"
-    "d ${dataDir} 0775 ${user} users -"
-    "d ${dataDir}/config 0775 ${user} users -"
-  ];
-
-  virtualisation.oci-containers.backend = "docker";
-  virtualisation.oci-containers.containers.homepage = {
-    image = "ghcr.io/gethomepage/homepage:latest";
-    autoStart = true;
-    ports = [ "3000:3000" ];
-    volumes = [
-      "${dataDir}/config:/app/config"
-      "/var/run/docker.sock:/var/run/docker.sock:ro"
-    ];
-    environment = {
-      TZ = config.steveos.timeZone or "Europe/Paris";
-    };
-  };
-
-  networking.firewall.allowedTCPPorts = [ 3000 ];
-}
-"#.to_string()),
-        "filebrowser" => Ok(r#"{ config, lib, pkgs, ... }:
-
-let
-  user = config.steveos.user.username;
-  dataDir = "/home/${user}/docker/filebrowser";
-in
-{
-  systemd.tmpfiles.rules = [
-    "d /home/${user}/docker 0775 ${user} users -"
-    "d ${dataDir} 0775 ${user} users -"
-    "d ${dataDir}/data 0775 ${user} users -"
-  ];
-
-  virtualisation.oci-containers.backend = "docker";
-  virtualisation.oci-containers.containers.filebrowser = {
-    image = "filebrowser/filebrowser:latest";
-    autoStart = true;
-    ports = [ "8082:80" ];
-    volumes = [
-      "${dataDir}/data:/srv"
-    ];
-    environment = {
-      TZ = config.steveos.timeZone or "Europe/Paris";
-    };
-  };
-
-  networking.firewall.allowedTCPPorts = [ 8082 ];
 }
 "#.to_string()),
         _ => Err(format!("Module pour l'application '{}' non trouvé", app_id)),

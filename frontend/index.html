@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20260929_17">
+  <link rel="stylesheet" href="/css/style.css?v=20260929_20">
 </head>
 <body>
 
@@ -1248,7 +1248,7 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
   <!-- TOAST CONTAINER -->
   <div class="toast-container" id="toast-container"></div>
 
-  <script src="/js/app.js?v=20260929_19"></script>
+  <script src="/js/app.js?v=20260929_20"></script>
   <!-- MENU CONTEXTUEL CLIC DROIT -->
   <div class="context-menu" id="files-context-menu">
     <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">
@@ -2150,19 +2150,19 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
 
 
   <!-- MODAL DÉTAILS APPLICATION DU STORE -->
-  <div class="modal-backdrop" id="store-app-modal" style="display:none;" onclick="if(event.target===this) closeStoreAppModal()">
-    <div class="modal-box" style="max-width: 640px;">
-      <div class="modal-header">
+  <div class="file-modal-overlay modal-backdrop" id="store-app-modal" style="display:none;" onclick="if(event.target===this) closeStoreAppModal()">
+    <div class="file-modal-window modal-box" style="width: 100%; max-width: 640px; max-height: 85vh; display: flex; flex-direction: column;">
+      <div class="file-modal-header modal-header">
         <div style="display:flex; align-items:center; gap:12px;">
-          <img id="modal-app-icon" src="" class="store-app-icon-img" style="width:44px; height:44px;">
+          <img id="modal-app-icon" src="" class="store-app-icon-img" style="width:42px; height:42px; border-radius: 8px;" onerror="this.src='/favicon.ico';">
           <div>
-            <div class="modal-title" id="modal-app-name">Application</div>
+            <div class="file-modal-title modal-title" id="modal-app-name">Application</div>
             <div style="font-size:0.8rem; color:var(--subtext0);" id="modal-app-category">Catégorie</div>
           </div>
         </div>
         <button type="button" class="btn-icon" onclick="closeStoreAppModal()">✕</button>
       </div>
-      <div class="modal-body" style="display:flex; flex-direction:column; gap:16px;">
+      <div class="modal-body" style="display:flex; flex-direction:column; gap:16px; padding: 20px; overflow-y: auto;">
         <p id="modal-app-desc" style="color:var(--text); font-size:0.92rem; line-height:1.5; margin:0;"></p>
 
         <div style="background:var(--mantle); padding:14px; border-radius:12px; border:1px solid rgba(255,255,255,0.06); display:flex; flex-direction:column; gap:8px;">
@@ -2181,7 +2181,7 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
           </div>
         </div>
 
-        <div style="display:flex; gap:10px; align-items:center; justify-content:space-between;">
+        <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; margin-top: 4px;">
           <a href="#" target="_blank" id="modal-app-website" class="btn btn-secondary btn-sm" style="text-decoration:none;">
             <span>🌐</span> Site Officiel ↗
           </a>
@@ -2191,14 +2191,91 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
     </div>
   </div>
 
+  <!-- MODAL CONFIGURATION / PERSONNALISATION DU CONTENEUR -->
+  <div class="file-modal-overlay modal-backdrop" id="docker-config-modal" style="display:none;" onclick="if(event.target===this) closeDockerConfigModal()">
+    <div class="file-modal-window modal-box" style="width: 100%; max-width: 680px; max-height: 90vh; display: flex; flex-direction: column;">
+      <div class="file-modal-header modal-header">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <img id="config-app-icon" src="" class="store-app-icon-img" style="width:40px; height:40px; border-radius: 8px;" onerror="this.src='/favicon.ico';">
+          <div>
+            <div class="file-modal-title modal-title" id="config-app-title">Configurer le conteneur</div>
+            <div style="font-size:0.78rem; color:var(--subtext0);" id="config-app-subtitle">Variables, port et volumes avant déploiement</div>
+          </div>
+        </div>
+        <button type="button" class="btn-icon" onclick="closeDockerConfigModal()">✕</button>
+      </div>
+
+      <div class="modal-body" style="padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 18px;">
+        <input type="hidden" id="config-app-id" value="">
+
+        <!-- Port hôte -->
+        <div class="form-group" style="margin: 0;">
+          <label style="font-size: 0.85rem; font-weight: 700; color: var(--text); display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span>🔌 Port réseau hôte (sur votre NAS)</span>
+            <span style="font-size: 0.75rem; color: var(--subtext0); font-weight: 400;">Exposé sur votre réseau local</span>
+          </label>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <input type="number" id="config-app-port" class="form-input" style="max-width: 180px; font-weight: 600;" placeholder="ex: 3552" min="1" max="65535" oninput="updateConfigUrlPreview()">
+            <span style="font-size: 0.82rem; color: var(--subtext1);">Accès direct : <code style="color:var(--mauve);" id="config-app-url-preview">http://...</code></span>
+          </div>
+        </div>
+
+        <!-- Dossier persistant -->
+        <div class="form-group" style="margin: 0;">
+          <label style="font-size: 0.85rem; font-weight: 700; color: var(--text); display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span>📁 Dossier persistant hôte</span>
+            <span style="font-size: 0.75rem; color: var(--subtext0); font-weight: 400;">Stockage des données de l'application</span>
+          </label>
+          <input type="text" id="config-app-data-dir" class="form-input" style="font-family: var(--font-mono); font-size: 0.85rem;" placeholder="/home/chomiam/docker/nom-app">
+          <div style="font-size: 0.78rem; color: var(--subtext0); margin-top: 4px;">Ce dossier est créé automatiquement dans /home/chomiam/docker avec les droits adaptés.</div>
+        </div>
+
+        <!-- Variables d'environnement -->
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label style="font-size: 0.85rem; font-weight: 700; color: var(--text); margin: 0;">
+              ⚙️ Variables d'environnement (Docker ENV)
+            </label>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="addDockerConfigEnvRow('', '')">
+              ➕ Ajouter une variable
+            </button>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--subtext0);">
+            Variables personnalisées injectées dans le conteneur (ex: TZ, PUID, PGID, etc.).
+          </div>
+
+          <div id="config-env-rows-container" style="display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto; padding: 4px;">
+            <!-- Lignes dynamiques -->
+          </div>
+        </div>
+
+        <div style="background: rgba(137, 180, 250, 0.08); border: 1px solid rgba(137, 180, 250, 0.2); border-radius: 10px; padding: 12px; font-size: 0.82rem; color: var(--subtext1); display: flex; gap: 10px; align-items: flex-start;">
+          <span style="font-size: 1.1rem; line-height: 1;">ℹ️</span>
+          <div>
+            Le déploiement génère le module déclaratif NixOS dans <code style="color:var(--blue);" id="config-app-nix-target">/etc/nixos/docker/...</code> et active le conteneur automatiquement.
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; background: var(--mantle); border-top: 1px solid rgba(255, 255, 255, 0.08);">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeDockerConfigModal()">
+          Annuler
+        </button>
+        <button type="button" id="btn-submit-docker-deploy" class="btn btn-primary btn-sm" onclick="submitDockerDeploy()">
+          🚀 Déployer l'application
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL LOGS DU CONTENEUR -->
-  <div class="modal-backdrop" id="docker-logs-modal" style="display:none;" onclick="if(event.target===this) closeDockerLogsModal()">
-    <div class="modal-box" style="max-width: 820px;">
-      <div class="modal-header">
+  <div class="file-modal-overlay modal-backdrop" id="docker-logs-modal" style="display:none;" onclick="if(event.target===this) closeDockerLogsModal()">
+    <div class="file-modal-window modal-box" style="width: 100%; max-width: 860px; max-height: 85vh; display: flex; flex-direction: column;">
+      <div class="file-modal-header modal-header">
         <div style="display:flex; align-items:center; gap:10px;">
           <span style="font-size:1.4rem;">📜</span>
           <div>
-            <div class="modal-title" id="modal-logs-title">Journaux du conteneur</div>
+            <div class="file-modal-title modal-title" id="modal-logs-title">Journaux du conteneur</div>
             <div style="font-size:0.78rem; color:var(--subtext0);">100 dernières lignes de docker logs</div>
           </div>
         </div>
@@ -2207,8 +2284,8 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
           <button type="button" class="btn-icon" onclick="closeDockerLogsModal()">✕</button>
         </div>
       </div>
-      <div class="modal-body">
-        <pre class="docker-logs-pre" id="docker-logs-content">Chargement des journaux...</pre>
+      <div class="modal-body" style="padding: 16px; overflow: hidden; display: flex; flex-direction: column;">
+        <pre class="docker-logs-pre" id="docker-logs-content" style="flex:1; margin:0;">Chargement des journaux...</pre>
       </div>
     </div>
   </div>

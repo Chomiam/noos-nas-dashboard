@@ -1112,7 +1112,7 @@ async fn handle_docker_store() -> Json<ApiResponse<StoreCatalog>> {
 async fn handle_docker_store_install(
     Json(payload): Json<InstallAppRequest>,
 ) -> Json<ApiResponse<String>> {
-    match install_store_app(&payload.app_id).await {
+    match install_store_app(payload).await {
         Ok(msg) => Json(ApiResponse {
             success: true,
             data: Some(msg),
