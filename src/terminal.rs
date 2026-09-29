@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Instant;
 
 #[derive(Debug, Deserialize)]
@@ -107,10 +106,9 @@ pub fn execute_command(req: ExecRequest) -> ExecResponse {
         "bash"
     };
 
-    let output = Command::new(bash_bin)
-        .args(["-c", &wrapped_cmd])
-        .current_dir(&current_cwd)
-        .output();
+    let mut cmd_obj = crate::updates::create_user_command(bash_bin, &["-c", &wrapped_cmd]);
+    cmd_obj.current_dir(&current_cwd);
+    let output = cmd_obj.output();
 
     match output {
         Ok(out) => {

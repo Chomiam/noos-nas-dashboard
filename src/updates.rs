@@ -115,10 +115,51 @@ pub fn nix_binary() -> String {
     find_bin(&["/run/current-system/sw/bin/nix", "nix", "/nix/var/nix/profiles/default/bin/nix", "/usr/bin/nix"])
 }
 
+pub fn target_user() -> String {
+    if let Ok(u) = env::var("STEVEOS_USER") {
+        let trimmed = u.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    if Path::new("/home/chomiam").exists() {
+        return "chomiam".to_string();
+    }
+    "root".to_string()
+}
+
+pub fn is_root_process() -> bool {
+    if let Ok(out) = Command::new("id").arg("-u").output() {
+        String::from_utf8_lossy(&out.stdout).trim() == "0"
+    } else {
+        false
+    }
+}
+
+pub fn create_user_command(bin: &str, args: &[&str]) -> Command {
+    let user = target_user();
+    let is_root = is_root_process();
+    let runuser_bin = "/run/current-system/sw/bin/runuser";
+
+    if is_root && user != "root" && (Path::new(runuser_bin).exists() || Command::new("runuser").arg("--version").output().is_ok()) {
+        let prog = if Path::new(runuser_bin).exists() { runuser_bin } else { "runuser" };
+        let mut cmd = Command::new(prog);
+        cmd.args(["-u", &user, "--", bin]);
+        cmd.args(args);
+        cmd.env("USER", &user);
+        cmd.env("HOME", format!("/home/{}", user));
+        cmd.env("NH_FLAKE", "/etc/nixos");
+        cmd
+    } else {
+        let mut cmd = Command::new(bin);
+        cmd.args(args);
+        cmd
+    }
+}
+
 fn git_cmd(repo_dir: &str) -> Command {
-    let mut cmd = Command::new(git_binary());
-    cmd.args(["-c", "safe.directory=*", "-C", repo_dir]);
-    cmd
+    let git_b = git_binary();
+    create_user_command(&git_b, &["-c", "safe.directory=*", "-C", repo_dir])
 }
 
 pub fn resolve_config_dir() -> PathBuf {
@@ -611,9 +652,10 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
 
     // 5. Validation de la syntaxe Nix (nix eval de sécurité)
     log.push_str("\n--- [Étape 3/3] Validation de la syntaxe de la configuration Nix ---\n");
-    let eval_res = Command::new(nix_binary())
-        .args(["eval", &format!("{}#nixosConfigurations.nas.config.system.nixos.version", dir_str)])
-        .output();
+    let nix_b = nix_binary();
+    let eval_target = format!("{}#nixosConfigurations.nas.config.system.nixos.version", dir_str);
+    let mut eval_cmd = create_user_command(&nix_b, &["eval", &eval_target]);
+    let eval_res = eval_cmd.output();
 
     match eval_res {
         Ok(out) if out.status.success() => {
@@ -777,16 +819,18 @@ fn run_switch_command(config_dir: &Path, update_inputs: bool) -> (bool, String) 
         (nh_bin, a)
     } else {
         if update_inputs {
-            let _ = Command::new(nix_binary())
-                .args(["flake", "update", "--flake", &dir_str])
-                .output();
+            let nix_b = nix_binary();
+            let mut update_cmd = create_user_command(&nix_b, &["flake", "update", "--flake", &dir_str]);
+            update_cmd.current_dir(config_dir);
+            let _ = update_cmd.output();
         }
         ("nixos-rebuild".to_string(), vec!["switch", "--flake", &dir_str])
     };
 
-    let output = Command::new(&bin)
-        .args(&args)
-        .output();
+    let mut cmd = create_user_command(&bin, &args);
+    cmd.current_dir(config_dir);
+
+    let output = cmd.output();
 
     match output {
         Ok(out) => {

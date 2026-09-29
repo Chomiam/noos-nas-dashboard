@@ -48,6 +48,11 @@
               default = true;
               description = "Ouvrir automatiquement le port dans le pare-feu modulaire";
             };
+            user = lib.mkOption {
+              type = lib.types.str;
+              default = "chomiam";
+              description = "Utilisateur non-root pour les commandes et les mises a jour";
+            };
           };
 
           config = lib.mkIf cfg.enable {
@@ -82,6 +87,8 @@
                 STEVEOS_PORT = toString cfg.port;
                 STEVEOS_FRONTEND_DIR = "${pkg}/share/steveos-nas-dashboard/frontend";
                 STEVEOS_CONFIG_DIR = "/etc/nixos";
+                STEVEOS_USER = cfg.user;
+                NH_FLAKE = "/etc/nixos";
                 NIX_CONFIG = "extra-experimental-features = nix-command flakes";
               };
               serviceConfig = {
