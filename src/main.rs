@@ -33,6 +33,7 @@ mod wireguard;
 mod documents;
 mod youtube;
 mod docker_store;
+mod vms;
 
 use axum::Router;
 use std::env;

@@ -1,3 +1,8 @@
+use crate::vms::{
+    control_vm, create_vm, detect_gpus, get_iso_job_store, get_vm_vnc_port, handle_vm_vnc_ws,
+    list_isos, list_vms, start_iso_download, CreateVmRequest, GpuDeviceInfo, IsoDownloadJob,
+    IsoDownloadRequest, IsoInfo, VirtualMachine, VmActionRequest,
+};
 use axum::{
     extract::{Path, Query},
     response::Json,
@@ -138,7 +143,17 @@ pub fn api_routes() -> Router {
         .route("/speedtest/run", post(handle_speedtest_run))
         .route("/wireguard/server", get(handle_wireguard_server))
         .route("/wireguard/clients", get(handle_wireguard_clients).post(handle_create_wireguard_client))
-        .route("/wireguard/clients/:id", delete(handle_delete_wireguard_client))
+                .route("/wireguard/clients/:id", delete(handle_delete_wireguard_client))
+        // Machines Virtuelles (KVM / QEMU)
+        .route("/vms", get(handle_vms_list).post(handle_vms_create))
+        .route("/vms/:name/action", post(handle_vms_action))
+        .route("/vms/:name/vnc-port", get(handle_vms_vnc_port))
+        .route("/vms/:name/vnc", get(handle_vm_vnc_ws))
+        .route("/vms/isos", get(handle_vms_isos))
+        .route("/vms/isos/download", post(handle_vms_iso_download))
+        .route("/vms/isos/downloads", get(handle_vms_iso_downloads))
+        .route("/vms/isos/upload", post(handle_vms_iso_upload).layer(axum::extract::DefaultBodyLimit::disable()))
+        .route("/vms/gpus", get(handle_vms_gpus))
 }
 
 
@@ -1233,4 +1248,164 @@ async fn handle_delete_wireguard_client(
             message: Some(err),
         }),
     }
+}
+
+
+// =========================================================================
+// 💻 HANDLERS API MACHINES VIRTUELLES (KVM / QEMU)
+// =========================================================================
+
+async fn handle_vms_list() -> Json<ApiResponse<Vec<VirtualMachine>>> {
+    let list = list_vms();
+    Json(ApiResponse {
+        success: true,
+        data: Some(list),
+        message: None,
+    })
+}
+
+async fn handle_vms_create(
+    Json(req): Json<CreateVmRequest>,
+) -> Json<ApiResponse<String>> {
+    match create_vm(req) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_vms_action(
+    Path(name): Path<String>,
+    Json(req): Json<VmActionRequest>,
+) -> Json<ApiResponse<String>> {
+    match control_vm(&name, &req.action) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_vms_vnc_port(
+    Path(name): Path<String>,
+) -> Json<ApiResponse<Option<u16>>> {
+    let port = get_vm_vnc_port(&name);
+    let has_port = port.is_some();
+    Json(ApiResponse {
+        success: has_port,
+        data: Some(port),
+        message: if has_port { None } else { Some("La machine virtuelle n'est pas allumée ou ne dispose pas de port VNC actif.".into()) },
+    })
+}
+
+async fn handle_vms_isos() -> Json<ApiResponse<Vec<IsoInfo>>> {
+    let isos = list_isos();
+    Json(ApiResponse {
+        success: true,
+        data: Some(isos),
+        message: None,
+    })
+}
+
+async fn handle_vms_iso_download(
+    Json(req): Json<IsoDownloadRequest>,
+) -> Json<ApiResponse<String>> {
+    match start_iso_download(req).await {
+        Ok(job_id) => Json(ApiResponse {
+            success: true,
+            data: Some(job_id),
+            message: Some("Téléchargement de l'image ISO initié en arrière-plan.".into()),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+    }
+}
+
+async fn handle_vms_iso_downloads() -> Json<ApiResponse<Vec<IsoDownloadJob>>> {
+    let store = get_iso_job_store();
+    let jobs = store.read().await;
+    let list: Vec<IsoDownloadJob> = jobs.values().cloned().collect();
+    Json(ApiResponse {
+        success: true,
+        data: Some(list),
+        message: None,
+    })
+}
+
+async fn handle_vms_iso_upload(
+    mut multipart: axum::extract::Multipart,
+) -> Json<ApiResponse<Vec<String>>> {
+    use std::path::Path as StdPath;
+    use tokio::io::AsyncWriteExt;
+
+    let target_dir = crate::vms::get_isos_dir();
+    let mut uploaded = Vec::new();
+
+    while let Ok(Some(mut field)) = multipart.next_field().await {
+        let raw_name = field.file_name().unwrap_or("image.iso").to_string();
+        let safe_name = StdPath::new(&raw_name)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("image.iso")
+            .to_string();
+
+        if !safe_name.ends_with(".iso") && !safe_name.ends_with(".img") {
+            continue;
+        }
+
+        let dest_path = target_dir.join(&safe_name);
+        let mut file = match tokio::fs::File::create(&dest_path).await {
+            Ok(f) => f,
+            Err(e) => {
+                return Json(ApiResponse {
+                    success: false,
+                    data: Some(uploaded),
+                    message: Some(format!("Impossible de créer le fichier '{}' : {}", safe_name, e)),
+                });
+            }
+        };
+
+        while let Ok(Some(chunk)) = field.chunk().await {
+            if let Err(e) = file.write_all(&chunk).await {
+                return Json(ApiResponse {
+                    success: false,
+                    data: Some(uploaded),
+                    message: Some(format!("Erreur lors de l'écriture : {}", e)),
+                });
+            }
+        }
+        let _ = file.flush().await;
+        uploaded.push(safe_name);
+    }
+
+    Json(ApiResponse {
+        success: true,
+        data: Some(uploaded),
+        message: Some("Téléversement de l'image ISO terminé avec succès.".into()),
+    })
+}
+
+async fn handle_vms_gpus() -> Json<ApiResponse<Vec<GpuDeviceInfo>>> {
+    let gpus = detect_gpus();
+    Json(ApiResponse {
+        success: true,
+        data: Some(gpus),
+        message: None,
+    })
 }

@@ -153,6 +153,7 @@ function switchTab(tabId) {
   if (tabId === "tab-storage") loadStorage();
   if (tabId === "tab-network") loadNetwork();
   if (tabId === "tab-containers") refreshContainersAndStore();
+  if (tabId === "tab-vms") loadVms();
   if (tabId === "tab-logs") loadLogs();
 }
 
@@ -7649,4 +7650,728 @@ async function deleteWgClient(clientId, username) {
   } catch (err) {
     showToast("Erreur réseau : " + err.message, "error");
   }
+}
+
+
+// =========================================================================
+// 💻 MODULE MACHINES VIRTUELLES (KVM / QEMU)
+// =========================================================================
+
+let cachedVms = [];
+let cachedIsos = [];
+let cachedGpus = [];
+let isoPollInterval = null;
+let activeConsoleVm = null;
+
+async function loadVms(showToastFeedback = false) {
+  try {
+    const res = await fetch("/api/vms");
+    const json = await res.json();
+    if (!json.success || !json.data) return;
+
+    cachedVms = json.data;
+    renderVmsOverview(cachedVms);
+
+    if (showToastFeedback) {
+      showToast("État des machines virtuelles actualisé !", "success");
+    }
+  } catch (err) {
+    console.error("Erreur chargement VMs :", err);
+  }
+}
+
+function renderVmsOverview(vms) {
+  // 1. Calcul des statistiques globales
+  const runningCount = vms.filter(v => v.state === "running").length;
+  const totalVcpus = vms.reduce((acc, v) => acc + (v.vcpus || 0), 0);
+  const totalRamMb = vms.reduce((acc, v) => acc + (v.memory_mb || 0), 0);
+  const totalDiskGb = vms.reduce((acc, v) => acc + (v.disk_size_gb || 0), 0);
+
+  const statRunning = document.getElementById("vms-stat-running");
+  if (statRunning) statRunning.textContent = runningCount;
+
+  const statVcpus = document.getElementById("vms-stat-vcpus");
+  if (statVcpus) statVcpus.textContent = totalVcpus;
+
+  const statRam = document.getElementById("vms-stat-ram");
+  if (statRam) {
+    statRam.textContent = totalRamMb >= 1024 
+      ? (totalRamMb / 1024).toFixed(1) + " Go" 
+      : totalRamMb + " Mo";
+  }
+
+  const statDisk = document.getElementById("vms-stat-disk");
+  if (statDisk) statDisk.textContent = totalDiskGb.toFixed(1) + " Go";
+
+  // Badge navigation
+  const badge = document.getElementById("vms-count-badge");
+  if (badge) {
+    if (runningCount > 0) {
+      badge.textContent = runningCount;
+      badge.style.display = "inline-block";
+    } else {
+      badge.style.display = "none";
+    }
+  }
+
+  // 2. Rendu des cartes de machines virtuelles
+  const grid = document.getElementById("vms-cards-grid");
+  if (!grid) return;
+
+  if (vms.length === 0) {
+    grid.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align:center; padding: 48px 20px; background:var(--surface0); border-radius:var(--radius-lg); border:1px dashed rgba(255,255,255,0.1);">
+        <div style="font-size:2.8rem; margin-bottom:12px;">💻</div>
+        <h3 style="margin:0 0 8px 0; color:var(--text);">Aucune Machine Virtuelle Détectée</h3>
+        <p style="color:var(--subtext0); max-width:480px; margin:0 auto 20px auto; font-size:0.9rem;">
+          Créez votre première machine virtuelle en quelques clics (Linux, Windows 11, BSD) avec firmware UEFI et émulation TPM 2.0.
+        </p>
+        <button type="button" class="btn btn-primary btn-sm" onclick="showCreateVmModal()">
+          ✨ Déployer une Machine Virtuelle
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  grid.innerHTML = vms.map(vm => {
+    const isRunning = vm.state === "running";
+    const isPaused = vm.state === "paused";
+
+    let statusBadge = '';
+    if (isRunning) {
+      statusBadge = '<span class="badge" style="background:rgba(166,227,161,0.18); color:var(--green); border:1px solid rgba(166,227,161,0.3); padding:4px 8px; border-radius:6px; font-size:0.75rem; font-weight:700;">🟢 En ligne</span>';
+    } else if (isPaused) {
+      statusBadge = '<span class="badge" style="background:rgba(249,226,175,0.18); color:var(--yellow); border:1px solid rgba(249,226,175,0.3); padding:4px 8px; border-radius:6px; font-size:0.75rem; font-weight:700;">🟡 En pause</span>';
+    } else {
+      statusBadge = '<span class="badge" style="background:rgba(255,255,255,0.08); color:var(--subtext0); border:1px solid rgba(255,255,255,0.1); padding:4px 8px; border-radius:6px; font-size:0.75rem; font-weight:600;">⚪ Éteinte</span>';
+    }
+
+    let osIcon = '🐧';
+    if (vm.os_type === 'windows' || vm.name.toLowerCase().includes('win')) {
+      osIcon = '🪟';
+    } else if (vm.os_type === 'other') {
+      osIcon = '📦';
+    }
+
+    const netLabel = vm.network_type === 'bridge' ? 'Pont LAN (br0)' : 'NAT Isolé (virbr0)';
+
+    return `
+      <div class="card vm-card" style="background:var(--surface0); border:1px solid rgba(255,255,255,0.08); border-radius:var(--radius-lg); padding:20px; display:flex; flex-direction:column; justify-content:space-between; box-shadow:0 8px 24px rgba(0,0,0,0.25); transition:transform 0.15s ease, border-color 0.15s ease;">
+        <div>
+          <!-- Header de la carte -->
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px;">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <div style="font-size:2rem; width:46px; height:46px; background:var(--mantle); border:1px solid rgba(255,255,255,0.08); border-radius:12px; display:flex; align-items:center; justify-content:center;">
+                ${osIcon}
+              </div>
+              <div>
+                <h3 style="margin:0; font-size:1.05rem; font-weight:700; color:var(--text);">${escapeHtml(vm.name)}</h3>
+                <div style="font-size:0.78rem; color:var(--subtext0); margin-top:2px;">${escapeHtml(netLabel)}</div>
+              </div>
+            </div>
+            <div>${statusBadge}</div>
+          </div>
+
+          <!-- Spécifications matérielles -->
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; background:var(--mantle); border-radius:8px; padding:12px; margin-bottom:16px; font-size:0.8rem;">
+            <div>
+              <span style="color:var(--subtext0);">Processeurs : </span>
+              <strong style="color:var(--text);">${vm.vcpus} vCPU</strong>
+            </div>
+            <div>
+              <span style="color:var(--subtext0);">Mémoire : </span>
+              <strong style="color:var(--mauve);">${(vm.memory_mb / 1024).toFixed(1)} Go</strong>
+            </div>
+            <div>
+              <span style="color:var(--subtext0);">Stockage : </span>
+              <strong style="color:var(--peach);">${vm.disk_size_gb.toFixed(1)} Go</strong>
+            </div>
+            <div>
+              <span style="color:var(--subtext0);">Console : </span>
+              <strong style="color:var(--teal);">${vm.vnc_port ? 'Port ' + vm.vnc_port : 'Inactive'}</strong>
+            </div>
+          </div>
+
+          ${vm.gpu_passthrough ? `
+            <div style="background:rgba(203,166,247,0.12); border:1px solid rgba(203,166,247,0.25); border-radius:6px; padding:6px 10px; font-size:0.75rem; color:var(--mauve); margin-bottom:14px; display:flex; align-items:center; gap:6px;">
+              <span>🎮</span> <strong>GPU Passthrough actif</strong>
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- Boutons d'action -->
+        <div style="display:flex; flex-direction:column; gap:8px; border-top:1px solid rgba(255,255,255,0.06); padding-top:14px;">
+          ${isRunning ? `
+            <button type="button" class="btn btn-primary btn-sm" style="width:100%; font-weight:700;" onclick="openVmConsole('${escapeHtml(vm.name)}')">
+              <span>🖥️</span> Ouvrir la Console Web noVNC
+            </button>
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:6px;">
+              <button type="button" class="btn btn-secondary btn-xs" onclick="vmAction('${escapeHtml(vm.name)}', 'pause')" title="Mettre en pause">
+                ⏸ Pause
+              </button>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="vmAction('${escapeHtml(vm.name)}', 'shutdown')" title="Arrêt propre ACPI">
+                ⏹ Éteindre
+              </button>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="vmAction('${escapeHtml(vm.name)}', 'destroy')" title="Arrêt forcé immédiat">
+                ⚡ Forcer Off
+              </button>
+            </div>
+          ` : isPaused ? `
+            <button type="button" class="btn btn-primary btn-sm" style="width:100%;" onclick="vmAction('${escapeHtml(vm.name)}', 'resume')">
+              <span>▶</span> Reprendre la Machine
+            </button>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="vmAction('${escapeHtml(vm.name)}', 'destroy')" title="Arrêt forcé">
+              ⚡ Forcer l'Arrêt
+            </button>
+          ` : `
+            <button type="button" class="btn btn-primary btn-sm" style="width:100%;" onclick="vmAction('${escapeHtml(vm.name)}', 'start')">
+              <span>▶</span> Démarrer la Machine
+            </button>
+            <div style="display:flex; justify-content:flex-end;">
+              <button type="button" class="btn btn-secondary btn-xs" style="color:var(--red);" onclick="deleteVm('${escapeHtml(vm.name)}')">
+                <span>🗑</span> Supprimer la VM
+              </button>
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function vmAction(vmName, action) {
+  try {
+    const res = await fetch(`/api/vms/${encodeURIComponent(vmName)}/action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || `Action '${action}' réussie sur ${vmName}`, "success");
+      await loadVms();
+    } else {
+      showToast("Échec de l'action : " + (json.message || "Erreur inconnue"), "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau : " + err.message, "error");
+  }
+}
+
+async function deleteVm(vmName) {
+  if (!confirm(`Attention : Voulez-vous vraiment détruire et supprimer la machine virtuelle '${vmName}' ainsi que son disque dur virtuel ?\n\nCette action est irréversible.`)) {
+    return;
+  }
+  await vmAction(vmName, 'delete');
+}
+
+// --------------------------------------------------------------------------
+// MODALE CRÉATION MACHINE VIRTUELLE
+// --------------------------------------------------------------------------
+
+async function showCreateVmModal() {
+  const modal = document.getElementById("modal-create-vm");
+  if (!modal) return;
+
+  // Réinitialisation des inputs
+  document.getElementById("create-vm-name").value = "";
+  document.getElementById("create-vm-vcpus").value = 2;
+  document.getElementById("create-vm-vcpus-range").value = 2;
+  document.getElementById("create-vm-ram").value = 2048;
+  document.getElementById("create-vm-ram-range").value = 2048;
+  document.getElementById("create-vm-ram-human").textContent = "2.0 Go";
+  document.getElementById("create-vm-disk").value = 25;
+  document.getElementById("create-vm-disk-range").value = 25;
+  document.getElementById("create-vm-uefi").checked = true;
+  document.getElementById("create-vm-tpm").checked = false;
+
+  modal.style.display = "flex";
+
+  // Charger la liste des ISOs
+  try {
+    const res = await fetch("/api/vms/isos");
+    const json = await res.json();
+    const select = document.getElementById("create-vm-iso-select");
+    if (select) {
+      if (json.success && json.data && json.data.length > 0) {
+        cachedIsos = json.data;
+        select.innerHTML = json.data.map(iso => 
+          `<option value="${escapeHtml(iso.path)}">${escapeHtml(iso.name)} (${iso.size_human})</option>`
+        ).join('');
+      } else {
+        select.innerHTML = '<option value="">Aucune ISO trouvée dans /mnt/storage/isos</option>';
+      }
+    }
+  } catch (e) {
+    console.error("Erreur chargement ISOs :", e);
+  }
+
+  // Charger la liste des GPUs
+  try {
+    const res = await fetch("/api/vms/gpus");
+    const json = await res.json();
+    const select = document.getElementById("create-vm-gpu-select");
+    if (select) {
+      select.innerHTML = '<option value="">Émulation Standard VirtIO / QXL (Console Web VNC)</option>';
+      if (json.success && json.data && json.data.length > 0) {
+        cachedGpus = json.data;
+        json.data.forEach(gpu => {
+          const opt = document.createElement("option");
+          opt.value = gpu.pci_address;
+          opt.textContent = `🎮 ${gpu.name} (${gpu.pci_address}${gpu.iommu_group !== null ? ' - IOMMU Grp ' + gpu.iommu_group : ''})`;
+          select.appendChild(opt);
+        });
+      }
+    }
+  } catch (e) {
+    console.error("Erreur chargement GPUs :", e);
+  }
+
+  onVmGpuChange();
+}
+
+function closeCreateVmModal() {
+  const modal = document.getElementById("modal-create-vm");
+  if (modal) modal.style.display = "none";
+}
+
+function onVmOsChange(osType) {
+  const uefiCheck = document.getElementById("create-vm-uefi");
+  const tpmCheck = document.getElementById("create-vm-tpm");
+  const ramInput = document.getElementById("create-vm-ram");
+  const ramRange = document.getElementById("create-vm-ram-range");
+  const ramHuman = document.getElementById("create-vm-ram-human");
+  const diskInput = document.getElementById("create-vm-disk");
+  const diskRange = document.getElementById("create-vm-disk-range");
+
+  if (osType === 'windows') {
+    if (uefiCheck) uefiCheck.checked = true;
+    if (tpmCheck) tpmCheck.checked = true;
+    if (ramInput && ramRange) {
+      ramInput.value = 4096;
+      ramRange.value = 4096;
+      if (ramHuman) ramHuman.textContent = "4.0 Go";
+    }
+    if (diskInput && diskRange) {
+      diskInput.value = 60;
+      diskRange.value = 60;
+    }
+  } else {
+    if (tpmCheck) tpmCheck.checked = false;
+    if (ramInput && ramRange) {
+      ramInput.value = 2048;
+      ramRange.value = 2048;
+      if (ramHuman) ramHuman.textContent = "2.0 Go";
+    }
+    if (diskInput && diskRange) {
+      diskInput.value = 25;
+      diskRange.value = 25;
+    }
+  }
+}
+
+function onVmGpuChange() {
+  const select = document.getElementById("create-vm-gpu-select");
+  const banner = document.getElementById("vm-gpu-conflict-banner");
+  const text = document.getElementById("vm-gpu-conflict-text");
+  if (!select || !banner || !text) return;
+
+  const chosenPci = select.value;
+  if (!chosenPci) {
+    banner.style.display = "none";
+    return;
+  }
+
+  const gpu = cachedGpus.find(g => g.pci_address === chosenPci);
+  if (gpu && gpu.conflict_warning) {
+    text.textContent = gpu.conflict_warning;
+    banner.style.display = "block";
+  } else {
+    banner.style.display = "none";
+  }
+}
+
+function toggleIsoSourceChoice(source) {
+  const localDiv = document.getElementById("vm-iso-local-choice");
+  const urlDiv = document.getElementById("vm-iso-url-choice");
+  if (localDiv && urlDiv) {
+    localDiv.style.display = source === 'local' ? 'block' : 'none';
+    urlDiv.style.display = source === 'url' ? 'block' : 'none';
+  }
+}
+
+function quickFillIsoUrl(preset) {
+  const input = document.getElementById("create-vm-iso-url");
+  if (!input) return;
+
+  if (preset === 'ubuntu') {
+    input.value = "https://releases.ubuntu.com/24.04/ubuntu-24.04-live-server-amd64.iso";
+  } else if (preset === 'debian') {
+    input.value = "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.7.0-amd64-netinst.iso";
+  } else if (preset === 'alpine') {
+    input.value = "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/alpine-standard-3.20.3-x86_64.iso";
+  }
+}
+
+async function submitCreateVm() {
+  const name = document.getElementById("create-vm-name").value.trim();
+  if (!name) {
+    showToast("Veuillez saisir un nom pour la machine virtuelle.", "error");
+    return;
+  }
+
+  const vcpus = parseInt(document.getElementById("create-vm-vcpus").value, 10) || 2;
+  const memory_mb = parseInt(document.getElementById("create-vm-ram").value, 10) || 2048;
+  const disk_size_gb = parseInt(document.getElementById("create-vm-disk").value, 10) || 25;
+  const os_type = document.getElementById("create-vm-os").value;
+
+  const isoSource = document.querySelector('input[name="vm-iso-source"]:checked')?.value || 'local';
+  let iso_path = null;
+
+  if (isoSource === 'local') {
+    iso_path = document.getElementById("create-vm-iso-select").value || null;
+  } else if (isoSource === 'url') {
+    const url = document.getElementById("create-vm-iso-url").value.trim();
+    if (url) {
+      showToast("Lancement du téléchargement de l'image ISO...", "info");
+      try {
+        await fetch("/api/vms/isos/download", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url })
+        });
+      } catch (e) {}
+    }
+  }
+
+  const network_type = document.querySelector('input[name="vm-network-type"]:checked')?.value || 'nat';
+  const gpu_pci = document.getElementById("create-vm-gpu-select").value || null;
+  const enable_uefi = document.getElementById("create-vm-uefi").checked;
+  const enable_tpm = document.getElementById("create-vm-tpm").checked;
+
+  const btn = document.getElementById("btn-submit-create-vm");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "⏳ Création en cours...";
+  }
+
+  try {
+    const res = await fetch("/api/vms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        vcpus,
+        memory_mb,
+        disk_size_gb,
+        os_type,
+        iso_path,
+        network_type,
+        gpu_pci,
+        enable_uefi,
+        enable_tpm,
+      })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || "Machine virtuelle créée avec succès !", "success");
+      closeCreateVmModal();
+      await loadVms();
+    } else {
+      showToast("Échec : " + (json.message || "Erreur lors de la création"), "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau : " + err.message, "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "✨ Déployer la Machine Virtuelle";
+    }
+  }
+}
+
+// --------------------------------------------------------------------------
+// CONSOLE WEB NOVNC
+// --------------------------------------------------------------------------
+
+function openVmConsole(vmName) {
+  activeConsoleVm = vmName;
+  const modal = document.getElementById("modal-vm-console");
+  const title = document.getElementById("vnc-modal-vm-name");
+  const iframe = document.getElementById("vm-console-iframe");
+  if (!modal || !iframe) return;
+
+  if (title) title.textContent = vmName;
+
+  const vncUrl = `/novnc/vnc.html?path=api/vms/${encodeURIComponent(vmName)}/vnc&autoconnect=true&resize=scale&show_dot=true`;
+  iframe.src = vncUrl;
+  modal.style.display = "flex";
+}
+
+function closeVmConsole() {
+  const modal = document.getElementById("modal-vm-console");
+  const iframe = document.getElementById("vm-console-iframe");
+  if (iframe) iframe.src = "about:blank";
+  if (modal) modal.style.display = "none";
+  activeConsoleVm = null;
+}
+
+function sendConsoleCtrlAltDel() {
+  const iframe = document.getElementById("vm-console-iframe");
+  if (iframe && iframe.contentWindow) {
+    iframe.contentWindow.postMessage({ action: 'ctrlaltdel' }, '*');
+    showToast("Commande Ctrl+Alt+Suppr envoyée à la VM", "info");
+  }
+}
+
+function toggleConsoleFullscreen() {
+  const modal = document.getElementById("modal-vm-console");
+  if (!modal) return;
+
+  if (!document.fullscreenElement) {
+    modal.requestFullscreen().catch(err => {
+      console.warn("Fullscreen error:", err);
+    });
+  } else {
+    document.exitFullscreen().catch(err => {
+      console.warn("Exit fullscreen error:", err);
+    });
+  }
+}
+
+async function triggerConsolePowerAction(action) {
+  if (!activeConsoleVm) return;
+  await vmAction(activeConsoleVm, action);
+}
+
+// --------------------------------------------------------------------------
+// GESTIONNAIRE D'IMAGES ISO
+// --------------------------------------------------------------------------
+
+async function showIsoManagerModal() {
+  const modal = document.getElementById("modal-iso-manager");
+  if (!modal) return;
+
+  modal.style.display = "flex";
+  await refreshIsoManager();
+
+  if (isoPollInterval) clearInterval(isoPollInterval);
+  isoPollInterval = setInterval(refreshIsoDownloadsOnly, 2000);
+}
+
+function closeIsoManagerModal() {
+  const modal = document.getElementById("modal-iso-manager");
+  if (modal) modal.style.display = "none";
+  if (isoPollInterval) {
+    clearInterval(isoPollInterval);
+    isoPollInterval = null;
+  }
+}
+
+async function refreshIsoManager() {
+  try {
+    const [resIsos, resDl] = await Promise.all([
+      fetch("/api/vms/isos"),
+      fetch("/api/vms/isos/downloads")
+    ]);
+
+    const jsonIsos = await resIsos.json();
+    const jsonDl = await resDl.json();
+
+    renderStoredIsos(jsonIsos.data || []);
+    renderActiveIsoDownloads(jsonDl.data || []);
+  } catch (e) {
+    console.error("Erreur actualisation ISOs :", e);
+  }
+}
+
+async function refreshIsoDownloadsOnly() {
+  try {
+    const res = await fetch("/api/vms/isos/downloads");
+    const json = await res.json();
+    renderActiveIsoDownloads(json.data || []);
+  } catch (e) {}
+}
+
+function renderStoredIsos(isos) {
+  const container = document.getElementById("iso-stored-list");
+  if (!container) return;
+
+  if (isos.length === 0) {
+    container.innerHTML = '<div style="padding:16px; text-align:center; color:var(--subtext0); font-size:0.85rem;">Aucune image ISO présente dans /mnt/storage/isos. Téléchargez-en une ci-dessus !</div>';
+    return;
+  }
+
+  container.innerHTML = isos.map(iso => `
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-bottom:1px solid rgba(255,255,255,0.06); font-size:0.84rem;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span>💿</span>
+        <div>
+          <strong style="color:var(--text);">${escapeHtml(iso.name)}</strong>
+          <div style="font-size:0.75rem; color:var(--subtext0);">Taille : ${iso.size_human}</div>
+        </div>
+      </div>
+      <span class="badge" style="background:rgba(166,227,161,0.15); color:var(--green); font-size:0.75rem; padding:3px 8px; border-radius:4px;">Prête</span>
+    </div>
+  `).join('');
+}
+
+function renderActiveIsoDownloads(downloads) {
+  const wrap = document.getElementById("iso-active-downloads-wrap");
+  const list = document.getElementById("iso-active-downloads-list");
+  if (!wrap || !list) return;
+
+  const active = downloads.filter(d => d.status === 'downloading');
+  if (active.length === 0) {
+    wrap.style.display = "none";
+    return;
+  }
+
+  wrap.style.display = "block";
+  list.innerHTML = active.map(dl => `
+    <div style="background:var(--mantle); border:1px solid rgba(137,180,250,0.3); border-radius:8px; padding:12px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.84rem; margin-bottom:6px;">
+        <strong style="color:var(--text);">${escapeHtml(dl.filename)}</strong>
+        <span style="color:var(--blue); font-weight:700;">${dl.progress.toFixed(1)}% (${dl.speed_mbps} Mo/s)</span>
+      </div>
+      <div style="height:6px; background:rgba(255,255,255,0.1); border-radius:3px; overflow:hidden;">
+        <div style="height:100%; width:${Math.min(dl.progress, 100)}%; background:var(--blue); transition:width 0.3s ease;"></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function startIsoDownloadFromModal() {
+  const input = document.getElementById("iso-dl-url");
+  if (!input) return;
+  const url = input.value.trim();
+  if (!url) {
+    showToast("Veuillez coller une URL de téléchargement ISO valide.", "error");
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/vms/isos/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast("Téléchargement de l'image ISO lancé en tâche de fond !", "success");
+      input.value = "";
+      await refreshIsoManager();
+    } else {
+      showToast("Échec : " + (json.message || "Erreur de téléchargement"), "error");
+    }
+  } catch (e) {
+    showToast("Erreur réseau : " + e.message, "error");
+  }
+}
+
+function quickDownloadIso(url, filename) {
+  const input = document.getElementById("iso-dl-url");
+  if (input) input.value = url;
+  startIsoDownloadFromModal();
+}
+
+function uploadIsoFromInput(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+
+  const progressWrap = document.getElementById("iso-upload-progress");
+  const progressBar = document.getElementById("iso-upload-bar");
+  const progressText = document.getElementById("iso-upload-text");
+
+  if (progressWrap) progressWrap.style.display = "block";
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/vms/isos/upload", true);
+
+  xhr.upload.onprogress = function(e) {
+    if (e.lengthComputable) {
+      const percent = ((e.loaded / e.total) * 100).toFixed(1);
+      if (progressBar) progressBar.style.width = percent + "%";
+      if (progressText) progressText.textContent = `Téléversement : ${percent}% (${formatBytes(e.loaded)} / ${formatBytes(e.total)})`;
+    }
+  };
+
+  xhr.onload = function() {
+    if (progressWrap) progressWrap.style.display = "none";
+    if (xhr.status === 200) {
+      showToast(`Image ISO '${file.name}' téléversée avec succès !`, "success");
+      refreshIsoManager();
+    } else {
+      showToast("Erreur lors du téléversement de l'ISO.", "error");
+    }
+  };
+
+  xhr.onerror = function() {
+    if (progressWrap) progressWrap.style.display = "none";
+    showToast("Erreur réseau pendant le téléversement.", "error");
+  };
+
+  xhr.send(formData);
+}
+
+// --------------------------------------------------------------------------
+// DIAGNOSTIC GPU & IOMMU
+// --------------------------------------------------------------------------
+
+async function showGpuInfoModal() {
+  const modal = document.getElementById("modal-gpu-info");
+  const body = document.getElementById("gpu-diag-body");
+  if (!modal || !body) return;
+
+  modal.style.display = "flex";
+  body.innerHTML = '<div style="text-align:center; padding:20px; color:var(--subtext0);">Analyse du bus PCI et des groupes IOMMU...</div>';
+
+  try {
+    const res = await fetch("/api/vms/gpus");
+    const json = await res.json();
+    if (!json.success || !json.data || json.data.length === 0) {
+      body.innerHTML = '<div style="padding:20px; text-align:center; color:var(--subtext0);">Aucun contrôleur graphique PCI détecté sur ce système.</div>';
+      return;
+    }
+
+    body.innerHTML = json.data.map(gpu => `
+      <div style="background:var(--mantle); border:1px solid rgba(255,255,255,0.08); border-radius:var(--radius-md); padding:16px; margin-bottom:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
+          <div>
+            <strong style="color:var(--text); font-size:1rem;">🎮 ${escapeHtml(gpu.name)}</strong>
+            <div style="font-size:0.78rem; color:var(--subtext0); font-family:var(--font-mono);">Adresse PCI : ${gpu.pci_address}</div>
+          </div>
+          <span class="badge" style="background:rgba(203,166,247,0.18); color:var(--mauve); padding:4px 8px; border-radius:6px; font-size:0.75rem;">
+            Pilote : ${escapeHtml(gpu.driver)}
+          </span>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; font-size:0.82rem; margin-bottom:10px;">
+          <div>Groupe IOMMU : <strong style="color:var(--teal);">${gpu.iommu_group !== null ? 'Groupe ' + gpu.iommu_group + ' (Isolé)' : 'Non isolé'}</strong></div>
+          <div>Statut DRM : <strong style="color:var(--green);">Actif (/dev/dri)</strong></div>
+        </div>
+
+        ${gpu.conflict_warning ? `
+          <div style="background:rgba(250,179,135,0.12); border:1px solid rgba(250,179,135,0.3); border-radius:6px; padding:10px; font-size:0.8rem; color:var(--peach); line-height:1.4;">
+            ⚠️ <strong>Impact Détecté :</strong> ${escapeHtml(gpu.conflict_warning)}
+          </div>
+        ` : `
+          <div style="color:var(--green); font-size:0.8rem;">
+            ✓ Ce GPU est prêt pour le Passthrough VFIO direct vers une machine virtuelle.
+          </div>
+        `}
+      </div>
+    `).join('');
+  } catch (e) {
+    body.innerHTML = '<div style="color:var(--red); padding:20px;">Erreur lors de la récupération des données GPU : ' + e.message + '</div>';
+  }
+}
+
+function closeGpuInfoModal() {
+  const modal = document.getElementById("modal-gpu-info");
+  if (modal) modal.style.display = "none";
 }
