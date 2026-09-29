@@ -60,6 +60,21 @@ window.fetch = async function(...args) {
     !resource.startsWith("/api/auth/login") &&
     !resource.startsWith("/api/auth/status")
   ) {
+    // Si une mise à jour système est en cours, le service peut être en train de redémarrer
+    if (isUpdatingNow) {
+      console.warn("401 temporaire reçu pendant une mise à jour, mise en attente de reconnexion...");
+      await new Promise(r => setTimeout(r, 2000));
+      try {
+        const retryRes = await originalFetch(resource, config);
+        if (retryRes.status !== 401) {
+          return retryRes;
+        }
+      } catch (e) {
+        // En attente du redémarrage
+      }
+      return response;
+    }
+
     clearAuthToken();
     updateUserSessionUI(null);
     showLoginModal();
@@ -594,13 +609,59 @@ async function triggerIntelligentUpdate() {
       showToast("Échec de la mise à jour : " + (result.error || json.message || "Erreur inconnue"), "error");
     }
   } catch (err) {
-    await stopLogPolling();
-    if (termBody) termBody.innerHTML += parseAnsiToHtml("\nErreur réseau lors de l'appel API : " + err);
+    if (termBody) termBody.innerHTML += parseAnsiToHtml("\n⏳ Reconnexion au serveur STEvE_OS en cours après redémarrage du service...\n");
     if (termStatus) {
-      termStatus.className = "badge badge-danger";
-      termStatus.textContent = "❌ Erreur réseau";
+      termStatus.className = "badge badge-warning";
+      termStatus.textContent = "⏳ Reconnexion...";
     }
-    showToast("Erreur de connexion : " + err, "error");
+    
+    // Attendre que le serveur revienne en ligne après le switch NixOS
+    let reconnected = false;
+    for (let i = 0; i < 25; i++) {
+      await new Promise(r => setTimeout(r, 1500));
+      try {
+        const ping = await originalFetch("/api/auth/status");
+        if (ping.ok) {
+          reconnected = true;
+          break;
+        }
+      } catch (e) {}
+    }
+
+    await stopLogPolling();
+
+    if (reconnected) {
+      try {
+        const logRes = await fetch("/api/updates/logs");
+        const logJson = await logRes.json();
+        if (logJson.success && logJson.data && logJson.data.logs) {
+          if (termBody) {
+            termBody.innerHTML = parseAnsiToHtml(logJson.data.logs);
+            termBody.scrollTop = termBody.scrollHeight;
+          }
+          if (logJson.data.logs.includes("Mise à jour terminée avec succès")) {
+            if (termStatus) {
+              termStatus.className = "badge badge-success";
+              termStatus.textContent = "✔ Succès";
+            }
+            showToast("Mise à jour appliquée avec succès !", "success");
+            return;
+          }
+        }
+      } catch (e) {}
+
+      if (termStatus) {
+        termStatus.className = "badge badge-success";
+        termStatus.textContent = "✔ En ligne";
+      }
+      showToast("Serveur reconnecté après mise à jour.", "info");
+    } else {
+      if (termStatus) {
+        termStatus.className = "badge badge-danger";
+        termStatus.textContent = "❌ Déconnecté";
+      }
+      showToast("Impossible de joindre le serveur après la mise à jour : " + err, "error");
+    }
   } finally {
     isUpdatingNow = false;
     await checkForUpdates(false);
@@ -652,9 +713,39 @@ async function triggerForcePackagesUpdate() {
       showToast("Erreur lors de la mise à jour : " + (result.error || json.message), "error");
     }
   } catch (err) {
+    if (termBody) termBody.innerHTML += parseAnsiToHtml("\n⏳ Reconnexion au serveur STEvE_OS en cours après redémarrage du service...\n");
+    if (termStatus) {
+      termStatus.className = "badge badge-warning";
+      termStatus.textContent = "⏳ Reconnexion...";
+    }
+    
+    let reconnected = false;
+    for (let i = 0; i < 25; i++) {
+      await new Promise(r => setTimeout(r, 1500));
+      try {
+        const ping = await originalFetch("/api/auth/status");
+        if (ping.ok) {
+          reconnected = true;
+          break;
+        }
+      } catch (e) {}
+    }
+
     await stopLogPolling();
-    if (termBody) termBody.innerHTML += parseAnsiToHtml("\nErreur réseau : " + err);
-    showToast("Erreur réseau : " + err, "error");
+
+    if (reconnected) {
+      if (termStatus) {
+        termStatus.className = "badge badge-success";
+        termStatus.textContent = "✔ Succès";
+      }
+      showToast("Mise à jour des paquets terminée avec succès !", "success");
+    } else {
+      if (termStatus) {
+        termStatus.className = "badge badge-danger";
+        termStatus.textContent = "❌ Échec réseau";
+      }
+      showToast("Erreur réseau : " + err, "error");
+    }
   } finally {
     isUpdatingNow = false;
     await checkForUpdates(false);

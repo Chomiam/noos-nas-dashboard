@@ -24,12 +24,73 @@ pub struct Session {
     pub expires_at: u64,
 }
 
-// Magasin de sessions en mémoire partagé (utilisant std::sync::OnceLock)
+
+// Magasin de sessions avec persistance sur disque (/var/lib/steveos/sessions.json)
 static SESSIONS: OnceLock<Arc<RwLock<HashMap<String, Session>>>> = OnceLock::new();
 
-fn get_sessions() -> &'static Arc<RwLock<HashMap<String, Session>>> {
-    SESSIONS.get_or_init(|| Arc::new(RwLock::new(HashMap::new())))
+fn get_sessions_file_path() -> std::path::PathBuf {
+    if let Ok(env_path) = std::env::var("STEVEOS_SESSIONS_FILE") {
+        return std::path::PathBuf::from(env_path);
+    }
+    let var_lib = std::path::Path::new("/var/lib/steveos");
+    if var_lib.exists() || std::fs::create_dir_all(var_lib).is_ok() {
+        return var_lib.join("sessions.json");
+    }
+    std::path::PathBuf::from("/run/steveos-sessions.json")
 }
+
+fn load_sessions_from_disk() -> HashMap<String, Session> {
+    let path = get_sessions_file_path();
+    if !path.exists() {
+        return HashMap::new();
+    }
+
+    let now = now_secs();
+    if let Ok(file_content) = std::fs::read_to_string(&path) {
+        if let Ok(sessions) = serde_json::from_str::<HashMap<String, Session>>(&file_content) {
+            let valid_sessions: HashMap<String, Session> = sessions
+                .into_iter()
+                .filter(|(_, s)| s.expires_at > now)
+                .collect();
+            return valid_sessions;
+        }
+    }
+
+    HashMap::new()
+}
+
+fn save_sessions_to_disk(sessions: &HashMap<String, Session>) {
+    let path = get_sessions_file_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let now = now_secs();
+    let valid_sessions: HashMap<&String, &Session> = sessions
+        .iter()
+        .filter(|(_, s)| s.expires_at > now)
+        .collect();
+
+    if let Ok(json_bytes) = serde_json::to_vec_pretty(&valid_sessions) {
+        let tmp_path = path.with_extension("json.tmp");
+        if std::fs::write(&tmp_path, json_bytes).is_ok() {
+            let _ = std::fs::rename(&tmp_path, &path);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            }
+        }
+    }
+}
+
+fn get_sessions() -> &'static Arc<RwLock<HashMap<String, Session>>> {
+    SESSIONS.get_or_init(|| {
+        let initial_sessions = load_sessions_from_disk();
+        Arc::new(RwLock::new(initial_sessions))
+    })
+}
+
 
 #[derive(Debug, Deserialize)]
 pub struct LoginRequest {
@@ -313,6 +374,7 @@ async fn handle_login(Json(req): Json<LoginRequest>) -> Response {
                 // Nettoyage périodique des sessions expirées
                 sessions.retain(|_, s| s.expires_at > now);
                 sessions.insert(token.clone(), session);
+                save_sessions_to_disk(&sessions);
             }
 
             (
@@ -407,6 +469,7 @@ async fn handle_logout(req: Request) -> Response {
         let sessions_lock = get_sessions();
         let mut sessions = sessions_lock.write().await;
         sessions.remove(&token);
+        save_sessions_to_disk(&sessions);
     }
 
     (
@@ -476,9 +539,23 @@ pub async fn auth_middleware(req: Request, next: Next) -> Response {
     if let Some(token) = extract_token(&req) {
         let now = now_secs();
         let sessions_lock = get_sessions();
-        let sessions = sessions_lock.read().await;
-        if let Some(session) = sessions.get(&token) {
+        
+        // 1. Vérification en mémoire (instantanée)
+        {
+            let sessions = sessions_lock.read().await;
+            if let Some(session) = sessions.get(&token) {
+                if session.expires_at > now {
+                    return next.run(req).await;
+                }
+            }
+        }
+
+        // 2. Si non trouvé en mémoire (ex: service redémarré après une mise à jour), vérifier sur disque
+        let disk_sessions = load_sessions_from_disk();
+        if let Some(session) = disk_sessions.get(&token) {
             if session.expires_at > now {
+                let mut sessions = sessions_lock.write().await;
+                sessions.insert(token.clone(), session.clone());
                 return next.run(req).await;
             }
         }

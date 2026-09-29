@@ -87,14 +87,33 @@ pub fn is_updating() -> bool {
     IS_UPDATING.load(Ordering::SeqCst)
 }
 
+fn get_update_log_path() -> std::path::PathBuf {
+    let log_dir = std::path::Path::new("/var/log");
+    if log_dir.exists() {
+        return log_dir.join("steveos-update.log");
+    }
+    std::path::PathBuf::from("/run/steveos-update.log")
+}
+
 pub fn append_live_log(msg: &str) {
     if let Ok(mut log) = LIVE_UPDATE_LOG.lock() {
         log.push_str(msg);
     }
+    use std::io::Write;
+    let log_path = get_update_log_path();
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+        let _ = f.write_all(msg.as_bytes());
+    }
 }
 
 pub fn get_live_log() -> (String, bool) {
-    let log_str = LIVE_UPDATE_LOG.lock().map(|l| l.clone()).unwrap_or_default();
+    let mut log_str = LIVE_UPDATE_LOG.lock().map(|l| l.clone()).unwrap_or_default();
+    if log_str.trim().is_empty() {
+        let log_path = get_update_log_path();
+        if let Ok(content) = std::fs::read_to_string(&log_path) {
+            log_str = content;
+        }
+    }
     (log_str, is_updating())
 }
 
@@ -772,6 +791,7 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
         log.clear();
         log.push_str(&header);
     }
+    let _ = std::fs::write(get_update_log_path(), &header);
     output_log.push_str(&header);
 
     match update_type {
