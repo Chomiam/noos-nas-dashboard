@@ -3,6 +3,7 @@ mod firewall;
 mod services;
 mod storage;
 mod system;
+mod terminal;
 mod updates;
 
 use axum::Router;

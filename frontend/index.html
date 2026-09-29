@@ -448,35 +448,118 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
 
     <!-- ================= ONGLET 8 : LOGS & CONSOLE ================= -->
     <div id="tab-logs" class="tab-pane">
-      <div class="section-card">
-        <div class="section-header">
-          <div class="section-title-wrap">
-            <div class="section-icon-box">📜</div>
-            <div>
-              <div class="section-title">Journal Système en Temps Réel</div>
-              <div class="section-subtitle">Consultez les journaux des services critiques du NAS</div>
+      <div class="console-split-layout">
+        <!-- VOLET LATÉRAL (SIDEBAR GAUCHE) -->
+        <aside class="console-sidebar">
+          <div class="console-sidebar-title">Console & Outils</div>
+          <button type="button" class="console-side-btn active" id="btn-side-logs" onclick="switchConsoleSubTab('logs')">
+            <span>📜</span> Journaux Système
+          </button>
+          <button type="button" class="console-side-btn" id="btn-side-terminal" onclick="switchConsoleSubTab('terminal')">
+            <span>💻</span> Terminal Bash
+          </button>
+
+          <div class="console-sidebar-footer">
+            <div class="sidebar-user-pill">
+              <span class="status-indicator status-online"></span>
+              <span>chomiam@steveos-nas</span>
+            </div>
+            <div style="font-size:0.75rem; color:var(--subtext0); margin-top:8px;">
+              Shell : <code>bash</code><br>
+              Complétion : <span style="color:var(--green); font-weight:600;">Active (Tab)</span>
             </div>
           </div>
-          <div style="display:flex; gap:10px; align-items:center;">
-            <select id="select-log-unit" class="btn btn-secondary" onchange="loadLogs()" style="padding:6px 12px;">
-              <option value="sshd">sshd (SSH & sFTP)</option>
-              <option value="samba-smbd">samba-smbd (Samba SMB)</option>
-              <option value="jellyfin">jellyfin (Multimédia)</option>
-              <option value="docker">docker (Conteneurs)</option>
-              <option value="fail2ban">fail2ban (Sécurité)</option>
-            </select>
-            <button type="button" class="btn btn-secondary btn-xs" onclick="loadLogs()">
-              🔄 Actualiser
-            </button>
-          </div>
-        </div>
+        </aside>
 
-        <div class="terminal-window">
-          <div class="terminal-header">
-            <span style="font-size:0.78rem; color:var(--subtext0); font-family:var(--font-mono);" id="terminal-unit-title">journalctl -u sshd -n 50</span>
-            <button type="button" class="btn btn-secondary btn-xs" onclick="copyLogs()">📋 Copier</button>
+        <!-- PANNEAU DROIT (CONTENU) -->
+        <div class="console-main-pane">
+
+          <!-- SOUS-ONGLET 1 : JOURNAUX SYSTÈME -->
+          <div id="subpane-logs" class="subpane-content active">
+            <div class="section-card" style="margin-top:0;">
+              <div class="section-header">
+                <div class="section-title-wrap">
+                  <div class="section-icon-box">📜</div>
+                  <div>
+                    <div class="section-title">Journal Système en Temps Réel</div>
+                    <div class="section-subtitle">Consultez les journaux des services critiques du NAS</div>
+                  </div>
+                </div>
+                <div style="display:flex; gap:10px; align-items:center;">
+                  <select id="select-log-unit" class="btn btn-secondary" onchange="loadLogs()" style="padding:6px 12px;">
+                    <option value="sshd">sshd (SSH & sFTP)</option>
+                    <option value="samba-smbd">samba-smbd (Samba SMB)</option>
+                    <option value="jellyfin">jellyfin (Multimédia)</option>
+                    <option value="docker">docker (Conteneurs)</option>
+                    <option value="fail2ban">fail2ban (Sécurité)</option>
+                    <option value="steveos-nas-dashboard">steveos-nas-dashboard (Web)</option>
+                  </select>
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="loadLogs()">
+                    🔄 Actualiser
+                  </button>
+                </div>
+              </div>
+
+              <div class="terminal-window">
+                <div class="terminal-header">
+                  <span style="font-size:0.78rem; color:var(--subtext0); font-family:var(--font-mono);" id="terminal-unit-title">journalctl -u sshd -n 50</span>
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="copyLogs()">📋 Copier</button>
+                </div>
+                <div class="terminal-body" id="terminal-content">Chargement des logs...</div>
+              </div>
+            </div>
           </div>
-          <div class="terminal-body" id="terminal-content">Chargement des logs...</div>
+
+          <!-- SOUS-ONGLET 2 : TERMINAL INTERACTIF BASH -->
+          <div id="subpane-terminal" class="subpane-content" style="display:none;">
+            <div class="section-card" style="margin-top:0;">
+              <div class="section-header">
+                <div class="section-title-wrap">
+                  <div class="section-icon-box">💻</div>
+                  <div>
+                    <div class="section-title">Terminal Interactif Bash</div>
+                    <div class="section-subtitle">Session Bash avec autocomplétion intelligente (Tab), historique (↑/↓) et raccourcis</div>
+                  </div>
+                </div>
+                <div style="display:flex; gap:8px;">
+                  <span class="badge badge-info" id="term-cwd-badge">📁 /etc/nixos</span>
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="clearBashTerminal()">🧹 Effacer</button>
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="copyBashTerminal()">📋 Copier</button>
+                </div>
+              </div>
+
+              <!-- Raccourcis d'administration rapides -->
+              <div class="term-quick-bar">
+                <span style="font-size:0.78rem; color:var(--subtext0); align-self:center;">Raccourcis :</span>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="runQuickCommand('nh os switch')">⚡ nh os switch</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="runQuickCommand('df -hT')">💾 df -hT</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="runQuickCommand('docker ps')">🐳 docker ps</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="runQuickCommand('zpool status 2>/dev/null || btrfs filesystem show /')">💿 État Stockage</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="runQuickCommand('ip -br a')">🌐 ip -br a</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="runQuickCommand('systemctl list-units --type=service --state=running')">⚡ Services actifs</button>
+              </div>
+
+              <!-- Fenêtre Terminal Bash -->
+              <div class="bash-output-window">
+                <div class="bash-output-body" id="bash-terminal-body">
+                  <div class="term-welcome-msg">
+                    <span style="color:var(--mauve); font-weight:bold;">🚀 STEvE_OS Interactive Bash Console</span> — Session prête.<br>
+                    <span style="color:var(--subtext0); font-size:0.8rem;">• Touche <kbd>Tab</kbd> : Autocomplétion intelligente des commandes et fichiers<br>
+                    • Flèches <kbd>↑</kbd> / <kbd>↓</kbd> : Navigation dans l'historique • <kbd>Ctrl+L</kbd> : Nettoyer l'écran</span>
+                  </div>
+                </div>
+
+                <!-- Ligne de saisie interactive -->
+                <div class="bash-input-row">
+                  <div class="autocomplete-dropdown" id="term-autocomplete-dropdown"></div>
+                  <span class="bash-prompt-label" id="bash-prompt-label">chomiam@steveos-nas:<b>/etc/nixos</b>$</span>
+                  <input type="text" id="bash-input" class="bash-input-field" placeholder="Tapez une commande (ex: nh os switch, git status, ls -la)..." autocomplete="off" spellcheck="false">
+                  <button type="button" class="btn btn-primary btn-xs" onclick="submitBashCommand()">Exécuter ↵</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>

@@ -10,6 +10,7 @@ use crate::firewall::{get_firewall_overview, FirewallOverview};
 use crate::services::{control_service, get_service_logs, get_services_overview, ServicesOverview};
 use crate::storage::{get_storage_overview, trigger_disk_spindown, StorageOverview};
 use crate::system::{get_gpu_info, get_system_info, GpuInfo, SystemInfo};
+use crate::terminal::{autocomplete, execute_command, CompleteRequest, CompleteResponse, ExecRequest, ExecResponse};
 use crate::updates::{apply_intelligent_update, check_updates, ApplyUpdateResult, UpdateCheckStatus};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -45,6 +46,8 @@ pub fn api_routes() -> Router {
         .route("/logs", get(handle_logs))
         .route("/updates/status", get(handle_updates_status))
         .route("/updates/apply", post(handle_updates_apply))
+        .route("/terminal/exec", post(handle_terminal_exec))
+        .route("/terminal/complete", post(handle_terminal_complete))
         .route("/service/:unit/:action", post(handle_service_action))
         .route("/storage/:disk/spindown", post(handle_disk_spindown))
 }
@@ -134,6 +137,39 @@ async fn handle_updates_apply(Query(params): Query<ApplyUpdateQuery>) -> Json<Ap
     Json(ApiResponse {
         success: result.success,
         data: Some(result),
+        message: None,
+    })
+}
+
+async fn handle_terminal_exec(Json(req): Json<ExecRequest>) -> Json<ApiResponse<ExecResponse>> {
+    let res = tokio::task::spawn_blocking(move || {
+        execute_command(req)
+    }).await.unwrap_or_else(|e| ExecResponse {
+        success: false,
+        stdout: String::new(),
+        stderr: format!("Erreur serveur interne : {}", e),
+        exit_code: -1,
+        cwd: "/home/chomiam".to_string(),
+        duration_ms: 0,
+    });
+
+    Json(ApiResponse {
+        success: res.success,
+        data: Some(res),
+        message: None,
+    })
+}
+
+async fn handle_terminal_complete(Json(req): Json<CompleteRequest>) -> Json<ApiResponse<CompleteResponse>> {
+    let res = tokio::task::spawn_blocking(move || {
+        autocomplete(req)
+    }).await.unwrap_or_else(|_| CompleteResponse {
+        suggestions: vec![],
+    });
+
+    Json(ApiResponse {
+        success: true,
+        data: Some(res),
         message: None,
     })
 }

@@ -787,3 +787,315 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+
+// --------------------------------------------------------------------------
+// CONSOLE & TERMINAL BASH INTERACTIF
+// --------------------------------------------------------------------------
+let activeConsoleSubTab = "logs";
+let terminalCwd = "/etc/nixos";
+let termHistory = [];
+let termHistoryIdx = -1;
+let currentInputDraft = "";
+
+function switchConsoleSubTab(subTab) {
+  activeConsoleSubTab = subTab;
+
+  const btnLogs = document.getElementById("btn-side-logs");
+  const btnTerm = document.getElementById("btn-side-terminal");
+  const paneLogs = document.getElementById("subpane-logs");
+  const paneTerm = document.getElementById("subpane-terminal");
+
+  if (btnLogs) btnLogs.classList.toggle("active", subTab === "logs");
+  if (btnTerm) btnTerm.classList.toggle("active", subTab === "terminal");
+
+  if (paneLogs) paneLogs.style.display = subTab === "logs" ? "block" : "none";
+  if (paneTerm) paneTerm.style.display = subTab === "terminal" ? "block" : "none";
+
+  if (subTab === "terminal") {
+    const input = document.getElementById("bash-input");
+    if (input) setTimeout(() => input.focus(), 50);
+  } else {
+    loadLogs();
+  }
+}
+
+async function submitBashCommand() {
+  const input = document.getElementById("bash-input");
+  if (!input) return;
+
+  const cmd = input.value.trim();
+  if (!cmd) return;
+
+  termHistory.push(cmd);
+  termHistoryIdx = termHistory.length;
+  currentInputDraft = "";
+  input.value = "";
+  hideAutocompleteDropdown();
+
+  appendCommandToTerminal(cmd, terminalCwd);
+
+  try {
+    const res = await fetch("/api/terminal/exec", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        command: cmd,
+        cwd: terminalCwd
+      })
+    });
+    const json = await res.json();
+    const result = json.data || {};
+
+    if (result.cwd) {
+      terminalCwd = result.cwd;
+      updateTerminalPrompt();
+    }
+
+    appendResultToTerminal(result);
+  } catch (err) {
+    appendResultToTerminal({
+      success: false,
+      stdout: "",
+      stderr: "Erreur de communication avec le serveur : " + err,
+      exit_code: -1,
+      duration_ms: 0
+    });
+  }
+}
+
+function appendCommandToTerminal(cmd, cwd) {
+  const body = document.getElementById("bash-terminal-body");
+  if (!body) return;
+
+  const entry = document.createElement("div");
+  entry.className = "term-history-entry";
+  entry.innerHTML = `
+    <div class="term-cmd-line">
+      <div>
+        <span class="term-cmd-prompt">chomiam@steveos-nas:<b>${escapeHtml(formatShortCwd(cwd))}</b>$</span>
+        <span class="term-cmd-text">${escapeHtml(cmd)}</span>
+      </div>
+      <span class="badge badge-warning">⏳ En cours</span>
+    </div>
+    <div class="term-output-placeholder"></div>
+  `;
+  body.appendChild(entry);
+  body.scrollTop = body.scrollHeight;
+}
+
+function appendResultToTerminal(res) {
+  const body = document.getElementById("bash-terminal-body");
+  if (!body) return;
+
+  const lastEntry = body.lastElementChild;
+  if (!lastEntry) return;
+
+  const badge = lastEntry.querySelector(".badge");
+  if (badge) {
+    if (res.success) {
+      badge.className = "badge badge-success term-cmd-badge";
+      badge.textContent = `✔ 0 (${res.duration_ms}ms)`;
+    } else {
+      badge.className = "badge badge-danger term-cmd-badge";
+      badge.textContent = `❌ ${res.exit_code} (${res.duration_ms}ms)`;
+    }
+  }
+
+  const outputPlaceholder = lastEntry.querySelector(".term-output-placeholder");
+  if (outputPlaceholder) {
+    let outHtml = "";
+    if (res.stdout) {
+      outHtml += `<div class="term-stdout">${escapeHtml(res.stdout)}</div>`;
+    }
+    if (res.stderr) {
+      outHtml += `<div class="term-stderr">${escapeHtml(res.stderr)}</div>`;
+    }
+    outputPlaceholder.innerHTML = outHtml;
+  }
+
+  body.scrollTop = body.scrollHeight;
+}
+
+function updateTerminalPrompt() {
+  const promptLabel = document.getElementById("bash-prompt-label");
+  const cwdBadge = document.getElementById("term-cwd-badge");
+  const shortCwd = formatShortCwd(terminalCwd);
+
+  if (promptLabel) {
+    promptLabel.innerHTML = `chomiam@steveos-nas:<b>${escapeHtml(shortCwd)}</b>$`;
+  }
+  if (cwdBadge) {
+    cwdBadge.textContent = `📁 ${shortCwd}`;
+  }
+}
+
+function formatShortCwd(cwd) {
+  if (cwd.startsWith("/home/chomiam")) {
+    return "~" + cwd.substring("/home/chomiam".length);
+  }
+  return cwd;
+}
+
+function runQuickCommand(cmd) {
+  switchConsoleSubTab("terminal");
+  const input = document.getElementById("bash-input");
+  if (input) {
+    input.value = cmd;
+    submitBashCommand();
+  }
+}
+
+function clearBashTerminal() {
+  const body = document.getElementById("bash-terminal-body");
+  if (!body) return;
+  body.innerHTML = `
+    <div class="term-welcome-msg">
+      <span style="color:var(--mauve); font-weight:bold;">🚀 STEvE_OS Interactive Bash Console</span> — Écran effacé.<br>
+      <span style="color:var(--subtext0); font-size:0.8rem;">• Touche <kbd>Tab</kbd> : Autocomplétion • Flèches <kbd>↑</kbd> / <kbd>↓</kbd> : Historique • <kbd>Ctrl+L</kbd> : Effacer</span>
+    </div>
+  `;
+}
+
+function copyBashTerminal() {
+  const body = document.getElementById("bash-terminal-body");
+  if (body) {
+    copyText(body.innerText);
+  }
+}
+
+// --------------------------------------------------------------------------
+// AUTOCOMPLÉTION & GESTION CLAVIER (TAB, ARROWS)
+// --------------------------------------------------------------------------
+document.addEventListener("DOMContentLoaded", () => {
+  setupBashInputListeners();
+});
+
+function setupBashInputListeners() {
+  const input = document.getElementById("bash-input");
+  if (!input) return;
+
+  input.addEventListener("keydown", async (e) => {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      await handleTabCompletion(input);
+      return;
+    }
+
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (termHistory.length === 0) return;
+      if (termHistoryIdx === termHistory.length) {
+        currentInputDraft = input.value;
+      }
+      if (termHistoryIdx > 0) {
+        termHistoryIdx--;
+        input.value = termHistory[termHistoryIdx];
+      }
+      hideAutocompleteDropdown();
+      return;
+    }
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (termHistoryIdx < termHistory.length - 1) {
+        termHistoryIdx++;
+        input.value = termHistory[termHistoryIdx];
+      } else if (termHistoryIdx === termHistory.length - 1) {
+        termHistoryIdx = termHistory.length;
+        input.value = currentInputDraft;
+      }
+      hideAutocompleteDropdown();
+      return;
+    }
+
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submitBashCommand();
+      return;
+    }
+
+    if (e.ctrlKey && (e.key === "l" || e.key === "L")) {
+      e.preventDefault();
+      clearBashTerminal();
+      return;
+    }
+
+    if (e.key === "Escape") {
+      hideAutocompleteDropdown();
+      return;
+    }
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("#term-autocomplete-dropdown") && e.target !== input) {
+      hideAutocompleteDropdown();
+    }
+  });
+}
+
+async function handleTabCompletion(input) {
+  const val = input.value;
+
+  try {
+    const res = await fetch("/api/terminal/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prefix: val,
+        cwd: terminalCwd
+      })
+    });
+    const json = await res.json();
+    const suggestions = (json.data && json.data.suggestions) || [];
+
+    if (suggestions.length === 1) {
+      applyCompletion(input, suggestions[0]);
+      hideAutocompleteDropdown();
+    } else if (suggestions.length > 1) {
+      renderAutocompleteDropdown(suggestions, input);
+    } else {
+      hideAutocompleteDropdown();
+    }
+  } catch (err) {
+    console.warn("Erreur completion:", err);
+  }
+}
+
+function applyCompletion(input, suggestion) {
+  const currentVal = input.value;
+  if (suggestion.startsWith(currentVal)) {
+    input.value = suggestion + (suggestion.endsWith("/") ? "" : " ");
+  } else {
+    const tokens = currentVal.split(" ");
+    tokens[tokens.length - 1] = suggestion;
+    input.value = tokens.join(" ") + (suggestion.endsWith("/") ? "" : " ");
+  }
+}
+
+function renderAutocompleteDropdown(suggestions, input) {
+  const dropdown = document.getElementById("term-autocomplete-dropdown");
+  if (!dropdown) return;
+
+  dropdown.innerHTML = suggestions.map((s, idx) => `
+    <div class="autocomplete-item ${idx === 0 ? 'selected' : ''}" onclick="selectSuggestion('${escapeHtml(s)}')">
+      <span>💡 ${escapeHtml(s)}</span>
+      <span style="font-size:0.72rem; color:var(--subtext0);">${s.endsWith('/') ? 'dossier' : 'commande / fichier'}</span>
+    </div>
+  `).join("");
+
+  dropdown.style.display = "block";
+}
+
+function selectSuggestion(s) {
+  const input = document.getElementById("bash-input");
+  if (input) {
+    applyCompletion(input, s);
+    input.focus();
+  }
+  hideAutocompleteDropdown();
+}
+
+function hideAutocompleteDropdown() {
+  const dropdown = document.getElementById("term-autocomplete-dropdown");
+  if (dropdown) dropdown.style.display = "none";
+}
