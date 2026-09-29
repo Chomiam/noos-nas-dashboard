@@ -953,6 +953,8 @@ function openCreateRaidModal() {
   currentSelectedRaidLevel = "raid5";
   updateRaidLevelPickerUI();
   updateRaidPreview();
+  updateMountRaidHint();
+  updateMountFsHint();
   modal.style.display = "flex";
 }
 
@@ -3889,6 +3891,30 @@ function closeAudioModal() {
 // --------------------------------------------------------------------------
 // MODALE MONTAGE ET INITIALISATION DE VOLUME RAID
 // --------------------------------------------------------------------------
+function updateMountRaidHint() {
+  const sel = document.getElementById("mount-select-raid");
+  const hint = document.getElementById("mount-raid-hint");
+  if (!sel || !hint) return;
+  if (sel.value === "raid5") {
+    hint.innerHTML = `<span>🛡️</span> <span>Tolérance de panne : 1 disque de secours. Le système reste opérationnel en cas de panne matérielle.</span>`;
+  } else {
+    hint.innerHTML = `<span>⚡</span> <span>Agrégation linéaire : Aucune tolérance de panne. L'ensemble des 14.6 To est disponible mais sans redondance.</span>`;
+  }
+}
+
+function updateMountFsHint() {
+  const sel = document.getElementById("mount-select-fstype");
+  const hint = document.getElementById("mount-fs-hint");
+  if (!sel || !hint) return;
+  if (sel.value === "btrfs") {
+    hint.innerHTML = `<span>✨</span> <span>Btrfs active la compression transparente Zstd pour économiser jusqu'à 30% d'espace disque et protège contre la corruption silencieuse.</span>`;
+  } else if (sel.value === "ext4") {
+    hint.innerHTML = `<span>🐧</span> <span>Ext4 offre la plus haute compatibilité et une robustesse éprouvée sur les serveurs Linux.</span>`;
+  } else if (sel.value === "xfs") {
+    hint.innerHTML = `<span>⚡</span> <span>XFS excelle dans les opérations d'E/S parallèles et la gestion de fichiers volumineux (vidéos 4K/8K).</span>`;
+  }
+}
+
 function openMountVolumeModal(name, device, level) {
   const modal = document.getElementById("mount-volume-modal");
   const title = document.getElementById("mount-modal-title");
