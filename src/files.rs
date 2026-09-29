@@ -354,7 +354,8 @@ fn categorize_file(name: &str) -> String {
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "tiff" | "tif" | "ico"
         | "heic" | "heif" | "hif" | "avif" | "jxl"
         | "nef" | "nrw" | "cr2" | "cr3" | "crw" | "arw" | "srf" | "sr2"
-        | "dng" | "raf" | "rw2" | "orf" | "pef" | "3fr" | "psd" | "raw" => "image".into(),
+        | "dng" | "raf" | "rw2" | "orf" | "pef" | "3fr" | "psd" | "raw"
+        | "pcx" | "tga" | "targa" | "dds" => "image".into(),
         "mp4" | "mkv" | "avi" | "mov" | "webm" | "flv" | "wmv" | "m4v" => "video".into(),
         "mp3" | "flac" | "wav" | "aac" | "ogg" | "m4a" | "opus" | "wma" => "audio".into(),
         "pdf" | "doc" | "docx" | "odt" | "rtf" | "xls" | "xlsx" => "document".into(),
@@ -583,7 +584,7 @@ pub fn get_image_preview_path(path_str: &str, is_thumb: bool) -> Result<(PathBuf
     // Étape 2 : si pas encore généré (iPhone HEIC, TIFF, PSD, ou fallback RAW complet)
     if !generated {
         let max_dim = if is_thumb { "240x240>" } else { "2560x1440>" };
-        let input_arg = if is_raw || matches!(ext.as_str(), "heic" | "heif" | "hif" | "psd" | "tiff" | "tif") {
+        let input_arg = if is_raw || matches!(ext.as_str(), "heic" | "heif" | "hif" | "psd" | "tiff" | "tif" | "pcx" | "tga" | "targa" | "dds") {
             format!("{}[0]", p.display())
         } else {
             p.display().to_string()
@@ -678,6 +679,9 @@ pub fn get_image_info(path_str: &str) -> Result<ImageInfoResponse, String> {
         "tiff" | "tif" => "TIFF Image haute fidélité",
         "psd" => "Adobe Photoshop Document (PSD)",
         "avif" => "AV1 Image File (AVIF)",
+        "pcx" => "ZSoft PCX Image (PCX)",
+        "tga" | "targa" => "Truevision Targa (TGA)",
+        "dds" => "DirectDraw Surface (DDS)",
         _ => "Image",
     }.to_string();
 
@@ -751,6 +755,29 @@ pub fn get_image_info(path_str: &str) -> Result<ImageInfoResponse, String> {
                     info.white_balance = get_str("WhiteBalance");
                     info.color_space = get_str("ColorSpace");
                     info.software = get_str("Software");
+                }
+            }
+        }
+    }
+
+    
+    if info.width.is_none() || info.height.is_none() {
+        if let Ok(out) = std::process::Command::new("identify")
+            .arg("-format")
+            .arg("%w %h")
+            .arg(format!("{}[0]", p.display()))
+            .output()
+        {
+            if out.status.success() {
+                let s = String::from_utf8_lossy(&out.stdout);
+                let parts: Vec<&str> = s.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    if info.width.is_none() {
+                        info.width = parts[0].parse::<u32>().ok();
+                    }
+                    if info.height.is_none() {
+                        info.height = parts[1].parse::<u32>().ok();
+                    }
                 }
             }
         }

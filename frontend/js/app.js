@@ -2131,6 +2131,7 @@ function getFileIcon(item) {
   const name = item.name.toLowerCase();
   if (/\.(nef|nrw|cr2|cr3|crw|arw|srf|sr2|dng|raf|rw2|orf|pef|3fr|raw)$/i.test(name)) return "📷";
   if (/\.(heic|heif|hif)$/i.test(name)) return "📱";
+  if (/\.(pcx|tga|targa|dds)$/i.test(name)) return "🎨";
   switch (item.category) {
     case "image": return "🖼️";
     case "video": return "🎬";
@@ -4228,7 +4229,7 @@ let isExifSidebarOpen = false;
 
 function isImageFile(fileName, category) {
   if (category === "image") return true;
-  return /\.(jpg|jpeg|png|webp|gif|svg|bmp|ico|tiff|tif|heic|heif|hif|avif|jxl|nef|nrw|cr2|cr3|crw|arw|srf|sr2|dng|raf|rw2|orf|pef|3fr|psd|raw)$/i.test(fileName);
+  return /\.(jpg|jpeg|png|webp|gif|svg|bmp|ico|tiff|tif|heic|heif|hif|avif|jxl|nef|nrw|cr2|cr3|crw|arw|srf|sr2|dng|raf|rw2|orf|pef|3fr|psd|raw|pcx|tga|targa|dds)$/i.test(fileName);
 }
 
 function openImageModal(path, fileName, item) {
