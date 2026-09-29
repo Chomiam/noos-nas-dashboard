@@ -6,6 +6,10 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::files::{
+    copy_item, create_directory, delete_item, list_directory, move_item, rename_item,
+    ActionRequest, DeleteRequest, DirectoryListing, ListQuery, MkdirRequest, RenameRequest,
+};
 use crate::firewall::{get_firewall_overview, FirewallOverview};
 use crate::services::{control_service, get_service_logs, get_services_overview, ServicesOverview};
 use crate::storage::{get_storage_overview, trigger_disk_spindown, StorageOverview};
@@ -48,6 +52,12 @@ pub fn api_routes() -> Router {
         .route("/updates/apply", post(handle_updates_apply))
         .route("/terminal/exec", post(handle_terminal_exec))
         .route("/terminal/complete", post(handle_terminal_complete))
+        .route("/files/list", get(handle_files_list))
+        .route("/files/mkdir", post(handle_files_mkdir))
+        .route("/files/delete", post(handle_files_delete))
+        .route("/files/rename", post(handle_files_rename))
+        .route("/files/copy", post(handle_files_copy))
+        .route("/files/move", post(handle_files_move))
         .route("/service/:unit/:action", post(handle_service_action))
         .route("/storage/:disk/spindown", post(handle_disk_spindown))
 }
@@ -172,6 +182,153 @@ async fn handle_terminal_complete(Json(req): Json<CompleteRequest>) -> Json<ApiR
         data: Some(res),
         message: None,
     })
+}
+
+// --------------------------------------------------------------------------
+// GESTIONNAIRE DE FICHIERS (FILE MANAGER)
+// --------------------------------------------------------------------------
+async fn handle_files_list(Query(params): Query<ListQuery>) -> Json<ApiResponse<DirectoryListing>> {
+    let res = tokio::task::spawn_blocking(move || {
+        list_directory(params.path.as_deref())
+    }).await;
+
+    match res {
+        Ok(Ok(listing)) => Json(ApiResponse {
+            success: true,
+            data: Some(listing),
+            message: None,
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur interne : {}", e)),
+        }),
+    }
+}
+
+async fn handle_files_mkdir(Json(req): Json<MkdirRequest>) -> Json<ApiResponse<String>> {
+    let res = tokio::task::spawn_blocking(move || {
+        create_directory(&req.path, &req.name)
+    }).await;
+
+    match res {
+        Ok(Ok(msg)) => Json(ApiResponse {
+            success: true,
+            data: Some(msg.clone()),
+            message: Some(msg),
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
+        }),
+    }
+}
+
+async fn handle_files_delete(Json(req): Json<DeleteRequest>) -> Json<ApiResponse<String>> {
+    let res = tokio::task::spawn_blocking(move || {
+        delete_item(&req.path)
+    }).await;
+
+    match res {
+        Ok(Ok(msg)) => Json(ApiResponse {
+            success: true,
+            data: Some(msg.clone()),
+            message: Some(msg),
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
+        }),
+    }
+}
+
+async fn handle_files_rename(Json(req): Json<RenameRequest>) -> Json<ApiResponse<String>> {
+    let res = tokio::task::spawn_blocking(move || {
+        rename_item(&req.path, &req.new_name)
+    }).await;
+
+    match res {
+        Ok(Ok(msg)) => Json(ApiResponse {
+            success: true,
+            data: Some(msg.clone()),
+            message: Some(msg),
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
+        }),
+    }
+}
+
+async fn handle_files_copy(Json(req): Json<ActionRequest>) -> Json<ApiResponse<String>> {
+    let res = tokio::task::spawn_blocking(move || {
+        copy_item(&req.src_path, &req.dest_dir)
+    }).await;
+
+    match res {
+        Ok(Ok(msg)) => Json(ApiResponse {
+            success: true,
+            data: Some(msg.clone()),
+            message: Some(msg),
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
+        }),
+    }
+}
+
+async fn handle_files_move(Json(req): Json<ActionRequest>) -> Json<ApiResponse<String>> {
+    let res = tokio::task::spawn_blocking(move || {
+        move_item(&req.src_path, &req.dest_dir)
+    }).await;
+
+    match res {
+        Ok(Ok(msg)) => Json(ApiResponse {
+            success: true,
+            data: Some(msg.clone()),
+            message: Some(msg),
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
+        }),
+    }
 }
 
 async fn handle_service_action(Path((unit, action)): Path<(String, String)>) -> Json<ApiResponse<String>> {

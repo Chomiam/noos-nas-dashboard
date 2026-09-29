@@ -41,6 +41,9 @@
     <button class="tab-btn active" data-tab="tab-overview" onclick="switchTab('tab-overview')">
       <span>📊</span> Vue d'ensemble
     </button>
+    <button class="tab-btn" data-tab="tab-files" onclick="switchTab('tab-files')">
+      <span>📁</span> Fichiers
+    </button>
     <button class="tab-btn" data-tab="tab-updates" onclick="switchTab('tab-updates')">
       <span>⚡</span> Mises à jour <span class="nav-badge" id="nav-updates-badge" style="display:none;">!</span>
     </button>
@@ -164,6 +167,98 @@
           </div>
         </div>
         <div id="quick-services-wrap" style="display:flex; flex-wrap:wrap; gap:12px;"></div>
+      </div>
+    </div>
+
+    <!-- ================= ONGLET : EXPLORATEUR DE FICHIERS ================= -->
+    <div id="tab-files" class="tab-pane">
+      <div class="files-layout">
+        <!-- VOLET LATÉRAL DES EMPLACEMENTS -->
+        <aside class="files-sidebar">
+          <div class="files-category-title">Dossiers Personnels</div>
+          <button type="button" class="files-nav-item active" id="fnav-home" onclick="navigateToPath('/home/chomiam')">
+            <span>🏠</span> Personnel (/home)
+          </button>
+          <button type="button" class="files-nav-item" id="fnav-docs" onclick="navigateToPath('/home/chomiam/Documents')">
+            <span>📄</span> Documents
+          </button>
+          <button type="button" class="files-nav-item" id="fnav-pics" onclick="navigateToPath('/home/chomiam/Images')">
+            <span>🖼️</span> Images
+          </button>
+          <button type="button" class="files-nav-item" id="fnav-vids" onclick="navigateToPath('/home/chomiam/Vidéos')">
+            <span>🎬</span> Vidéos
+          </button>
+          <button type="button" class="files-nav-item" id="fnav-music" onclick="navigateToPath('/home/chomiam/Musique')">
+            <span>🎵</span> Musique
+          </button>
+          <button type="button" class="files-nav-item" id="fnav-dl" onclick="navigateToPath('/home/chomiam/Téléchargements')">
+            <span>📥</span> Téléchargements
+          </button>
+
+          <div class="files-category-title">Système & Stockage</div>
+          <button type="button" class="files-nav-item" id="fnav-root" onclick="navigateToPath('/')">
+            <span>🗄️</span> Racine du NAS (/)
+          </button>
+          <button type="button" class="files-nav-item" id="fnav-shares" onclick="navigateToPath('/mnt/storage/shares')">
+            <span>💾</span> Partages (/storage)
+          </button>
+          <button type="button" class="files-nav-item" id="fnav-nixos" onclick="navigateToPath('/etc/nixos')">
+            <span>⚙️</span> Configuration NixOS
+          </button>
+        </aside>
+
+        <!-- PANNEAU PRINCIPAL DE NAVIGATION -->
+        <div class="files-main-pane">
+          <!-- Barre d'outils -->
+          <div class="files-toolbar">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <button type="button" class="btn btn-secondary btn-xs" id="btn-file-up" onclick="navigateUpFolder()" title="Dossier parent">
+                ⬆️ Monter
+              </button>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="refreshCurrentFolder()" title="Actualiser">
+                🔄
+              </button>
+              <button type="button" class="btn btn-primary btn-xs" onclick="promptCreateFolder()">
+                ➕ Nouveau Dossier
+              </button>
+              <div class="files-breadcrumbs" id="files-breadcrumbs"></div>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:10px;">
+              <div class="files-search-box">
+                <span>🔍</span>
+                <input type="text" id="files-filter-input" class="files-search-input" placeholder="Filtrer..." oninput="filterFilesList()">
+              </div>
+              <div style="display:flex; gap:4px;">
+                <button type="button" class="btn btn-secondary btn-xs active" id="btn-view-grid" onclick="setFileViewMode('grid')" title="Vue Grille">🔲</button>
+                <button type="button" class="btn btn-secondary btn-xs" id="btn-view-table" onclick="setFileViewMode('table')" title="Vue Liste">📋</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Zone d'affichage des fichiers -->
+          <div class="files-view-container" id="files-view-container" oncontextmenu="handleBackgroundContextMenu(event)">
+            <div class="files-grid" id="files-grid-wrap"></div>
+            <table class="files-table-view" id="files-table-wrap" style="display:none;">
+              <thead>
+                <tr>
+                  <th>Nom</th>
+                  <th>Taille</th>
+                  <th>Date de modification</th>
+                  <th>Permissions</th>
+                </tr>
+              </thead>
+              <tbody id="files-table-tbody"></tbody>
+            </table>
+          </div>
+
+          <!-- Barre d'état -->
+          <div class="files-statusbar">
+            <span id="files-status-count">0 élément</span>
+            <span id="files-clipboard-status" style="color:var(--mauve); font-weight:600;"></span>
+            <span id="files-current-path-text" style="font-family:var(--font-mono); color:var(--subtext0);">/home/chomiam</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -570,5 +665,33 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
   <div class="toast-container" id="toast-container"></div>
 
   <script src="/js/app.js"></script>
+  <!-- MENU CONTEXTUEL CLIC DROIT -->
+  <div class="context-menu" id="files-context-menu">
+    <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">
+      <span>📂</span> Ouvrir
+    </div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item" onclick="triggerFileAction('copy')" id="ctx-copy">
+      <span>📋</span> Copier
+    </div>
+    <div class="context-menu-item" onclick="triggerFileAction('cut')" id="ctx-cut">
+      <span>✂️</span> Couper
+    </div>
+    <div class="context-menu-item disabled" onclick="triggerFileAction('paste')" id="ctx-paste">
+      <span>📥</span> Coller dans ce dossier
+    </div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item" onclick="triggerFileAction('rename')" id="ctx-rename">
+      <span>✏️</span> Renommer
+    </div>
+    <div class="context-menu-item danger" onclick="triggerFileAction('delete')" id="ctx-delete">
+      <span>🗑️</span> Supprimer
+    </div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item" onclick="triggerFileAction('new-folder')" id="ctx-new-folder">
+      <span>➕</span> Nouveau dossier
+    </div>
+  </div>
+
 </body>
 </html>

@@ -1,4 +1,5 @@
 mod api;
+mod files;
 mod firewall;
 mod services;
 mod storage;

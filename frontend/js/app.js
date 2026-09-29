@@ -52,6 +52,7 @@ function switchTab(tabId) {
   });
 
   if (tabId === "tab-overview") loadSystem();
+  if (tabId === "tab-files") navigateToPath(currentFolderPath);
   if (tabId === "tab-updates") checkForUpdates(false);
   if (tabId === "tab-storage") loadStorage();
   if (tabId === "tab-shares") loadServices();
@@ -1098,4 +1099,452 @@ function selectSuggestion(s) {
 function hideAutocompleteDropdown() {
   const dropdown = document.getElementById("term-autocomplete-dropdown");
   if (dropdown) dropdown.style.display = "none";
+}
+
+// --------------------------------------------------------------------------
+// EXPLORATEUR DE FICHIERS (FILE MANAGER)
+// --------------------------------------------------------------------------
+let currentFolderPath = "/home/chomiam";
+let currentFolderParent = null;
+let currentEntries = [];
+let fileViewMode = "grid";
+let fileClipboard = null; // { action: 'copy' | 'cut', path: string, name: string }
+let selectedFileItem = null;
+
+async function navigateToPath(targetPath) {
+  if (!targetPath) return;
+
+  try {
+    const res = await fetch(`/api/files/list?path=${encodeURIComponent(targetPath)}`);
+    const json = await res.json();
+
+    if (!json.success || !json.data) {
+      showToast(json.message || "Impossible d'ouvrir ce dossier", "error");
+      return;
+    }
+
+    const data = json.data;
+    currentFolderPath = data.current_path;
+    currentFolderParent = data.parent_path;
+    currentEntries = data.entries || [];
+
+    updateFilesBreadcrumbs(currentFolderPath);
+    updateSidebarNavActive(currentFolderPath);
+    renderFilesList(currentEntries);
+    updateFilesStatusBar(data.total_items, data.total_size_bytes);
+  } catch (err) {
+    showToast("Erreur lors de la navigation : " + err, "error");
+  }
+}
+
+function updateSidebarNavActive(path) {
+  const mapping = {
+    "/home/chomiam": "fnav-home",
+    "/home/chomiam/Documents": "fnav-docs",
+    "/home/chomiam/Images": "fnav-pics",
+    "/home/chomiam/Vidéos": "fnav-vids",
+    "/home/chomiam/Musique": "fnav-music",
+    "/home/chomiam/Téléchargements": "fnav-dl",
+    "/": "fnav-root",
+    "/mnt/storage/shares": "fnav-shares",
+    "/etc/nixos": "fnav-nixos"
+  };
+
+  document.querySelectorAll(".files-nav-item").forEach(item => item.classList.remove("active"));
+  const activeId = mapping[path];
+  if (activeId) {
+    const el = document.getElementById(activeId);
+    if (el) el.classList.add("active");
+  }
+}
+
+function updateFilesBreadcrumbs(path) {
+  const container = document.getElementById("files-breadcrumbs");
+  if (!container) return;
+
+  const parts = path.split("/").filter(Boolean);
+  let html = `<span class="crumb-item ${parts.length === 0 ? 'active' : ''}" onclick="navigateToPath('/')">🗄️ /</span>`;
+
+  let accumulated = "";
+  parts.forEach((part, idx) => {
+    accumulated += "/" + part;
+    const isLast = idx === parts.length - 1;
+    const thisPath = accumulated;
+    html += `<span class="crumb-separator">/</span>`;
+    html += `<span class="crumb-item ${isLast ? 'active' : ''}" onclick="navigateToPath('${escapeHtml(thisPath)}')">${escapeHtml(part)}</span>`;
+  });
+
+  container.innerHTML = html;
+}
+
+function renderFilesList(entries) {
+  const gridWrap = document.getElementById("files-grid-wrap");
+  const tableBody = document.getElementById("files-table-tbody");
+  const gridContainer = document.getElementById("files-grid-wrap");
+  const tableContainer = document.getElementById("files-table-wrap");
+
+  if (!gridWrap || !tableBody) return;
+
+  if (entries.length === 0) {
+    const emptyHtml = `<div style="grid-column:1/-1; padding:40px; text-align:center; color:var(--subtext0);">📁 Dossier vide</div>`;
+    gridWrap.innerHTML = emptyHtml;
+    tableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--subtext0); padding:30px;">📁 Dossier vide</td></tr>`;
+    return;
+  }
+
+  // Rendu Grille
+  gridWrap.innerHTML = entries.map(item => {
+    const icon = getFileIcon(item);
+    return `
+      <div class="file-card" 
+           data-path="${escapeHtml(item.path)}"
+           onclick="handleFileClick(event, '${escapeHtml(item.path)}', ${item.is_dir})"
+           ondblclick="handleFileDblClick('${escapeHtml(item.path)}', ${item.is_dir})"
+           oncontextmenu="handleItemContextMenu(event, '${escapeHtml(item.path)}')">
+        <div class="file-card-icon">${icon}</div>
+        <div class="file-card-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
+        <div class="file-card-meta">${escapeHtml(item.size_human)}</div>
+      </div>
+    `;
+  }).join("");
+
+  // Rendu Liste / Table
+  tableBody.innerHTML = entries.map(item => {
+    const icon = getFileIcon(item);
+    return `
+      <tr data-path="${escapeHtml(item.path)}"
+          onclick="handleFileClick(event, '${escapeHtml(item.path)}', ${item.is_dir})"
+          ondblclick="handleFileDblClick('${escapeHtml(item.path)}', ${item.is_dir})"
+          oncontextmenu="handleItemContextMenu(event, '${escapeHtml(item.path)}')">
+        <td>
+          <span style="font-size:1.1rem; margin-right:8px;">${icon}</span>
+          <strong style="color:var(--text);">${escapeHtml(item.name)}</strong>
+        </td>
+        <td style="color:var(--subtext0); font-family:var(--font-mono); font-size:0.8rem;">${escapeHtml(item.size_human)}</td>
+        <td style="color:var(--subtext0); font-size:0.8rem;">${escapeHtml(item.modified)}</td>
+        <td><code style="color:var(--mauve); font-size:0.75rem;">${escapeHtml(item.permissions)}</code></td>
+      </tr>
+    `;
+  }).join("");
+
+  // Affichage selon le mode
+  if (fileViewMode === "grid") {
+    gridContainer.style.display = "grid";
+    tableContainer.style.display = "none";
+  } else {
+    gridContainer.style.display = "none";
+    tableContainer.style.display = "table";
+  }
+}
+
+function getFileIcon(item) {
+  if (item.is_dir) return "📁";
+  switch (item.category) {
+    case "image": return "🖼️";
+    case "video": return "🎬";
+    case "audio": return "🎵";
+    case "document": return "📄";
+    case "archive": return "📦";
+    case "code": return "💻";
+    default: return "📄";
+  }
+}
+
+function handleFileClick(e, path, isDir) {
+  e.stopPropagation();
+  selectedFileItem = currentEntries.find(i => i.path === path) || null;
+
+  document.querySelectorAll(".file-card, .files-table-view tr").forEach(el => {
+    el.classList.toggle("selected", el.getAttribute("data-path") === path);
+  });
+}
+
+function handleFileDblClick(path, isDir) {
+  if (isDir) {
+    navigateToPath(path);
+  } else {
+    showToast(`Fichier : ${path}`, "info");
+  }
+}
+
+function navigateUpFolder() {
+  if (currentFolderParent) {
+    navigateToPath(currentFolderParent);
+  } else {
+    showToast("Vous êtes déjà à la racine du système.", "info");
+  }
+}
+
+function refreshCurrentFolder() {
+  navigateToPath(currentFolderPath);
+}
+
+function setFileViewMode(mode) {
+  fileViewMode = mode;
+  const btnGrid = document.getElementById("btn-view-grid");
+  const btnTable = document.getElementById("btn-view-table");
+
+  if (btnGrid) btnGrid.classList.toggle("active", mode === "grid");
+  if (btnTable) btnTable.classList.toggle("active", mode === "table");
+
+  renderFilesList(currentEntries);
+}
+
+function filterFilesList() {
+  const query = (document.getElementById("files-filter-input")?.value || "").toLowerCase().trim();
+  if (!query) {
+    renderFilesList(currentEntries);
+    return;
+  }
+  const filtered = currentEntries.filter(i => i.name.toLowerCase().includes(query));
+  renderFilesList(filtered);
+}
+
+function updateFilesStatusBar(count, sizeBytes) {
+  const countEl = document.getElementById("files-status-count");
+  const pathEl = document.getElementById("files-current-path-text");
+  const clipEl = document.getElementById("files-clipboard-status");
+
+  if (countEl) countEl.textContent = `${count} élément${count > 1 ? 's' : ''}`;
+  if (pathEl) pathEl.textContent = currentFolderPath;
+
+  if (clipEl) {
+    if (fileClipboard) {
+      clipEl.textContent = `${fileClipboard.action === 'cut' ? '✂️ Couper' : '📋 Copier'} : ${fileClipboard.name}`;
+    } else {
+      clipEl.textContent = "";
+    }
+  }
+}
+
+// --------------------------------------------------------------------------
+// MENU CONTEXTUEL CLIC DROIT
+// --------------------------------------------------------------------------
+function handleItemContextMenu(e, path) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  selectedFileItem = currentEntries.find(i => i.path === path) || null;
+
+  const menu = document.getElementById("files-context-menu");
+  if (!menu) return;
+
+  // Activer / désactiver les options
+  const ctxOpen = document.getElementById("ctx-open");
+  const ctxPaste = document.getElementById("ctx-paste");
+
+  if (ctxOpen) ctxOpen.style.display = selectedFileItem && selectedFileItem.is_dir ? "flex" : "none";
+  if (ctxPaste) ctxPaste.classList.toggle("disabled", !fileClipboard);
+
+  positionContextMenu(menu, e.clientX, e.clientY);
+}
+
+function handleBackgroundContextMenu(e) {
+  if (e.target.closest(".file-card") || e.target.closest("tr")) return;
+
+  e.preventDefault();
+  selectedFileItem = null;
+
+  const menu = document.getElementById("files-context-menu");
+  if (!menu) return;
+
+  const ctxOpen = document.getElementById("ctx-open");
+  const ctxCopy = document.getElementById("ctx-copy");
+  const ctxCut = document.getElementById("ctx-cut");
+  const ctxRename = document.getElementById("ctx-rename");
+  const ctxDelete = document.getElementById("ctx-delete");
+  const ctxPaste = document.getElementById("ctx-paste");
+
+  if (ctxOpen) ctxOpen.style.display = "none";
+  if (ctxCopy) ctxCopy.style.display = "none";
+  if (ctxCut) ctxCut.style.display = "none";
+  if (ctxRename) ctxRename.style.display = "none";
+  if (ctxDelete) ctxDelete.style.display = "none";
+
+  if (ctxPaste) {
+    ctxPaste.style.display = "flex";
+    ctxPaste.classList.toggle("disabled", !fileClipboard);
+  }
+
+  positionContextMenu(menu, e.clientX, e.clientY);
+}
+
+function positionContextMenu(menu, x, y) {
+  // Rétablir l'affichage des actions de fichier si sélectionné
+  if (selectedFileItem) {
+    ["ctx-copy", "ctx-cut", "ctx-rename", "ctx-delete"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = "flex";
+    });
+  }
+
+  menu.style.display = "block";
+  const menuWidth = menu.offsetWidth;
+  const menuHeight = menu.offsetHeight;
+
+  const posX = (x + menuWidth > window.innerWidth) ? (window.innerWidth - menuWidth - 10) : x;
+  const posY = (y + menuHeight > window.innerHeight) ? (window.innerHeight - menuHeight - 10) : y;
+
+  menu.style.left = `${posX}px`;
+  menu.style.top = `${posY}px`;
+}
+
+document.addEventListener("click", () => {
+  const menu = document.getElementById("files-context-menu");
+  if (menu) menu.style.display = "none";
+});
+
+// --------------------------------------------------------------------------
+// ACTIONS : CRÉER, RENOMMER, SUPPRIMER, COPIER, COUPER, COLLER
+// --------------------------------------------------------------------------
+async function triggerFileAction(action) {
+  const menu = document.getElementById("files-context-menu");
+  if (menu) menu.style.display = "none";
+
+  switch (action) {
+    case "open":
+      if (selectedFileItem && selectedFileItem.is_dir) {
+        navigateToPath(selectedFileItem.path);
+      }
+      break;
+
+    case "new-folder":
+      promptCreateFolder();
+      break;
+
+    case "copy":
+      if (!selectedFileItem) return;
+      fileClipboard = { action: "copy", path: selectedFileItem.path, name: selectedFileItem.name };
+      showToast(`Copié : ${selectedFileItem.name}`, "info");
+      updateFilesStatusBar(currentEntries.len, 0);
+      break;
+
+    case "cut":
+      if (!selectedFileItem) return;
+      fileClipboard = { action: "cut", path: selectedFileItem.path, name: selectedFileItem.name };
+      showToast(`Coupé : ${selectedFileItem.name}`, "info");
+      updateFilesStatusBar(currentEntries.len, 0);
+      break;
+
+    case "paste":
+      if (!fileClipboard) return;
+      await pasteClipboardItem();
+      break;
+
+    case "rename":
+      if (!selectedFileItem) return;
+      promptRename(selectedFileItem);
+      break;
+
+    case "delete":
+      if (!selectedFileItem) return;
+      confirmDelete(selectedFileItem);
+      break;
+  }
+}
+
+async function promptCreateFolder() {
+  const name = prompt("Nom du nouveau dossier :", "Nouveau_Dossier");
+  if (!name || !name.trim()) return;
+
+  try {
+    const res = await fetch("/api/files/mkdir", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path: currentFolderPath,
+        name: name.trim()
+      })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.message || "Dossier créé avec succès !", "success");
+      refreshCurrentFolder();
+    } else {
+      showToast(json.message || "Erreur de création du dossier", "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau : " + err, "error");
+  }
+}
+
+async function promptRename(item) {
+  const newName = prompt(`Renommer "${item.name}" en :`, item.name);
+  if (!newName || !newName.trim() || newName.trim() === item.name) return;
+
+  try {
+    const res = await fetch("/api/files/rename", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path: item.path,
+        new_name: newName.trim()
+      })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.message || "Élément renommé avec succès !", "success");
+      refreshCurrentFolder();
+    } else {
+      showToast(json.message || "Erreur de renommage", "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau : " + err, "error");
+  }
+}
+
+async function confirmDelete(item) {
+  const isDir = item.is_dir;
+  const msg = isDir 
+    ? `Êtes-vous sûr de vouloir supprimer définitivement le dossier "${item.name}" et tout son contenu ?`
+    : `Êtes-vous sûr de vouloir supprimer définitivement le fichier "${item.name}" ?`;
+
+  if (!confirm(msg)) return;
+
+  try {
+    const res = await fetch("/api/files/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: item.path })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.message || "Suppression effectuée", "success");
+      refreshCurrentFolder();
+    } else {
+      showToast(json.message || "Échec de suppression", "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau : " + err, "error");
+  }
+}
+
+async function pasteClipboardItem() {
+  if (!fileClipboard) return;
+
+  const endpoint = fileClipboard.action === "cut" ? "/api/files/move" : "/api/files/copy";
+  showToast(`${fileClipboard.action === 'cut' ? 'Déplacement' : 'Copie'} de ${fileClipboard.name}...`, "info");
+
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        src_path: fileClipboard.path,
+        dest_dir: currentFolderPath
+      })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.message || "Opération terminée avec succès !", "success");
+      if (fileClipboard.action === "cut") {
+        fileClipboard = null;
+      }
+      refreshCurrentFolder();
+    } else {
+      showToast(json.message || "Erreur lors du collage", "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau : " + err, "error");
+  }
 }
