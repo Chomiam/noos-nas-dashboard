@@ -1,7 +1,3 @@
-#[link(name = "crypt")]
-extern "C" {
-    fn crypt(key: *const std::ffi::c_char, salt: *const std::ffi::c_char) -> *mut std::ffi::c_char;
-}
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -1046,38 +1042,10 @@ pub fn check_path_permissions(path: &str, target_user: &str) -> (String, String,
 }
 
 pub fn verify_user_password(username: &str, password: &str) -> Result<(), String> {
-    let shadow_content = std::fs::read_to_string("/etc/shadow")
-        .map_err(|e| format!("Impossible de lire /etc/shadow : {}", e))?;
-
-    let user_line = shadow_content
-        .lines()
-        .find(|l| l.starts_with(&format!("{}:", username)))
-        .ok_or_else(|| format!("Utilisateur '{}' introuvable dans /etc/shadow.", username))?;
-
-    let parts: Vec<&str> = user_line.split(':').collect();
-    if parts.len() < 2 {
-        return Err("Format de ligne /etc/shadow invalide.".into());
-    }
-
-    let hash = parts[1];
-    if hash == "*" || hash == "!" || hash.is_empty() {
-        return Err("Le compte utilisateur est verrouillé ou n'a pas de mot de passe.".into());
-    }
-
-    let c_key = std::ffi::CString::new(password).map_err(|e| e.to_string())?;
-    let c_salt = std::ffi::CString::new(hash).map_err(|e| e.to_string())?;
-
-    unsafe {
-        let res = crypt(c_key.as_ptr(), c_salt.as_ptr());
-        if res.is_null() {
-            return Err("Erreur interne lors de la vérification cryptographique.".into());
-        }
-        let res_str = std::ffi::CStr::from_ptr(res).to_str().map_err(|e| e.to_string())?;
-        if res_str == hash {
-            Ok(())
-        } else {
-            Err("Mot de passe administrateur incorrect.".into())
-        }
+    if crate::auth::verify_linux_credentials(username, password)? {
+        Ok(())
+    } else {
+        Err("Mot de passe incorrect ou utilisateur invalide.".into())
     }
 }
 

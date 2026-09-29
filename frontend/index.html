@@ -8,9 +8,55 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20260929_21">
+  <link rel="stylesheet" href="/css/style.css?v=20260929_22">
 </head>
 <body>
+
+  <!-- MODAL / ÉCRAN DE CONNEXION STEvE_OS -->
+  <div class="login-modal-overlay" id="login-modal" style="display:none;">
+    <div class="login-card">
+      <div class="login-logo-box">
+        <img src="/assets/logo.png" alt="STEvE_OS Logo">
+      </div>
+      <h2 class="login-title">STEvE_OS NAS</h2>
+      <p class="login-subtitle">Connectez-vous avec votre compte système NixOS</p>
+      
+      <form class="login-form" id="login-form" onsubmit="handleLoginSubmit(event)">
+        <div class="login-field">
+          <label class="login-label" for="login-username">Nom d'utilisateur</label>
+          <div class="login-input-wrap">
+            <span class="login-input-icon">👤</span>
+            <input type="text" id="login-username" class="login-input" placeholder="ex: steve ou root" autocomplete="username" required>
+          </div>
+        </div>
+
+        <div class="login-field">
+          <label class="login-label" for="login-password">Mot de passe</label>
+          <div class="login-input-wrap">
+            <span class="login-input-icon">🔒</span>
+            <input type="password" id="login-password" class="login-input" placeholder="Mot de passe système" autocomplete="current-password" required>
+            <button type="button" class="login-pwd-toggle" id="login-pwd-toggle" onclick="togglePasswordVisibility()" title="Afficher/masquer le mot de passe">👁️</button>
+          </div>
+        </div>
+
+        <div class="login-options-row">
+          <label class="login-checkbox-label">
+            <input type="checkbox" id="login-remember">
+            <span>Se souvenir de moi (7 jours)</span>
+          </label>
+        </div>
+
+        <div class="login-error-box" id="login-error-box" style="display:none;">
+          <span>⚠️</span>
+          <span id="login-error-msg">Identifiants incorrects</span>
+        </div>
+
+        <button type="submit" class="btn-login-submit" id="login-submit-btn">
+          <span>Se connecter</span>
+        </button>
+      </form>
+    </div>
+  </div>
 
   <!-- HEADER -->
   <header class="header">
@@ -43,6 +89,17 @@
       <button type="button" class="btn btn-secondary btn-xs" onclick="refreshAll(true)" title="Actualiser les métriques">
         <span>🔄</span> Actualiser
       </button>
+
+      <!-- BADGE UTILISATEUR & DECONNEXION -->
+      <div class="user-pill" id="header-user-pill" style="display:none;">
+        <span>👤</span>
+        <span id="header-username">steve</span>
+        <span id="header-user-role" style="font-size:0.75rem; opacity:0.8;">(admin)</span>
+        <button type="button" class="btn-logout" id="header-logout-btn" onclick="logoutUser()" title="Se déconnecter de STEvE_OS">
+          <span>Déconnexion</span>
+        </button>
+      </div>
+
     </div>
   </header>
 
@@ -1248,7 +1305,7 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
   <!-- TOAST CONTAINER -->
   <div class="toast-container" id="toast-container"></div>
 
-  <script src="/js/app.js?v=20260929_21"></script>
+  <script src="/js/app.js?v=20260929_22"></script>
   <!-- MENU CONTEXTUEL CLIC DROIT -->
   <div class="context-menu" id="files-context-menu">
     <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">

@@ -16,6 +16,7 @@ async fn no_cache_layer(req: axum::extract::Request, next: axum::middleware::Nex
 }
 
 mod api;
+mod auth;
 mod files;
 mod firewall;
 mod hardware;
@@ -45,8 +46,13 @@ async fn main() {
 
     let frontend_dir = env::var("STEVEOS_FRONTEND_DIR").unwrap_or_else(|_| "frontend".to_string());
 
+    let api_router = Router::new()
+        .nest("/auth", auth::auth_routes())
+        .merge(api::api_routes())
+        .layer(axum::middleware::from_fn(auth::auth_middleware));
+
     let app = Router::new()
-        .nest("/api", api::api_routes())
+        .nest("/api", api_router)
         .fallback_service(ServeDir::new(&frontend_dir))
         .layer(axum::middleware::from_fn(no_cache_layer))
         .layer(CorsLayer::permissive());

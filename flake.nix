@@ -74,6 +74,7 @@
                 usbutils
                 iproute2
                 coreutils
+                whois
                 bash
                 systemd
                 diffutils

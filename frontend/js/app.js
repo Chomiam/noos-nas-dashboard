@@ -2,13 +2,78 @@
 // STEvE_OS NAS Edition — Application Client (Vanilla JavaScript)
 // ==========================================================================
 
+const AUTH_TOKEN_KEY = "steveos_auth_token";
+let currentUserSession = null;
+let isAppInitialized = false;
+
+function getAuthToken() {
+  return sessionStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+function setAuthToken(token, remember) {
+  if (remember) {
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
+    sessionStorage.removeItem(AUTH_TOKEN_KEY);
+  } else {
+    sessionStorage.setItem(AUTH_TOKEN_KEY, token);
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+  }
+}
+
+function clearAuthToken() {
+  sessionStorage.removeItem(AUTH_TOKEN_KEY);
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  currentUserSession = null;
+}
+
+// Global fetch interceptor: injects Authorization Bearer & handles 401
+const originalFetch = window.fetch;
+window.fetch = async function(...args) {
+  let [resource, config] = args;
+  config = config || {};
+
+  const token = getAuthToken();
+  if (token) {
+    if (!config.headers) {
+      config.headers = {};
+    }
+    if (config.headers instanceof Headers) {
+      if (!config.headers.has("Authorization")) {
+        config.headers.set("Authorization", `Bearer ${token}`);
+      }
+    } else if (Array.isArray(config.headers)) {
+      config.headers.push(["Authorization", `Bearer ${token}`]);
+    } else {
+      if (!config.headers["Authorization"]) {
+        config.headers["Authorization"] = `Bearer ${token}`;
+      }
+    }
+  }
+
+  const response = await originalFetch(resource, config);
+
+  // If 401 on an API route (excluding login / status), trigger login modal
+  if (
+    response.status === 401 &&
+    typeof resource === "string" &&
+    resource.startsWith("/api/") &&
+    !resource.startsWith("/api/auth/login") &&
+    !resource.startsWith("/api/auth/status")
+  ) {
+    clearAuthToken();
+    updateUserSessionUI(null);
+    showLoginModal();
+  }
+
+  return response;
+};
+
 let activeTab = "tab-overview";
 let lastUpdateStatus = null;
 let isUpdatingNow = false;
 
 document.addEventListener("DOMContentLoaded", () => {
-  initApp();
-  setupPolling();
+  checkAuthSession();
 });
 
 function initApp() {
@@ -6712,4 +6777,190 @@ function closeDockerLogsModal() {
   const modal = document.getElementById("docker-logs-modal");
   if (modal) modal.style.display = "none";
   currentViewingContainerName = null;
+}
+
+
+// ==========================================================================
+// MODULE AUTHENTIFICATION & SESSIONS
+// ==========================================================================
+
+async function checkAuthSession() {
+  const token = getAuthToken();
+  if (!token) {
+    updateUserSessionUI(null);
+    showLoginModal();
+    return;
+  }
+
+  try {
+    const res = await originalFetch("/api/auth/me", {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.authenticated) {
+        currentUserSession = data;
+        updateUserSessionUI(data);
+        hideLoginModal();
+        if (!isAppInitialized) {
+          isAppInitialized = true;
+          initApp();
+          setupPolling();
+        }
+        return;
+      }
+    }
+  } catch (err) {
+    console.warn("Erreur vérification session :", err);
+  }
+
+  clearAuthToken();
+  updateUserSessionUI(null);
+  showLoginModal();
+}
+
+function showLoginModal() {
+  const modal = document.getElementById("login-modal");
+  if (modal) {
+    modal.style.display = "flex";
+    const pwdInput = document.getElementById("login-password");
+    if (pwdInput) pwdInput.value = "";
+    const errBox = document.getElementById("login-error-box");
+    if (errBox) errBox.style.display = "none";
+    const userField = document.getElementById("login-username");
+    if (userField && !userField.value) {
+      userField.focus();
+    } else if (pwdInput) {
+      pwdInput.focus();
+    }
+  }
+}
+
+function hideLoginModal() {
+  const modal = document.getElementById("login-modal");
+  if (modal) {
+    modal.style.display = "none";
+  }
+}
+
+function updateUserSessionUI(session) {
+  const userPill = document.getElementById("header-user-pill");
+  const usernameEl = document.getElementById("header-username");
+  const userRoleEl = document.getElementById("header-user-role");
+
+  if (session && session.username) {
+    if (userPill) userPill.style.display = "flex";
+    if (usernameEl) usernameEl.textContent = session.username;
+    if (userRoleEl) userRoleEl.textContent = session.is_admin ? "(Admin)" : "(Utilisateur)";
+  } else {
+    if (userPill) userPill.style.display = "none";
+  }
+}
+
+async function handleLoginSubmit(event) {
+  if (event) event.preventDefault();
+  const usernameInput = document.getElementById("login-username");
+  const passwordInput = document.getElementById("login-password");
+  const rememberInput = document.getElementById("login-remember");
+  const errorBox = document.getElementById("login-error-box");
+  const errorMsg = document.getElementById("login-error-msg");
+  const submitBtn = document.getElementById("login-submit-btn");
+
+  const username = usernameInput ? usernameInput.value.trim() : "";
+  const password = passwordInput ? passwordInput.value : "";
+  const remember = rememberInput ? rememberInput.checked : false;
+
+  if (!username || !password) {
+    if (errorBox && errorMsg) {
+      errorMsg.textContent = "Veuillez renseigner le nom d'utilisateur et le mot de passe.";
+      errorBox.style.display = "flex";
+    }
+    return;
+  }
+
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = `<span>⏳ Connexion...</span>`;
+  }
+  if (errorBox) errorBox.style.display = "none";
+
+  try {
+    const res = await originalFetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: username,
+        password: password,
+        remember_me: remember
+      })
+    });
+
+    const data = await res.json();
+
+    if (res.ok && data.success && data.token) {
+      setAuthToken(data.token, remember);
+      currentUserSession = {
+        username: data.username,
+        is_admin: data.is_admin
+      };
+      updateUserSessionUI(currentUserSession);
+      hideLoginModal();
+
+      if (!isAppInitialized) {
+        isAppInitialized = true;
+        initApp();
+        setupPolling();
+      }
+
+      showToast(`Bienvenue sur STEvE_OS, ${data.username} !`, "success");
+    } else {
+      if (errorBox && errorMsg) {
+        errorMsg.textContent = data.message || "Identifiants invalides ou accès refusé.";
+        errorBox.style.display = "flex";
+      }
+    }
+  } catch (err) {
+    if (errorBox && errorMsg) {
+      errorMsg.textContent = `Erreur de communication : ${err.message || err}`;
+      errorBox.style.display = "flex";
+    }
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = `<span>Se connecter</span>`;
+    }
+  }
+}
+
+async function logoutUser() {
+  const token = getAuthToken();
+  if (token) {
+    try {
+      await originalFetch("/api/auth/logout", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+    } catch (_) {}
+  }
+
+  clearAuthToken();
+  updateUserSessionUI(null);
+  showLoginModal();
+  showToast("Vous avez été déconnecté.", "info");
+}
+
+function togglePasswordVisibility() {
+  const pwdInput = document.getElementById("login-password");
+  const toggleBtn = document.getElementById("login-pwd-toggle");
+  if (!pwdInput) return;
+
+  if (pwdInput.type === "password") {
+    pwdInput.type = "text";
+    if (toggleBtn) toggleBtn.textContent = "🙈";
+  } else {
+    pwdInput.type = "password";
+    if (toggleBtn) toggleBtn.textContent = "👁️";
+  }
 }
