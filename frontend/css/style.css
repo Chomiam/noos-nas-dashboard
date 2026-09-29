@@ -540,3 +540,213 @@ body {
   border-radius: calc(var(--radius-md) - 3px);
   filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4));
 }
+
+/* ================= INTELLIGENT UPDATE SYSTEM ================= */
+.update-pill-btn {
+  border: 1px solid rgba(203, 166, 247, 0.25);
+  background: rgba(30, 30, 46, 0.7);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  transition: all 0.25s ease;
+  font-family: inherit;
+  font-size: 0.82rem;
+  padding: 6px 14px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+
+.update-pill-btn:hover {
+  border-color: var(--mauve);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(203, 166, 247, 0.2);
+}
+
+.update-indicator-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  transition: all 0.3s ease;
+}
+
+.update-indicator-dot.pulse-blue {
+  background: var(--sky);
+  box-shadow: 0 0 10px var(--sky);
+  animation: pulseDot 1.8s infinite;
+}
+
+.update-indicator-dot.pulse-peach {
+  background: var(--peach);
+  box-shadow: 0 0 10px var(--peach);
+  animation: pulseDot 1.8s infinite;
+}
+
+.update-indicator-dot.pulse-mauve {
+  background: var(--mauve);
+  box-shadow: 0 0 12px var(--mauve);
+  animation: pulseDot 1.3s infinite;
+}
+
+.update-indicator-dot.pulse-yellow {
+  background: var(--yellow);
+  box-shadow: 0 0 10px var(--yellow);
+  animation: pulseDot 0.8s infinite;
+}
+
+.nav-badge {
+  background: var(--mauve);
+  color: var(--crust);
+  font-weight: 700;
+  font-size: 0.7rem;
+  padding: 2px 7px;
+  border-radius: 999px;
+  margin-left: 6px;
+  box-shadow: 0 0 8px rgba(203, 166, 247, 0.5);
+}
+
+.update-hero-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, rgba(203, 166, 247, 0.12) 0%, rgba(137, 180, 250, 0.08) 100%);
+  border: 1px solid rgba(203, 166, 247, 0.25);
+  border-radius: var(--radius-lg);
+  margin-bottom: 24px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  transition: all 0.3s ease;
+}
+
+.update-hero-banner.has-updates {
+  border-color: var(--mauve);
+  box-shadow: 0 0 24px rgba(203, 166, 247, 0.2);
+}
+
+.update-hero-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.update-hero-icon {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.update-hero-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.update-hero-subtitle {
+  font-size: 0.85rem;
+  color: var(--subtext0);
+  margin-top: 3px;
+}
+
+.update-strategy-banner {
+  display: flex;
+  gap: 18px;
+  padding: 22px;
+  background: rgba(24, 24, 37, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  margin-top: 14px;
+  align-items: flex-start;
+  box-shadow: var(--shadow-card);
+}
+
+.update-strategy-icon {
+  font-size: 2.4rem;
+  line-height: 1;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  background: rgba(203, 166, 247, 0.1);
+}
+
+.update-strategy-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--mauve);
+}
+
+.update-strategy-desc {
+  font-size: 0.9rem;
+  color: var(--subtext1);
+  margin-top: 4px;
+  line-height: 1.45;
+}
+
+.update-pipeline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+  align-items: center;
+}
+
+.pipeline-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface0);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.pipeline-step.active {
+  border-color: var(--mauve);
+  background: rgba(203, 166, 247, 0.16);
+  color: var(--lavender);
+  box-shadow: 0 0 12px rgba(203, 166, 247, 0.2);
+}
+
+.pipeline-arrow {
+  color: var(--overlay0);
+  font-weight: bold;
+}
+
+.update-action-box {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.update-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.btn-lg {
+  padding: 12px 24px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 18px rgba(203, 166, 247, 0.3);
+}
+
+.btn-lg:hover {
+  box-shadow: 0 6px 24px rgba(203, 166, 247, 0.45);
+}
+
+.update-guarantee-note {
+  font-size: 0.83rem;
+  color: var(--subtext0);
+  background: rgba(49, 50, 68, 0.4);
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--teal);
+  line-height: 1.5;
+}

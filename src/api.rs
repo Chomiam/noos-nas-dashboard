@@ -10,6 +10,7 @@ use crate::firewall::{get_firewall_overview, FirewallOverview};
 use crate::services::{control_service, get_service_logs, get_services_overview, ServicesOverview};
 use crate::storage::{get_storage_overview, trigger_disk_spindown, StorageOverview};
 use crate::system::{get_gpu_info, get_system_info, GpuInfo, SystemInfo};
+use crate::updates::{apply_intelligent_update, check_updates, ApplyUpdateResult, UpdateCheckStatus};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiResponse<T> {
@@ -24,6 +25,16 @@ pub struct LogsQuery {
     pub lines: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateCheckQuery {
+    pub force: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApplyUpdateQuery {
+    pub force_packages: Option<bool>,
+}
+
 pub fn api_routes() -> Router {
     Router::new()
         .route("/system", get(handle_system))
@@ -32,6 +43,8 @@ pub fn api_routes() -> Router {
         .route("/services", get(handle_services))
         .route("/firewall", get(handle_firewall))
         .route("/logs", get(handle_logs))
+        .route("/updates/status", get(handle_updates_status))
+        .route("/updates/apply", post(handle_updates_apply))
         .route("/service/:unit/:action", post(handle_service_action))
         .route("/storage/:disk/spindown", post(handle_disk_spindown))
 }
@@ -92,6 +105,37 @@ async fn handle_logs(Query(params): Query<LogsQuery>) -> Json<ApiResponse<String
             message: Some(err),
         }),
     }
+}
+
+async fn handle_updates_status(Query(params): Query<UpdateCheckQuery>) -> Json<ApiResponse<UpdateCheckStatus>> {
+    let force = params.force.unwrap_or(false);
+    let status = tokio::task::spawn_blocking(move || {
+        check_updates(force)
+    }).await.unwrap_or_else(|_| check_updates(false));
+
+    Json(ApiResponse {
+        success: true,
+        data: Some(status),
+        message: None,
+    })
+}
+
+async fn handle_updates_apply(Query(params): Query<ApplyUpdateQuery>) -> Json<ApiResponse<ApplyUpdateResult>> {
+    let force_pkgs = params.force_packages.unwrap_or(false);
+    let result = tokio::task::spawn_blocking(move || {
+        apply_intelligent_update(force_pkgs)
+    }).await.unwrap_or_else(|e| ApplyUpdateResult {
+        success: false,
+        steps_executed: vec![],
+        output_log: format!("Erreur interne du serveur lors de la tâche : {}", e),
+        error: Some(e.to_string()),
+    });
+
+    Json(ApiResponse {
+        success: result.success,
+        data: Some(result),
+        message: None,
+    })
 }
 
 async fn handle_service_action(Path((unit, action)): Path<(String, String)>) -> Json<ApiResponse<String>> {

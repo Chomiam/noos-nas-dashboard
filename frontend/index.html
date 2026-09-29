@@ -20,6 +20,12 @@
     </div>
 
     <div class="header-status-group">
+      <!-- BOUTON PILL MISE À JOUR INTELLIGENTE -->
+      <button type="button" class="update-pill-btn" id="header-update-btn" onclick="switchTab('tab-updates')" title="Centre de mises à jour intelligent">
+        <span class="update-indicator-dot" id="update-indicator-dot"></span>
+        <span id="header-update-text">✨ Vérification màj...</span>
+      </button>
+
       <div class="status-pill">
         <span class="pulse-dot"></span>
         <span id="header-uptime">Uptime: Chargement...</span>
@@ -34,6 +40,9 @@
   <nav class="nav-tabs">
     <button class="tab-btn active" data-tab="tab-overview" onclick="switchTab('tab-overview')">
       <span>📊</span> Vue d'ensemble
+    </button>
+    <button class="tab-btn" data-tab="tab-updates" onclick="switchTab('tab-updates')">
+      <span>⚡</span> Mises à jour <span class="nav-badge" id="nav-updates-badge" style="display:none;">!</span>
     </button>
     <button class="tab-btn" data-tab="tab-storage" onclick="switchTab('tab-storage')">
       <span>💾</span> Stockage & Disques
@@ -60,6 +69,23 @@
 
     <!-- ================= ONGLET 1 : VUE D'ENSEMBLE ================= -->
     <div id="tab-overview" class="tab-pane active">
+
+      <!-- BANNIÈRE DE MISE À JOUR INTELLIGENTE SUR LA VUE D'ENSEMBLE -->
+      <div class="update-hero-banner" id="overview-update-banner">
+        <div class="update-hero-left">
+          <div class="update-hero-icon" id="overview-update-icon">⚡</div>
+          <div>
+            <div class="update-hero-title" id="overview-update-title">Vérification de l'état des mises à jour...</div>
+            <div class="update-hero-subtitle" id="overview-update-subtitle">Analyse automatique du dépôt GitHub et des paquets Nixpkgs</div>
+          </div>
+        </div>
+        <div class="update-hero-actions">
+          <button type="button" class="btn btn-primary" id="overview-update-btn" onclick="switchTab('tab-updates')">
+            <span>⚙️</span> Gérer les mises à jour
+          </button>
+        </div>
+      </div>
+
       <div class="metrics-grid">
         <!-- CPU Card -->
         <div class="metric-card">
@@ -141,210 +167,248 @@
       </div>
     </div>
 
-    <!-- ================= ONGLET 2 : STOCKAGE & DISQUES ================= -->
+    <!-- ================= ONGLET 2 : MISES À JOUR INTELLIGENTES ================= -->
+    <div id="tab-updates" class="tab-pane">
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <div class="section-icon-box">⚡</div>
+            <div>
+              <div class="section-title">Gestionnaire de Mises à Jour Intelligent STEvE_OS</div>
+              <div class="section-subtitle">Détection GitHub, Git Pull sécurisé (validation syntaxe & rollback) et nh os switch -u</div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="checkForUpdates(true)">
+            <span>🔄</span> Vérifier maintenant
+          </button>
+        </div>
+
+        <!-- Bannière de Stratégie Détectée -->
+        <div class="update-strategy-banner" id="update-strategy-banner">
+          <div class="update-strategy-icon" id="strategy-icon">✨</div>
+          <div class="update-strategy-details">
+            <div class="update-strategy-title" id="strategy-title">Système et configuration à jour</div>
+            <div class="update-strategy-desc" id="strategy-desc">Aucune mise à jour détectée sur le dépôt GitHub ni dans les paquets Nixpkgs.</div>
+            <div class="update-pipeline" id="strategy-pipeline">
+              <div class="pipeline-step" id="pipe-step-1">1. Git Pull Sécurisé</div>
+              <span class="pipeline-arrow">➔</span>
+              <div class="pipeline-step" id="pipe-step-2">2. Test Syntaxe Nix</div>
+              <span class="pipeline-arrow">➔</span>
+              <div class="pipeline-step" id="pipe-step-3">3. nh os switch -u</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Grille des Statuts Détaillés -->
+        <div class="metrics-grid" style="margin-top: 20px;">
+          <!-- Carte Git Config -->
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">Configuration NixOS (GitHub)</span>
+              <span class="metric-icon">🐙</span>
+            </div>
+            <div style="margin: 10px 0;">
+              <div style="font-size: 0.82rem; color: var(--subtext0);">Dépôt distant : <a href="https://github.com/Chomiam/steve_os-nix" target="_blank" style="color:var(--mauve); text-decoration:none; font-weight:600;">Chomiam/steve_os-nix</a></div>
+              <div style="font-size: 0.85rem; margin-top: 6px;">Local : <code id="git-local-sha" style="color:var(--teal); font-weight:bold;">--</code> | Distant : <code id="git-remote-sha" style="color:var(--sky); font-weight:bold;">--</code></div>
+            </div>
+            <div class="metric-progress-wrap" style="height: 6px; margin: 8px 0;">
+              <div class="metric-progress-bar progress-mauve" id="git-status-bar" style="width: 100%;"></div>
+            </div>
+            <p id="git-status-note" style="font-size:0.75rem; color:var(--subtext0);">Sécurisé avec vérification de syntaxe & rollback auto</p>
+          </div>
+
+          <!-- Carte Paquets Nixpkgs -->
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">Paquets Système & Flake</span>
+              <span class="metric-icon">📦</span>
+            </div>
+            <div style="margin: 10px 0;">
+              <div style="font-size: 0.82rem; color: var(--subtext0);">Canal Nixpkgs : <span style="color:var(--peach); font-weight:600;">nixos-26.05</span></div>
+              <div style="font-size: 0.85rem; margin-top: 6px;" id="packages-status-summary">Paquets à jour</div>
+            </div>
+            <div class="metric-progress-wrap" style="height: 6px; margin: 8px 0;">
+              <div class="metric-progress-bar progress-peach" id="packages-status-bar" style="width: 100%;"></div>
+            </div>
+            <p id="packages-status-note" style="font-size:0.75rem; color:var(--subtext0);">Déployé via nh os switch -u</p>
+          </div>
+        </div>
+
+        <!-- Boutons d'Action Intelligents -->
+        <div class="update-action-box">
+          <div class="update-action-buttons">
+            <button type="button" class="btn btn-primary btn-lg" id="btn-intelligent-update" onclick="triggerIntelligentUpdate()">
+              <span id="btn-update-icon">⚡</span> <span id="btn-update-label">Lancer la mise à jour intelligente</span>
+            </button>
+            <button type="button" class="btn btn-secondary" id="btn-force-packages" onclick="triggerForcePackagesUpdate()">
+              <span>📦</span> Forcer màj paquets (nh os switch -u)
+            </button>
+          </div>
+          <div class="update-guarantee-note">
+            🛡️ <strong>Garantie de sécurité STEvE_OS</strong> : Lors d'une mise à jour de configuration, vos fichiers non validés sont automatiquement mis en réserve (stash), le nouveau code Nix est compilé/évalué à blanc. En cas d'erreur de syntaxe ou de régression, un rollback automatique est appliqué sans impacter le système en production.
+          </div>
+        </div>
+
+        <!-- Console d'Exécution nh / git -->
+        <div class="terminal-window" style="margin-top: 24px;">
+          <div class="terminal-header">
+            <span style="font-size:0.78rem; color:var(--subtext0); font-family:var(--font-mono);">
+              Console d'Exécution des Mises à Jour (Git Pull + nh os switch)
+            </span>
+            <div style="display:flex; gap:8px;">
+              <span class="badge" id="terminal-update-status" style="display:none;">En attente</span>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="clearUpdateTerminal()">Nettoyer</button>
+            </div>
+          </div>
+          <div class="terminal-body" id="update-terminal-body">Prêt pour la prochaine mise à jour.
+Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'application.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= ONGLET 3 : STOCKAGE & DISQUES ================= -->
     <div id="tab-storage" class="tab-pane">
       <div class="section-card">
         <div class="section-header">
           <div class="section-title-wrap">
-            <div class="section-icon-box">📂</div>
+            <div class="section-icon-box">💾</div>
             <div>
-              <div class="section-title">Volumes de Stockage & Pools de Données</div>
-              <div class="section-subtitle">Points de montage montés et espace disponible</div>
+              <div class="section-title">Pools & Systèmes de Fichiers (ZFS / Btrfs)</div>
+              <div class="section-subtitle">Surveillance de l'intégrité, de l'espace alloué et des points de montage</div>
             </div>
           </div>
         </div>
-        <table class="custom-table" id="table-pools">
-          <thead>
-            <tr>
-              <th>Point de Montage</th>
-              <th>Système de Fichiers</th>
-              <th>Utilisé / Total</th>
-              <th>Espace Libre</th>
-              <th>Utilisation</th>
-            </tr>
-          </thead>
-          <tbody id="pools-tbody"></tbody>
-        </table>
+        <div class="pools-grid" id="pools-container"></div>
       </div>
 
       <div class="section-card">
         <div class="section-header">
           <div class="section-title-wrap">
-            <div class="section-icon-box">💽</div>
+            <div class="section-icon-box">💿</div>
             <div>
-              <div class="section-title">Disques Physiques & État Énergétique</div>
-              <div class="section-subtitle">Contrôle du spindown (mise en veille) et santé S.M.A.R.T.</div>
+              <div class="section-title">Disques Physiques & Contrôle d'Énergie</div>
+              <div class="section-subtitle">Gestion de l'arrêt moteur des disques inactifs (HDD Spindown) pour économiser l'énergie</div>
             </div>
           </div>
         </div>
-        <table class="custom-table" id="table-physical-disks">
-          <thead>
-            <tr>
-              <th>Disque</th>
-              <th>Modèle</th>
-              <th>Type</th>
-              <th>Capacité</th>
-              <th>État de Rotation</th>
-              <th>Santé SMART</th>
-              <th style="text-align:right;">Action</th>
-            </tr>
-          </thead>
-          <tbody id="disks-tbody"></tbody>
-        </table>
+        <div class="disks-grid" id="disks-container"></div>
       </div>
     </div>
 
-    <!-- ================= ONGLET 3 : PARTAGES & SFTP ================= -->
+    <!-- ================= ONGLET 4 : PARTAGES & SFTP ================= -->
     <div id="tab-shares" class="tab-pane">
-      <!-- sFTP Hero Banner -->
-      <div class="banner-box info">
-        <div style="font-size:1.8rem;">🔒</div>
-        <div style="flex:1;">
-          <strong style="color:var(--text); font-size:1rem; display:block; margin-bottom:4px;">Accès sFTP Sécurisé Direct</strong>
-          <p style="color:var(--subtext1); font-size:0.86rem; margin-bottom:10px;">
-            Pour vos transferts sécurisés à distance (FileZilla, Cyberduck, Dolphin), utilisez le lien sFTP direct vers votre NAS :
-          </p>
-          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-            <code class="banner-code" id="sftp-connection-uri">sftp://chomiam@192.168.1.139:22</code>
-            <button type="button" class="btn btn-primary btn-xs" onclick="copySftpUri()">
-              <span id="sftp-copy-icon">📋</span> Copier le lien sFTP
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Samba Shares -->
-      <div class="section-card">
+      <!-- Direct sFTP Connection Box -->
+      <div class="section-card" style="border: 1px solid rgba(137, 180, 250, 0.3); background: rgba(137, 180, 250, 0.05);">
         <div class="section-header">
           <div class="section-title-wrap">
-            <div class="section-icon-box">🪟</div>
+            <div class="section-icon-box" style="background:rgba(137,180,250,0.2); color:var(--blue);">🚀</div>
             <div>
-              <div class="section-title">Partages Samba (SMB / Windows / Mac)</div>
-              <div class="section-subtitle">Partages de fichiers locaux avec découverte automatique WSDD</div>
+              <div class="section-title">Lien Direct sFTP / WireGuard</div>
+              <div class="section-subtitle">Partagez ce lien direct avec les utilisateurs connectés au VPN ou sur le réseau local</div>
             </div>
           </div>
-          <button type="button" class="btn btn-secondary btn-xs" onclick="restartService('samba-smbd')">
-            🔄 Redémarrer Samba
+          <button type="button" class="btn btn-secondary btn-xs" onclick="copySftpUri()">
+            <span id="sftp-copy-icon">📋</span> Copier l'URI
           </button>
         </div>
-
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px;" id="samba-shares-grid">
-          <div class="metric-card">
-            <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
-              <span style="font-size:1.4rem;">📁</span>
-              <strong>Partage Principal (/mnt/storage/shares)</strong>
-            </div>
-            <p style="font-size:0.82rem; color:var(--subtext0); margin-bottom:12px;">Accès en lecture et écriture pour les utilisateurs du groupe storage.</p>
-            <div style="display:flex; align-items:center; justify-content:space-between;">
-              <span class="badge badge-success">Actif</span>
-              <button type="button" class="btn btn-secondary btn-xs" onclick="copyText('smb://' + location.hostname + '/shares')">Copier lien SMB</button>
-            </div>
-          </div>
+        <div style="background:var(--mantle); padding:14px 18px; border-radius:var(--radius-md); font-family:var(--font-mono); font-size:0.95rem; color:var(--teal); display:flex; align-items:center; justify-content:space-between; border:1px solid rgba(255,255,255,0.06);">
+          <span id="sftp-connection-uri">sftp://chomiam@192.168.1.139:22</span>
+          <span class="badge badge-success">Port SSH 22 Ouvert</span>
         </div>
       </div>
 
-      <!-- Active Sessions -->
       <div class="section-card">
         <div class="section-header">
           <div class="section-title-wrap">
-            <div class="section-icon-box">👥</div>
+            <div class="section-icon-box">📁</div>
             <div>
-              <div class="section-title">Sessions Clients Actives (Samba & sFTP)</div>
-              <div class="section-subtitle">Utilisateurs actuellement connectés sur vos partages</div>
+              <div class="section-title">Partages Réseau Actifs (Samba / NFS / sFTP)</div>
+              <div class="section-subtitle">Dossiers accessibles sur le réseau local et distants</div>
             </div>
           </div>
         </div>
-        <table class="custom-table">
-          <thead>
-            <tr>
-              <th>Utilisateur</th>
-              <th>Protocole</th>
-              <th>Adresse IP Cliente</th>
-              <th>Statut</th>
-            </tr>
-          </thead>
-          <tbody id="sessions-tbody"></tbody>
-        </table>
+        <div class="shares-grid" id="shares-container">
+          <div class="share-card">
+            <div class="share-title">📂 /storage/data</div>
+            <div class="share-meta">Partage Général NAS (Samba smb:// + sFTP)</div>
+            <div class="share-path">/storage/data (chomiam:users, 755)</div>
+            <div style="margin-top:12px; display:flex; gap:8px;">
+              <span class="badge badge-success">Lecture / Écriture</span>
+              <span class="badge badge-primary">Protégé Fail2ban</span>
+            </div>
+          </div>
+          <div class="share-card">
+            <div class="share-title">🎬 /storage/media</div>
+            <div class="share-meta">Bibliothèque Multimédia Jellyfin & DLNA</div>
+            <div class="share-path">/storage/media (Films, Séries, Musique)</div>
+            <div style="margin-top:12px; display:flex; gap:8px;">
+              <span class="badge badge-success">Accès Jellyfin</span>
+              <span class="badge badge-primary">Transcodage GPU</span>
+            </div>
+          </div>
+          <div class="share-card">
+            <div class="share-title">📦 /storage/backups</div>
+            <div class="share-meta">Dépôt de sauvegardes chiffrées & snapshots</div>
+            <div class="share-path">/storage/backups (Accès restreint chomiam)</div>
+            <div style="margin-top:12px; display:flex; gap:8px;">
+              <span class="badge badge-warning">Snapshot ZFS</span>
+              <span class="badge badge-primary">SSH chroot</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- ================= ONGLET 4 : GPU & TRANSCODAGE ================= -->
+    <!-- ================= ONGLET 5 : GPU & TRANSCODAGE ================= -->
     <div id="tab-gpu" class="tab-pane">
       <div class="section-card">
         <div class="section-header">
           <div class="section-title-wrap">
             <div class="section-icon-box">🎬</div>
             <div>
-              <div class="section-title">Accélération Matérielle & Transcodage Vidéo</div>
-              <div class="section-subtitle">Détection matérielle du GPU (Intel QSV, AMD VA-API, Nvidia NVENC)</div>
+              <div class="section-title">Accélération Matérielle & GPU Détecté</div>
+              <div class="section-subtitle">Configuration automatique NixOS avec VA-API, Intel QSV ou NVIDIA NVENC</div>
             </div>
           </div>
-          <button type="button" class="btn btn-primary btn-xs" onclick="window.open('http://' + location.hostname + ':8096', '_blank')">
-            🚀 Ouvrir Jellyfin
-          </button>
+          <span class="badge badge-primary" id="gpu-vendor-badge">Détection...</span>
         </div>
 
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:18px; margin-bottom:20px;">
-          <div class="metric-card">
-            <span class="metric-title">Constructeur & Pilote</span>
-            <div class="metric-value" id="gpu-vendor" style="font-size:1.4rem; margin:10px 0;">Détection...</div>
-            <p id="gpu-model" style="font-size:0.85rem; color:var(--subtext1);">Modèle matériel</p>
-          </div>
+        <div class="gpu-box">
+          <div class="gpu-model-name" id="gpu-model-title">Détection du processeur graphique...</div>
+          <div style="font-size:0.88rem; color:var(--subtext0); margin-top:4px;" id="gpu-driver-info">Pilotes & API de transcodage matériel</div>
 
-          <div class="metric-card">
-            <span class="metric-title">Périphérique DRM Linux</span>
-            <div class="metric-value" id="gpu-dri-status" style="font-size:1.4rem; margin:10px 0;">/dev/dri</div>
-            <p id="gpu-render-node" style="font-size:0.85rem; color:var(--green);">Accessible (/dev/dri/renderD128)</p>
+          <div style="margin-top:16px;">
+            <div style="font-size:0.85rem; font-weight:600; color:var(--text); margin-bottom:8px;">Codecs Matériels Disponibles (VA-API / QSV) :</div>
+            <div class="codec-badges-wrap" id="gpu-codecs-list"></div>
           </div>
-
-          <div class="metric-card">
-            <span class="metric-title">Tâches de Transcodage Actives</span>
-            <div class="metric-value" id="gpu-active-jobs" style="font-size:1.4rem; margin:10px 0;">0 flux</div>
-            <p style="font-size:0.85rem; color:var(--subtext0);">Jellyfin / FFmpeg</p>
-          </div>
-        </div>
-
-        <div>
-          <h4 style="font-size:0.95rem; margin-bottom:10px; color:var(--text);">Codecs Matériels Pris en Charge Déclarativement :</h4>
-          <div id="gpu-codecs-list" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
         </div>
       </div>
     </div>
 
-    <!-- ================= ONGLET 5 : CONTENEURS DOCKER ================= -->
+    <!-- ================= ONGLET 6 : CONTENEURS DOCKER ================= -->
     <div id="tab-containers" class="tab-pane">
       <div class="section-card">
         <div class="section-header">
           <div class="section-title-wrap">
             <div class="section-icon-box">🐳</div>
             <div>
-              <div class="section-title">Conteneurs Docker du NAS</div>
-              <div class="section-subtitle">Applications hébergées en conteneurs avec injection du GPU /dev/dri</div>
+              <div class="section-title">Conteneurs & Applications Docker</div>
+              <div class="section-subtitle">Gérés nativement par le démon Docker de STEvE_OS</div>
             </div>
           </div>
         </div>
-        <table class="custom-table">
-          <thead>
-            <tr>
-              <th>Nom du Conteneur</th>
-              <th>Image</th>
-              <th>Statut</th>
-              <th style="text-align:right;">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="containers-tbody"></tbody>
-        </table>
+        <div class="containers-grid" id="containers-container"></div>
       </div>
     </div>
 
-    <!-- ================= ONGLET 6 : PARE-FEU & SÉCURITÉ ================= -->
+    <!-- ================= ONGLET 7 : PARE-FEU & SÉCURITÉ ================= -->
     <div id="tab-firewall" class="tab-pane">
       <div class="section-card">
         <div class="section-header">
           <div class="section-title-wrap">
             <div class="section-icon-box">🛡️</div>
             <div>
-              <div class="section-title">Pare-Feu Modulaire (Ports Réseau Autorisés)</div>
+              <div class="section-title">Ports Ouverts & Déclaration Modulaire NixOS</div>
               <div class="section-subtitle">Chaque service déclare et ouvre automatiquement ses ports dans NixOS</div>
             </div>
           </div>
@@ -382,7 +446,7 @@
       </div>
     </div>
 
-    <!-- ================= ONGLET 7 : LOGS & CONSOLE ================= -->
+    <!-- ================= ONGLET 8 : LOGS & CONSOLE ================= -->
     <div id="tab-logs" class="tab-pane">
       <div class="section-card">
         <div class="section-header">

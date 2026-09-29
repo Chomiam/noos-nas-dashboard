@@ -3,6 +3,8 @@
 // ==========================================================================
 
 let activeTab = "tab-overview";
+let lastUpdateStatus = null;
+let isUpdatingNow = false;
 
 document.addEventListener("DOMContentLoaded", () => {
   initApp();
@@ -12,6 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
 function initApp() {
   refreshAll(false);
   updateSftpUri();
+  checkForUpdates(false);
 }
 
 function setupPolling() {
@@ -28,6 +31,11 @@ function setupPolling() {
     if (activeTab === "tab-shares") loadServices();
     if (activeTab === "tab-containers") loadServices();
   }, 12000);
+
+  // Vérification périodique des mises à jour en arrière-plan (30 secondes)
+  setInterval(() => {
+    checkForUpdates(false);
+  }, 30000);
 }
 
 // --------------------------------------------------------------------------
@@ -44,6 +52,7 @@ function switchTab(tabId) {
   });
 
   if (tabId === "tab-overview") loadSystem();
+  if (tabId === "tab-updates") checkForUpdates(false);
   if (tabId === "tab-storage") loadStorage();
   if (tabId === "tab-shares") loadServices();
   if (tabId === "tab-gpu") loadGpu();
@@ -62,7 +71,8 @@ async function refreshAll(showFeedback = false) {
       loadStorage(),
       loadServices(),
       loadGpu(),
-      loadFirewall()
+      loadFirewall(),
+      checkForUpdates(false)
     ]);
     if (showFeedback) {
       showToast("Données du NAS actualisées !", "success");
@@ -136,6 +146,292 @@ async function loadSystem() {
 }
 
 // --------------------------------------------------------------------------
+// MISES À JOUR INTELLIGENTES (STEvE_OS UPDATE ENGINE)
+// --------------------------------------------------------------------------
+async function checkForUpdates(force = false) {
+  try {
+    const res = await fetch(`/api/updates/status${force ? '?force=true' : ''}`);
+    const json = await res.json();
+    if (!json.success || !json.data) return;
+
+    lastUpdateStatus = json.data;
+    renderUpdatesUI(lastUpdateStatus);
+  } catch (err) {
+    console.warn("Erreur fetch /api/updates/status:", err);
+  }
+}
+
+function renderUpdatesUI(status) {
+  const dot = document.getElementById("update-indicator-dot");
+  const pillText = document.getElementById("header-update-text");
+  const navBadge = document.getElementById("nav-updates-badge");
+
+  const heroBanner = document.getElementById("overview-update-banner");
+  const heroIcon = document.getElementById("overview-update-icon");
+  const heroTitle = document.getElementById("overview-update-title");
+  const heroSub = document.getElementById("overview-update-subtitle");
+
+  const stratIcon = document.getElementById("strategy-icon");
+  const stratTitle = document.getElementById("strategy-title");
+  const stratDesc = document.getElementById("strategy-desc");
+  const step1 = document.getElementById("pipe-step-1");
+  const step2 = document.getElementById("pipe-step-2");
+  const step3 = document.getElementById("pipe-step-3");
+
+  const btnUpdate = document.getElementById("btn-intelligent-update");
+  const btnIcon = document.getElementById("btn-update-icon");
+  const btnLabel = document.getElementById("btn-update-label");
+
+  const gitLocal = document.getElementById("git-local-sha");
+  const gitRemote = document.getElementById("git-remote-sha");
+  const pkgSummary = document.getElementById("packages-status-summary");
+
+  if (gitLocal) gitLocal.textContent = status.config_local_commit || "--";
+  if (gitRemote) gitRemote.textContent = status.config_remote_commit || status.config_local_commit || "--";
+
+  if (pkgSummary) {
+    if (status.package_updates_available) {
+      pkgSummary.innerHTML = `<span style="color:var(--peach); font-weight:bold;">${status.package_details[0] || 'Mise à jour disponible'}</span>`;
+    } else {
+      pkgSummary.innerHTML = `<span style="color:var(--green);">✔ Tous les paquets sont à jour</span>`;
+    }
+  }
+
+  // Si une mise à jour est en cours
+  if (status.is_updating || isUpdatingNow) {
+    if (dot) dot.className = "update-indicator-dot pulse-yellow";
+    if (pillText) pillText.textContent = "⏳ Mise à jour en cours...";
+    if (btnUpdate) {
+      btnUpdate.disabled = true;
+      if (btnIcon) btnIcon.textContent = "⏳";
+      if (btnLabel) btnLabel.textContent = "Mise à jour en cours d'exécution...";
+    }
+    return;
+  }
+
+  if (btnUpdate) btnUpdate.disabled = false;
+
+  const hasConfig = status.config_update_available;
+  const hasPkgs = status.package_updates_available;
+
+  // Réinitialiser les étapes de pipeline
+  if (step1) step1.className = "pipeline-step";
+  if (step2) step2.className = "pipeline-step";
+  if (step3) step3.className = "pipeline-step";
+
+  if (hasConfig && hasPkgs) {
+    // Both: First Git pull, then nh os switch -u
+    if (dot) dot.className = "update-indicator-dot pulse-mauve";
+    if (pillText) pillText.textContent = "⚡ Màj Config & Paquets";
+    if (navBadge) { navBadge.style.display = "inline-block"; navBadge.textContent = "⚡ 2"; }
+
+    if (heroBanner) heroBanner.className = "update-hero-banner has-updates";
+    if (heroIcon) heroIcon.textContent = "⚡";
+    if (heroTitle) heroTitle.textContent = "Nouvelle configuration & paquets système disponibles !";
+    if (heroSub) heroSub.textContent = "1. Git Pull sécurisé (GitHub) ➔ 2. Validation Nix ➔ 3. nh os switch -u";
+
+    if (stratIcon) stratIcon.textContent = "⚡";
+    if (stratTitle) stratTitle.textContent = "Mise à jour complète recommandée (Configuration + Paquets)";
+    if (stratDesc) stratDesc.textContent = "Une nouvelle version de la configuration est présente sur GitHub, et des mises à jour de paquets Nixpkgs sont disponibles.";
+    if (step1) step1.className = "pipeline-step active";
+    if (step2) step2.className = "pipeline-step active";
+    if (step3) { step3.className = "pipeline-step active"; step3.textContent = "3. nh os switch -u"; }
+
+    if (btnIcon) btnIcon.textContent = "⚡";
+    if (btnLabel) btnLabel.textContent = "Lancer la mise à jour complète (Git Pull + nh os switch -u)";
+  } else if (hasConfig) {
+    // Config only
+    if (dot) dot.className = "update-indicator-dot pulse-blue";
+    if (pillText) pillText.textContent = "📥 Màj Config dispo";
+    if (navBadge) { navBadge.style.display = "inline-block"; navBadge.textContent = "1"; }
+
+    if (heroBanner) heroBanner.className = "update-hero-banner has-updates";
+    if (heroIcon) heroIcon.textContent = "📥";
+    if (heroTitle) heroTitle.textContent = "Nouvelle configuration disponible sur GitHub !";
+    if (heroSub) heroSub.textContent = "Git Pull sécurisé avec test de syntaxe et rollback automatique";
+
+    if (stratIcon) stratIcon.textContent = "📥";
+    if (stratTitle) stratTitle.textContent = "Mise à jour de configuration détectée";
+    if (stratDesc) stratDesc.textContent = "Le dépôt distant Chomiam/steve_os-nix contient de nouveaux commits prêts à être déployés.";
+    if (step1) step1.className = "pipeline-step active";
+    if (step2) step2.className = "pipeline-step active";
+    if (step3) { step3.className = "pipeline-step active"; step3.textContent = "3. nh os switch"; }
+
+    if (btnIcon) btnIcon.textContent = "📥";
+    if (btnLabel) btnLabel.textContent = "Mettre à jour la configuration (Git Pull + nh os switch)";
+  } else if (hasPkgs) {
+    // Packages only
+    if (dot) dot.className = "update-indicator-dot pulse-peach";
+    if (pillText) pillText.textContent = "📦 Màj Paquets dispo";
+    if (navBadge) { navBadge.style.display = "inline-block"; navBadge.textContent = "1"; }
+
+    if (heroBanner) heroBanner.className = "update-hero-banner has-updates";
+    if (heroIcon) heroIcon.textContent = "📦";
+    if (heroTitle) heroTitle.textContent = "Mises à jour de paquets système disponibles !";
+    if (heroSub) heroSub.textContent = "Nouveaux paquets disponibles sur le canal Nixpkgs 26.05";
+
+    if (stratIcon) stratIcon.textContent = "📦";
+    if (stratTitle) stratTitle.textContent = "Mise à jour des paquets système (Nixpkgs)";
+    if (stratDesc) stratDesc.textContent = "La configuration est à jour, mais des paquets plus récents sont disponibles sur Nixpkgs.";
+    if (step3) { step3.className = "pipeline-step active"; step3.textContent = "1. nh os switch -u"; }
+
+    if (btnIcon) btnIcon.textContent = "📦";
+    if (btnLabel) btnLabel.textContent = "Mettre à jour les paquets (nh os switch -u)";
+  } else {
+    // Up to date
+    if (dot) dot.className = "update-indicator-dot";
+    if (pillText) pillText.textContent = "✨ Système à jour";
+    if (navBadge) navBadge.style.display = "none";
+
+    if (heroBanner) heroBanner.className = "update-hero-banner";
+    if (heroIcon) heroIcon.textContent = "✨";
+    if (heroTitle) heroTitle.textContent = "Votre STEvE_OS NAS est parfaitement à jour";
+    if (heroSub) heroSub.textContent = `Dernière vérification à ${status.last_checked} • Configuration & Paquets synchronisés`;
+
+    if (stratIcon) stratIcon.textContent = "✨";
+    if (stratTitle) stratTitle.textContent = "Système et configuration à jour";
+    if (stratDesc) stratDesc.textContent = `Tous les composants sont alignés sur le dépôt distant et le canal Nixpkgs (vérifié à ${status.last_checked}).`;
+
+    if (btnIcon) btnIcon.textContent = "🔄";
+    if (btnLabel) btnLabel.textContent = "Rechercher à nouveau les mises à jour";
+  }
+}
+
+async function triggerIntelligentUpdate() {
+  if (isUpdatingNow) return;
+
+  const btnUpdate = document.getElementById("btn-intelligent-update");
+  const btnLabel = document.getElementById("btn-update-label");
+  const btnIcon = document.getElementById("btn-update-icon");
+  const termBody = document.getElementById("update-terminal-body");
+  const termStatus = document.getElementById("terminal-update-status");
+
+  // Si tout est à jour, un clic force la re-vérification
+  if (lastUpdateStatus && lastUpdateStatus.update_type === "None") {
+    showToast("Recherche de mises à jour forcée...", "info");
+    await checkForUpdates(true);
+    showToast(lastUpdateStatus.status_text, "info");
+    return;
+  }
+
+  if (!confirm("Voulez-vous lancer la mise à jour intelligente ?\nLe système garantit un rollback en cas d'erreur de syntaxe.")) {
+    return;
+  }
+
+  isUpdatingNow = true;
+  if (btnUpdate) btnUpdate.disabled = true;
+  if (btnIcon) btnIcon.textContent = "⏳";
+  if (btnLabel) btnLabel.textContent = "Mise à jour en cours d'exécution...";
+
+  if (termStatus) {
+    termStatus.style.display = "inline-block";
+    termStatus.className = "badge badge-warning";
+    termStatus.textContent = "⏳ En cours...";
+  }
+
+  if (termBody) {
+    termBody.textContent = "🚀 Lancement de la mise à jour intelligente...\nCette opération peut prendre quelques minutes selon les paquets à compiler/télécharger.\nVeuillez ne pas éteindre le NAS.\n\n";
+  }
+
+  showToast("Lancement de la mise à jour intelligente...", "info");
+
+  try {
+    const res = await fetch("/api/updates/apply", { method: "POST" });
+    const json = await res.json();
+    const result = json.data || {};
+
+    if (termBody) {
+      termBody.textContent = result.output_log || "Aucun log retourné.";
+    }
+
+    if (json.success && result.success) {
+      if (termStatus) {
+        termStatus.className = "badge badge-success";
+        termStatus.textContent = "✔ Succès";
+      }
+      showToast("Mise à jour STEvE_OS appliquée avec succès !", "success");
+    } else {
+      if (termStatus) {
+        termStatus.className = "badge badge-danger";
+        termStatus.textContent = "❌ Échec / Rollback";
+      }
+      showToast("Échec de la mise à jour : " + (result.error || json.message || "Erreur inconnue"), "error");
+    }
+  } catch (err) {
+    if (termBody) termBody.textContent += "\nErreur réseau lors de l'appel API : " + err;
+    if (termStatus) {
+      termStatus.className = "badge badge-danger";
+      termStatus.textContent = "❌ Erreur réseau";
+    }
+    showToast("Erreur de connexion : " + err, "error");
+  } finally {
+    isUpdatingNow = false;
+    await checkForUpdates(true);
+  }
+}
+
+async function triggerForcePackagesUpdate() {
+  if (isUpdatingNow) return;
+
+  if (!confirm("Voulez-vous forcer la mise à jour des paquets Nixpkgs (nh os switch -u) ?")) {
+    return;
+  }
+
+  isUpdatingNow = true;
+  const termBody = document.getElementById("update-terminal-body");
+  const termStatus = document.getElementById("terminal-update-status");
+
+  if (termStatus) {
+    termStatus.style.display = "inline-block";
+    termStatus.className = "badge badge-warning";
+    termStatus.textContent = "⏳ nh os switch -u en cours...";
+  }
+
+  if (termBody) {
+    termBody.textContent = "🚀 Exécution forcée de nh os switch -u...\nActualisation des entrées du flake et recompilation des paquets système.\n\n";
+  }
+
+  showToast("Lancement de nh os switch -u...", "info");
+
+  try {
+    const res = await fetch("/api/updates/apply?force_packages=true", { method: "POST" });
+    const json = await res.json();
+    const result = json.data || {};
+
+    if (termBody) {
+      termBody.textContent = result.output_log || "Aucun log retourné.";
+    }
+
+    if (json.success && result.success) {
+      if (termStatus) {
+        termStatus.className = "badge badge-success";
+        termStatus.textContent = "✔ Succès";
+      }
+      showToast("Mise à jour des paquets terminée avec succès !", "success");
+    } else {
+      if (termStatus) {
+        termStatus.className = "badge badge-danger";
+        termStatus.textContent = "❌ Échec";
+      }
+      showToast("Erreur lors de la mise à jour : " + (result.error || json.message), "error");
+    }
+  } catch (err) {
+    if (termBody) termBody.textContent += "\nErreur réseau : " + err;
+    showToast("Erreur réseau : " + err, "error");
+  } finally {
+    isUpdatingNow = false;
+    await checkForUpdates(true);
+  }
+}
+
+function clearUpdateTerminal() {
+  const termBody = document.getElementById("update-terminal-body");
+  const termStatus = document.getElementById("terminal-update-status");
+  if (termBody) termBody.textContent = "Console prête.";
+  if (termStatus) termStatus.style.display = "none";
+}
+
+// --------------------------------------------------------------------------
 // STOCKAGE & DISQUES
 // --------------------------------------------------------------------------
 async function loadStorage() {
@@ -162,31 +458,36 @@ async function loadStorage() {
       if (storageFree) storageFree.textContent = `${mainPool.free_human} libres sur ${mainPool.mountpoint}`;
     }
 
-    // Pools Table
-    const poolsTbody = document.getElementById("pools-tbody");
-    if (poolsTbody) {
-      poolsTbody.innerHTML = data.pools.map(p => `
-        <tr>
-          <td><strong>📁 ${escapeHtml(p.mountpoint)}</strong></td>
-          <td><code style="color:var(--subtext0);">${escapeHtml(p.filesystem)}</code></td>
-          <td>${p.used_human} / ${p.total_human}</td>
-          <td><span style="color:var(--green); font-weight:600;">${p.free_human}</span></td>
-          <td style="min-width:180px;">
-            <div style="display:flex; align-items:center; gap:10px;">
-              <div class="metric-progress-wrap" style="flex:1;">
-                <div class="metric-progress-bar progress-peach" style="width: ${Math.min(p.usage_percent, 100)}%;"></div>
-              </div>
-              <span style="font-size:0.8rem; font-family:var(--font-mono);">${p.usage_percent}%</span>
+    // Pools Grid
+    const poolsContainer = document.getElementById("pools-container");
+    if (poolsContainer) {
+      poolsContainer.innerHTML = data.pools.map(p => `
+        <div class="pool-card">
+          <div class="pool-header">
+            <div>
+              <div class="pool-name">📁 ${escapeHtml(p.name)} (${escapeHtml(p.mountpoint)})</div>
+              <div style="font-size:0.78rem; color:var(--subtext0);">Système: ${escapeHtml(p.filesystem)}</div>
             </div>
-          </td>
-        </tr>
+            <span class="badge ${p.health === 'ONLINE' ? 'badge-success' : 'badge-warning'}">${escapeHtml(p.health)}</span>
+          </div>
+
+          <div class="metric-value-row" style="margin: 12px 0 6px 0;">
+            <span class="metric-value" style="font-size:1.4rem;">${p.usage_percent}%</span>
+            <span class="metric-unit">${p.used_human} / ${p.total_human}</span>
+          </div>
+
+          <div class="metric-progress-wrap">
+            <div class="metric-progress-bar ${p.usage_percent > 85 ? 'progress-red' : 'progress-peach'}" style="width: ${Math.min(p.usage_percent, 100)}%;"></div>
+          </div>
+          <div style="font-size:0.78rem; color:var(--subtext0); margin-top:8px;">${p.free_human} disponibles</div>
+        </div>
       `).join("");
     }
 
-    // Physical Disks Table
-    const disksTbody = document.getElementById("disks-tbody");
-    if (disksTbody) {
-      disksTbody.innerHTML = data.physical_disks.map(d => {
+    // Disks Grid
+    const disksContainer = document.getElementById("disks-container");
+    if (disksContainer) {
+      disksContainer.innerHTML = data.physical_disks.map(d => {
         const isStandby = d.power_state.toLowerCase().includes("veille") || d.power_state.toLowerCase().includes("standby");
         const stateBadge = isStandby 
           ? `<span class="badge badge-warning">🌙 ${escapeHtml(d.power_state)}</span>`
@@ -197,15 +498,22 @@ async function loadStorage() {
           : `<span class="badge badge-info">SSD (Sans moteur)</span>`;
 
         return `
-          <tr>
-            <td><strong>💽 ${escapeHtml(d.path)}</strong></td>
-            <td>${escapeHtml(d.model)}</td>
-            <td><span class="badge badge-mauve">${escapeHtml(d.disk_type)}</span></td>
-            <td>${escapeHtml(d.size_human)}</td>
-            <td>${stateBadge}</td>
-            <td><span class="badge badge-success">${escapeHtml(d.smart_status)}</span></td>
-            <td style="text-align:right;">${spindownBtn}</td>
-          </tr>
+          <div class="disk-card">
+            <div class="disk-header">
+              <span class="disk-name">💿 /dev/${escapeHtml(d.name)}</span>
+              ${stateBadge}
+            </div>
+            <div class="disk-model">${escapeHtml(d.model)}</div>
+            <div class="disk-meta-grid">
+              <div>Capacité : <strong>${d.size_human}</strong></div>
+              <div>Type : <strong>${d.is_rotational ? 'HDD Mécanique' : 'SSD Flash'}</strong></div>
+              <div>Température : <strong style="color:${d.temperature_c > 45 ? 'var(--red)' : 'var(--green)'};">${d.temperature_c > 0 ? d.temperature_c + ' °C' : 'N/A'}</strong></div>
+              <div>Santé S.M.A.R.T : <strong style="color:var(--green);">${escapeHtml(d.smart_status)}</strong></div>
+            </div>
+            <div class="disk-actions">
+              ${spindownBtn}
+            </div>
+          </div>
         `;
       }).join("");
     }
@@ -215,7 +523,7 @@ async function loadStorage() {
 }
 
 // --------------------------------------------------------------------------
-// SERVICES & SESSIONS
+// SERVICES & DOCKER
 // --------------------------------------------------------------------------
 async function loadServices() {
   try {
@@ -223,53 +531,39 @@ async function loadServices() {
     const json = await res.json();
     if (!json.success || !json.data) return;
 
-    const s = json.data;
+    const data = json.data;
 
-    // Quick services bar in overview
+    // Quick services in overview
     const quickWrap = document.getElementById("quick-services-wrap");
     if (quickWrap) {
-      const items = [s.samba, s.sshd, s.jellyfin, s.docker, s.cockpit, s.fail2ban];
-      quickWrap.innerHTML = items.map(item => `
-        <div class="status-pill" style="padding:8px 14px;">
-          <span class="pulse-dot" style="${item.is_active ? '' : 'background:var(--red); box-shadow:none;'}"></span>
-          <span><strong>${escapeHtml(item.name)}</strong>: ${item.is_active ? 'Actif' : 'Arrêté'}</span>
+      quickWrap.innerHTML = data.services.map(s => `
+        <div style="background:var(--mantle); border:1px solid rgba(255,255,255,0.06); padding:8px 14px; border-radius:var(--radius-md); display:flex; align-items:center; gap:10px;">
+          <span class="status-indicator ${s.is_active ? 'status-online' : 'status-offline'}"></span>
+          <span style="font-size:0.85rem; font-weight:600;">${escapeHtml(s.display_name)}</span>
+          <span style="font-size:0.75rem; color:var(--subtext0);">(${escapeHtml(s.sub_state)})</span>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="restartService('${escapeHtml(s.unit_name)}')">🔄</button>
         </div>
       `).join("");
     }
 
-    // Sessions sFTP & Samba
-    const sessionsTbody = document.getElementById("sessions-tbody");
-    if (sessionsTbody) {
-      const allSessions = [...(s.active_sftp_sessions || []), ...(s.active_samba_sessions || [])];
-      if (allSessions.length === 0) {
-        sessionsTbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--subtext0); padding:20px;">Aucun client actuellement connecté sur vos partages.</td></tr>`;
+    // Docker containers
+    const contContainer = document.getElementById("containers-container");
+    if (contContainer) {
+      if (data.containers.length === 0) {
+        contContainer.innerHTML = `<p style="color:var(--subtext0); font-size:0.9rem;">Aucun conteneur Docker en cours d'exécution.</p>`;
       } else {
-        sessionsTbody.innerHTML = allSessions.map(sess => `
-          <tr>
-            <td><strong>👤 ${escapeHtml(sess.user)}</strong></td>
-            <td><span class="badge badge-mauve">${escapeHtml(sess.protocol)}</span></td>
-            <td><code style="color:var(--sky);">${escapeHtml(sess.client_ip)}</code></td>
-            <td><span class="badge badge-success">Connecté</span></td>
-          </tr>
-        `).join("");
-      }
-    }
-
-    // Conteneurs Docker
-    const containersTbody = document.getElementById("containers-tbody");
-    if (containersTbody) {
-      if (!s.docker_containers || s.docker_containers.length === 0) {
-        containersTbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--subtext0); padding:20px;">Aucun conteneur Docker détecté sur le NAS.</td></tr>`;
-      } else {
-        containersTbody.innerHTML = s.docker_containers.map(c => `
-          <tr>
-            <td><strong>🐳 ${escapeHtml(c.name)}</strong></td>
-            <td><code style="color:var(--subtext0); font-size:0.8rem;">${escapeHtml(c.image)}</code></td>
-            <td><span class="badge ${c.is_running ? 'badge-success' : 'badge-warning'}">${escapeHtml(c.status)}</span></td>
-            <td style="text-align:right;">
+        contContainer.innerHTML = data.containers.map(c => `
+          <div class="container-card">
+            <div class="container-header">
+              <span class="container-name">🐳 ${escapeHtml(c.name)}</span>
+              <span class="badge ${c.is_running ? 'badge-success' : 'badge-warning'}">${escapeHtml(c.status)}</span>
+            </div>
+            <div class="container-image">Image: ${escapeHtml(c.image)}</div>
+            <div style="margin-top:12px; display:flex; justify-content:space-between; align-items:center;">
+              <code style="font-size:0.75rem; color:var(--subtext0);">${escapeHtml(c.id.substring(0, 12))}</code>
               <button type="button" class="btn btn-secondary btn-xs" onclick="restartContainer('${escapeHtml(c.id)}')">Redémarrer</button>
-            </td>
-          </tr>
+            </div>
+          </div>
         `).join("");
       }
     }
@@ -289,25 +583,16 @@ async function loadGpu() {
 
     const gpu = json.data;
 
-    const vendorEl = document.getElementById("gpu-vendor");
-    if (vendorEl) vendorEl.textContent = gpu.vendor;
+    const vendorBadge = document.getElementById("gpu-vendor-badge");
+    if (vendorBadge) vendorBadge.textContent = gpu.vendor;
 
-    const modelEl = document.getElementById("gpu-model");
-    if (modelEl) modelEl.textContent = gpu.model_name;
+    const modelTitle = document.getElementById("gpu-model-title");
+    if (modelTitle) modelTitle.textContent = gpu.model_name;
 
-    const driStatus = document.getElementById("gpu-dri-status");
-    if (driStatus) {
-      driStatus.textContent = gpu.dri_available ? "Actif & Initialisé" : "Non disponible";
-      driStatus.style.color = gpu.dri_available ? "var(--green)" : "var(--red)";
+    const driverInfo = document.getElementById("gpu-driver-info");
+    if (driverInfo) {
+      driverInfo.textContent = `Pilote: ${gpu.driver} • Node: ${gpu.render_node || '/dev/dri/renderD128'} • ${gpu.dri_available ? 'Accélération matérielle active' : 'Accélération non disponible'}`;
     }
-
-    const renderNode = document.getElementById("gpu-render-node");
-    if (renderNode) {
-      renderNode.textContent = gpu.render_node || "Aucun render node (/dev/dri/renderD128)";
-    }
-
-    const jobsEl = document.getElementById("gpu-active-jobs");
-    if (jobsEl) jobsEl.textContent = `${gpu.active_transcoding_jobs} flux actif(s)`;
 
     const codecsList = document.getElementById("gpu-codecs-list");
     if (codecsList) {
@@ -421,6 +706,20 @@ async function restartService(unit) {
       loadServices();
     } else {
       showToast(json.message || "Erreur de redémarrage", "error");
+    }
+  } catch (e) {
+    showToast("Erreur : " + e, "error");
+  }
+}
+
+async function restartContainer(id) {
+  showToast(`Redémarrage du conteneur ${id.substring(0, 8)}...`, "info");
+  try {
+    const res = await fetch(`/api/service/docker/restart`, { method: "POST" });
+    const json = await res.json();
+    if (json.success) {
+      showToast("Conteneur redémarré avec succès", "success");
+      loadServices();
     }
   } catch (e) {
     showToast("Erreur : " + e, "error");
