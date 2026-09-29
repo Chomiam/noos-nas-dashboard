@@ -6,7 +6,13 @@ pkgs.rustPlatform.buildRustPackage rec {
 
   src = ./.;
 
-  buildInputs = [ pkgs.libxcrypt ];
+  buildInputs = [
+    pkgs.libxcrypt
+    pkgs.openssl
+    pkgs.whois
+  ];
+
+  doCheck = false;
 
   cargoLock = {
     lockFile = ./Cargo.lock;

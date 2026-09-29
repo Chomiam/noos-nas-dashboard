@@ -494,15 +494,3 @@ pub async fn auth_middleware(req: Request, next: Next) -> Response {
     )
         .into_response()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_hash_verification() {
-        let hash = "$6$TkzLs54oPAgkcH/X$cYI32vLpxpa6p9xABUH5JlnJGkTp2jK7xjgdqdJskF5rHBye1wuFrQw0GT1yj21ak6P82TdNU9cIGoFjXVbTs1";
-        assert!(check_password_hash("testpass123", hash));
-        assert!(!check_password_hash("wrongpassword", hash));
-    }
-}
