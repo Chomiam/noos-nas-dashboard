@@ -168,6 +168,246 @@
         </div>
         <div id="quick-services-wrap" style="display:flex; flex-wrap:wrap; gap:12px;"></div>
       </div>
+
+      <!-- ================= SPÉCIFICATIONS MATÉRIELLES DE LA MACHINE ================= -->
+      <div class="section-card" id="hardware-section-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <div class="section-icon-box">🖥️</div>
+            <div>
+              <div class="section-title">Spécifications Matérielles du Serveur NAS</div>
+              <div class="section-subtitle">Inventaire détaillé des processeurs, mémoire vive, contrôleurs, réseau et graphismes</div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="loadHardwareInfo()">
+            <span>🔄</span> Actualiser matériel
+          </button>
+        </div>
+
+        <div class="hardware-specs-grid" id="hardware-specs-grid">
+          <!-- Carte 1: Processeurs (CPU) -->
+          <div class="hw-card">
+            <div class="hw-card-header">
+              <span class="hw-card-icon">🧠</span>
+              <div>
+                <div class="hw-card-title">Processeurs (CPU)</div>
+                <div class="hw-card-subtitle" id="hw-cpu-model">Dual Intel Xeon E5-2650 v4</div>
+              </div>
+            </div>
+            <div class="hw-card-body">
+              <div class="hw-spec-row"><span>Architecture :</span><strong id="hw-cpu-arch">x86_64</strong></div>
+              <div class="hw-spec-row"><span>Cœurs / Threads :</span><strong id="hw-cpu-cores">24 Cœurs / 48 Threads (2 Sockets)</strong></div>
+              <div class="hw-spec-row"><span>Fréquence :</span><strong id="hw-cpu-freq">2.20 GHz (Turbo 2.90 GHz)</strong></div>
+              <div class="hw-spec-row"><span>Mémoire Cache :</span><strong id="hw-cpu-cache">60 Mo SmartCache (30 Mo/socket)</strong></div>
+              <div class="hw-spec-row"><span>Virtualisation :</span><strong id="hw-cpu-virt" style="color:var(--green);">Intel VT-x / VT-d Actif</strong></div>
+            </div>
+          </div>
+
+          <!-- Carte 2: Carte Mère & BIOS -->
+          <div class="hw-card">
+            <div class="hw-card-header">
+              <span class="hw-card-icon">🖲️</span>
+              <div>
+                <div class="hw-card-title">Carte Mère & BIOS</div>
+                <div class="hw-card-subtitle" id="hw-mb-name">HUANANZHI X99-F8D PLUS</div>
+              </div>
+            </div>
+            <div class="hw-card-body">
+              <div class="hw-spec-row"><span>Fabricant :</span><strong id="hw-mb-vendor">HUANANZHI</strong></div>
+              <div class="hw-spec-row"><span>Chipset Serveur :</span><strong id="hw-mb-chipset">Intel C610 / X99 Express</strong></div>
+              <div class="hw-spec-row"><span>Sockets :</span><strong id="hw-mb-sockets">Dual LGA 2011-v3</strong></div>
+              <div class="hw-spec-row"><span>Version BIOS :</span><strong id="hw-mb-bios">American Megatrends</strong></div>
+            </div>
+          </div>
+
+          <!-- Carte 3: Mémoire Vive (RAM) -->
+          <div class="hw-card">
+            <div class="hw-card-header">
+              <span class="hw-card-icon">⚡</span>
+              <div>
+                <div class="hw-card-title">Mémoire Vive (RAM)</div>
+                <div class="hw-card-subtitle" id="hw-ram-total">64 Go DDR4 ECC Server</div>
+              </div>
+            </div>
+            <div class="hw-card-body">
+              <div class="hw-spec-row"><span>Type & Sécurité :</span><strong id="hw-ram-type" style="color:var(--teal);">DDR4 ECC Registered</strong></div>
+              <div class="hw-spec-row"><span>Canaux :</span><strong id="hw-ram-channels">Quad-Channel par Socket (8 slots)</strong></div>
+              <div class="hw-spec-row"><span>Capacité Utilisable :</span><strong id="hw-ram-avail">62.0 Go</strong></div>
+              <div class="hw-spec-row"><span>Protection :</span><strong style="color:var(--green);">Correction d'erreurs ECC active</strong></div>
+            </div>
+          </div>
+
+          <!-- Carte 4: Carte Graphique (GPU) -->
+          <div class="hw-card">
+            <div class="hw-card-header">
+              <span class="hw-card-icon">🎬</span>
+              <div>
+                <div class="hw-card-title">Carte Graphique (GPU Dédié)</div>
+                <div class="hw-card-subtitle" id="hw-gpu-model">Intel Arc A380 (DG2)</div>
+              </div>
+            </div>
+            <div class="hw-card-body">
+              <div class="hw-spec-row"><span>Mémoire VRAM :</span><strong id="hw-gpu-vram">6 Go GDDR6 96-bit</strong></div>
+              <div class="hw-spec-row"><span>Pilote Noyau :</span><strong id="hw-gpu-driver">i915 (Direct Rendering)</strong></div>
+              <div class="hw-spec-row"><span>Accélération :</span><strong style="color:var(--mauve);">AV1 Hardware Encode / Decode</strong></div>
+              <div class="hw-spec-row"><span>Rôle NAS :</span><strong style="color:var(--peach);">Transcodage 4K HDR Jellyfin / Plex</strong></div>
+            </div>
+          </div>
+
+          <!-- Carte 5: Réseau Haute Vitesse -->
+          <div class="hw-card">
+            <div class="hw-card-header">
+              <span class="hw-card-icon">🌐</span>
+              <div>
+                <div class="hw-card-title">Contrôleurs Réseau 2.5 GbE</div>
+                <div class="hw-card-subtitle">Dual Realtek RTL8125 2.5G</div>
+              </div>
+            </div>
+            <div class="hw-card-body" id="hw-network-list">
+              <div class="hw-spec-row"><span>Port LAN 1 (enp8s0) :</span><strong style="color:var(--green);">2.5 Gbps (Actif - 192.168.1.139)</strong></div>
+              <div class="hw-spec-row"><span>Port LAN 2 (enp7s0) :</span><strong style="color:var(--subtext0);">2.5 Gbps (Prêt / Non connecté)</strong></div>
+              <div class="hw-spec-row"><span>Contrôleur :</span><strong>Realtek RTL8125 2.5GbE PCIe</strong></div>
+            </div>
+          </div>
+
+          <!-- Carte 6: Contrôleurs Stockage & Bus -->
+          <div class="hw-card">
+            <div class="hw-card-header">
+              <span class="hw-card-icon">🗄️</span>
+              <div>
+                <div class="hw-card-title">Contrôleurs Stockage</div>
+                <div class="hw-card-subtitle">SATA 6Gb/s & NVMe Gen3</div>
+              </div>
+            </div>
+            <div class="hw-card-body">
+              <div class="hw-spec-row"><span>Contrôleur SATA :</span><strong>Intel C610 6-Ports AHCI</strong></div>
+              <div class="hw-spec-row"><span>Contrôleurs NVMe :</span><strong>2x MAXIO MAP1202 PCIe Gen3 x4</strong></div>
+              <div class="hw-spec-row"><span>Disques Connectés :</span><strong id="hw-drives-count">4x HDD Seagate IronWolf + 2x NVMe</strong></div>
+              <div class="hw-spec-row"><span>Système NAS :</span><strong style="color:var(--mauve);">STEvE_OS 26.05 (Kernel Linux 7.2.5)</strong></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= ÉTAT S.M.A.R.T. DES DISQUES ================= -->
+      <div class="section-card" id="smart-section-card" style="margin-top: 24px;">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <div class="section-icon-box">🛡️</div>
+            <div>
+              <div class="section-title">Surveillance & Santé S.M.A.R.T. des Disques</div>
+              <div class="section-subtitle">Diagnostic matériel, températures, secteurs défectueux et durée de vie en temps réel</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span class="badge badge-success" id="smart-global-badge">✔ Tous les disques sont sains</span>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="loadSmartInfo()">
+              <span>🔄</span> Actualiser SMART
+            </button>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="custom-table" id="smart-table">
+            <thead>
+              <tr>
+                <th>Périphérique</th>
+                <th>Modèle / Famille</th>
+                <th>Type</th>
+                <th>Capacité</th>
+                <th>Statut SMART</th>
+                <th>Température</th>
+                <th>Heures de vol</th>
+                <th>Secteurs Réalloués / Santé</th>
+              </tr>
+            </thead>
+            <tbody id="smart-table-tbody">
+              <tr>
+                <td colspan="8" style="text-align:center; color:var(--subtext0); padding:20px;">
+                  ⏳ Analyse des rapports SMART des disques en cours...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ================= SPEEDTEST DU NAS ================= -->
+      <div class="section-card" id="speedtest-section-card" style="margin-top: 24px;">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <div class="section-icon-box">🚀</div>
+            <div>
+              <div class="section-title">Test de Débit Réseau (Speedtest Internet)</div>
+              <div class="section-subtitle">Mesure du débit descendant (Download), montant (Upload) et latence (Ping) du NAS</div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-primary" id="btn-run-speedtest" onclick="triggerSpeedtest()">
+            <span id="speedtest-btn-icon">🚀</span> <span id="speedtest-btn-label">Lancer le Speedtest</span>
+          </button>
+        </div>
+
+        <div class="speedtest-grid">
+          <!-- Download Card -->
+          <div class="speedtest-card download-card">
+            <div class="speedtest-label">
+              <span>📥 Débit Descendant (Download)</span>
+            </div>
+            <div class="speedtest-val-wrap">
+              <span class="speedtest-number" id="speedtest-down-val">--</span>
+              <span class="speedtest-unit">Mbps</span>
+            </div>
+            <div class="metric-progress-wrap" style="height:6px; margin-top:8px;">
+              <div class="metric-progress-bar progress-teal" id="speedtest-down-bar" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- Upload Card -->
+          <div class="speedtest-card upload-card">
+            <div class="speedtest-label">
+              <span>📤 Débit Montant (Upload)</span>
+            </div>
+            <div class="speedtest-val-wrap">
+              <span class="speedtest-number" id="speedtest-up-val">--</span>
+              <span class="speedtest-unit">Mbps</span>
+            </div>
+            <div class="metric-progress-wrap" style="height:6px; margin-top:8px;">
+              <div class="metric-progress-bar progress-mauve" id="speedtest-up-bar" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- Latency Card -->
+          <div class="speedtest-card ping-card">
+            <div class="speedtest-label">
+              <span>⏱️ Latence & Gigue (Ping)</span>
+            </div>
+            <div class="speedtest-val-wrap">
+              <span class="speedtest-number" id="speedtest-ping-val">--</span>
+              <span class="speedtest-unit">ms</span>
+            </div>
+            <div style="font-size:0.75rem; color:var(--subtext0); margin-top:8px;" id="speedtest-ping-sub">Min: -- ms | Max: -- ms</div>
+          </div>
+
+          <!-- Server & Info Card -->
+          <div class="speedtest-card server-card">
+            <div class="speedtest-label">
+              <span>🌍 Nœud Serveur / Connexion</span>
+            </div>
+            <div style="font-size:0.95rem; font-weight:700; color:var(--text); margin-top:4px;" id="speedtest-server-name">
+              Non testé
+            </div>
+            <div style="font-size:0.78rem; color:var(--subtext0); margin-top:6px;" id="speedtest-meta-info">
+              Cliquez sur « Lancer le Speedtest » pour mesurer la vitesse de votre ligne
+            </div>
+          </div>
+        </div>
+
+        <div id="speedtest-status-banner" style="display:none; margin-top:16px; padding:12px 16px; background:rgba(203,166,247,0.1); border-radius:var(--radius-sm); border:1px solid rgba(203,166,247,0.25); align-items:center; gap:12px;">
+          <span class="pulse-dot" style="background:var(--mauve);"></span>
+          <span style="font-size:0.85rem; color:var(--mauve); font-weight:600;" id="speedtest-running-text">Test en cours... Mesure de la bande passante en cours...</span>
+        </div>
+      </div>
+
     </div>
 
     <!-- ================= ONGLET : EXPLORATEUR DE FICHIERS ================= -->

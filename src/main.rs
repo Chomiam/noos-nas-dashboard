@@ -1,7 +1,10 @@
 mod api;
 mod files;
 mod firewall;
+mod hardware;
 mod services;
+mod smart;
+mod speedtest;
 mod storage;
 mod system;
 mod terminal;

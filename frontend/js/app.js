@@ -73,7 +73,10 @@ async function refreshAll(showFeedback = false) {
       loadServices(),
       loadGpu(),
       loadFirewall(),
-      checkForUpdates(false)
+      checkForUpdates(false),
+      loadHardwareInfo(),
+      loadSmartInfo(),
+      loadLatestSpeedtest()
     ]);
     if (showFeedback) {
       showToast("Données du NAS actualisées !", "success");
@@ -1660,5 +1663,241 @@ async function pasteClipboardItem() {
     }
   } catch (err) {
     showToast("Erreur réseau : " + err, "error");
+  }
+}
+
+
+// --------------------------------------------------------------------------
+// SPÉCIFICATIONS MATÉRIELLES (HARDWARE INVENTORY)
+// --------------------------------------------------------------------------
+async function loadHardwareInfo() {
+  try {
+    const res = await fetch("/api/hardware");
+    const json = await res.json();
+    if (!json.success || !json.data) return;
+
+    const hw = json.data;
+
+    // CPU
+    const cpuModel = document.getElementById("hw-cpu-model");
+    const cpuArch = document.getElementById("hw-cpu-arch");
+    const cpuCores = document.getElementById("hw-cpu-cores");
+    const cpuFreq = document.getElementById("hw-cpu-freq");
+    const cpuCache = document.getElementById("hw-cpu-cache");
+    const cpuVirt = document.getElementById("hw-cpu-virt");
+
+    if (cpuModel) cpuModel.textContent = hw.cpu.model;
+    if (cpuArch) cpuArch.textContent = hw.cpu.architecture;
+    if (cpuCores) cpuCores.textContent = `${hw.cpu.total_cores} Cœurs / ${hw.cpu.total_threads} Threads (${hw.cpu.sockets} Sockets)`;
+    if (cpuFreq) cpuFreq.textContent = hw.cpu.base_frequency_ghz;
+    if (cpuCache) cpuCache.textContent = hw.cpu.cache;
+    if (cpuVirt) cpuVirt.textContent = hw.cpu.virtualization;
+
+    // Carte mère
+    const mbName = document.getElementById("hw-mb-name");
+    const mbVendor = document.getElementById("hw-mb-vendor");
+    const mbChipset = document.getElementById("hw-mb-chipset");
+    const mbSockets = document.getElementById("hw-mb-sockets");
+    const mbBios = document.getElementById("hw-mb-bios");
+
+    if (mbName) mbName.textContent = hw.motherboard.product_name;
+    if (mbVendor) mbVendor.textContent = hw.motherboard.vendor;
+    if (mbChipset) mbChipset.textContent = hw.motherboard.chipset;
+    if (mbSockets) mbSockets.textContent = hw.motherboard.board_name;
+    if (mbBios) mbBios.textContent = `${hw.motherboard.bios_version} (${hw.motherboard.bios_date})`;
+
+    // RAM
+    const ramTotal = document.getElementById("hw-ram-total");
+    const ramType = document.getElementById("hw-ram-type");
+    const ramChannels = document.getElementById("hw-ram-channels");
+    const ramAvail = document.getElementById("hw-ram-avail");
+
+    if (ramTotal) ramTotal.textContent = `${hw.memory.total_gb} Go (${hw.memory.mem_type})`;
+    if (ramType) ramType.textContent = hw.memory.mem_type;
+    if (ramChannels) ramChannels.textContent = hw.memory.channels;
+    if (ramAvail) ramAvail.textContent = `${hw.memory.available_gb} Go disponibles (${hw.memory.free_gb} Go libres)`;
+
+    // GPU
+    const gpuModel = document.getElementById("hw-gpu-model");
+    const gpuVram = document.getElementById("hw-gpu-vram");
+    const gpuDriver = document.getElementById("hw-gpu-driver");
+
+    if (gpuModel) gpuModel.textContent = hw.gpu.model;
+    if (gpuVram) gpuVram.textContent = hw.gpu.vram;
+    if (gpuDriver) gpuDriver.textContent = hw.gpu.driver;
+
+    // Réseau
+    const netList = document.getElementById("hw-network-list");
+    if (netList && hw.network_adapters && hw.network_adapters.length > 0) {
+      netList.innerHTML = hw.network_adapters.map(a => `
+        <div class="hw-spec-row" style="margin-bottom:6px; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.04);">
+          <div>
+            <strong style="color:var(--text);">${a.interface_name}</strong>
+            <span style="font-size:0.75rem; color:var(--subtext0); margin-left:6px;">(${a.controller_model})</span>
+            <div style="font-size:0.75rem; color:var(--subtext0); font-family:var(--font-mono); margin-top:2px;">MAC: ${a.mac_address}</div>
+          </div>
+          <div style="text-align:right;">
+            <span class="badge ${a.is_up ? 'badge-success' : 'badge-secondary'}">
+              ${a.is_up ? (a.speed_mbps > 0 ? a.speed_mbps + ' Mbps' : 'Actif') : 'Déconnecté'}
+            </span>
+            ${a.ipv4 ? `<div style="font-size:0.75rem; color:var(--teal); font-family:var(--font-mono); font-weight:600; margin-top:2px;">${a.ipv4}</div>` : ''}
+          </div>
+        </div>
+      `).join("");
+    }
+  } catch (err) {
+    console.warn("Erreur loadHardwareInfo:", err);
+  }
+}
+
+// --------------------------------------------------------------------------
+// SANTÉ & ÉTAT S.M.A.R.T. DES DISQUES
+// --------------------------------------------------------------------------
+async function loadSmartInfo() {
+  try {
+    const res = await fetch("/api/smart");
+    const json = await res.json();
+    if (!json.success || !json.data) return;
+
+    const smart = json.data;
+
+    // Badge global
+    const badge = document.getElementById("smart-global-badge");
+    if (badge) {
+      if (smart.critical_disks > 0) {
+        badge.className = "badge badge-danger";
+        badge.textContent = `🚨 ${smart.critical_disks} disque(s) en échec SMART !`;
+      } else if (smart.warning_disks > 0) {
+        badge.className = "badge badge-warning";
+        badge.textContent = `⚠ ${smart.warning_disks} alerte(s) SMART détectée(s)`;
+      } else {
+        badge.className = "badge badge-success";
+        badge.textContent = `✔ Tous les disques sont sains (${smart.healthy_disks}/${smart.total_disks})`;
+      }
+    }
+
+    // Remplissage de la table
+    const tbody = document.getElementById("smart-table-tbody");
+    if (tbody && smart.disks) {
+      if (smart.disks.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--subtext0); padding:20px;">Aucun disque physique détecté.</td></tr>`;
+      } else {
+        tbody.innerHTML = smart.disks.map(d => {
+          let statusBadge = `<span class="badge badge-success">✔ Sain (PASSED)</span>`;
+          if (!d.passed) {
+            statusBadge = `<span class="badge badge-danger">✖ Échec SMART</span>`;
+          } else if (d.status_text && d.status_text.includes("Attention")) {
+            statusBadge = `<span class="badge badge-warning">⚠ ${d.status_text}</span>`;
+          }
+
+          let tempDisplay = `--`;
+          if (d.temperature_c !== null && d.temperature_c !== undefined) {
+            const cls = d.temperature_c > 50 ? 'temp-badge-hot' : (d.temperature_c > 40 ? 'temp-badge-warm' : 'temp-badge-cool');
+            tempDisplay = `<span class="${cls}">${d.temperature_c} °C</span>`;
+          }
+
+          let healthDetail = `--`;
+          if (d.nvme_health_percentage !== null && d.nvme_health_percentage !== undefined) {
+            healthDetail = `<strong style="color:var(--teal);">${d.nvme_health_percentage}% vie</strong> <span style="font-size:0.75rem; color:var(--subtext0);">(0 alerte)</span>`;
+          } else {
+            const realloc = d.reallocated_sectors !== null && d.reallocated_sectors !== undefined ? d.reallocated_sectors : 0;
+            const pending = d.pending_sectors !== null && d.pending_sectors !== undefined ? d.pending_sectors : 0;
+            const isWarn = realloc > 5 || pending > 0;
+            healthDetail = `<span style="color:${isWarn ? 'var(--yellow)' : 'var(--text)'};">${realloc} réalloué(s) | ${pending} attente</span>`;
+          }
+
+          return `
+            <tr>
+              <td><code style="font-weight:bold; color:var(--mauve); font-size:0.88rem;">${d.device}</code></td>
+              <td>
+                <div style="font-weight:700; color:var(--text); font-size:0.88rem;">${d.model}</div>
+                <div style="font-size:0.75rem; color:var(--subtext0); font-family:var(--font-mono);">S/N: ${d.serial}</div>
+              </td>
+              <td><span style="font-size:0.8rem; color:var(--subtext1);">${d.disk_type}</span></td>
+              <td><strong style="color:var(--text);">${d.capacity}</strong></td>
+              <td>${statusBadge}</td>
+              <td>${tempDisplay}</td>
+              <td style="font-size:0.82rem; font-family:var(--font-mono);">${d.power_on_hours ? d.power_on_hours.toLocaleString() + ' h' : '--'}</td>
+              <td style="font-size:0.82rem;">${healthDetail}</td>
+            </tr>
+          `;
+        }).join("");
+      }
+    }
+  } catch (err) {
+    console.warn("Erreur loadSmartInfo:", err);
+  }
+}
+
+// --------------------------------------------------------------------------
+// TEST DE DÉBIT RÉSEAU (SPEEDTEST INTERNET)
+// --------------------------------------------------------------------------
+async function loadLatestSpeedtest() {
+  try {
+    const res = await fetch("/api/speedtest/latest");
+    const json = await res.json();
+    if (!json.success || !json.data) return;
+
+    renderSpeedtestResult(json.data);
+  } catch (err) {
+    console.warn("Erreur loadLatestSpeedtest:", err);
+  }
+}
+
+function renderSpeedtestResult(r) {
+  const downVal = document.getElementById("speedtest-down-val");
+  const upVal = document.getElementById("speedtest-up-val");
+  const pingVal = document.getElementById("speedtest-ping-val");
+  const downBar = document.getElementById("speedtest-down-bar");
+  const upBar = document.getElementById("speedtest-up-bar");
+  const pingSub = document.getElementById("speedtest-ping-sub");
+  const serverName = document.getElementById("speedtest-server-name");
+  const metaInfo = document.getElementById("speedtest-meta-info");
+
+  if (downVal) downVal.textContent = r.download_mbps > 0 ? r.download_mbps.toFixed(1) : "--";
+  if (upVal) upVal.textContent = r.upload_mbps > 0 ? r.upload_mbps.toFixed(1) : "--";
+  if (pingVal) pingVal.textContent = r.latency_ms > 0 ? r.latency_ms.toFixed(1) : "--";
+
+  if (downBar) downBar.style.width = Math.min(100, (r.download_mbps / 1000) * 100) + "%";
+  if (upBar) upBar.style.width = Math.min(100, (r.upload_mbps / 1000) * 100) + "%";
+
+  if (pingSub) pingSub.textContent = `Min: ${r.min_latency_ms.toFixed(1)} ms | Max: ${r.max_latency_ms.toFixed(1)} ms`;
+  if (serverName) serverName.textContent = r.server_name || "Cloudflare Edge";
+  if (metaInfo) metaInfo.textContent = `Testé à ${r.timestamp} (${r.duration_seconds}s) • IP: ${r.client_ip}`;
+}
+
+async function triggerSpeedtest() {
+  const btn = document.getElementById("btn-run-speedtest");
+  const icon = document.getElementById("speedtest-btn-icon");
+  const label = document.getElementById("speedtest-btn-label");
+  const banner = document.getElementById("speedtest-status-banner");
+  const bannerText = document.getElementById("speedtest-running-text");
+
+  if (btn) btn.disabled = true;
+  if (icon) icon.textContent = "⏳";
+  if (label) label.textContent = "Mesure en cours...";
+  if (banner) {
+    banner.style.display = "flex";
+    if (bannerText) bannerText.textContent = "Test en cours... Analyse de la latence et des débits fibre Cloudflare...";
+  }
+
+  showToast("Lancement du Speedtest réseau du NAS...", "info");
+
+  try {
+    const res = await fetch("/api/speedtest/run", { method: "POST" });
+    const json = await res.json();
+    if (json.success && json.data) {
+      renderSpeedtestResult(json.data);
+      showToast(`Speedtest terminé ! 📥 ${json.data.download_mbps} Mbps | 📤 ${json.data.upload_mbps} Mbps`, "success");
+    } else {
+      showToast("Échec de la mesure de débit", "error");
+    }
+  } catch (err) {
+    showToast("Erreur lors du Speedtest : " + err, "error");
+  } finally {
+    if (btn) btn.disabled = false;
+    if (icon) icon.textContent = "🚀";
+    if (label) label.textContent = "Relancer le Speedtest";
+    if (banner) banner.style.display = "none";
   }
 }

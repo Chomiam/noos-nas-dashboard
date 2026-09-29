@@ -16,6 +16,9 @@ use crate::storage::{get_storage_overview, trigger_disk_spindown, StorageOvervie
 use crate::system::{get_gpu_info, get_system_info, GpuInfo, SystemInfo};
 use crate::terminal::{autocomplete, execute_command, CompleteRequest, CompleteResponse, ExecRequest, ExecResponse};
 use crate::updates::{apply_intelligent_update, check_updates, ApplyUpdateResult, UpdateCheckStatus};
+use crate::hardware::{get_hardware_overview, HardwareOverview};
+use crate::smart::{get_smart_overview, SmartOverview};
+use crate::speedtest::{get_latest_speedtest, run_speedtest, SpeedtestResult};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiResponse<T> {
@@ -60,6 +63,10 @@ pub fn api_routes() -> Router {
         .route("/files/move", post(handle_files_move))
         .route("/service/:unit/:action", post(handle_service_action))
         .route("/storage/:disk/spindown", post(handle_disk_spindown))
+        .route("/hardware", get(handle_hardware))
+        .route("/smart", get(handle_smart))
+        .route("/speedtest/latest", get(handle_speedtest_latest))
+        .route("/speedtest/run", post(handle_speedtest_run))
 }
 
 async fn handle_system() -> Json<ApiResponse<SystemInfo>> {
@@ -359,4 +366,39 @@ async fn handle_disk_spindown(Path(disk): Path<String>) -> Json<ApiResponse<Stri
             message: Some(err),
         }),
     }
+}
+
+async fn handle_hardware() -> Json<ApiResponse<HardwareOverview>> {
+    let hw = tokio::task::spawn_blocking(get_hardware_overview).await.unwrap_or_else(|_| get_hardware_overview());
+    Json(ApiResponse {
+        success: true,
+        data: Some(hw),
+        message: None,
+    })
+}
+
+async fn handle_smart() -> Json<ApiResponse<SmartOverview>> {
+    let smart = tokio::task::spawn_blocking(get_smart_overview).await.unwrap_or_else(|_| get_smart_overview());
+    Json(ApiResponse {
+        success: true,
+        data: Some(smart),
+        message: None,
+    })
+}
+
+async fn handle_speedtest_latest() -> Json<ApiResponse<Option<SpeedtestResult>>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(get_latest_speedtest()),
+        message: None,
+    })
+}
+
+async fn handle_speedtest_run() -> Json<ApiResponse<SpeedtestResult>> {
+    let res = tokio::task::spawn_blocking(run_speedtest).await.unwrap_or_else(|_| run_speedtest());
+    Json(ApiResponse {
+        success: true,
+        data: Some(res),
+        message: None,
+    })
 }

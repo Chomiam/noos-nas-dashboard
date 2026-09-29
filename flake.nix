@@ -62,6 +62,11 @@
                 nix
                 nixos-rebuild
                 nvd
+                smartmontools
+                cfspeedtest
+                pciutils
+                usbutils
+                iproute2
                 coreutils
                 bash
                 systemd
