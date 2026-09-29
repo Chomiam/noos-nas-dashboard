@@ -8,14 +8,53 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitCommitItem {
+    pub hash: String,
+    pub author: String,
+    pub date: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlakeInputStatus {
+    pub name: String,
+    pub locked_rev: String,
+    pub remote_rev: Option<String>,
+    pub has_update: bool,
+    pub channel_or_ref: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackageUpdateItem {
+    pub name: String,
+    pub current_version: String,
+    pub new_version: Option<String>,
+    pub action: String, // "update", "add", "remove", "rebuild", "flake"
+    pub size: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateCheckStatus {
+    // Configuration Git
     pub config_update_available: bool,
     pub config_local_commit: String,
+    pub config_local_commit_full: String,
     pub config_remote_commit: Option<String>,
+    pub config_remote_commit_full: Option<String>,
     pub config_commit_message: Option<String>,
+    pub config_commits_behind: u32,
+    pub config_pending_commits: Vec<GitCommitItem>,
+    pub config_changed_files: Vec<String>,
+    pub config_git_status: String,
+
+    // Paquets système & Flake
     pub package_updates_available: bool,
     pub package_updates_count: u32,
     pub package_details: Vec<String>,
+    pub flake_inputs_status: Vec<FlakeInputStatus>,
+    pub package_updates_list: Vec<PackageUpdateItem>,
+
+    // Synthèse globale
     pub update_type: UpdateType, // "None", "ConfigOnly", "PackagesOnly", "Both"
     pub status_text: String,
     pub config_dir: String,
@@ -46,6 +85,42 @@ pub fn is_updating() -> bool {
     IS_UPDATING.load(Ordering::SeqCst)
 }
 
+fn find_bin(candidates: &[&str]) -> String {
+    for c in candidates {
+        if c.starts_with('/') {
+            if Path::new(c).exists() {
+                return c.to_string();
+            }
+        } else if let Ok(out) = Command::new("which").arg(c).output() {
+            if out.status.success() {
+                let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !p.is_empty() {
+                    return p;
+                }
+            }
+        }
+    }
+    candidates[0].to_string()
+}
+
+pub fn git_binary() -> String {
+    find_bin(&["/run/current-system/sw/bin/git", "git", "/nix/var/nix/profiles/default/bin/git", "/usr/bin/git"])
+}
+
+pub fn nh_binary() -> String {
+    find_bin(&["/run/current-system/sw/bin/nh", "nh", "/nix/var/nix/profiles/default/bin/nh", "/usr/bin/nh"])
+}
+
+pub fn nix_binary() -> String {
+    find_bin(&["/run/current-system/sw/bin/nix", "nix", "/nix/var/nix/profiles/default/bin/nix", "/usr/bin/nix"])
+}
+
+fn git_cmd(repo_dir: &str) -> Command {
+    let mut cmd = Command::new(git_binary());
+    cmd.args(["-c", "safe.directory=*", "-C", repo_dir]);
+    cmd
+}
+
 pub fn resolve_config_dir() -> PathBuf {
     if let Ok(dir) = env::var("STEVEOS_CONFIG_DIR") {
         let p = PathBuf::from(dir);
@@ -54,17 +129,54 @@ pub fn resolve_config_dir() -> PathBuf {
         }
     }
 
-    let candidate1 = PathBuf::from("/home/chomiam/Projects/steveos-nas");
+    let candidate1 = PathBuf::from("/etc/nixos");
     if candidate1.exists() {
         return candidate1;
     }
 
-    let candidate2 = PathBuf::from("/etc/nixos");
+    let candidate2 = PathBuf::from("/home/chomiam/Projects/steveos-nas");
     if candidate2.exists() {
         return candidate2;
     }
 
     PathBuf::from(".")
+}
+
+fn get_local_commit_from_fs(config_dir: &Path) -> (String, String) {
+    let git_dir = config_dir.join(".git");
+    let head_path = git_dir.join("HEAD");
+    if let Ok(head_content) = fs::read_to_string(&head_path) {
+        let trimmed = head_content.trim();
+        if trimmed.starts_with("ref: ") {
+            let ref_rel = trimmed.trim_start_matches("ref: ").trim();
+            let ref_file = git_dir.join(ref_rel);
+            if let Ok(sha) = fs::read_to_string(&ref_file) {
+                let full = sha.trim().to_string();
+                let short = full[..7.min(full.len())].to_string();
+                return (short, full);
+            }
+            // Check packed-refs
+            let packed_path = git_dir.join("packed-refs");
+            if let Ok(packed) = fs::read_to_string(&packed_path) {
+                for line in packed.lines() {
+                    let line = line.trim();
+                    if !line.starts_with('#') && !line.starts_with('^') {
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 2 && parts[1] == ref_rel {
+                            let full = parts[0].to_string();
+                            let short = full[..7.min(full.len())].to_string();
+                            return (short, full);
+                        }
+                    }
+                }
+            }
+        } else if trimmed.len() >= 40 {
+            let full = trimmed.to_string();
+            let short = full[..7.min(full.len())].to_string();
+            return (short, full);
+        }
+    }
+    ("inconnu".to_string(), String::new())
 }
 
 pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
@@ -83,96 +195,191 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
     let config_dir = resolve_config_dir();
     let config_dir_str = config_dir.display().to_string();
 
-    // 1. Vérification de la configuration Git (Chomiam/steve_os-nix)
-    let local_commit = Command::new("git")
-        .args(["-C", &config_dir_str, "rev-parse", "--short", "HEAD"])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|_| "inconnu".to_string());
+    // 1. Détection du commit local (lecture directe FS + fallback git rev-parse)
+    let (fs_short, fs_full) = get_local_commit_from_fs(&config_dir);
 
-    let full_local_commit = Command::new("git")
-        .args(["-C", &config_dir_str, "rev-parse", "HEAD"])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default();
+    let (local_commit, full_local_commit) = if !fs_full.is_empty() {
+        (fs_short, fs_full)
+    } else {
+        let rev = git_cmd(&config_dir_str)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+        if !rev.is_empty() {
+            (rev[..7.min(rev.len())].to_string(), rev)
+        } else {
+            ("inconnu".to_string(), String::new())
+        }
+    };
 
     let mut config_update_available = false;
     let mut config_remote_commit = None;
+    let mut config_remote_commit_full = None;
     let mut config_commit_message = None;
+    let mut config_commits_behind = 0;
+    let mut config_pending_commits = Vec::new();
+    let mut config_changed_files = Vec::new();
 
-    if let Ok(out) = Command::new("git")
-        .args(["-C", &config_dir_str, "ls-remote", "origin", "refs/heads/main"])
+    // 2. Détection du commit distant sur GitHub (Chomiam/steve_os-nix)
+    let remote_url = "https://github.com/Chomiam/steve_os-nix.git";
+    if let Ok(out) = git_cmd(&config_dir_str)
+        .args(["ls-remote", remote_url, "refs/heads/main"])
         .output()
     {
         if out.status.success() {
             let text = String::from_utf8_lossy(&out.stdout);
             if let Some(token) = text.split_whitespace().next() {
+                let full_remote = token.to_string();
                 let short_remote = token[..7.min(token.len())].to_string();
                 config_remote_commit = Some(short_remote);
+                config_remote_commit_full = Some(full_remote.clone());
 
-                if !full_local_commit.is_empty() && token != full_local_commit {
-                    let is_ancestor = Command::new("git")
-                        .args(["-C", &config_dir_str, "merge-base", "--is-ancestor", token, "HEAD"])
+                if !full_local_commit.is_empty() && full_remote != full_local_commit {
+                    // Récupération sans toucher aux fichiers de travail
+                    let _ = git_cmd(&config_dir_str)
+                        .args(["fetch", remote_url, "main"])
+                        .output();
+
+                    let is_ancestor = git_cmd(&config_dir_str)
+                        .args(["merge-base", "--is-ancestor", &full_remote, "HEAD"])
                         .status()
                         .map(|s| s.success())
                         .unwrap_or(false);
 
                     if !is_ancestor {
                         config_update_available = true;
-                        config_commit_message = Some("Nouvelle révision disponible sur GitHub (steve_os-nix)".into());
+
+                        // Liste des commits en retard
+                        if let Ok(log_out) = git_cmd(&config_dir_str)
+                            .args(["log", "HEAD..FETCH_HEAD", "--pretty=format:%h|%an|%ad|%s", "--date=short"])
+                            .output()
+                        {
+                            let log_str = String::from_utf8_lossy(&log_out.stdout);
+                            for line in log_str.lines() {
+                                let parts: Vec<&str> = line.splitn(4, '|').collect();
+                                if parts.len() == 4 {
+                                    config_pending_commits.push(GitCommitItem {
+                                        hash: parts[0].to_string(),
+                                        author: parts[1].to_string(),
+                                        date: parts[2].to_string(),
+                                        message: parts[3].to_string(),
+                                    });
+                                }
+                            }
+                            config_commits_behind = config_pending_commits.len() as u32;
+                        }
+
+                        // Liste des fichiers modifiés
+                        if let Ok(diff_out) = git_cmd(&config_dir_str)
+                            .args(["diff", "--name-status", "HEAD", "FETCH_HEAD"])
+                            .output()
+                        {
+                            let diff_str = String::from_utf8_lossy(&diff_out.stdout);
+                            for line in diff_str.lines() {
+                                let l = line.trim();
+                                if !l.is_empty() {
+                                    config_changed_files.push(l.to_string());
+                                }
+                            }
+                        }
+
+                        config_commit_message = if !config_pending_commits.is_empty() {
+                            Some(format!("{} nouvelle(s) révision(s) en attente : {}", config_commits_behind, config_pending_commits[0].message))
+                        } else {
+                            Some("Nouvelle révision disponible sur GitHub (steve_os-nix)".into())
+                        };
                     }
                 }
             }
         }
     }
 
-    // 2. Vérification des paquets Nixpkgs dans flake.lock
+    // Statut local du repo Git (propre ou modifications en cours)
+    let git_status_clean = git_cmd(&config_dir_str)
+        .args(["status", "--porcelain"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().is_empty())
+        .unwrap_or(true);
+
+    let config_git_status = if git_status_clean {
+        "Arbre de travail propre".to_string()
+    } else {
+        "Modifications locales détectées (stash automatique)".to_string()
+    };
+
+    // 3. Vérification des paquets Nixpkgs & Entrées Flake dans flake.lock
     let mut package_updates_available = false;
     let mut package_updates_count = 0;
     let mut package_details = Vec::new();
+    let mut flake_inputs_status = Vec::new();
 
     let lock_path = config_dir.join("flake.lock");
     if let Ok(lock_str) = fs::read_to_string(&lock_path) {
         if let Ok(lock_json) = serde_json::from_str::<serde_json::Value>(&lock_str) {
             if let Some(nodes) = lock_json.get("nodes").and_then(|n| n.as_object()) {
-                if let Some(nixpkgs_node) = nodes.get("nixpkgs") {
-                    let locked_rev = nixpkgs_node
-                        .get("locked")
+                for (node_name, node_val) in nodes {
+                    if node_name == "root" {
+                        continue;
+                    }
+                    let locked = node_val.get("locked");
+                    let original = node_val.get("original");
+
+                    let locked_rev = locked
                         .and_then(|l| l.get("rev"))
                         .and_then(|r| r.as_str())
                         .unwrap_or("");
 
-                    if !locked_rev.is_empty() {
-                        let ref_branch = nixpkgs_node
-                            .get("original")
-                            .and_then(|o| o.get("ref"))
-                            .and_then(|r| r.as_str())
-                            .unwrap_or("nixos-26.05");
+                    if locked_rev.is_empty() {
+                        continue;
+                    }
 
-                        // Vérifier le dernier commit du canal nixpkgs sur GitHub
-                        if let Ok(ls_out) = Command::new("git")
-                            .args(["ls-remote", "https://github.com/nixos/nixpkgs", &format!("refs/heads/{}", ref_branch)])
+                    let owner = original.and_then(|o| o.get("owner")).and_then(|o| o.as_str()).unwrap_or("");
+                    let repo = original.and_then(|o| o.get("repo")).and_then(|r| r.as_str()).unwrap_or("");
+                    let ref_branch = original.and_then(|o| o.get("ref")).and_then(|r| r.as_str()).unwrap_or("main");
+
+                    if !owner.is_empty() && !repo.is_empty() {
+                        let remote_git_url = format!("https://github.com/{}/{}", owner, repo);
+                        let mut remote_rev = None;
+                        let mut has_update = false;
+
+                        if let Ok(ls_out) = Command::new(git_binary())
+                            .args(["-c", "safe.directory=*", "ls-remote", &remote_git_url, &format!("refs/heads/{}", ref_branch)])
                             .output()
                         {
                             if ls_out.status.success() {
                                 let ls_text = String::from_utf8_lossy(&ls_out.stdout);
-                                if let Some(remote_sha) = ls_text.split_whitespace().next() {
-                                    if remote_sha != locked_rev {
+                                if let Some(r_sha) = ls_text.split_whitespace().next() {
+                                    let short_remote = r_sha[..7.min(r_sha.len())].to_string();
+                                    remote_rev = Some(short_remote);
+                                    if r_sha != locked_rev {
+                                        has_update = true;
                                         package_updates_available = true;
                                         package_updates_count += 1;
-                                        package_details.push(format!("Nixpkgs ({}) : mise à jour vers {}", ref_branch, &remote_sha[..7]));
+                                        package_details.push(format!("{}/{} ({}) : mise à jour disponible", owner, repo, ref_branch));
                                     }
                                 }
                             }
                         }
+
+                        flake_inputs_status.push(FlakeInputStatus {
+                            name: node_name.clone(),
+                            locked_rev: locked_rev[..7.min(locked_rev.len())].to_string(),
+                            remote_rev,
+                            has_update,
+                            channel_or_ref: ref_branch.to_string(),
+                        });
                     }
                 }
             }
         }
     }
 
-    // 3. Détermination du type d'action requise
-    let update_type = match (config_update_available, package_updates_available) {
+    // 4. Liste détaillée des paquets qui seront mis à jour / modifiés
+    let package_updates_list = detect_package_updates_list(&config_dir, package_updates_available);
+
+    // 5. Détermination du type d'action requise
+    let update_type = match (config_update_available, package_updates_available || !package_updates_list.is_empty()) {
         (true, true) => UpdateType::Both,
         (true, false) => UpdateType::ConfigOnly,
         (false, true) => UpdateType::PackagesOnly,
@@ -182,18 +389,26 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
     let status_text = match update_type {
         UpdateType::Both => "⚡ Nouvelle configuration ET paquets disponibles !".to_string(),
         UpdateType::ConfigOnly => "📥 Nouvelle configuration disponible sur GitHub".to_string(),
-        UpdateType::PackagesOnly => "📦 Mises à jour de paquets système disponibles".to_string(),
+        UpdateType::PackagesOnly => "📦 Mises à jour de paquets système prêtes à être appliquées".to_string(),
         UpdateType::None => "✨ Système et configuration à jour".to_string(),
     };
 
     let status = UpdateCheckStatus {
         config_update_available,
         config_local_commit: local_commit,
+        config_local_commit_full: full_local_commit,
         config_remote_commit,
+        config_remote_commit_full,
         config_commit_message,
+        config_commits_behind,
+        config_pending_commits,
+        config_changed_files,
+        config_git_status,
         package_updates_available,
         package_updates_count,
         package_details,
+        flake_inputs_status,
+        package_updates_list,
         update_type,
         status_text,
         config_dir: config_dir_str,
@@ -208,14 +423,122 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
     status
 }
 
+fn detect_package_updates_list(config_dir: &Path, inputs_have_updates: bool) -> Vec<PackageUpdateItem> {
+    let mut list = Vec::new();
+    let dir_str = config_dir.display().to_string();
+
+    // Exécution d'un dry-run Nix pour capturer les dérivations et paquets qui seront téléchargés / construits
+    let target_attr = format!("{}#nixosConfigurations.nas.config.system.build.toplevel", dir_str);
+    let mut args = vec![
+        "build",
+        &target_attr,
+        "--dry-run",
+    ];
+
+    if inputs_have_updates {
+        args.push("--recreate-lock-file");
+        args.push("--no-write-lock-file");
+    }
+
+    if let Ok(out) = Command::new(nix_binary()).args(&args).output() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let combined = format!("{}\n{}", stdout, stderr);
+        list.extend(parse_nix_dry_run(&combined));
+    }
+
+    // Détection complémentaire : paquets ajoutés dans environment.systemPackages absents de /run/current-system/sw/bin
+    let sw_bin = Path::new("/run/current-system/sw/bin");
+    let check_pkgs = [
+        ("gh", "GitHub CLI (Gestionnaire GitHub officiel)", "2.101.0"),
+        ("nvd", "Nix Package Version Diff Tool", "0.2.4"),
+        ("git", "Git Distributed Version Control", "2.54.0"),
+        ("nh", "Nix Helper CLI", "4.4.2"),
+        ("steveos-nas-dashboard", "Tableau de bord NAS STEvE_OS", "0.1.0"),
+    ];
+
+    for (pkg, desc, ver) in check_pkgs {
+        let installed = sw_bin.join(pkg).exists();
+        if !installed && !list.iter().any(|i| i.name == pkg) {
+            list.push(PackageUpdateItem {
+                name: pkg.to_string(),
+                current_version: "Non installé sur le système".to_string(),
+                new_version: Some(format!("{} ({})", ver, desc)),
+                action: "add".to_string(),
+                size: Some("Inclus dans la configuration".to_string()),
+            });
+        }
+    }
+
+    list
+}
+
+fn parse_nix_dry_run(output: &str) -> Vec<PackageUpdateItem> {
+    let mut items = Vec::new();
+    let mut current_action = "update".to_string();
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("these ") && trimmed.contains("paths will be fetched") {
+            current_action = "download".to_string();
+            continue;
+        } else if trimmed.starts_with("this path will be fetched") {
+            current_action = "download".to_string();
+            continue;
+        } else if trimmed.starts_with("these ") && trimmed.contains("derivations will be built") {
+            current_action = "build".to_string();
+            continue;
+        } else if trimmed.starts_with("this derivation will be built") {
+            current_action = "build".to_string();
+            continue;
+        }
+
+        if trimmed.starts_with("/nix/store/") {
+            let path_clean = trimmed.trim_end_matches(".drv");
+            let store_name = path_clean.strip_prefix("/nix/store/").unwrap_or(path_clean);
+            if let Some(dash_idx) = store_name.find('-') {
+                let pkg_and_ver = &store_name[dash_idx + 1..];
+                let (name, ver) = split_pkg_name_and_version(pkg_and_ver);
+                if !name.is_empty() 
+                    && !name.starts_with("system-units") 
+                    && !name.starts_with("etc") 
+                    && !name.starts_with("unit-") 
+                    && !name.starts_with("user-units")
+                {
+                    if !items.iter().any(|i: &PackageUpdateItem| i.name == name) {
+                        items.push(PackageUpdateItem {
+                            name: name.to_string(),
+                            current_version: "Précédent / Installé".to_string(),
+                            new_version: Some(ver.to_string()),
+                            action: current_action.clone(),
+                            size: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    items
+}
+
+fn split_pkg_name_and_version(s: &str) -> (&str, &str) {
+    let bytes = s.as_bytes();
+    for i in 1..bytes.len() {
+        if bytes[i - 1] == b'-' && bytes[i].is_ascii_digit() {
+            return (&s[..i - 1], &s[i..]);
+        }
+    }
+    (s, "dernière version")
+}
+
 pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<(), String> {
     log.push_str("--- [Étape 1/3] Sécurisation de l'espace de travail local ---\n");
 
     let dir_str = config_dir.display().to_string();
 
     // 1. Sauvegarde automatique du commit courant
-    let current_sha = Command::new("git")
-        .args(["-C", &dir_str, "rev-parse", "HEAD"])
+    let current_sha = git_cmd(&dir_str)
+        .args(["rev-parse", "HEAD"])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_default();
@@ -223,8 +546,8 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
     log.push_str(&format!("Point de restauration courant : {}\n", &current_sha[..8.min(current_sha.len())]));
 
     // 2. Vérifier si des fichiers modifiés localement existent
-    let status_out = Command::new("git")
-        .args(["-C", &dir_str, "status", "--porcelain"])
+    let status_out = git_cmd(&dir_str)
+        .args(["status", "--porcelain"])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_default();
@@ -232,8 +555,8 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
     let has_uncommitted = !status_out.is_empty();
     if has_uncommitted {
         log.push_str("Modifications locales détectées. Création d'un stash de sécurité...\n");
-        let stash_res = Command::new("git")
-            .args(["-C", &dir_str, "stash", "push", "-u", "-m", "steveos-auto-stash"])
+        let stash_res = git_cmd(&dir_str)
+            .args(["stash", "push", "-u", "-m", "steveos-auto-stash"])
             .output();
 
         if let Ok(res) = stash_res {
@@ -243,8 +566,8 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
 
     // 3. Fetch et merge sécurisé (fast-forward privilégié)
     log.push_str("\n--- [Étape 2/3] Récupération des nouveautés depuis GitHub (steve_os-nix) ---\n");
-    let fetch_out = Command::new("git")
-        .args(["-C", &dir_str, "fetch", "origin", "main"])
+    let fetch_out = git_cmd(&dir_str)
+        .args(["fetch", "origin", "main"])
         .output()
         .map_err(|e| format!("Échec git fetch : {}", e))?;
 
@@ -253,16 +576,15 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
         return Err(format!("Erreur lors de la récupération distante : {}", err));
     }
 
-    let merge_out = Command::new("git")
-        .args(["-C", &dir_str, "merge", "--ff-only", "origin/main"])
+    let merge_out = git_cmd(&dir_str)
+        .args(["merge", "--ff-only", "origin/main"])
         .output()
         .map_err(|e| format!("Échec du merge fast-forward : {}", e))?;
 
     if !merge_out.status.success() {
-        // En cas d'échec fast-forward, tenter un rebase propre
         log.push_str("Merge fast-forward non direct. Tentative de rebase automatique...\n");
-        let rebase_out = Command::new("git")
-            .args(["-C", &dir_str, "rebase", "origin/main"])
+        let rebase_out = git_cmd(&dir_str)
+            .args(["rebase", "origin/main"])
             .output();
 
         match rebase_out {
@@ -270,10 +592,9 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
                 log.push_str("Rebase réussi avec succès.\n");
             }
             _ => {
-                // Annuler le rebase si conflit
-                let _ = Command::new("git").args(["-C", &dir_str, "rebase", "--abort"]).output();
+                let _ = git_cmd(&dir_str).args(["rebase", "--abort"]).output();
                 if has_uncommitted {
-                    let _ = Command::new("git").args(["-C", &dir_str, "stash", "pop"]).output();
+                    let _ = git_cmd(&dir_str).args(["stash", "pop"]).output();
                 }
                 return Err("Conflit Git détecté avec la branche distante. Opération annulée pour préserver vos fichiers.".into());
             }
@@ -285,12 +606,12 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
     // 4. Restaurer le stash si existant
     if has_uncommitted {
         log.push_str("Restauration de vos modifications locales...\n");
-        let _ = Command::new("git").args(["-C", &dir_str, "stash", "pop"]).output();
+        let _ = git_cmd(&dir_str).args(["stash", "pop"]).output();
     }
 
     // 5. Validation de la syntaxe Nix (nix eval de sécurité)
     log.push_str("\n--- [Étape 3/3] Validation de la syntaxe de la configuration Nix ---\n");
-    let eval_res = Command::new("nix")
+    let eval_res = Command::new(nix_binary())
         .args(["eval", &format!("{}#nixosConfigurations.nas.config.system.nixos.version", dir_str)])
         .output();
 
@@ -302,8 +623,7 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
         Ok(out) => {
             let err = String::from_utf8_lossy(&out.stderr);
             log.push_str(&format!("⚠ Erreur de syntaxe détectée :\n{}\nAnnulation du pull...\n", err));
-            // Rollback de sécurité vers le commit précédent
-            let _ = Command::new("git").args(["-C", &dir_str, "reset", "--hard", &current_sha]).output();
+            let _ = git_cmd(&dir_str).args(["reset", "--hard", &current_sha]).output();
             Err(format!("La nouvelle configuration contient une erreur d'évaluation Nix. Rollback de sécurité effectué : {}", err))
         }
         Err(e) => {
@@ -313,7 +633,6 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
 }
 
 pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
-    // Verrou pour empêcher les mises à jour simultanées
     if IS_UPDATING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
         return ApplyUpdateResult {
             success: false,
@@ -448,24 +767,24 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
 fn run_switch_command(config_dir: &Path, update_inputs: bool) -> (bool, String) {
     let dir_str = config_dir.display().to_string();
 
-    let (bin, args) = if Path::new("/run/current-system/sw/bin/nh").exists() || Command::new("which").arg("nh").status().map(|s| s.success()).unwrap_or(false) {
+    let nh_bin = nh_binary();
+    let (bin, args) = if Path::new(&nh_bin).exists() {
         let mut a = vec!["os", "switch"];
         if update_inputs {
             a.push("-u");
         }
         a.push(&dir_str);
-        ("nh", a)
+        (nh_bin, a)
     } else {
-        // Fallback sans nh si non installé sur la machine
         if update_inputs {
-            let _ = Command::new("nix")
+            let _ = Command::new(nix_binary())
                 .args(["flake", "update", "--flake", &dir_str])
                 .output();
         }
-        ("nixos-rebuild", vec!["switch", "--flake", &dir_str])
+        ("nixos-rebuild".to_string(), vec!["switch", "--flake", &dir_str])
     };
 
-    let output = Command::new(bin)
+    let output = Command::new(&bin)
         .args(&args)
         .output();
 

@@ -1275,3 +1275,24 @@ kbd {
   background: rgba(255, 255, 255, 0.08);
   margin: 4px 0;
 }
+
+/* ================= STYLES DU GESTIONNAIRE DE MISES À JOUR ================= */
+#packages-update-table th, #packages-update-table td {
+  padding: 10px 14px;
+}
+
+#packages-update-table tbody tr:hover td {
+  background: rgba(203, 166, 247, 0.04);
+}
+
+#git-pending-commits-wrap::-webkit-scrollbar,
+#packages-update-table::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+#git-pending-commits-wrap::-webkit-scrollbar-thumb,
+#packages-update-table::-webkit-scrollbar-thumb {
+  background: var(--surface1);
+  border-radius: 4px;
+}

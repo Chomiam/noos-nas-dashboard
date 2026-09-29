@@ -183,22 +183,135 @@ function renderUpdatesUI(status) {
   const btnIcon = document.getElementById("btn-update-icon");
   const btnLabel = document.getElementById("btn-update-label");
 
+  const lastTime = document.getElementById("updates-last-checked-time");
+  if (lastTime) lastTime.textContent = status.last_checked ? "Vérifié à " + status.last_checked : "";
+
+  // 1. Mise à jour de la carte Git Configuration
   const gitLocal = document.getElementById("git-local-sha");
   const gitRemote = document.getElementById("git-remote-sha");
-  const pkgSummary = document.getElementById("packages-status-summary");
+  const gitBadge = document.getElementById("git-status-badge");
+  const gitTree = document.getElementById("git-working-tree-status");
+  const gitCommitsWrap = document.getElementById("git-pending-commits-wrap");
+  const gitCommitsList = document.getElementById("git-pending-commits-list");
+  const gitFilesWrap = document.getElementById("git-changed-files-wrap");
 
-  if (gitLocal) gitLocal.textContent = status.config_local_commit || "--";
-  if (gitRemote) gitRemote.textContent = status.config_remote_commit || status.config_local_commit || "--";
+  if (gitLocal) {
+    gitLocal.textContent = status.config_local_commit || "--";
+    gitLocal.title = status.config_local_commit_full || status.config_local_commit || "";
+  }
+  if (gitRemote) {
+    gitRemote.textContent = status.config_remote_commit || status.config_local_commit || "--";
+    gitRemote.title = status.config_remote_commit_full || "";
+  }
+  if (gitTree) {
+    gitTree.textContent = status.config_git_status || "Arbre propre";
+  }
+
+  if (status.config_update_available) {
+    if (gitBadge) {
+      gitBadge.className = "badge badge-info";
+      gitBadge.textContent = "📥 " + (status.config_commits_behind || 1) + " révision(s) sur GitHub";
+    }
+    if (gitCommitsWrap) {
+      gitCommitsWrap.style.display = "block";
+      if (gitCommitsList) {
+        if (status.config_pending_commits && status.config_pending_commits.length > 0) {
+          gitCommitsList.innerHTML = status.config_pending_commits.map(c => 
+            `<div style="padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.05);"><span style="color:var(--mauve); font-weight:bold;">${c.hash}</span> <span style="color:var(--text);">${c.message}</span> <span style="color:var(--subtext0);">(${c.author}, ${c.date})</span></div>`
+          ).join("");
+        } else {
+          gitCommitsList.innerHTML = `<div style="color:var(--subtext0);">Nouveaux commits disponibles sur Chomiam/steve_os-nix</div>`;
+        }
+      }
+      if (gitFilesWrap) {
+        if (status.config_changed_files && status.config_changed_files.length > 0) {
+          gitFilesWrap.innerHTML = `<strong>Fichiers modifiés :</strong> ` + status.config_changed_files.map(f => 
+            `<span style="display:inline-block; background:rgba(255,255,255,0.06); padding:1px 5px; border-radius:3px; margin:2px 4px 2px 0;">${f}</span>`
+          ).join("");
+        } else {
+          gitFilesWrap.innerHTML = "";
+        }
+      }
+    }
+  } else {
+    if (gitBadge) {
+      gitBadge.className = "badge badge-success";
+      gitBadge.textContent = "✔ Configuration synchronisée";
+    }
+    if (gitCommitsWrap) gitCommitsWrap.style.display = "none";
+  }
+
+  // 2. Mise à jour de la carte Flake Inputs & Paquets Nixpkgs
+  const flakeNixpkgs = document.getElementById("flake-nixpkgs-sha");
+  const pkgSummary = document.getElementById("packages-status-summary");
+  const flakeDetails = document.getElementById("flake-inputs-detail-text");
+  const pkgCountLabel = document.getElementById("packages-count-label");
+
+  if (status.flake_inputs_status && status.flake_inputs_status.length > 0) {
+    const nixpkgsInput = status.flake_inputs_status.find(i => i.name.startsWith("nixpkgs"));
+    if (nixpkgsInput && flakeNixpkgs) {
+      flakeNixpkgs.textContent = nixpkgsInput.locked_rev;
+    }
+    if (flakeDetails) {
+      const summaryList = status.flake_inputs_status.map(i => `${i.name}: ${i.locked_rev}${i.has_update ? " ➔ " + (i.remote_rev || "màj") : ""}`);
+      flakeDetails.textContent = summaryList.join(" | ");
+    }
+  } else {
+    if (flakeNixpkgs) flakeNixpkgs.textContent = "cf5e765";
+  }
+
+  const pkgList = status.package_updates_list || [];
+  const totalPkgsCount = pkgList.length;
 
   if (pkgSummary) {
-    if (status.package_updates_available) {
-      pkgSummary.innerHTML = `<span style="color:var(--peach); font-weight:bold;">${status.package_details[0] || 'Mise à jour disponible'}</span>`;
+    if (status.package_updates_available || totalPkgsCount > 0) {
+      pkgSummary.innerHTML = `<span class="badge badge-warning">📦 ${totalPkgsCount > 0 ? totalPkgsCount : status.package_updates_count} màj prête(s)</span>`;
     } else {
-      pkgSummary.innerHTML = `<span style="color:var(--green);">✔ Tous les paquets sont à jour</span>`;
+      pkgSummary.innerHTML = `<span class="badge badge-success">✔ Paquets à jour</span>`;
     }
   }
 
-  // Si une mise à jour est en cours
+  if (pkgCountLabel) {
+    pkgCountLabel.textContent = totalPkgsCount + " paquet(s) détecté(s)";
+  }
+
+  // 3. Remplissage du tableau détaillé des paquets
+  const listBadge = document.getElementById("packages-list-badge");
+  const tbody = document.getElementById("packages-update-tbody");
+
+  if (listBadge) {
+    listBadge.textContent = totalPkgsCount + " paquet(s) identifié(s)";
+    listBadge.className = totalPkgsCount > 0 ? "badge badge-warning" : "badge badge-info";
+  }
+
+  if (tbody) {
+    if (totalPkgsCount === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--subtext0); padding:24px;">✨ Aucun paquet en attente de mise à jour. Le système est parfaitement aligné avec la configuration.</td></tr>`;
+    } else {
+      tbody.innerHTML = pkgList.map(item => {
+        let actionBadge = `<span class="badge badge-info">🔄 Mise à jour</span>`;
+        if (item.action === "add") {
+          actionBadge = `<span class="badge badge-success">➕ Nouveau</span>`;
+        } else if (item.action === "download") {
+          actionBadge = `<span class="badge badge-mauve">📥 Téléchargement</span>`;
+        } else if (item.action === "build") {
+          actionBadge = `<span class="badge badge-warning">⚙️ Recompilation</span>`;
+        } else if (item.action === "remove") {
+          actionBadge = `<span class="badge badge-danger">➖ Retrait</span>`;
+        }
+
+        return `<tr>
+          <td><strong style="color:var(--text); font-size:0.9rem;">${item.name}</strong></td>
+          <td>${actionBadge}</td>
+          <td><code style="font-size:0.8rem;">${item.current_version}</code></td>
+          <td><code style="color:var(--teal); font-weight:bold; font-size:0.8rem;">${item.new_version || "--"}</code></td>
+          <td><span style="color:var(--subtext0); font-size:0.78rem;">${item.size || "Nixpkgs Flake"}</span></td>
+        </tr>`;
+      }).join("");
+    }
+  }
+
+  // 4. Si une mise à jour est en cours
   if (status.is_updating || isUpdatingNow) {
     if (dot) dot.className = "update-indicator-dot pulse-yellow";
     if (pillText) pillText.textContent = "⏳ Mise à jour en cours...";
@@ -213,7 +326,7 @@ function renderUpdatesUI(status) {
   if (btnUpdate) btnUpdate.disabled = false;
 
   const hasConfig = status.config_update_available;
-  const hasPkgs = status.package_updates_available;
+  const hasPkgs = status.package_updates_available || totalPkgsCount > 0;
 
   // Réinitialiser les étapes de pipeline
   if (step1) step1.className = "pipeline-step";
@@ -233,7 +346,7 @@ function renderUpdatesUI(status) {
 
     if (stratIcon) stratIcon.textContent = "⚡";
     if (stratTitle) stratTitle.textContent = "Mise à jour complète recommandée (Configuration + Paquets)";
-    if (stratDesc) stratDesc.textContent = "Une nouvelle version de la configuration est présente sur GitHub, et des mises à jour de paquets Nixpkgs sont disponibles.";
+    if (stratDesc) stratDesc.textContent = "Une nouvelle version de la configuration est présente sur GitHub, et des mises à jour de paquets sont prêtes à être appliquées.";
     if (step1) step1.className = "pipeline-step active";
     if (step2) step2.className = "pipeline-step active";
     if (step3) { step3.className = "pipeline-step active"; step3.textContent = "3. nh os switch -u"; }
@@ -269,11 +382,11 @@ function renderUpdatesUI(status) {
     if (heroBanner) heroBanner.className = "update-hero-banner has-updates";
     if (heroIcon) heroIcon.textContent = "📦";
     if (heroTitle) heroTitle.textContent = "Mises à jour de paquets système disponibles !";
-    if (heroSub) heroSub.textContent = "Nouveaux paquets disponibles sur le canal Nixpkgs 26.05";
+    if (heroSub) heroSub.textContent = "Nouveaux paquets ou paquets modifiés prêts à être activés via nh os switch -u";
 
     if (stratIcon) stratIcon.textContent = "📦";
-    if (stratTitle) stratTitle.textContent = "Mise à jour des paquets système (Nixpkgs)";
-    if (stratDesc) stratDesc.textContent = "La configuration est à jour, mais des paquets plus récents sont disponibles sur Nixpkgs.";
+    if (stratTitle) stratTitle.textContent = "Mise à jour des paquets système (Nixpkgs / Flake)";
+    if (stratDesc) stratDesc.textContent = "Des paquets nécessitent une installation ou mise à niveau. Cliquez pour déployer avec nh os switch -u.";
     if (step3) { step3.className = "pipeline-step active"; step3.textContent = "1. nh os switch -u"; }
 
     if (btnIcon) btnIcon.textContent = "📦";
@@ -297,6 +410,7 @@ function renderUpdatesUI(status) {
     if (btnLabel) btnLabel.textContent = "Rechercher à nouveau les mises à jour";
   }
 }
+
 
 async function triggerIntelligentUpdate() {
   if (isUpdatingNow) return;

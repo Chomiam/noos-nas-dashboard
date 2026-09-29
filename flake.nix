@@ -55,9 +55,30 @@
               description = "STEvE_OS NAS Dashboard Web Server";
               after = [ "network.target" ];
               wantedBy = [ "multi-user.target" ];
+              path = with pkgs; [
+                git
+                gh
+                nh
+                nix
+                nixos-rebuild
+                nvd
+                coreutils
+                bash
+                systemd
+                diffutils
+                gnugrep
+                gnused
+                findutils
+                utillinux
+                procps
+                which
+              ];
               environment = {
                 STEVEOS_PORT = toString cfg.port;
                 STEVEOS_FRONTEND_DIR = "${pkg}/share/steveos-nas-dashboard/frontend";
+                STEVEOS_CONFIG_DIR = "/etc/nixos";
+                PATH = "/run/current-system/sw/bin:/run/wrappers/bin";
+                NIX_CONFIG = "extra-experimental-features = nix-command flakes";
               };
               serviceConfig = {
                 ExecStart = "${pkg}/bin/steveos-nas-dashboard";

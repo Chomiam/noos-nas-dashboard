@@ -262,7 +262,7 @@
       </div>
     </div>
 
-    <!-- ================= ONGLET 2 : MISES À JOUR INTELLIGENTES ================= -->
+        <!-- ================= ONGLET 2 : MISES À JOUR INTELLIGENTES ================= -->
     <div id="tab-updates" class="tab-pane">
       <div class="section-card">
         <div class="section-header">
@@ -270,12 +270,15 @@
             <div class="section-icon-box">⚡</div>
             <div>
               <div class="section-title">Gestionnaire de Mises à Jour Intelligent STEvE_OS</div>
-              <div class="section-subtitle">Détection GitHub, Git Pull sécurisé (validation syntaxe & rollback) et nh os switch -u</div>
+              <div class="section-subtitle">Vérification de la configuration GitHub, du canal Nixpkgs et liste détaillée des paquets</div>
             </div>
           </div>
-          <button type="button" class="btn btn-secondary btn-xs" onclick="checkForUpdates(true)">
-            <span>🔄</span> Vérifier maintenant
-          </button>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <span id="updates-last-checked-time" style="font-size:0.75rem; color:var(--subtext0); font-family:var(--font-mono);"></span>
+            <button type="button" class="btn btn-secondary btn-xs" id="btn-refresh-updates" onclick="checkForUpdates(true)">
+              <span>🔄</span> Vérifier maintenant
+            </button>
+          </div>
         </div>
 
         <!-- Bannière de Stratégie Détectée -->
@@ -303,34 +306,101 @@
               <span class="metric-icon">🐙</span>
             </div>
             <div style="margin: 10px 0;">
-              <div style="font-size: 0.82rem; color: var(--subtext0);">Dépôt distant : <a href="https://github.com/Chomiam/steve_os-nix" target="_blank" style="color:var(--mauve); text-decoration:none; font-weight:600;">Chomiam/steve_os-nix</a></div>
-              <div style="font-size: 0.85rem; margin-top: 6px;">Local : <code id="git-local-sha" style="color:var(--teal); font-weight:bold;">--</code> | Distant : <code id="git-remote-sha" style="color:var(--sky); font-weight:bold;">--</code></div>
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size: 0.82rem; color: var(--subtext0);">Dépôt distant :</span>
+                <a href="https://github.com/Chomiam/steve_os-nix" target="_blank" style="color:var(--mauve); text-decoration:none; font-weight:600; font-size:0.85rem;">Chomiam/steve_os-nix ↗</a>
+              </div>
+              <div style="font-size: 0.85rem; margin-top: 8px; display:flex; justify-content:space-between; align-items:center;">
+                <span>Local : <code id="git-local-sha" style="color:var(--teal); font-weight:bold; background:rgba(148,226,213,0.1); padding:2px 6px; border-radius:4px;">--</code></span>
+                <span>Distant : <code id="git-remote-sha" style="color:var(--sky); font-weight:bold; background:rgba(137,180,250,0.1); padding:2px 6px; border-radius:4px;">--</code></span>
+              </div>
+              <div style="margin-top:8px;" id="git-commits-status-row">
+                <span class="badge badge-success" id="git-status-badge">✔ Configuration synchronisée</span>
+              </div>
             </div>
             <div class="metric-progress-wrap" style="height: 6px; margin: 8px 0;">
               <div class="metric-progress-bar progress-mauve" id="git-status-bar" style="width: 100%;"></div>
             </div>
-            <p id="git-status-note" style="font-size:0.75rem; color:var(--subtext0);">Sécurisé avec vérification de syntaxe & rollback auto</p>
+            <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--subtext0); margin-top:6px;">
+              <span id="git-working-tree-status">Arbre propre</span>
+              <span id="git-status-note">Rollback auto actif</span>
+            </div>
+
+            <!-- Commits en attente (déroulable) -->
+            <div id="git-pending-commits-wrap" style="display:none; margin-top:12px; padding:10px; background:rgba(0,0,0,0.2); border-radius:var(--radius-sm); border:1px solid rgba(255,255,255,0.05);">
+              <div style="font-size:0.78rem; font-weight:700; color:var(--blue); margin-bottom:6px;">Commits GitHub en attente :</div>
+              <div id="git-pending-commits-list" style="font-size:0.75rem; max-height:100px; overflow-y:auto; font-family:var(--font-mono);"></div>
+              <div id="git-changed-files-wrap" style="margin-top:8px; font-size:0.73rem; color:var(--subtext0);"></div>
+            </div>
           </div>
 
-          <!-- Carte Paquets Nixpkgs -->
+          <!-- Carte Paquets Nixpkgs & Flake -->
           <div class="metric-card">
             <div class="metric-header">
-              <span class="metric-title">Paquets Système & Flake</span>
+              <span class="metric-title">Paquets Système & Flake Inputs</span>
               <span class="metric-icon">📦</span>
             </div>
             <div style="margin: 10px 0;">
-              <div style="font-size: 0.82rem; color: var(--subtext0);">Canal Nixpkgs : <span style="color:var(--peach); font-weight:600;">nixos-26.05</span></div>
-              <div style="font-size: 0.85rem; margin-top: 6px;" id="packages-status-summary">Paquets à jour</div>
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size: 0.82rem; color: var(--subtext0);">Canal Nixpkgs :</span>
+                <span style="color:var(--peach); font-weight:600; font-size:0.85rem;">nixos-26.05</span>
+              </div>
+              <div style="font-size: 0.85rem; margin-top: 8px; display:flex; justify-content:space-between; align-items:center;">
+                <span>Flake lock : <code id="flake-nixpkgs-sha" style="color:var(--peach); font-weight:bold; background:rgba(250,179,135,0.1); padding:2px 6px; border-radius:4px;">--</code></span>
+                <span id="packages-status-summary"><span class="badge badge-success">✔ Paquets à jour</span></span>
+              </div>
+              <div style="margin-top:8px;" id="flake-inputs-summary-row">
+                <span style="font-size:0.78rem; color:var(--subtext0);" id="flake-inputs-detail-text">Tous les inputs sont verrouillés et conformes.</span>
+              </div>
             </div>
             <div class="metric-progress-wrap" style="height: 6px; margin: 8px 0;">
               <div class="metric-progress-bar progress-peach" id="packages-status-bar" style="width: 100%;"></div>
             </div>
-            <p id="packages-status-note" style="font-size:0.75rem; color:var(--subtext0);">Déployé via nh os switch -u</p>
+            <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--subtext0); margin-top:6px;">
+              <span>nh os switch -u</span>
+              <span id="packages-count-label">0 paquet à mettre à jour</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION PAQUETS QUI SERONT MIS À JOUR -->
+        <div class="section-card" style="margin-top: 20px; background: rgba(30, 30, 46, 0.6); border: 1px solid rgba(255, 255, 255, 0.06);">
+          <div class="section-header" style="margin-bottom: 12px;">
+            <div class="section-title-wrap">
+              <span style="font-size:1.2rem;">📋</span>
+              <div>
+                <div class="section-title" style="font-size:1rem;">Vérification des Paquets à Mettre à Jour</div>
+                <div class="section-subtitle">Liste des paquets, outils et modules identifiés pour installation, mise à niveau ou recompilation</div>
+              </div>
+            </div>
+            <span class="badge badge-info" id="packages-list-badge">0 paquet détecté</span>
+          </div>
+
+          <!-- Table des paquets -->
+          <div class="table-responsive" style="max-height: 280px; overflow-y: auto;">
+            <table class="custom-table" id="packages-update-table">
+              <thead>
+                <tr>
+                  <th>Nom du paquet</th>
+                  <th>Type d'opération</th>
+                  <th>Version installée</th>
+                  <th>Nouvelle version</th>
+                  <th>Source / Notes</th>
+                </tr>
+              </thead>
+              <tbody id="packages-update-tbody">
+                <tr>
+                  <td colspan="5" style="text-align:center; color:var(--subtext0); padding:24px;">
+                    ✨ Aucun paquet en attente de mise à jour. Le système est parfaitement aligné.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
 
         <!-- Boutons d'Action Intelligents -->
-        <div class="update-action-box">
+        <div class="update-action-box" style="margin-top: 20px;">
           <div class="update-action-buttons">
             <button type="button" class="btn btn-primary btn-lg" id="btn-intelligent-update" onclick="triggerIntelligentUpdate()">
               <span id="btn-update-icon">⚡</span> <span id="btn-update-label">Lancer la mise à jour intelligente</span>
@@ -360,6 +430,7 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
         </div>
       </div>
     </div>
+
 
     <!-- ================= ONGLET 3 : STOCKAGE & DISQUES ================= -->
     <div id="tab-storage" class="tab-pane">
