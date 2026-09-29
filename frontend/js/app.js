@@ -557,6 +557,31 @@ let cachedStorageDisks = [];
 let currentSelectedRaidLevel = "raid5";
 let raidSyncPollInterval = null;
 
+
+// --------------------------------------------------------------------------
+// BASCULE VUE GRILLE / TABLEAU POUR LES DISQUES
+// --------------------------------------------------------------------------
+let currentDisksView = 'grid';
+function setDisksView(view) {
+  currentDisksView = view;
+  const btnGrid = document.getElementById('btn-view-grid');
+  const btnTable = document.getElementById('btn-view-table');
+  const gridContainer = document.getElementById('disks-container');
+  const tableContainer = document.getElementById('disks-table-container');
+
+  if (view === 'grid') {
+    btnGrid?.classList.add('active');
+    btnTable?.classList.remove('active');
+    if (gridContainer) gridContainer.style.display = 'grid';
+    if (tableContainer) tableContainer.style.display = 'none';
+  } else {
+    btnTable?.classList.add('active');
+    btnGrid?.classList.remove('active');
+    if (gridContainer) gridContainer.style.display = 'none';
+    if (tableContainer) tableContainer.style.display = 'block';
+  }
+}
+
 async function loadStorage() {
   try {
     const res = await fetch("/api/storage");
@@ -675,55 +700,141 @@ async function loadStorage() {
       `).join("");
     }
 
-    // 3. Grille des Disques Physiques
+    // 3. Mise à jour du compteur de disques
+    const countBadge = document.getElementById("disks-count-badge");
+    if (countBadge && data.physical_disks) {
+      const hddCount = data.physical_disks.filter(d => d.is_rotational).length;
+      const ssdCount = data.physical_disks.length - hddCount;
+      countBadge.textContent = `${data.physical_disks.length} Disques (${hddCount} HDD SATA • ${ssdCount} NVMe)`;
+    }
+
+    // 4. Grille des Baies de Disques Physiques
     const disksContainer = document.getElementById("disks-container");
-    if (disksContainer) {
+    if (disksContainer && data.physical_disks) {
       disksContainer.innerHTML = data.physical_disks.map(d => {
         const isStandby = d.power_state.toLowerCase().includes("veille") || d.power_state.toLowerCase().includes("standby");
         const stateBadge = isStandby 
-          ? `<span class="badge badge-warning">🌙 ${escapeHtml(d.power_state)}</span>`
-          : `<span class="badge badge-success">⚡ ${escapeHtml(d.power_state)}</span>`;
+          ? `<span class="badge badge-warning">🌙 Veille</span>`
+          : `<span class="badge badge-success"><span class="status-pulse-dot"></span> Actif</span>`;
 
         let roleBadge = `<span class="badge badge-secondary">${escapeHtml(d.role)}</span>`;
         if (d.is_system) {
           roleBadge = `<span class="badge badge-primary">🔒 Système NixOS</span>`;
         } else if (d.role.includes("Membre")) {
-          roleBadge = `<span class="badge badge-accent">${escapeHtml(d.role)}</span>`;
+          roleBadge = `<span class="badge badge-accent">🛡️ ${escapeHtml(d.role)}</span>`;
         } else if (d.role.includes("Libre")) {
           roleBadge = `<span class="badge badge-success">✨ Libre</span>`;
         }
 
         const spindownBtn = d.is_rotational
-          ? `<button type="button" class="btn btn-secondary btn-xs" onclick="triggerSpindown('${escapeHtml(d.name)}')">Mettre en veille</button>`
-          : `<span class="badge badge-info">Flash (Sans moteur)</span>`;
+          ? `<button type="button" class="btn btn-secondary btn-xs" onclick="triggerSpindown('${escapeHtml(d.name)}')"><span>🌙</span> Mettre en veille</button>`
+          : `<span style="font-size:0.74rem; color:var(--subtext0);">⚡ Flash NVMe</span>`;
 
         const formatBtn = !d.is_system
-          ? `<button type="button" class="btn btn-danger btn-xs" onclick="openFormatDiskModalFor('${escapeHtml(d.path)}')">🧹 Formater</button>`
-          : `<span class="badge badge-secondary" title="Disque système protégé">Verrouillé</span>`;
+          ? `<button type="button" class="btn btn-danger btn-xs" onclick="openFormatDiskModalFor('${escapeHtml(d.path)}')"><span>🧹</span> Formater...</button>`
+          : `<span class="bay-protected-badge" title="Disque système protégé"><span>🔒</span> Protégé</span>`;
 
-        const icon = d.disk_type.includes("NVMe") ? "⚡" : "💿";
+        const isNvme = d.disk_type.includes("NVMe");
+        const driveIcon = isNvme ? "⚡" : "💿";
+
+        let tempClass = "tele-green";
+        if (d.temperature_c > 45) tempClass = "tele-orange";
+        if (d.temperature_c > 52) tempClass = "tele-red";
+        const tempDisplay = d.temperature_c > 0 ? `${d.temperature_c} °C` : (isStandby ? "Veille" : "N/A");
+
+        const smartClass = d.smart_status.includes("PASS") || d.smart_status.includes("Sain") ? "tele-green" : "tele-red";
 
         return `
-          <div class="disk-card">
-            <div class="disk-header">
-              <span class="disk-name">${icon} ${escapeHtml(d.path)}</span>
-              <div style="display:flex; align-items:center; gap:6px;">
+          <div class="disk-bay-card">
+            <div class="bay-card-header">
+              <div class="bay-identifier-wrap">
+                <span class="bay-badge"><span class="bay-slot-icon">🖴</span> ${escapeHtml(d.bay_label || d.name)}</span>
+                <span class="bay-dev-code">${escapeHtml(d.path)}</span>
+              </div>
+              <div class="bay-badges-row">
                 ${roleBadge}
                 ${stateBadge}
               </div>
             </div>
-            <div class="disk-model">${escapeHtml(d.model)} <span style="font-size:0.75rem; color:var(--subtext0);">(${escapeHtml(d.serial)})</span></div>
-            <div class="disk-meta-grid">
-              <div>Capacité : <strong>${d.size_human}</strong></div>
-              <div>Technologie : <strong>${escapeHtml(d.disk_type)}</strong></div>
-              <div>Température : <strong style="color:${d.temperature_c > 45 ? 'var(--red)' : 'var(--green)'};">${d.temperature_c > 0 ? d.temperature_c + ' °C' : 'N/A'}</strong></div>
-              <div>Santé S.M.A.R.T : <strong style="color:var(--green);">${escapeHtml(d.smart_status)}</strong></div>
+
+            <div class="bay-hero-body">
+              <div class="bay-graphic-box">${driveIcon}</div>
+              <div class="bay-info-hero">
+                <div class="bay-capacity-val">${escapeHtml(d.size_human)}</div>
+                <div class="bay-model-name" title="${escapeHtml(d.model)}">${escapeHtml(d.model)}</div>
+                <div class="bay-serial-text">S/N : <code>${escapeHtml(d.serial)}</code></div>
+              </div>
             </div>
-            <div class="disk-actions" style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+
+            <div class="bay-telemetry-grid">
+              <div class="bay-tele-item">
+                <span class="bay-tele-label">🌡️ Température</span>
+                <span class="bay-tele-val ${tempClass}">${tempDisplay}</span>
+              </div>
+              <div class="bay-tele-item">
+                <span class="bay-tele-label">🛡️ S.M.A.R.T.</span>
+                <span class="bay-tele-val ${smartClass}">${escapeHtml(d.smart_status)}</span>
+              </div>
+              <div class="bay-tele-item">
+                <span class="bay-tele-label">⚙️ Technologie</span>
+                <span class="bay-tele-val">${escapeHtml(d.disk_type)}</span>
+              </div>
+              <div class="bay-tele-item">
+                <span class="bay-tele-label">💤 Mode</span>
+                <span class="bay-tele-val">${escapeHtml(d.power_state)}</span>
+              </div>
+            </div>
+
+            <div class="bay-actions-footer">
               <div>${spindownBtn}</div>
               <div>${formatBtn}</div>
             </div>
           </div>
+        `;
+      }).join("");
+    }
+
+    // 5. Tableau Détaillé des Disques Physiques
+    const tableBody = document.getElementById("disks-table-body");
+    if (tableBody && data.physical_disks) {
+      tableBody.innerHTML = data.physical_disks.map(d => {
+        const isStandby = d.power_state.toLowerCase().includes("veille") || d.power_state.toLowerCase().includes("standby");
+        const isNvme = d.disk_type.includes("NVMe");
+        const driveIcon = isNvme ? "⚡" : "💿";
+
+        const spindownBtn = d.is_rotational
+          ? `<button type="button" class="btn btn-secondary btn-xs" onclick="triggerSpindown('${escapeHtml(d.name)}')">🌙 Veille</button>`
+          : `<span style="font-size:0.72rem; color:var(--subtext0);">Flash</span>`;
+
+        const formatBtn = !d.is_system
+          ? `<button type="button" class="btn btn-danger btn-xs" onclick="openFormatDiskModalFor('${escapeHtml(d.path)}')">🧹 Formater</button>`
+          : `<span class="badge badge-secondary" style="font-size:0.7rem;">🔒 Protégé</span>`;
+
+        let tempColor = "var(--green)";
+        if (d.temperature_c > 45) tempColor = "var(--peach)";
+        if (d.temperature_c > 52) tempColor = "var(--red)";
+
+        return `
+          <tr>
+            <td><span class="bay-badge">${escapeHtml(d.bay_label || d.name)}</span></td>
+            <td><strong style="font-family:var(--font-mono); font-size:0.85rem;">${escapeHtml(d.path)}</strong></td>
+            <td>
+              <div style="font-weight:600; font-size:0.84rem;">${escapeHtml(d.model)}</div>
+              <div style="font-size:0.72rem; color:var(--subtext0); font-family:var(--font-mono);">S/N: ${escapeHtml(d.serial)}</div>
+            </td>
+            <td><strong style="font-family:var(--font-mono); font-size:0.95rem;">${escapeHtml(d.size_human)}</strong></td>
+            <td>${driveIcon} ${escapeHtml(d.disk_type)}</td>
+            <td><span class="badge ${d.is_system ? 'badge-primary' : (d.role.includes('Membre') ? 'badge-accent' : 'badge-secondary')}">${escapeHtml(d.role)}</span></td>
+            <td><strong style="color:${tempColor}; font-family:var(--font-mono);">${d.temperature_c > 0 ? d.temperature_c + ' °C' : 'N/A'}</strong></td>
+            <td><span class="badge ${d.smart_status.includes('PASS') || d.smart_status.includes('Sain') ? 'badge-success' : 'badge-danger'}">${escapeHtml(d.smart_status)}</span></td>
+            <td><span class="badge ${isStandby ? 'badge-warning' : 'badge-success'}">${isStandby ? '🌙 Veille' : '⚡ Actif'}</span></td>
+            <td style="text-align:right;">
+              <div style="display:inline-flex; gap:6px;">
+                ${spindownBtn}
+                ${formatBtn}
+              </div>
+            </td>
+          </tr>
         `;
       }).join("");
     }

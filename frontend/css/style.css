@@ -2243,6 +2243,317 @@ kbd {
   transition: width 0.4s ease;
 }
 
+/* ==========================================================================
+   GESTION DU STOCKAGE : BAIES DE DISQUES PHYSIQUES & TABLEAU DÉTAILLÉ
+   ========================================================================== */
+
+/* Boutons de bascule Vue Grille / Tableau */
+.view-toggle-group {
+  display: inline-flex;
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  gap: 2px;
+}
+
+.view-toggle-btn {
+  background: transparent;
+  border: none;
+  color: var(--subtext0);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.view-toggle-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.view-toggle-btn.active {
+  background: var(--surface1);
+  color: var(--blue);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Grille des Baies de disques */
+.disks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 18px;
+  margin-top: 14px;
+}
+
+@media (max-width: 768px) {
+  .disks-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Carte Baie de Disque */
+.disk-bay-card {
+  background: var(--surface0);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.disk-bay-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--blue), var(--mauve));
+  opacity: 0.65;
+  transition: opacity 0.2s ease;
+}
+
+.disk-bay-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(137, 180, 250, 0.35);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.35);
+}
+
+.disk-bay-card:hover::before {
+  opacity: 1;
+}
+
+/* Header Baie */
+.bay-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.bay-identifier-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bay-badge {
+  background: rgba(137, 180, 250, 0.12);
+  color: var(--blue);
+  border: 1px solid rgba(137, 180, 250, 0.28);
+  font-weight: 700;
+  font-size: 0.76rem;
+  border-radius: 6px;
+  padding: 3px 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: 0.3px;
+}
+
+.bay-dev-code {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--subtext1);
+  background: var(--mantle);
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.bay-badges-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Corps Hero de la Baie */
+.bay-hero-body {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(17, 17, 27, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+}
+
+.bay-graphic-box {
+  width: 52px;
+  height: 52px;
+  background: var(--surface1);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+  flex-shrink: 0;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.bay-info-hero {
+  flex: 1;
+  min-width: 0;
+}
+
+.bay-capacity-val {
+  font-size: 1.65rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: var(--text);
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+}
+
+.bay-model-name {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--subtext1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 3px;
+}
+
+.bay-serial-text {
+  font-size: 0.72rem;
+  color: var(--subtext0);
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
+/* Grille Télémétrie 2x2 */
+.bay-telemetry-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  background: rgba(17, 17, 27, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+
+.bay-tele-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bay-tele-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--subtext0);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bay-tele-val {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tele-green { color: var(--green) !important; }
+.tele-orange { color: var(--peach) !important; }
+.tele-red { color: var(--red) !important; }
+
+/* Footer Actions */
+.bay-actions-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 12px;
+  margin-top: auto;
+  gap: 10px;
+}
+
+.bay-protected-badge {
+  background: rgba(203, 166, 247, 0.1);
+  border: 1px solid rgba(203, 166, 247, 0.25);
+  color: var(--mauve);
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 6px;
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Tableau Détaillé du Stockage */
+.disks-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  margin-top: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  background: var(--surface0);
+}
+
+.storage-disks-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  text-align: left;
+}
+
+.storage-disks-table th {
+  background: var(--mantle);
+  color: var(--subtext0);
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+}
+
+.storage-disks-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.storage-disks-table tr:last-child td {
+  border-bottom: none;
+}
+
+.storage-disks-table tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.status-pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  display: inline-block;
+  box-shadow: 0 0 6px var(--green);
+}
+
 .raids-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));

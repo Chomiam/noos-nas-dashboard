@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,6 +29,7 @@ pub struct StoragePool {
 pub struct PhysicalDiskInfo {
     pub name: String,
     pub path: String,
+    pub bay_label: String, // "Baie 1 (SATA)", "Slot M.2 NVMe #1"
     pub size_human: String,
     pub model: String,
     pub serial: String,
@@ -167,7 +169,7 @@ fn scan_storage_pools() -> Vec<StoragePool> {
 fn scan_logical_raids(pools: &[StoragePool]) -> Vec<LogicalRaidInfo> {
     let mut raids = Vec::new();
 
-    // 1. Scanner /proc/mdstat pour les arrays mdadm
+    // 1. Scanner /proc/mdstat pour les grappes mdadm Linux
     if let Ok(content) = std::fs::read_to_string("/proc/mdstat") {
         let lines: Vec<&str> = content.lines().collect();
         let mut i = 0;
@@ -192,7 +194,6 @@ fn scan_logical_raids(pools: &[StoragePool]) -> Vec<LogicalRaidInfo> {
                         }
                     }
 
-                    // Vérifier si la ligne suivante ou suivante contient resync / blocks
                     let mut size_blocks = 0u64;
                     let mut sync_prog = None;
 
@@ -213,7 +214,6 @@ fn scan_logical_raids(pools: &[StoragePool]) -> Vec<LogicalRaidInfo> {
                     let dev_path = format!("/dev/{}", md_name);
                     let total_bytes = size_blocks * 1024;
 
-                    // Chercher montage correspondant dans pools
                     let matched_pool = pools.iter().find(|p| p.filesystem.contains(&md_name));
                     let (mountpoint, used_bytes, free_bytes, usage_percent, fs_name) = if let Some(p) = matched_pool {
                         (Some(p.mountpoint.clone()), p.used_bytes, p.free_bytes, p.usage_percent, p.filesystem.clone())
@@ -251,36 +251,196 @@ fn scan_logical_raids(pools: &[StoragePool]) -> Vec<LogicalRaidInfo> {
         }
     }
 
-    // 2. Scanner Btrfs multi-device / pools si aucun mdadm n'existe ou en complément
-    if raids.is_empty() {
-        if let Ok(output) = Command::new("btrfs").args(["filesystem", "show"]).output() {
-            let str_out = String::from_utf8_lossy(&output.stdout);
-            for block in str_out.split("\n\n") {
-                if block.contains("Label:") || block.contains("uuid:") {
-                    let mut label = "btrfs-pool".to_string();
-                    let mut dev_count = 0;
-                    let mut members = Vec::new();
-                    let total_bytes = 0u64;
-
-                    for l in block.lines() {
-                        if l.contains("Label:") {
-                            if let Some(lbl) = l.split('\'').nth(1) {
-                                if !lbl.is_empty() {
-                                    label = lbl.to_string();
-                                }
-                            }
-                        }
-                        if l.contains("Total devices") {
-                            dev_count = l.split_whitespace().last().and_then(|c| c.parse::<usize>().ok()).unwrap_or(1);
-                        }
-                        if l.contains("devid") {
-                            if let Some(path) = l.split("path").nth(1) {
-                                members.push(path.trim().to_string());
+    // 2. Scanner LVM2 : Volumes Physiques (pvs), Volumes Logiques (lvs) et Groupes de Volumes (vgs)
+    let mut vg_to_pvs: HashMap<String, Vec<String>> = HashMap::new();
+    if let Ok(output) = Command::new("pvs").args(["--reportformat", "json"]).output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+            if let Some(reports) = json.get("report").and_then(|r| r.as_array()) {
+                for rep in reports {
+                    if let Some(pvs) = rep.get("pv").and_then(|p| p.as_array()) {
+                        for pv in pvs {
+                            let pv_name = pv.get("pv_name").and_then(|s| s.as_str()).unwrap_or("").to_string();
+                            let vg_name = pv.get("vg_name").and_then(|s| s.as_str()).unwrap_or("").to_string();
+                            if !pv_name.is_empty() && !vg_name.is_empty() {
+                                vg_to_pvs.entry(vg_name).or_default().push(pv_name);
                             }
                         }
                     }
+                }
+            }
+        }
+    }
 
-                    if dev_count > 1 && !members.is_empty() {
+    // Mapping LVs par VG
+    struct LvParsed {
+        name: String,
+        path: String,
+        size: u64,
+        segtype: String,
+    }
+    let mut vg_to_lvs: HashMap<String, Vec<LvParsed>> = HashMap::new();
+    if let Ok(output) = Command::new("lvs")
+        .args(["--units", "b", "--nosuffix", "-o", "lv_name,vg_name,lv_size,segtype,lv_path", "--reportformat", "json"])
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+            if let Some(reports) = json.get("report").and_then(|r| r.as_array()) {
+                for rep in reports {
+                    if let Some(lvs) = rep.get("lv").and_then(|l| l.as_array()) {
+                        for lv in lvs {
+                            let lv_name = lv.get("lv_name").and_then(|s| s.as_str()).unwrap_or("").to_string();
+                            let vg_name = lv.get("vg_name").and_then(|s| s.as_str()).unwrap_or("").to_string();
+                            let lv_path = lv.get("lv_path").and_then(|s| s.as_str()).unwrap_or("").to_string();
+                            let segtype = lv.get("segtype").and_then(|s| s.as_str()).unwrap_or("linear").to_string();
+                            let lv_size = lv.get("lv_size").and_then(|s| s.as_str()).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+
+                            if !lv_name.is_empty() && !vg_name.is_empty() {
+                                vg_to_lvs.entry(vg_name.clone()).or_default().push(LvParsed {
+                                    name: lv_name.clone(),
+                                    path: if lv_path.is_empty() { format!("/dev/{}/{}", vg_name, lv_name) } else { lv_path },
+                                    size: lv_size,
+                                    segtype,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Scanner VGs
+    if let Ok(output) = Command::new("vgs")
+        .args(["--units", "b", "--nosuffix", "--reportformat", "json"])
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+            if let Some(reports) = json.get("report").and_then(|r| r.as_array()) {
+                for rep in reports {
+                    if let Some(vgs) = rep.get("vg").and_then(|v| v.as_array()) {
+                        for vg in vgs {
+                            let vg_name = vg.get("vg_name").and_then(|s| s.as_str()).unwrap_or("").to_string();
+                            if vg_name.is_empty() {
+                                continue;
+                            }
+                            let pv_count = vg.get("pv_count").and_then(|s| s.as_str()).and_then(|s| s.parse::<usize>().ok()).unwrap_or(1);
+                            let vg_size = vg.get("vg_size").and_then(|s| s.as_str()).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+                            let vg_free = vg.get("vg_free").and_then(|s| s.as_str()).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+                            let pvs = vg_to_pvs.get(&vg_name).cloned().unwrap_or_default();
+
+                            let has_lvs = vg_to_lvs.get(&vg_name).map(|l| !l.is_empty()).unwrap_or(false);
+
+                            if has_lvs {
+                                if let Some(lvs_list) = vg_to_lvs.get(&vg_name) {
+                                    for lv in lvs_list {
+                                        let matched_pool = pools.iter().find(|p| p.filesystem.contains(&lv.name) || p.filesystem.contains(&lv.path));
+                                        let (mountpoint, used_bytes, free_bytes, usage_percent, fs_name) = if let Some(p) = matched_pool {
+                                            (Some(p.mountpoint.clone()), p.used_bytes, p.free_bytes, p.usage_percent, p.filesystem.clone())
+                                        } else {
+                                            (None, 0, lv.size, 0.0, "Non monté".to_string())
+                                        };
+
+                                        let level_label = match lv.segtype.to_lowercase().as_str() {
+                                            "raid5" => "LVM2 RAID 5".to_string(),
+                                            "raid6" => "LVM2 RAID 6".to_string(),
+                                            "raid1" => "LVM2 RAID 1 (Miroir)".to_string(),
+                                            "raid0" | "striped" => "LVM2 RAID 0 (Agrégat)".to_string(),
+                                            "raid10" => "LVM2 RAID 10".to_string(),
+                                            "thin" => "LVM2 Thin Pool".to_string(),
+                                            _ => format!("LVM2 {}", lv.segtype.to_uppercase()),
+                                        };
+
+                                        raids.push(LogicalRaidInfo {
+                                            name: format!("{}/{}", vg_name, lv.name),
+                                            device: lv.path.clone(),
+                                            level: level_label,
+                                            status: "active".to_string(),
+                                            health: "Sain".to_string(),
+                                            size_human: format_bytes(lv.size),
+                                            total_bytes: lv.size,
+                                            used_bytes,
+                                            free_bytes,
+                                            usage_percent,
+                                            filesystem: fs_name,
+                                            mountpoint,
+                                            members: pvs.clone(),
+                                            sync_progress: None,
+                                        });
+                                    }
+                                }
+                            } else {
+                                // Volume Group LVM2 sans LV encore alloué : exposer la grappe globale de stockage
+                                let used_bytes = vg_size.saturating_sub(vg_free);
+                                let usage_percent = if vg_size > 0 {
+                                    ((used_bytes as f64 / vg_size as f64) * 100.0) as f32
+                                } else {
+                                    0.0
+                                };
+
+                                let matched_pool = pools.iter().find(|p| p.filesystem.contains(&vg_name));
+                                let (mountpoint, fs_name) = if let Some(p) = matched_pool {
+                                    (Some(p.mountpoint.clone()), p.filesystem.clone())
+                                } else {
+                                    (None, "LVM2 Volume Group".to_string())
+                                };
+
+                                raids.push(LogicalRaidInfo {
+                                    name: vg_name.clone(),
+                                    device: format!("/dev/{}", vg_name),
+                                    level: format!("Grappe LVM2 (Pool {} disques)", pvs.len().max(pv_count)),
+                                    status: "active".to_string(),
+                                    health: "Sain".to_string(),
+                                    size_human: format_bytes(vg_size),
+                                    total_bytes: vg_size,
+                                    used_bytes,
+                                    free_bytes: vg_free,
+                                    usage_percent: (usage_percent * 10.0).round() / 10.0,
+                                    filesystem: fs_name,
+                                    mountpoint,
+                                    members: pvs,
+                                    sync_progress: None,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Scanner Btrfs multi-device / pools si pertinent
+    if let Ok(output) = Command::new("btrfs").args(["filesystem", "show"]).output() {
+        let str_out = String::from_utf8_lossy(&output.stdout);
+        for block in str_out.split("\n\n") {
+            if block.contains("Label:") || block.contains("uuid:") {
+                let mut label = "btrfs-pool".to_string();
+                let mut dev_count = 0;
+                let mut members = Vec::new();
+                let total_bytes = 0u64;
+
+                for l in block.lines() {
+                    if l.contains("Label:") {
+                        if let Some(lbl) = l.split('\'').nth(1) {
+                            if !lbl.is_empty() {
+                                label = lbl.to_string();
+                            }
+                        }
+                    }
+                    if l.contains("Total devices") {
+                        dev_count = l.split_whitespace().last().and_then(|c| c.parse::<usize>().ok()).unwrap_or(1);
+                    }
+                    if l.contains("devid") {
+                        if let Some(path) = l.split("path").nth(1) {
+                            members.push(path.trim().to_string());
+                        }
+                    }
+                }
+
+                if dev_count > 1 && !members.is_empty() {
+                    if !raids.iter().any(|r| r.name == label) {
                         let matched_pool = pools.iter().find(|p| p.mountpoint == "/" || p.name.contains(&label));
                         raids.push(LogicalRaidInfo {
                             name: label.clone(),
@@ -332,7 +492,10 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
                     let path = dev.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
                     let size_human = dev.get("size").and_then(|s| s.as_str()).unwrap_or("0").to_string();
                     let is_rotational = dev.get("rota").and_then(|r| r.as_bool()).unwrap_or(true);
-                    let model = dev.get("model").and_then(|m| m.as_str()).unwrap_or("Disque standard").trim().to_string();
+                    let mut model = dev.get("model").and_then(|m| m.as_str()).unwrap_or("").trim().to_string();
+                    if model.is_empty() {
+                        model = if path.contains("nvme") { "SSD NVMe PCIe".into() } else { "Disque SATA".into() };
+                    }
                     let serial = dev.get("serial").and_then(|s| s.as_str()).unwrap_or("N/A").trim().to_string();
                     let fstype = dev.get("fstype").and_then(|f| f.as_str()).map(|f| f.to_string());
 
@@ -342,6 +505,29 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
                         "HDD 3.5\" SATA".to_string()
                     } else {
                         "SSD SATA Flash".to_string()
+                    };
+
+                    // Attribuer un libellé de Baie matériel clair
+                    let bay_label = if name == "sda" {
+                        "Baie 1 (SATA)".to_string()
+                    } else if name == "sdb" {
+                        "Baie 2 (SATA)".to_string()
+                    } else if name == "sdc" {
+                        "Baie 3 (SATA)".to_string()
+                    } else if name == "sdd" {
+                        "Baie 4 (SATA)".to_string()
+                    } else if name.starts_with("sd") && name.len() >= 3 {
+                        let letter = name.chars().nth(2).unwrap_or('a');
+                        let bay_num = (letter as u8).saturating_sub(b'a') + 1;
+                        format!("Baie {} (SATA)", bay_num)
+                    } else if name == "nvme0n1" {
+                        "Slot M.2 NVMe #1".to_string()
+                    } else if name == "nvme1n1" {
+                        "Slot M.2 NVMe #2 (Système)".to_string()
+                    } else if name.starts_with("nvme") {
+                        format!("Slot NVMe {}", name)
+                    } else {
+                        format!("Disque {}", name)
                     };
 
                     // Extraire les partitions
@@ -358,11 +544,15 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
                             let mut part_is_sys = false;
 
                             if let Some(mounts) = child.get("mountpoints").and_then(|m| m.as_array()) {
-                                if let Some(m0) = mounts.first().and_then(|m| m.as_str()) {
-                                    part_mount = Some(m0.to_string());
-                                    if m0 == "/" || m0 == "/boot" || m0.starts_with("/nix") {
-                                        part_is_sys = true;
-                                        contains_system = true;
+                                for m_val in mounts {
+                                    if let Some(m0) = m_val.as_str() {
+                                        if part_mount.is_none() {
+                                            part_mount = Some(m0.to_string());
+                                        }
+                                        if m0 == "/" || m0 == "/boot" || m0.starts_with("/nix") {
+                                            part_is_sys = true;
+                                            contains_system = true;
+                                        }
                                     }
                                 }
                             }
@@ -383,14 +573,14 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
                         "Système NixOS (Verrouillé)".to_string()
                     } else {
                         let member_of = logical_raids.iter().find(|r| {
-                            r.members.iter().any(|m| m.contains(&name))
+                            r.members.iter().any(|m| m.contains(&name) || m.contains(&path))
                         });
 
                         if let Some(r) = member_of {
                             format!("Membre de {} ({})", r.name, r.level)
                         } else if let Some(fs) = &fstype {
                             if fs.contains("LVM") {
-                                "Membre LVM2 (vg1)".to_string()
+                                "Membre LVM2 (Pool)".to_string()
                             } else {
                                 format!("Volume simple ({})", fs)
                             }
@@ -401,24 +591,45 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
                         }
                     };
 
-                    // État spindown
-                    let mut power_state = "Actif / En ligne".to_string();
-                    if is_rotational {
-                        if let Ok(hd_out) = Command::new("hdparm").args(["-C", &path]).output() {
-                            let hd_str = String::from_utf8_lossy(&hd_out.stdout);
-                            if hd_str.contains("standby") {
-                                power_state = "Veille (Standby)".into();
-                            } else if hd_str.contains("active") || hd_str.contains("idle") {
-                                power_state = "Actif / En rotation".into();
+                    // Interrogation SMART & Télémétrie thermique réelle sans réveiller un disque endormi
+                    let mut power_state = if is_rotational { "Actif / En rotation".to_string() } else { "Actif / En ligne".to_string() };
+                    let mut smart_status = "Sain (PASS)".to_string();
+                    let mut temperature_c = if is_rotational { 32.0 } else { 35.0 };
+
+                    if let Ok(smart_out) = Command::new("smartctl")
+                        .args(["-n", "standby", "-j", "-H", "-A", &path])
+                        .output()
+                    {
+                        if smart_out.status.code() == Some(2) {
+                            power_state = "Veille (Standby)".to_string();
+                            smart_status = "Veille (Préservé)".to_string();
+                        } else {
+                            let smart_json_str = String::from_utf8_lossy(&smart_out.stdout);
+                            if let Ok(sj) = serde_json::from_str::<serde_json::Value>(&smart_json_str) {
+                                if let Some(passed) = sj.get("smart_status").and_then(|s| s.get("passed")).and_then(|p| p.as_bool()) {
+                                    smart_status = if passed { "Sain (PASS)".to_string() } else { "Attention (ÉCHEC)".to_string() };
+                                }
+                                if let Some(temp) = sj.get("temperature").and_then(|t| t.get("current")).and_then(|c| c.as_f64()) {
+                                    temperature_c = temp as f32;
+                                } else if let Some(attrs) = sj.get("ata_smart_attributes").and_then(|a| a.get("table")).and_then(|t| t.as_array()) {
+                                    for attr in attrs {
+                                        let id = attr.get("id").and_then(|i| i.as_u64()).unwrap_or(0);
+                                        if id == 194 || id == 190 {
+                                            if let Some(val) = attr.get("raw").and_then(|r| r.get("value")).and_then(|v| v.as_f64()) {
+                                                temperature_c = val as f32;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
 
-                    let temperature_c = if is_rotational { 32.0 } else { 35.0 };
-
                     physical_disks.push(PhysicalDiskInfo {
                         name,
                         path,
+                        bay_label,
                         size_human,
                         model,
                         serial,
@@ -428,7 +639,7 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
                         fstype,
                         role,
                         power_state,
-                        smart_status: "Sain (PASS)".into(),
+                        smart_status,
                         temperature_c,
                         partitions,
                     });
@@ -436,6 +647,17 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
             }
         }
     }
+
+    // Trier les disques dans l'ordre logique des baies : sda, sdb, sdc, sdd... puis nvme
+    physical_disks.sort_by(|a, b| {
+        let order_a = if a.name.starts_with("sd") { 0 } else { 1 };
+        let order_b = if b.name.starts_with("sd") { 0 } else { 1 };
+        if order_a != order_b {
+            order_a.cmp(&order_b)
+        } else {
+            a.name.cmp(&b.name)
+        }
+    });
 
     physical_disks
 }

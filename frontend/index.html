@@ -754,16 +754,50 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
 
       <!-- SECTION 3 : VOLUMES PHYSIQUES & DISQUES BRUTS -->
       <div class="section-card">
-        <div class="section-header">
+        <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
           <div class="section-title-wrap">
-            <div class="section-icon-box">💿</div>
+            <div class="section-icon-box" style="background:rgba(137,180,250,0.15); color:var(--blue);">💿</div>
             <div>
               <div class="section-title">Volumes Physiques & Contrôle d'Énergie</div>
-              <div class="section-subtitle">Inventaire détaillé des disques durs SATA et SSD NVMe, température, santé S.M.A.R.T. et gestion de la mise en veille (Spindown)</div>
+              <div class="section-subtitle">Inventaire des baies de stockage SATA et slots NVMe, télémétrie S.M.A.R.T. et gestion de l'alimentation</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span class="badge badge-accent" id="disks-count-badge" style="font-size:0.76rem; font-weight:700;">6 Disques</span>
+            <div class="view-toggle-group">
+              <button type="button" class="view-toggle-btn active" id="btn-view-grid" onclick="setDisksView('grid')" title="Vue en Baies (Cartes)">
+                <span>⊞</span> Baies
+              </button>
+              <button type="button" class="view-toggle-btn" id="btn-view-table" onclick="setDisksView('table')" title="Vue Tableau Détaillé">
+                <span>☰</span> Tableau
+              </button>
             </div>
           </div>
         </div>
+
+        <!-- Vue 1 : Grille des Baies de Disques -->
         <div class="disks-grid" id="disks-container"></div>
+
+        <!-- Vue 2 : Tableau Détaillé des Disques -->
+        <div class="disks-table-wrap" id="disks-table-container" style="display:none;">
+          <table class="storage-disks-table">
+            <thead>
+              <tr>
+                <th>Baie / Slot</th>
+                <th>Périphérique</th>
+                <th>Modèle / Série</th>
+                <th>Capacité</th>
+                <th>Technologie</th>
+                <th>Rôle / Pool</th>
+                <th>Température</th>
+                <th>Santé SMART</th>
+                <th>Alimentation</th>
+                <th style="text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="disks-table-body"></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
