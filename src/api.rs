@@ -15,7 +15,7 @@ use crate::services::{control_service, get_service_logs, get_services_overview, 
 use crate::storage::{create_raid, format_disk, get_raid_sync_progress, get_storage_overview, mount_volume, repair_path_permissions, trigger_disk_spindown, umount_volume, CreateRaidRequest, FormatDiskRequest, MountVolumeRequest, RaidSyncProgress, RepairPermissionsRequest, StorageOverview, UmountVolumeRequest};
 use crate::system::{get_gpu_info, get_system_info, GpuInfo, SystemInfo};
 use crate::terminal::{autocomplete, execute_command, CompleteRequest, CompleteResponse, ExecRequest, ExecResponse};
-use crate::updates::{apply_intelligent_update, check_updates, ApplyUpdateResult, UpdateCheckStatus};
+use crate::updates::{apply_intelligent_update, check_updates, get_live_log, ApplyUpdateResult, UpdateCheckStatus};
 use crate::hardware::{get_hardware_overview, HardwareOverview};
 use crate::smart::{get_smart_overview, SmartOverview};
 use crate::speedtest::{get_latest_speedtest, run_speedtest, SpeedtestResult};
@@ -43,6 +43,12 @@ pub struct ApplyUpdateQuery {
     pub force_packages: Option<bool>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LiveLogsResponse {
+    pub logs: String,
+    pub is_updating: bool,
+}
+
 pub fn api_routes() -> Router {
     Router::new()
         .route("/system", get(handle_system))
@@ -59,6 +65,7 @@ pub fn api_routes() -> Router {
         .route("/logs", get(handle_logs))
         .route("/updates/status", get(handle_updates_status))
         .route("/updates/apply", post(handle_updates_apply))
+        .route("/updates/logs", get(handle_updates_logs))
         .route("/terminal/exec", post(handle_terminal_exec))
         .route("/terminal/complete", post(handle_terminal_complete))
         .route("/files/list", get(handle_files_list))
@@ -164,6 +171,15 @@ async fn handle_updates_apply(Query(params): Query<ApplyUpdateQuery>) -> Json<Ap
     Json(ApiResponse {
         success: result.success,
         data: Some(result),
+        message: None,
+    })
+}
+
+async fn handle_updates_logs() -> Json<ApiResponse<LiveLogsResponse>> {
+    let (logs, is_updating) = get_live_log();
+    Json(ApiResponse {
+        success: true,
+        data: Some(LiveLogsResponse { logs, is_updating }),
         message: None,
     })
 }

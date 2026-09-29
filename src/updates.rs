@@ -80,9 +80,47 @@ pub struct ApplyUpdateResult {
 
 static UPDATE_CACHE: Mutex<Option<(Instant, UpdateCheckStatus)>> = Mutex::new(None);
 static IS_UPDATING: AtomicBool = AtomicBool::new(false);
+static IS_CHECKING: AtomicBool = AtomicBool::new(false);
+static LIVE_UPDATE_LOG: Mutex<String> = Mutex::new(String::new());
 
 pub fn is_updating() -> bool {
     IS_UPDATING.load(Ordering::SeqCst)
+}
+
+pub fn append_live_log(msg: &str) {
+    if let Ok(mut log) = LIVE_UPDATE_LOG.lock() {
+        log.push_str(msg);
+    }
+}
+
+pub fn get_live_log() -> (String, bool) {
+    let log_str = LIVE_UPDATE_LOG.lock().map(|l| l.clone()).unwrap_or_default();
+    (log_str, is_updating())
+}
+
+pub fn get_cached_status() -> Option<UpdateCheckStatus> {
+    if let Ok(guard) = UPDATE_CACHE.lock() {
+        if let Some((_, ref cached)) = *guard {
+            let mut res = cached.clone();
+            res.is_updating = is_updating();
+            return Some(res);
+        }
+    }
+    None
+}
+
+pub fn start_background_checker() {
+    std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_secs(3));
+        let _ = check_updates(true);
+
+        loop {
+            std::thread::sleep(Duration::from_secs(15 * 60));
+            if !is_updating() {
+                let _ = check_updates(true);
+            }
+        }
+    });
 }
 
 fn find_bin(candidates: &[&str]) -> String {
@@ -237,7 +275,7 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
     if !force_refresh {
         if let Ok(guard) = UPDATE_CACHE.lock() {
             if let Some((instant, ref cached)) = *guard {
-                if instant.elapsed() < Duration::from_secs(30) {
+                if instant.elapsed() < Duration::from_secs(900) {
                     let mut res = cached.clone();
                     res.is_updating = is_updating();
                     return res;
@@ -245,6 +283,20 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
             }
         }
     }
+
+    if IS_CHECKING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+        if let Some(cached) = get_cached_status() {
+            return cached;
+        }
+    }
+
+    struct CheckGuard;
+    impl Drop for CheckGuard {
+        fn drop(&mut self) {
+            IS_CHECKING.store(false, Ordering::SeqCst);
+        }
+    }
+    let _check_guard = CheckGuard;
 
     let config_dir = resolve_config_dir();
     let config_dir_str = config_dir.display().to_string();
@@ -371,9 +423,17 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
     let lock_path = config_dir.join("flake.lock");
     if let Ok(lock_str) = fs::read_to_string(&lock_path) {
         if let Ok(lock_json) = serde_json::from_str::<serde_json::Value>(&lock_str) {
+            let root_inputs: Vec<String> = lock_json
+                .get("nodes")
+                .and_then(|n| n.get("root"))
+                .and_then(|r| r.get("inputs"))
+                .and_then(|i| i.as_object())
+                .map(|obj| obj.keys().cloned().collect())
+                .unwrap_or_default();
+
             if let Some(nodes) = lock_json.get("nodes").and_then(|n| n.as_object()) {
                 for (node_name, node_val) in nodes {
-                    if node_name == "root" {
+                    if node_name == "root" || !root_inputs.contains(node_name) {
                         continue;
                     }
                     let locked = node_val.get("locked");
@@ -479,49 +539,25 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
 
 fn detect_package_updates_list(config_dir: &Path, inputs_have_updates: bool) -> Vec<PackageUpdateItem> {
     let mut list = Vec::new();
-    let dir_str = config_dir.display().to_string();
+    if !inputs_have_updates {
+        return list;
+    }
 
-    // Exécution d'un dry-run Nix pour capturer les dérivations et paquets qui seront téléchargés / construits
+    let dir_str = config_dir.display().to_string();
     let target_attr = format!("{}#nixosConfigurations.nas.config.system.build.toplevel", dir_str);
-    let mut args = vec![
+    let args = vec![
         "build",
         &target_attr,
         "--dry-run",
+        "--recreate-lock-file",
+        "--no-write-lock-file",
     ];
-
-    if inputs_have_updates {
-        args.push("--recreate-lock-file");
-        args.push("--no-write-lock-file");
-    }
 
     if let Ok(out) = Command::new(nix_binary()).args(&args).output() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         let stdout = String::from_utf8_lossy(&out.stdout);
         let combined = format!("{}\n{}", stdout, stderr);
         list.extend(parse_nix_dry_run(&combined));
-    }
-
-    // Détection complémentaire : paquets ajoutés dans environment.systemPackages absents de /run/current-system/sw/bin
-    let sw_bin = Path::new("/run/current-system/sw/bin");
-    let check_pkgs = [
-        ("gh", "GitHub CLI (Gestionnaire GitHub officiel)", "2.101.0"),
-        ("nvd", "Nix Package Version Diff Tool", "0.2.4"),
-        ("git", "Git Distributed Version Control", "2.54.0"),
-        ("nh", "Nix Helper CLI", "4.4.2"),
-        ("cfspeedtest", "Cloudflare Speedtest CLI", "2.2.2"),
-    ];
-
-    for (pkg, desc, ver) in check_pkgs {
-        let installed = sw_bin.join(pkg).exists();
-        if !installed && !list.iter().any(|i| i.name == pkg) {
-            list.push(PackageUpdateItem {
-                name: pkg.to_string(),
-                current_version: "Non installé sur le système".to_string(),
-                new_version: Some(format!("{} ({})", ver, desc)),
-                action: "add".to_string(),
-                size: Some("Inclus dans la configuration".to_string()),
-            });
-        }
     }
 
     list
@@ -711,21 +747,32 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
     let mut steps_executed = Vec::new();
     let mut output_log = String::new();
 
-    let status = check_updates(true);
+    let cached = get_cached_status();
     let config_dir = resolve_config_dir();
     let dir_str = config_dir.display().to_string();
 
-    let update_type = if force_packages && status.update_type == UpdateType::None {
+    let update_type = if force_packages {
         UpdateType::PackagesOnly
+    } else if let Some(ref c) = cached {
+        if c.update_type == UpdateType::None {
+            UpdateType::PackagesOnly
+        } else {
+            c.update_type.clone()
+        }
     } else {
-        status.update_type
+        UpdateType::Both
     };
 
-    output_log.push_str("==========================================================\n");
-    output_log.push_str("🚀 Lancement de la mise à jour intelligente STEvE_OS\n");
-    output_log.push_str(&format!("   Mode détecté : {:?}\n", update_type));
-    output_log.push_str(&format!("   Répertoire   : {}\n", dir_str));
-    output_log.push_str("==========================================================\n\n");
+    let header = format!(
+        "==========================================================\n🚀 Lancement de la mise à jour intelligente STEvE_OS\n   Mode détecté : {:?}\n   Répertoire   : {}\n==========================================================\n\n",
+        update_type, dir_str
+    );
+
+    if let Ok(mut log) = LIVE_UPDATE_LOG.lock() {
+        log.clear();
+        log.push_str(&header);
+    }
+    output_log.push_str(&header);
 
     match update_type {
         UpdateType::None => {
@@ -810,6 +857,34 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
     }
 
     output_log.push_str("\n✔ Mise à jour terminée avec succès !\n");
+    append_live_log("\n✔ Mise à jour terminée avec succès !\n");
+
+    if let Ok(mut guard) = UPDATE_CACHE.lock() {
+        let (short_c, full_c) = get_local_commit_from_fs(&config_dir);
+        let clean_status = UpdateCheckStatus {
+            config_update_available: false,
+            config_local_commit: short_c,
+            config_local_commit_full: full_c,
+            config_remote_commit: None,
+            config_remote_commit_full: None,
+            config_commit_message: None,
+            config_commits_behind: 0,
+            config_pending_commits: vec![],
+            config_changed_files: vec![],
+            config_git_status: "Arbre de travail propre".to_string(),
+            package_updates_available: false,
+            package_updates_count: 0,
+            package_details: vec![],
+            flake_inputs_status: vec![],
+            package_updates_list: vec![],
+            update_type: UpdateType::None,
+            status_text: "✨ Système et configuration à jour".to_string(),
+            config_dir: dir_str,
+            last_checked: current_time_formatted(),
+            is_updating: false,
+        };
+        *guard = Some((Instant::now(), clean_status));
+    }
 
     ApplyUpdateResult {
         success: true,
@@ -844,20 +919,51 @@ fn run_switch_command(config_dir: &Path, update_inputs: bool) -> (bool, String) 
 
     let mut cmd = create_user_command(&bin, &args);
     cmd.current_dir(config_dir);
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
 
-    let output = cmd.output();
+    match cmd.spawn() {
+        Ok(mut child) => {
+            use std::io::BufRead;
+            let stdout = child.stdout.take();
+            let stderr = child.stderr.take();
 
-    match output {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-            let mut combined = stdout;
-            if !stderr.is_empty() {
-                combined.push_str("\n");
-                combined.push_str(&stderr);
+            let stdout_handle = std::thread::spawn(move || {
+                let mut out_str = String::new();
+                if let Some(out) = stdout {
+                    let reader = std::io::BufReader::new(out);
+                    for line in reader.lines().flatten() {
+                        let l = format!("{}\n", line);
+                        append_live_log(&l);
+                        out_str.push_str(&l);
+                    }
+                }
+                out_str
+            });
+
+            let stderr_handle = std::thread::spawn(move || {
+                let mut err_str = String::new();
+                if let Some(err) = stderr {
+                    let reader = std::io::BufReader::new(err);
+                    for line in reader.lines().flatten() {
+                        let l = format!("{}\n", line);
+                        append_live_log(&l);
+                        err_str.push_str(&l);
+                    }
+                }
+                err_str
+            });
+
+            let out_text = stdout_handle.join().unwrap_or_default();
+            let err_text = stderr_handle.join().unwrap_or_default();
+            let mut combined = out_text;
+            if !err_text.is_empty() {
+                combined.push_str(&err_text);
             }
+
+            let status = child.wait().map(|s| s.success()).unwrap_or(false);
             let cleaned = sanitize_terminal_output(&combined);
-            (out.status.success(), cleaned)
+            (status, cleaned)
         }
         Err(e) => (false, format!("Impossible d'exécuter {} : {}", bin, e)),
     }

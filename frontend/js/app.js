@@ -154,6 +154,11 @@ async function loadSystem() {
 // MISES À JOUR INTELLIGENTES (STEvE_OS UPDATE ENGINE)
 // --------------------------------------------------------------------------
 async function checkForUpdates(force = false) {
+  const refreshBtn = document.getElementById("btn-refresh-updates");
+  if (force && refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.innerHTML = `<span>⏳</span> Recherche...`;
+  }
   try {
     const res = await fetch(`/api/updates/status${force ? '?force=true' : ''}`);
     const json = await res.json();
@@ -163,7 +168,44 @@ async function checkForUpdates(force = false) {
     renderUpdatesUI(lastUpdateStatus);
   } catch (err) {
     console.warn("Erreur fetch /api/updates/status:", err);
+  } finally {
+    if (force && refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.innerHTML = `<span>🔄</span> Vérifier maintenant`;
+    }
   }
+}
+
+function startLiveLogPolling() {
+  const termBody = document.getElementById("update-terminal-body");
+  const interval = setInterval(async () => {
+    try {
+      const res = await fetch("/api/updates/logs");
+      const json = await res.json();
+      if (json.success && json.data && json.data.logs) {
+        if (termBody) {
+          termBody.innerHTML = parseAnsiToHtml(json.data.logs);
+          termBody.scrollTop = termBody.scrollHeight;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, 400);
+
+  return async () => {
+    clearInterval(interval);
+    try {
+      const res = await fetch("/api/updates/logs");
+      const json = await res.json();
+      if (json.success && json.data && json.data.logs) {
+        if (termBody) {
+          termBody.innerHTML = parseAnsiToHtml(json.data.logs);
+          termBody.scrollTop = termBody.scrollHeight;
+        }
+      }
+    } catch (e) {}
+  };
 }
 
 function renderUpdatesUI(status) {
@@ -454,14 +496,13 @@ async function triggerIntelligentUpdate() {
 
   showToast("Lancement de la mise à jour intelligente...", "info");
 
+  const stopLogPolling = startLiveLogPolling();
+
   try {
     const res = await fetch("/api/updates/apply", { method: "POST" });
     const json = await res.json();
     const result = json.data || {};
-
-    if (termBody) {
-      termBody.innerHTML = parseAnsiToHtml(result.output_log || "Aucun log retourné.");
-    }
+    await stopLogPolling();
 
     if (json.success && result.success) {
       if (termStatus) {
@@ -477,6 +518,7 @@ async function triggerIntelligentUpdate() {
       showToast("Échec de la mise à jour : " + (result.error || json.message || "Erreur inconnue"), "error");
     }
   } catch (err) {
+    await stopLogPolling();
     if (termBody) termBody.innerHTML += parseAnsiToHtml("\nErreur réseau lors de l'appel API : " + err);
     if (termStatus) {
       termStatus.className = "badge badge-danger";
@@ -485,7 +527,7 @@ async function triggerIntelligentUpdate() {
     showToast("Erreur de connexion : " + err, "error");
   } finally {
     isUpdatingNow = false;
-    await checkForUpdates(true);
+    await checkForUpdates(false);
   }
 }
 
@@ -512,14 +554,13 @@ async function triggerForcePackagesUpdate() {
 
   showToast("Lancement de nh os switch -u...", "info");
 
+  const stopLogPolling = startLiveLogPolling();
+
   try {
     const res = await fetch("/api/updates/apply?force_packages=true", { method: "POST" });
     const json = await res.json();
     const result = json.data || {};
-
-    if (termBody) {
-      termBody.innerHTML = parseAnsiToHtml(result.output_log || "Aucun log retourné.");
-    }
+    await stopLogPolling();
 
     if (json.success && result.success) {
       if (termStatus) {
@@ -535,11 +576,12 @@ async function triggerForcePackagesUpdate() {
       showToast("Erreur lors de la mise à jour : " + (result.error || json.message), "error");
     }
   } catch (err) {
+    await stopLogPolling();
     if (termBody) termBody.innerHTML += parseAnsiToHtml("\nErreur réseau : " + err);
     showToast("Erreur réseau : " + err, "error");
   } finally {
     isUpdatingNow = false;
-    await checkForUpdates(true);
+    await checkForUpdates(false);
   }
 }
 

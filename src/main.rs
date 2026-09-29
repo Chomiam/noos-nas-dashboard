@@ -60,6 +60,8 @@ async fn main() {
     println!("╚════════════════════════════════════════════════════════════╝");
     println!("\x1b[0m");
 
+    updates::start_background_checker();
+
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .unwrap_or_else(|e| panic!("Impossible de démarrer le serveur sur le port {} : {}", port, e));
