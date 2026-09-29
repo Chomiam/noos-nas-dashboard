@@ -6,6 +6,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::youtube::{get_job_status, get_youtube_info, list_jobs, start_youtube_download, YoutubeDownloadRequest, YoutubeInfoRequest, YoutubeJobStatus, YoutubeVideoInfo};
 use crate::trash::{delete_trash_item, empty_trash, get_trash_overview, restore_trash_item, TrashActionRequest, TrashOverview};
 use crate::files::{
     copy_item, create_directory, delete_item, get_image_info, get_image_preview_path, list_directory, move_item, rename_item,
@@ -100,6 +101,10 @@ pub fn api_routes() -> Router {
         .route("/files/trash/restore", post(handle_trash_restore))
         .route("/files/trash/delete", post(handle_trash_delete))
         .route("/files/trash/empty", post(handle_trash_empty))
+        .route("/youtube/info", post(handle_youtube_info))
+        .route("/youtube/download", post(handle_youtube_download))
+        .route("/youtube/status/:job_id", get(handle_youtube_status))
+        .route("/youtube/jobs", get(handle_youtube_jobs))
         .route("/service/:unit/:action", post(handle_service_action))
         .route("/storage/:disk/spindown", post(handle_disk_spindown))
         .route("/hardware", get(handle_hardware))
@@ -391,6 +396,66 @@ async fn handle_trash_empty() -> Json<ApiResponse<()>> {
             message: Some(e),
         }),
     }
+}
+
+
+async fn handle_youtube_info(
+    Json(payload): Json<YoutubeInfoRequest>,
+) -> Json<ApiResponse<YoutubeVideoInfo>> {
+    match get_youtube_info(&payload.url).await {
+        Ok(info) => Json(ApiResponse {
+            success: true,
+            data: Some(info),
+            message: None,
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+    }
+}
+
+async fn handle_youtube_download(
+    Json(payload): Json<YoutubeDownloadRequest>,
+) -> Json<ApiResponse<String>> {
+    match start_youtube_download(payload) {
+        Ok(job_id) => Json(ApiResponse {
+            success: true,
+            data: Some(job_id.clone()),
+            message: Some(format!("Téléchargement lancé (ID: {})", job_id)),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+    }
+}
+
+async fn handle_youtube_status(
+    Path(job_id): Path<String>,
+) -> Json<ApiResponse<YoutubeJobStatus>> {
+    match get_job_status(&job_id) {
+        Some(job) => Json(ApiResponse {
+            success: true,
+            data: Some(job),
+            message: None,
+        }),
+        None => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some("Téléchargement introuvable.".into()),
+        }),
+    }
+}
+
+async fn handle_youtube_jobs() -> Json<ApiResponse<Vec<YoutubeJobStatus>>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(list_jobs()),
+        message: None,
+    })
 }
 
 async fn handle_files_mkdir(Json(req): Json<MkdirRequest>) -> Json<ApiResponse<String>> {

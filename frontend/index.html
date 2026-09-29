@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20260929_13">
+  <link rel="stylesheet" href="/css/style.css?v=20260929_14">
 </head>
 <body>
 
@@ -546,6 +546,136 @@
           </div>
         </div>
       </div>
+
+      <!-- ================= OUTIL : TÉLÉCHARGEUR YOUTUBE MP3 / MP4 HQ ================= -->
+      <div class="youtube-downloader-card">
+        <div class="youtube-header">
+          <div class="youtube-title-group">
+            <span class="youtube-badge">▶️ YOUTUBE HQ</span>
+            <div>
+              <h3 class="youtube-title">Téléchargeur Vidéo & Audio Haute Fidélité</h3>
+              <p class="youtube-subtitle">Téléchargez instantanément vos vidéos en MP4 (qualité maximale UHD/1080p) ou en MP3 (320 kbps) directement sur le NAS avec prévisualisation</p>
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="toggleYoutubeCardCollapse()" id="btn-yt-collapse" title="Réduire / Agrandir">
+            −
+          </button>
+        </div>
+
+        <div class="youtube-body" id="yt-downloader-body">
+          <!-- Barre de saisie de lien -->
+          <div class="youtube-input-group">
+            <div class="youtube-input-wrap">
+              <span class="youtube-input-icon">🔗</span>
+              <input type="text" id="yt-url-input" class="youtube-url-input" placeholder="Collez un lien YouTube (ex: https://www.youtube.com/watch?v=... ou https://youtu.be/...)" onkeydown="if(event.key==='Enter') fetchYoutubePreview()">
+              <button type="button" class="btn btn-secondary btn-xs" onclick="pasteYoutubeClipboard()" title="Coller depuis le presse-papier">📋 Coller</button>
+            </div>
+            <button type="button" class="btn btn-primary" id="btn-yt-fetch" onclick="fetchYoutubePreview()">
+              <span id="btn-yt-fetch-text">🔍 Analyser la vidéo</span>
+            </button>
+          </div>
+
+          <!-- Boîte d'erreur si lien incorrect -->
+          <div class="youtube-error-box" id="yt-error-box" style="display:none;">
+            <span class="youtube-error-icon">⚠️</span>
+            <div id="yt-error-message" style="flex:1;">Lien YouTube invalide ou vidéo inaccessible.</div>
+            <button type="button" class="btn-error-close" onclick="dismissYoutubeError()">✕</button>
+          </div>
+
+          <!-- Carte de Prévisualisation de la Vidéo -->
+          <div class="youtube-preview-card" id="yt-preview-box" style="display:none;">
+            <div class="youtube-preview-grid">
+              <!-- Colonne Gauche : Miniature & Métadonnées -->
+              <div class="youtube-media-col">
+                <div class="youtube-thumb-wrapper">
+                  <img id="yt-preview-thumb" src="" alt="Miniature YouTube">
+                  <span class="youtube-duration-badge" id="yt-preview-duration">00:00</span>
+                </div>
+                <div class="youtube-channel-row">
+                  <span class="youtube-channel-icon">👤</span>
+                  <span class="youtube-channel-name" id="yt-preview-uploader">Chaîne</span>
+                </div>
+                <div class="youtube-stats-row" id="yt-preview-views">0 vues</div>
+              </div>
+
+              <!-- Colonne Droite : Titre, Description & Paramètres de Téléchargement -->
+              <div class="youtube-details-col">
+                <h4 class="youtube-video-title" id="yt-preview-title">Titre de la vidéo</h4>
+                
+                <!-- Description dépliable -->
+                <div class="youtube-desc-container">
+                  <p class="youtube-desc-text" id="yt-preview-desc">Description de la vidéo...</p>
+                  <button type="button" class="youtube-desc-toggle" id="yt-desc-toggle-btn" onclick="toggleYoutubeDesc()">Lire plus...</button>
+                </div>
+
+                <!-- Formulaire de téléchargement -->
+                <div class="youtube-options-grid">
+                  <!-- Choix du Format -->
+                  <div class="form-group">
+                    <label class="form-label" style="font-weight:700;">Format & Qualité :</label>
+                    <div class="youtube-format-selector">
+                      <button type="button" class="btn-yt-format active" data-format="mp4" onclick="setYoutubeFormat('mp4')">
+                        <span style="font-size:1.1rem;">🎬</span>
+                        <div>
+                          <strong>MP4 Vidéo</strong>
+                          <div style="font-size:0.72rem; color:var(--subtext0);">Qualité Maximale (4K/1080p)</div>
+                        </div>
+                      </button>
+                      <button type="button" class="btn-yt-format" data-format="mp3" onclick="setYoutubeFormat('mp3')">
+                        <span style="font-size:1.1rem;">🎵</span>
+                        <div>
+                          <strong>MP3 Audio</strong>
+                          <div style="font-size:0.72rem; color:var(--subtext0);">Haute Fidélité (320 kbps)</div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Dossier de Destination -->
+                  <div class="form-group">
+                    <label class="form-label" style="font-weight:700;">Dossier de destination :</label>
+                    <div class="input-with-icon">
+                      <input type="text" id="yt-dest-dir-input" class="form-control font-mono" value="/home/chomiam/videos" placeholder="/home/chomiam/videos">
+                    </div>
+                    <div class="youtube-dir-presets">
+                      <span style="font-size:0.75rem; color:var(--subtext0);">Raccourcis :</span>
+                      <button type="button" class="btn-dir-preset" onclick="setYoutubeDestDir('/home/chomiam/videos')">🎬 videos</button>
+                      <button type="button" class="btn-dir-preset" onclick="setYoutubeDestDir('/home/chomiam/musique')">🎵 musique</button>
+                      <button type="button" class="btn-dir-preset" onclick="setYoutubeDestDir('/home/chomiam/telechargements')">📥 telechargements</button>
+                      <button type="button" class="btn-dir-preset" onclick="setYoutubeDestDir(currentFolderPath)">📂 dossier actuel</button>
+                    </div>
+                  </div>
+
+                  <!-- Nom du Fichier de Sortie (Renommage libre) -->
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label class="form-label" style="font-weight:700;">Nom du fichier de sortie :</label>
+                    <div class="youtube-filename-wrap">
+                      <input type="text" id="yt-filename-input" class="form-control" placeholder="Nom du fichier">
+                      <span class="youtube-ext-badge" id="yt-ext-badge">.mp4</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Bouton Lancer Téléchargement -->
+                <div class="youtube-action-row">
+                  <button type="button" class="btn btn-primary" id="btn-yt-download" onclick="startYoutubeDownload()">
+                    <span id="btn-yt-download-text">⬇️ Télécharger sur le NAS (Qualité Maximale)</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Liste des Téléchargements en cours / terminés -->
+          <div class="youtube-jobs-container" id="yt-jobs-container" style="display:none;">
+            <div class="youtube-jobs-header">
+              <span>📥 Téléchargements YouTube récents</span>
+            </div>
+            <div id="yt-jobs-list"></div>
+          </div>
+        </div>
+      </div>
+
     </div>
 
         <!-- ================= ONGLET 2 : MISES À JOUR INTELLIGENTES ================= -->
@@ -1103,7 +1233,7 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
   <!-- TOAST CONTAINER -->
   <div class="toast-container" id="toast-container"></div>
 
-  <script src="/js/app.js?v=20260929_13"></script>
+  <script src="/js/app.js?v=20260929_14"></script>
   <!-- MENU CONTEXTUEL CLIC DROIT -->
   <div class="context-menu" id="files-context-menu">
     <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">

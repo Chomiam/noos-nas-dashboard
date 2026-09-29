@@ -3805,3 +3805,418 @@ select.form-control option,
   white-space: nowrap;
   max-width: 100%;
 }
+
+/* ==========================================================================
+   OUTIL YOUTUBE MP3 / MP4 HAUTE FIDÉLITÉ
+   ========================================================================== */
+.youtube-downloader-card {
+  margin-top: 20px;
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.youtube-header {
+  padding: 16px 20px;
+  background: #181825;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.youtube-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.youtube-badge {
+  background: #ed8796;
+  color: #11111b;
+  font-weight: 800;
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  padding: 4px 8px;
+  border-radius: 6px;
+  box-shadow: 0 0 10px rgba(237, 135, 150, 0.4);
+}
+
+.youtube-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.youtube-subtitle {
+  margin: 2px 0 0 0;
+  font-size: 0.78rem;
+  color: var(--subtext0);
+}
+
+.youtube-body {
+  padding: 20px;
+}
+
+.youtube-input-group {
+  display: flex;
+  gap: 10px;
+}
+
+.youtube-input-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #11111b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  padding: 6px 14px;
+  transition: border-color 0.2s;
+}
+
+.youtube-input-wrap:focus-within {
+  border-color: #ed8796;
+  box-shadow: 0 0 10px rgba(237, 135, 150, 0.25);
+}
+
+.youtube-input-icon {
+  font-size: 1.1rem;
+  color: var(--subtext0);
+}
+
+.youtube-url-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.youtube-error-box {
+  margin-top: 14px;
+  background: rgba(243, 139, 168, 0.15);
+  border: 1px solid rgba(243, 139, 168, 0.4);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text);
+  font-size: 0.85rem;
+  animation: fadeIn 0.2s ease;
+}
+
+.youtube-error-icon {
+  font-size: 1.4rem;
+}
+
+.btn-error-close {
+  background: transparent;
+  border: none;
+  color: var(--subtext0);
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.youtube-preview-card {
+  margin-top: 20px;
+  background: #11111b;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 18px;
+  animation: fadeIn 0.25s ease;
+}
+
+.youtube-preview-grid {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 860px) {
+  .youtube-preview-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.youtube-media-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.youtube-thumb-wrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.youtube-thumb-wrapper img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.youtube-duration-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.youtube-channel-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--subtext0);
+  margin-top: 4px;
+}
+
+.youtube-stats-row {
+  font-size: 0.75rem;
+  color: var(--subtext0);
+  font-family: var(--font-mono);
+}
+
+.youtube-video-title {
+  margin: 0 0 8px 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.youtube-desc-container {
+  background: var(--mantle);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.youtube-desc-text {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--subtext0);
+  line-height: 1.4;
+  max-height: 48px;
+  overflow: hidden;
+  white-space: pre-wrap;
+  transition: max-height 0.3s ease;
+}
+
+.youtube-desc-text.expanded {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.youtube-desc-toggle {
+  background: none;
+  border: none;
+  color: var(--mauve);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 0 0 0;
+}
+
+.youtube-options-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 600px) {
+  .youtube-options-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.youtube-format-selector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.btn-yt-format {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--text);
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.btn-yt-format:hover {
+  background: var(--surface0);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.btn-yt-format.active {
+  background: rgba(237, 135, 150, 0.15);
+  border-color: #ed8796;
+  box-shadow: 0 0 10px rgba(237, 135, 150, 0.2);
+}
+
+.youtube-dir-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.btn-dir-preset {
+  background: var(--surface0);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 9999px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-dir-preset:hover {
+  background: rgba(203, 166, 247, 0.2);
+  border-color: var(--mauve);
+  color: var(--mauve);
+}
+
+.youtube-filename-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.youtube-ext-badge {
+  position: absolute;
+  right: 12px;
+  background: var(--surface0);
+  color: var(--mauve);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.youtube-action-row {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* JOBS LIST */
+.youtube-jobs-container {
+  margin-top: 20px;
+  background: #11111b;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.youtube-jobs-header {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--subtext0);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+}
+
+.youtube-job-card {
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.youtube-job-info {
+  flex: 1;
+}
+
+.youtube-job-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.youtube-job-meta {
+  font-size: 0.75rem;
+  color: var(--subtext0);
+  font-family: var(--font-mono);
+  display: flex;
+  gap: 12px;
+}
+
+.youtube-job-progress-wrap {
+  width: 220px;
+}
+
+.youtube-progress-bar-bg {
+  width: 100%;
+  height: 8px;
+  background: var(--surface0);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.youtube-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ed8796, var(--mauve));
+  transition: width 0.3s ease;
+}
+
+.youtube-job-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.youtube-job-badge.downloading {
+  background: rgba(138, 173, 244, 0.2);
+  color: #8aadf4;
+  border: 1px solid rgba(138, 173, 244, 0.4);
+}
+.youtube-job-badge.completed {
+  background: rgba(166, 218, 149, 0.2);
+  color: #a6da95;
+  border: 1px solid rgba(166, 218, 149, 0.4);
+}
+.youtube-job-badge.failed {
+  background: rgba(237, 135, 150, 0.2);
+  color: #ed8796;
+  border: 1px solid rgba(237, 135, 150, 0.4);
+}

@@ -5253,3 +5253,376 @@ async function emptyEntireTrash() {
     showToast("Erreur réseau : " + err, "error");
   }
 }
+
+// ==========================================================================
+
+// ==========================================================================
+// TÉLÉCHARGEUR YOUTUBE MP3 / MP4 HAUTE FIDÉLITÉ
+// ==========================================================================
+let currentYoutubeInfo = null;
+let currentYoutubeFormat = "mp4";
+let youtubePollInterval = null;
+let isYoutubeDescExpanded = false;
+
+function toggleYoutubeCardCollapse() {
+  const body = document.getElementById("yt-downloader-body");
+  const btn = document.getElementById("btn-yt-collapse");
+  if (!body) return;
+  if (body.style.display === "none") {
+    body.style.display = "block";
+    if (btn) btn.textContent = "−";
+  } else {
+    body.style.display = "none";
+    if (btn) btn.textContent = "+";
+  }
+}
+
+function dismissYoutubeError() {
+  const box = document.getElementById("yt-error-box");
+  if (box) box.style.display = "none";
+}
+
+async function pasteYoutubeClipboard() {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text) {
+      const input = document.getElementById("yt-url-input");
+      if (input) {
+        input.value = text.trim();
+        fetchYoutubePreview();
+      }
+    } else {
+      showToast("Le presse-papier est vide.", "info");
+    }
+  } catch (err) {
+    showToast("Impossible d'accéder au presse-papier : " + err, "error");
+  }
+}
+
+function setYoutubeFormat(fmt) {
+  currentYoutubeFormat = fmt;
+  const buttons = document.querySelectorAll(".btn-yt-format");
+  buttons.forEach(btn => {
+    if (btn.getAttribute("data-format") === fmt) {
+      btn.classList.add("active");
+    } else {
+      btn.classList.remove("active");
+    }
+  });
+
+  const badge = document.getElementById("yt-ext-badge");
+  if (badge) badge.textContent = "." + fmt;
+
+  // Auto-switch destination directory if default
+  const destInput = document.getElementById("yt-dest-dir-input");
+  if (destInput) {
+    if (fmt === "mp3" && destInput.value === "/home/chomiam/videos") {
+      destInput.value = "/home/chomiam/musique";
+    } else if (fmt === "mp4" && destInput.value === "/home/chomiam/musique") {
+      destInput.value = "/home/chomiam/videos";
+    }
+  }
+}
+
+function setYoutubeDestDir(dir) {
+  const destInput = document.getElementById("yt-dest-dir-input");
+  if (destInput && dir) {
+    destInput.value = dir;
+  }
+}
+
+function toggleYoutubeDesc() {
+  const descEl = document.getElementById("yt-preview-desc");
+  const btn = document.getElementById("yt-desc-toggle-btn");
+  if (!descEl) return;
+  isYoutubeDescExpanded = !isYoutubeDescExpanded;
+  if (isYoutubeDescExpanded) {
+    descEl.classList.add("expanded");
+    if (btn) btn.textContent = "Réduire ▲";
+  } else {
+    descEl.classList.remove("expanded");
+    if (btn) btn.textContent = "Lire plus... ▼";
+  }
+}
+
+function formatDurationSeconds(sec) {
+  if (!sec || isNaN(sec)) return "00:00";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  if (h > 0) {
+    return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  }
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+async function fetchYoutubePreview() {
+  const urlInput = document.getElementById("yt-url-input");
+  const fetchBtn = document.getElementById("btn-yt-fetch");
+  const fetchBtnText = document.getElementById("btn-yt-fetch-text");
+  const errorBox = document.getElementById("yt-error-box");
+  const errorMsg = document.getElementById("yt-error-message");
+  const previewBox = document.getElementById("yt-preview-box");
+
+  if (!urlInput) return;
+  const url = urlInput.value.trim();
+
+  if (!url) {
+    if (errorBox && errorMsg) {
+      errorMsg.textContent = "Veuillez saisir ou coller un lien YouTube valide.";
+      errorBox.style.display = "flex";
+    }
+    return;
+  }
+
+  // Basic client check
+  if (!url.includes("youtube.com") && !url.includes("youtu.be")) {
+    if (errorBox && errorMsg) {
+      errorMsg.textContent = "Le lien renseigné ne semble pas être une URL YouTube valide (ex: youtube.com ou youtu.be).";
+      errorBox.style.display = "flex";
+    }
+    return;
+  }
+
+  // Hide error & preview while loading
+  if (errorBox) errorBox.style.display = "none";
+  if (previewBox) previewBox.style.display = "none";
+
+  if (fetchBtn) fetchBtn.disabled = true;
+  if (fetchBtnText) fetchBtnText.textContent = "⏳ Analyse en cours...";
+
+  try {
+    const res = await fetch("/api/youtube/info", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url })
+    });
+    const json = await res.json();
+
+    if (!json.success || !json.data) {
+      throw new Error(json.message || "Impossible de récupérer les informations de la vidéo.");
+    }
+
+    const data = json.data;
+    currentYoutubeInfo = data;
+
+    // Populate preview
+    const thumbEl = document.getElementById("yt-preview-thumb");
+    if (thumbEl) {
+      thumbEl.src = data.thumbnail || "";
+    }
+
+    const durationEl = document.getElementById("yt-preview-duration");
+    if (durationEl) {
+      durationEl.textContent = data.duration_formatted || formatDurationSeconds(data.duration_seconds);
+    }
+
+    const uploaderEl = document.getElementById("yt-preview-uploader");
+    if (uploaderEl) {
+      uploaderEl.textContent = data.uploader || "Chaîne YouTube";
+    }
+
+    const viewsEl = document.getElementById("yt-preview-views");
+    if (viewsEl) {
+      viewsEl.textContent = data.view_count_formatted || (data.view_count ? Number(data.view_count).toLocaleString("fr-FR") + " vues" : "");
+    }
+
+    const titleEl = document.getElementById("yt-preview-title");
+    if (titleEl) {
+      titleEl.textContent = data.title;
+    }
+
+    const descEl = document.getElementById("yt-preview-desc");
+    if (descEl) {
+      descEl.textContent = data.description || "Aucune description fournie pour cette vidéo.";
+      descEl.classList.remove("expanded");
+      isYoutubeDescExpanded = false;
+      const toggleBtn = document.getElementById("yt-desc-toggle-btn");
+      if (toggleBtn) toggleBtn.textContent = "Lire plus... ▼";
+    }
+
+    // Default filename (sanitized title)
+    const filenameInput = document.getElementById("yt-filename-input");
+    if (filenameInput) {
+      filenameInput.value = data.default_filename || "video";
+    }
+
+    // Default dest dir according to format
+    const destInput = document.getElementById("yt-dest-dir-input");
+    if (destInput && (!destInput.value || destInput.value === "/home/chomiam/videos" || destInput.value === "/home/chomiam/musique")) {
+      destInput.value = currentYoutubeFormat === "mp3" ? "/home/chomiam/musique" : "/home/chomiam/videos";
+    }
+
+    if (previewBox) {
+      previewBox.style.display = "block";
+      previewBox.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  } catch (err) {
+    if (errorBox && errorMsg) {
+      errorMsg.textContent = "Erreur : " + (err.message || err);
+      errorBox.style.display = "flex";
+    }
+    showToast("Échec de l'analyse : " + (err.message || err), "error");
+  } finally {
+    if (fetchBtn) fetchBtn.disabled = false;
+    if (fetchBtnText) fetchBtnText.textContent = "🔍 Analyser la vidéo";
+  }
+}
+
+async function startYoutubeDownload() {
+  const urlInput = document.getElementById("yt-url-input");
+  const destInput = document.getElementById("yt-dest-dir-input");
+  const filenameInput = document.getElementById("yt-filename-input");
+  const downloadBtn = document.getElementById("btn-yt-download");
+  const downloadBtnText = document.getElementById("btn-yt-download-text");
+
+  const url = urlInput ? urlInput.value.trim() : "";
+  if (!url) {
+    showToast("Veuillez d'abord spécifier un lien YouTube valide.", "error");
+    return;
+  }
+
+  const dest_dir = destInput ? destInput.value.trim() : (currentYoutubeFormat === "mp3" ? "/home/chomiam/musique" : "/home/chomiam/videos");
+  const custom_name = filenameInput ? filenameInput.value.trim() : "";
+
+  if (downloadBtn) downloadBtn.disabled = true;
+  if (downloadBtnText) downloadBtnText.textContent = "⏳ Lancement du téléchargement...";
+
+  try {
+    const res = await fetch("/api/youtube/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: url,
+        format: currentYoutubeFormat,
+        output_dir: dest_dir,
+        filename: custom_name || null,
+        custom_filename: custom_name || null
+      })
+    });
+
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      throw new Error(json.message || "Échec du démarrage du téléchargement.");
+    }
+
+    showToast("Téléchargement lancé en tâche de fond !", "success");
+    
+    // Show jobs container and poll immediately
+    const jobsContainer = document.getElementById("yt-jobs-container");
+    if (jobsContainer) {
+      jobsContainer.style.display = "block";
+      jobsContainer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    await pollYoutubeJobs();
+    startYoutubeJobsPolling();
+  } catch (err) {
+    showToast("Erreur de téléchargement : " + (err.message || err), "error");
+  } finally {
+    if (downloadBtn) downloadBtn.disabled = false;
+    if (downloadBtnText) downloadBtnText.textContent = "⬇️ Télécharger sur le NAS (Qualité Maximale)";
+  }
+}
+
+async function pollYoutubeJobs() {
+  try {
+    const res = await fetch("/api/youtube/jobs");
+    if (!res.ok) return;
+    const json = await res.json();
+    if (!json.success || !Array.isArray(json.data)) return;
+
+    renderYoutubeJobs(json.data);
+
+    // If no jobs are currently downloading, stop high frequency polling
+    const hasActiveJobs = json.data.some(j => j.status === "downloading");
+    if (!hasActiveJobs && youtubePollInterval) {
+      clearInterval(youtubePollInterval);
+      youtubePollInterval = null;
+    }
+  } catch (err) {
+    console.error("Erreur lors de la vérification des téléchargements YouTube :", err);
+  }
+}
+
+function startYoutubeJobsPolling() {
+  if (youtubePollInterval) clearInterval(youtubePollInterval);
+  youtubePollInterval = setInterval(pollYoutubeJobs, 2000);
+}
+
+function renderYoutubeJobs(jobs) {
+  const container = document.getElementById("yt-jobs-container");
+  const list = document.getElementById("yt-jobs-list");
+  if (!container || !list) return;
+
+  if (jobs.length === 0) {
+    container.style.display = "none";
+    list.innerHTML = "";
+    return;
+  }
+
+  container.style.display = "block";
+
+  list.innerHTML = jobs.map(job => {
+    let statusBadge = "";
+    let progressHtml = "";
+    let actionBtn = "";
+
+    const pct = job.progress_percent != null ? job.progress_percent : (job.progress_pct || 0);
+
+    if (job.status === "downloading") {
+      statusBadge = `<span class="youtube-job-badge downloading">⏳ En cours (${pct.toFixed(0)}%)</span>`;
+      progressHtml = `
+        <div class="youtube-job-progress-wrap">
+          <div style="display:flex; justify-content:space-between; font-size:0.72rem; color:var(--subtext0);">
+            <span>${job.speed || "Téléchargement..."}</span>
+            <span>${job.eta ? "ETA: " + job.eta : ""}</span>
+          </div>
+          <div class="youtube-progress-bar-bg">
+            <div class="youtube-progress-bar-fill" style="width: ${Math.max(4, Math.min(100, pct))}%;"></div>
+          </div>
+        </div>
+      `;
+    } else if (job.status === "completed") {
+      statusBadge = `<span class="youtube-job-badge completed">✅ Terminé</span>`;
+      const targetDir = job.output_dir || "/home/chomiam";
+      actionBtn = `
+        <button type="button" class="btn btn-secondary btn-xs" onclick="navigateToPath('${targetDir.replace(/'/g, "\'")}')" title="Ouvrir le dossier dans le gestionnaire">
+          📂 Voir dossier
+        </button>
+      `;
+    } else {
+      const errTxt = job.error_message || job.error || "Erreur inconnue";
+      statusBadge = `<span class="youtube-job-badge failed" title="${escapeHtml(errTxt)}">❌ Échec</span>`;
+    }
+
+    const fmtIcon = job.format === "mp3" ? "🎵 MP3" : "🎬 MP4";
+    const displayDir = job.output_dir || job.output_file || "/home/chomiam";
+    const errMsg = job.error_message || job.error;
+
+    return `
+      <div class="youtube-job-card">
+        <div class="youtube-job-info">
+          <div class="youtube-job-title">${escapeHtml(job.title || job.url)}</div>
+          <div class="youtube-job-meta">
+            <span style="font-weight:700; color:var(--mauve);">${fmtIcon}</span>
+            <span>📁 ${escapeHtml(displayDir)}</span>
+            ${job.file_size ? `<span>💾 ${escapeHtml(job.file_size)}</span>` : ""}
+            ${errMsg ? `<span style="color:var(--red);">⚠️ ${escapeHtml(errMsg)}</span>` : ""}
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:12px;">
+          ${progressHtml}
+          ${statusBadge}
+          ${actionBtn}
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+// Initial check when DOM is ready
+document.addEventListener("DOMContentLoaded", () => {
+  pollYoutubeJobs();
+});
+

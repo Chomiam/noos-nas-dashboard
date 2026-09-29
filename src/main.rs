@@ -27,6 +27,7 @@ mod system;
 mod terminal;
 mod trash;
 mod updates;
+mod youtube;
 
 use axum::Router;
 use std::env;
