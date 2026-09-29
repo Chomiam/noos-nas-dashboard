@@ -1326,11 +1326,14 @@ async function navigateToPath(targetPath) {
 function updateSidebarNavActive(path) {
   const mapping = {
     "/home/chomiam": "fnav-home",
-    "/home/chomiam/Documents": "fnav-docs",
-    "/home/chomiam/Images": "fnav-pics",
-    "/home/chomiam/Vidéos": "fnav-vids",
-    "/home/chomiam/Musique": "fnav-music",
-    "/home/chomiam/Téléchargements": "fnav-dl",
+    "/home/chomiam/documents": "fnav-docs",
+    "/home/chomiam/images": "fnav-pics",
+    "/home/chomiam/videos": "fnav-vids",
+    "/home/chomiam/musique": "fnav-music",
+    "/home/chomiam/telechargements": "fnav-dl",
+    "/home/chomiam/downloads": "fnav-dl",
+    "/home/chomiam/pictures": "fnav-pics",
+    "/home/chomiam/music": "fnav-music",
     "/": "fnav-root",
     "/mnt/storage/shares": "fnav-shares",
     "/etc/nixos": "fnav-nixos"
