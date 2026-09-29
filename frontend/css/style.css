@@ -4370,3 +4370,9 @@ select.form-control option,
   max-width: 480px;
   line-height: 1.5;
 }
+
+.youtube-job-badge.cancelled {
+  background: rgba(245, 169, 127, 0.2);
+  color: #f5a97f;
+  border: 1px solid rgba(245, 169, 127, 0.4);
+}

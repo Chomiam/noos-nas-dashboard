@@ -57,7 +57,7 @@ pub struct YoutubeJobStatus {
     pub output_dir: String,
     pub output_file: String,
     pub file_size: Option<String>,
-    pub status: String, // "downloading" | "completed" | "error"
+    pub status: String, // "downloading" | "completed" | "error" | "cancelled"
     pub progress_percent: f32,
     pub speed: Option<String>,
     pub eta: Option<String>,
@@ -65,9 +65,14 @@ pub struct YoutubeJobStatus {
 }
 
 static YOUTUBE_JOBS: OnceLock<Arc<Mutex<HashMap<String, YoutubeJobStatus>>>> = OnceLock::new();
+static YOUTUBE_CANCELS: OnceLock<Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<()>>>>> = OnceLock::new();
 
 fn get_jobs_map() -> &'static Arc<Mutex<HashMap<String, YoutubeJobStatus>>> {
     YOUTUBE_JOBS.get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+}
+
+fn get_cancels_map() -> &'static Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<()>>>> {
+    YOUTUBE_CANCELS.get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
 }
 
 fn sanitize_filename(name: &str) -> String {
@@ -239,10 +244,18 @@ pub fn start_youtube_download(req: YoutubeDownloadRequest) -> Result<String, Str
         map.insert(job_id.clone(), job);
     }
 
+    let (cancel_tx, mut cancel_rx) = tokio::sync::oneshot::channel::<()>();
+    {
+        let mut cmap = get_cancels_map().lock().unwrap();
+        cmap.insert(job_id.clone(), cancel_tx);
+    }
+
     let out_template = format!("{}/{}.%(ext)s", norm_dir.display(), base_name);
     let job_id_clone = job_id.clone();
     let jobs_map_clone = jobs_map.clone();
     let target_file_path_clone = target_file_path.clone();
+    let norm_dir_clone = norm_dir.clone();
+    let base_name_clone = base_name.clone();
 
     tokio::spawn(async move {
         let mut cmd = Command::new("yt-dlp");
@@ -339,18 +352,32 @@ pub fn start_youtube_download(req: YoutubeDownloadRequest) -> Result<String, Str
             err_lines.join(" ")
         });
 
-        let (status, _, err_output) = tokio::join!(
-            child.wait(),
+        let (status_res, _, err_output) = tokio::join!(
+            async {
+                tokio::select! {
+                    status = child.wait() => Ok(status),
+                    _ = &mut cancel_rx => {
+                        let _ = child.kill().await;
+                        Err("cancelled")
+                    }
+                }
+            },
             stdout_handle,
             stderr_handle
         );
+
+        // Remove from cancels map
+        {
+            let mut cmap = get_cancels_map().lock().unwrap();
+            cmap.remove(&job_id_clone);
+        }
 
         let clean_err = err_output.unwrap_or_default();
 
         let mut map = jobs_map_clone.lock().unwrap();
         if let Some(j) = map.get_mut(&job_id_clone) {
-            match status {
-                Ok(s) if s.success() => {
+            match status_res {
+                Ok(Ok(s)) if s.success() => {
                     j.status = "completed".to_string();
                     j.progress_percent = 100.0;
                     j.speed = None;
@@ -376,7 +403,7 @@ pub fn start_youtube_download(req: YoutubeDownloadRequest) -> Result<String, Str
                         .arg(&target_file_path_clone)
                         .status();
                 }
-                Ok(s) => {
+                Ok(Ok(s)) => {
                     j.status = "error".to_string();
                     let msg = if !clean_err.is_empty() {
                         clean_err.replace("ERROR: ", "").trim().to_string()
@@ -385,15 +412,81 @@ pub fn start_youtube_download(req: YoutubeDownloadRequest) -> Result<String, Str
                     };
                     j.error_message = Some(msg);
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     j.status = "error".to_string();
                     j.error_message = Some(format!("Erreur d'attente du téléchargement : {}", e));
                 }
+                Err("cancelled") => {
+                    j.status = "cancelled".to_string();
+                    j.speed = None;
+                    j.eta = None;
+                    j.error_message = Some("Téléchargement annulé par l'utilisateur.".to_string());
+
+                    // Nettoyage des fichiers partiels ou temporaires (.part, .ytdl, etc.)
+                    if let Ok(entries) = fs::read_dir(&norm_dir_clone) {
+                        for entry in entries.flatten() {
+                            let p = entry.path();
+                            if let Some(fname) = p.file_name().and_then(|n| n.to_str()) {
+                                if fname.starts_with(&base_name_clone) && (fname.ends_with(".part") || fname.ends_with(".ytdl") || fname.ends_with(".temp")) {
+                                    let _ = fs::remove_file(p);
+                                }
+                            }
+                        }
+                    }
+                    let _ = fs::remove_file(&target_file_path_clone);
+                }
+                Err(_) => {}
             }
         }
     });
 
     Ok(job_id)
+}
+
+pub fn cancel_youtube_job(job_id: &str) -> Result<(), String> {
+    let cancels = get_cancels_map();
+    let sender = {
+        let mut map = cancels.lock().unwrap();
+        map.remove(job_id)
+    };
+
+    if let Some(tx) = sender {
+        let _ = tx.send(());
+        let jobs = get_jobs_map();
+        let mut map = jobs.lock().unwrap();
+        if let Some(j) = map.get_mut(job_id) {
+            j.status = "cancelled".to_string();
+            j.speed = None;
+            j.eta = None;
+            j.error_message = Some("Téléchargement annulé par l'utilisateur.".to_string());
+        }
+        Ok(())
+    } else {
+        let jobs = get_jobs_map();
+        let map = jobs.lock().unwrap();
+        if let Some(j) = map.get(job_id) {
+            if j.status == "cancelled" {
+                return Ok(());
+            }
+            return Err("Ce téléchargement n'est plus actif.".into());
+        }
+        Err("Tâche introuvable.".into())
+    }
+}
+
+pub fn clear_youtube_jobs() {
+    let cancels = get_cancels_map();
+    let mut c_map = cancels.lock().unwrap();
+    let jobs = get_jobs_map();
+    let mut j_map = jobs.lock().unwrap();
+    j_map.retain(|id, job| {
+        if job.status == "downloading" {
+            true
+        } else {
+            c_map.remove(id);
+            false
+        }
+    });
 }
 
 pub fn get_job_status(job_id: &str) -> Option<YoutubeJobStatus> {

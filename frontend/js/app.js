@@ -5610,6 +5610,11 @@ function renderYoutubeJobs(jobs) {
 
     if (job.status === "downloading") {
       statusBadge = `<span class="youtube-job-badge downloading">⏳ En cours (${pct.toFixed(0)}%)</span>`;
+      actionBtn = `
+        <button type="button" class="btn btn-danger btn-xs" onclick="cancelYoutubeDownload('${job.id}')" title="Annuler ce téléchargement">
+          🛑 Annuler
+        </button>
+      `;
       progressHtml = `
         <div class="youtube-job-progress-wrap">
           <div style="display:flex; justify-content:space-between; font-size:0.72rem; color:var(--subtext0);">
@@ -5623,6 +5628,8 @@ function renderYoutubeJobs(jobs) {
       `;
     } else if (job.status === "completed") {
       statusBadge = `<span class="youtube-job-badge completed">✅ Terminé</span>`;
+    } else if (job.status === "cancelled") {
+      statusBadge = `<span class="youtube-job-badge cancelled">⚠️ Annulé</span>`;
       const targetDir = job.output_dir || "/home/chomiam";
       actionBtn = `
         <button type="button" class="btn btn-secondary btn-xs" onclick="navigateToPath('${targetDir.replace(/'/g, "\'")}')" title="Ouvrir le dossier dans le gestionnaire">
@@ -5663,6 +5670,43 @@ function renderYoutubeJobs(jobs) {
 document.addEventListener("DOMContentLoaded", () => {
   pollYoutubeJobs();
 });
+
+async function cancelYoutubeDownload(jobId) {
+  if (!confirm("Voulez-vous vraiment annuler ce téléchargement en cours ?")) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/youtube/cancel/${encodeURIComponent(jobId)}`, {
+      method: "POST"
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast("Téléchargement annulé.", "info");
+      await pollYoutubeJobs();
+    } else {
+      showToast(json.message || "Impossible d'annuler le téléchargement.", "error");
+    }
+  } catch (err) {
+    showToast("Erreur lors de l'annulation : " + err, "error");
+  }
+}
+
+async function clearYoutubeJobsHistory() {
+  try {
+    const res = await fetch("/api/youtube/clear", {
+      method: "POST"
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast("Historique nettoyé.", "info");
+      await pollYoutubeJobs();
+    }
+  } catch (err) {
+    showToast("Erreur : " + err, "error");
+  }
+}
+
 
 
 

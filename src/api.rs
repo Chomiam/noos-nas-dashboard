@@ -7,7 +7,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::documents::{get_document_info, get_document_pdf_path, DocumentInfoResponse};
-use crate::youtube::{get_job_status, get_youtube_info, list_jobs, start_youtube_download, YoutubeDownloadRequest, YoutubeInfoRequest, YoutubeJobStatus, YoutubeVideoInfo};
+use crate::youtube::{cancel_youtube_job, clear_youtube_jobs, get_job_status, get_youtube_info, list_jobs, start_youtube_download, YoutubeDownloadRequest, YoutubeInfoRequest, YoutubeJobStatus, YoutubeVideoInfo};
 use crate::trash::{delete_trash_item, empty_trash, get_trash_overview, restore_trash_item, TrashActionRequest, TrashOverview};
 use crate::files::{
     copy_item, create_directory, delete_item, get_image_info, get_image_preview_path, list_directory, move_item, rename_item,
@@ -106,6 +106,8 @@ pub fn api_routes() -> Router {
         .route("/youtube/download", post(handle_youtube_download))
         .route("/youtube/status/:job_id", get(handle_youtube_status))
                 .route("/youtube/jobs", get(handle_youtube_jobs))
+        .route("/youtube/cancel/:job_id", post(handle_youtube_cancel))
+        .route("/youtube/clear", post(handle_youtube_clear))
         .route("/documents/preview", get(handle_document_preview))
         .route("/documents/:id/preview", get(handle_document_preview_by_id))
         .route("/documents/info", get(handle_document_info))
@@ -459,6 +461,32 @@ async fn handle_youtube_jobs() -> Json<ApiResponse<Vec<YoutubeJobStatus>>> {
         success: true,
         data: Some(list_jobs()),
         message: None,
+    })
+}
+
+async fn handle_youtube_cancel(
+    Path(job_id): Path<String>,
+) -> Json<ApiResponse<()>> {
+    match cancel_youtube_job(&job_id) {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            data: Some(()),
+            message: Some("Téléchargement annulé avec succès.".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_youtube_clear() -> Json<ApiResponse<()>> {
+    clear_youtube_jobs();
+    Json(ApiResponse {
+        success: true,
+        data: Some(()),
+        message: Some("Historique nettoyé.".into()),
     })
 }
 
