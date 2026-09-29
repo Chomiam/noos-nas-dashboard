@@ -582,7 +582,7 @@ pub fn get_image_preview_path(path_str: &str, is_thumb: bool) -> Result<(PathBuf
 
     // Étape 2 : si pas encore généré (iPhone HEIC, TIFF, PSD, ou fallback RAW complet)
     if !generated {
-        let max_dim = if is_thumb { "400x400>" } else { "2560x1440>" };
+        let max_dim = if is_thumb { "240x240>" } else { "2560x1440>" };
         let input_arg = if is_raw || matches!(ext.as_str(), "heic" | "heif" | "hif" | "psd" | "tiff" | "tif") {
             format!("{}[0]", p.display())
         } else {

@@ -2073,7 +2073,7 @@ function renderFilesList(entries) {
     let cardPreview = `<div class="file-card-icon">${icon}</div>`;
     if (isImageFile(item.name, item.category)) {
       const thumbUrl = `/api/files/image-view?path=${encodeURIComponent(item.path)}&thumb=true`;
-      cardPreview = `<div class="file-card-icon file-card-img-preview"><img src="${thumbUrl}" loading="lazy" alt="${escapeHtml(item.name)}" onerror="this.onerror=null; this.parentElement.innerHTML='${icon}';"></div>`;
+      cardPreview = `<div class="file-card-icon file-card-img-preview" style="width:100%; height:80px; max-height:80px; overflow:hidden; border-radius:6px; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.35);"><img src="${thumbUrl}" loading="lazy" alt="${escapeHtml(item.name)}" style="width:100%; height:100%; max-width:100%; max-height:100%; object-fit:cover; display:block; border-radius:5px;" onerror="this.onerror=null; this.parentElement.className='file-card-icon'; this.parentElement.style=''; this.parentElement.innerHTML='${icon}';"></div>`;
     }
     return `
       <div class="file-card" 
