@@ -17,7 +17,6 @@ pub struct ServicesOverview {
     pub jellyfin: ServiceItem,
     pub docker: ServiceItem,
     pub fail2ban: ServiceItem,
-    pub tailscale: ServiceItem,
     pub wireguard: ServiceItem,
     pub services: Vec<ServiceSummary>,
     pub active_sftp_sessions: Vec<ActiveSession>,
@@ -64,14 +63,12 @@ pub fn get_services_overview() -> ServicesOverview {
     let jellyfin = check_unit("jellyfin", "Serveur Multimédia & Transcodage");
     let docker = check_unit("docker", "Moteur de Conteneurs Docker");
     let fail2ban = check_unit("fail2ban", "Système Anti-Bruteforce & Sécurité");
-    let tailscale = check_unit("tailscaled", "Tunnel Réseau Privé Tailscale");
     let wireguard = check_unit("wireguard-wg0", "Réseau Privé WireGuard");
 
     let services = vec![
         ServiceSummary { display_name: "Samba (SMB)".into(), unit_name: "samba-smbd".into(), is_active: samba.is_active, sub_state: samba.status_text.clone() },
         ServiceSummary { display_name: "SSH / sFTP".into(), unit_name: "sshd".into(), is_active: sshd.is_active, sub_state: sshd.status_text.clone() },
         ServiceSummary { display_name: "WireGuard VPN".into(), unit_name: "wireguard-wg0".into(), is_active: wireguard.is_active, sub_state: wireguard.status_text.clone() },
-        ServiceSummary { display_name: "Tailscale VPN".into(), unit_name: "tailscaled".into(), is_active: tailscale.is_active, sub_state: tailscale.status_text.clone() },
         ServiceSummary { display_name: "Fail2ban".into(), unit_name: "fail2ban".into(), is_active: fail2ban.is_active, sub_state: fail2ban.status_text.clone() },
         ServiceSummary { display_name: "Jellyfin".into(), unit_name: "jellyfin".into(), is_active: jellyfin.is_active, sub_state: jellyfin.status_text.clone() },
         ServiceSummary { display_name: "Docker".into(), unit_name: "docker".into(), is_active: docker.is_active, sub_state: docker.status_text.clone() },
@@ -93,7 +90,6 @@ pub fn get_services_overview() -> ServicesOverview {
         jellyfin,
         docker,
         fail2ban,
-        tailscale,
         wireguard,
         services,
         active_sftp_sessions,

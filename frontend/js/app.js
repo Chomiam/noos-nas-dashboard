@@ -7013,9 +7013,8 @@ async function loadNetwork(showFeedback = false) {
     const sftpCmd = document.getElementById("sftp-terminal-cmd");
     if (sftpCmd) sftpCmd.textContent = `sftp ${user}@${lanIp}`;
 
-    // --- 2. VPN (WireGuard & Tailscale) ---
+    // --- 2. VPN (WireGuard Exclusif) ---
     const wg = net.vpn.wireguard;
-    const ts = net.vpn.tailscale;
 
     const wgBadge = document.getElementById("wg-status-badge");
     if (wgBadge) {
@@ -7029,8 +7028,11 @@ async function loadNetwork(showFeedback = false) {
     const wgPort = document.getElementById("wg-port");
     if (wgPort) wgPort.textContent = wg.port || 51820;
 
+    const wgSubnet = document.getElementById("wg-subnet");
+    if (wgSubnet) wgSubnet.textContent = wg.subnet || "10.100.0.1/24";
+
     const wgPeers = document.getElementById("wg-peers-count");
-    if (wgPeers) wgPeers.textContent = `${wg.peers_count} pair(s) configuré(s)`;
+    if (wgPeers) wgPeers.textContent = `${wg.peers_count} pair(s) connecté(s)`;
 
     const wgTraffic = document.getElementById("wg-traffic");
     if (wgTraffic) {
@@ -7044,37 +7046,29 @@ async function loadNetwork(showFeedback = false) {
     const wgPubkey = document.getElementById("wg-pubkey");
     if (wgPubkey) wgPubkey.textContent = wg.public_key || "Générée automatiquement par NixOS";
 
-    const tsBadge = document.getElementById("ts-status-badge");
-    if (tsBadge) {
-      tsBadge.textContent = ts.is_active ? "🟢 Actif" : "⚪ Inactif";
-      tsBadge.className = `badge ${ts.is_active ? "badge-success" : "badge-secondary"}`;
+    // Tableau des pairs WireGuard
+    const wgPeersTbody = document.getElementById("wg-peers-tbody");
+    if (wgPeersTbody) {
+      if (!wg.peers || wg.peers.length === 0) {
+        wgPeersTbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--subtext0); padding:20px;">Aucun client WireGuard actif pour le moment.</td></tr>`;
+      } else {
+        wgPeersTbody.innerHTML = wg.peers.map(p => `
+          <tr>
+            <td><code style="font-size:0.75rem; color:var(--teal);">${escapeHtml(p.public_key.substring(0, 16))}...</code></td>
+            <td><span class="badge badge-info">${escapeHtml(p.allowed_ips)}</span></td>
+            <td>${p.endpoint ? `<code>${escapeHtml(p.endpoint)}</code>` : '<span style="color:var(--subtext0);">Non connecté</span>'}</td>
+            <td>${p.latest_handshake ? escapeHtml(p.latest_handshake) : '<span style="color:var(--subtext0);">Jamais</span>'}</td>
+            <td>${p.transfer_rx || p.transfer_tx ? `${p.transfer_rx || '0 B'} / ${p.transfer_tx || '0 B'}` : '0 B / 0 B'}</td>
+          </tr>
+        `).join("");
+      }
     }
 
-    const tsNode = document.getElementById("ts-node-name");
-    if (tsNode) tsNode.textContent = ts.node_name || net.hostname || "steveos-nas";
-
-    const tsIp = document.getElementById("ts-ip");
-    if (tsIp) tsIp.textContent = ts.tailscale_ip || "Non assignée (En attente d'authentification)";
-
-    const tsStatus = document.getElementById("ts-status-text");
-    if (tsStatus) tsStatus.textContent = ts.status_text;
-
-    // Badges de la sous-navigation
+    // Badge de la sous-navigation
     const badgeVpn = document.getElementById("badge-subtab-vpn");
     if (badgeVpn) {
-      if (wg.is_active && ts.is_active) {
-        badgeVpn.textContent = "WG & TS Actifs";
-        badgeVpn.className = "subtab-pill-badge badge-success";
-      } else if (wg.is_active) {
-        badgeVpn.textContent = "WireGuard";
-        badgeVpn.className = "subtab-pill-badge badge-success";
-      } else if (ts.is_active) {
-        badgeVpn.textContent = "Tailscale";
-        badgeVpn.className = "subtab-pill-badge badge-success";
-      } else {
-        badgeVpn.textContent = "Inactif";
-        badgeVpn.className = "subtab-pill-badge";
-      }
+      badgeVpn.textContent = wg.is_active ? "WireGuard Actif" : "Inactif";
+      badgeVpn.className = `subtab-pill-badge ${wg.is_active ? "badge-success" : "badge-secondary"}`;
     }
 
     // --- 3. Pare-feu & Fail2ban ---

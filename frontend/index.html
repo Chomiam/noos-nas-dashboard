@@ -1046,49 +1046,134 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
         </div>
       </div>
 
-      <!-- SOUS-ONGLET 1 : VPN (WireGuard & Tailscale) -->
+            <!-- SOUS-ONGLET 1 : VPN (WireGuard) -->
       <div id="subtab-vpn" class="network-subpane active">
-        <div class="vpn-cards-grid">
-          <!-- Carte WireGuard -->
-          <div class="vpn-card vpn-card-wireguard">
-            <div>
-              <div class="vpn-card-header">
-                <div class="vpn-icon-title">
-                  <div class="vpn-icon" style="background:rgba(203,166,247,0.15); color:var(--mauve);">🔒</div>
-                  <div>
-                    <div class="vpn-title">WireGuard VPN</div>
-                    <div class="vpn-desc">Tunnel chiffré ultra-rapide noyau Linux</div>
-                  </div>
-                </div>
-                <span class="badge" id="wg-status-badge">Vérification...</span>
-              </div>
-
-              <div class="vpn-details-list">
-                <div class="vpn-detail-row">
-                  <span class="vpn-detail-label">Interface système :</span>
-                  <span class="vpn-detail-value" id="wg-interface">wg0</span>
-                </div>
-                <div class="vpn-detail-row">
-                  <span class="vpn-detail-label">Port UDP d'écoute :</span>
-                  <span class="vpn-detail-value" id="wg-port">51820</span>
-                </div>
-                <div class="vpn-detail-row">
-                  <span class="vpn-detail-label">Pairs (Peers) actifs :</span>
-                  <span class="vpn-detail-value" id="wg-peers-count">0 connecté(s)</span>
-                </div>
-                <div class="vpn-detail-row">
-                  <span class="vpn-detail-label">Trafic réseau (RX / TX) :</span>
-                  <span class="vpn-detail-value" id="wg-traffic">0 B / 0 B</span>
-                </div>
-                <div class="vpn-detail-row" style="flex-direction:column; align-items:flex-start; gap:4px;">
-                  <span class="vpn-detail-label">Clé publique du serveur :</span>
-                  <div style="display:flex; width:100%; gap:8px; align-items:center;">
-                    <code id="wg-pubkey" style="font-size:0.75rem; color:var(--teal); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; background:rgba(0,0,0,0.2); padding:4px 8px; border-radius:4px;">Non configurée</code>
-                    <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('wg-pubkey', 'Clé publique WireGuard copiée !')">📋</button>
-                  </div>
-                </div>
+        <!-- Carte Héro WireGuard -->
+        <div class="section-card" style="border: 1px solid rgba(203, 166, 247, 0.3); background: rgba(203, 166, 247, 0.04);">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <div class="section-icon-box" style="background:rgba(203,166,247,0.2); color:var(--mauve);">🔒</div>
+              <div>
+                <div class="section-title">Serveur VPN WireGuard (Accès Distant Sécurisé)</div>
+                <div class="section-subtitle">Tunnel chiffré moderne ultra-rapide intégré au noyau Linux (ChaCha20-Poly1305)</div>
               </div>
             </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span class="badge" id="wg-status-badge">Vérification...</span>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="restartServiceAction('wireguard-wg0')">
+                🔄 Redémarrer WireGuard
+              </button>
+            </div>
+          </div>
+
+          <!-- Métriques clés WireGuard -->
+          <div class="metrics-grid" style="margin-top:16px;">
+            <div class="metric-card">
+              <div class="metric-header">
+                <span class="metric-title">Interface Réseau</span>
+                <span class="metric-icon">🔌</span>
+              </div>
+              <div class="metric-value" id="wg-interface" style="font-family:var(--font-mono);">wg0</div>
+              <div class="metric-sub" style="color:var(--mauve);">Port UDP : <span id="wg-port">51820</span></div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-header">
+                <span class="metric-title">Sous-réseau Tunnel</span>
+                <span class="metric-icon">🌐</span>
+              </div>
+              <div class="metric-value" id="wg-subnet" style="font-family:var(--font-mono); font-size:1.15rem; color:var(--teal);">10.100.0.1/24</div>
+              <div class="metric-sub" style="color:var(--green);">● Routage IP Forward actif</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-header">
+                <span class="metric-title">Pairs (Clients) Connectés</span>
+                <span class="metric-icon">👥</span>
+              </div>
+              <div class="metric-value" id="wg-peers-count" style="color:var(--yellow);">0</div>
+              <div class="metric-sub" style="color:var(--subtext0);">Appareils mobiles & distants</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-header">
+                <span class="metric-title">Débit Total Tunnel</span>
+                <span class="metric-icon">📊</span>
+              </div>
+              <div class="metric-value" id="wg-traffic" style="font-size:1.1rem; color:var(--text);">0 B / 0 B</div>
+              <div class="metric-sub" style="color:var(--subtext0);">Transfert RX / TX</div>
+            </div>
+          </div>
+
+          <!-- Clé publique du serveur -->
+          <div style="background:var(--mantle); padding:14px 18px; border-radius:var(--radius-md); border:1px solid rgba(255,255,255,0.06); margin-top:8px;">
+            <div style="font-size:0.8rem; color:var(--subtext0); margin-bottom:6px;">🔑 Clé publique du serveur WireGuard (pour vos profils clients) :</div>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <code id="wg-pubkey" style="font-size:0.88rem; color:var(--teal); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; background:rgba(0,0,0,0.25); padding:6px 12px; border-radius:6px;">Générée par NixOS</code>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('wg-pubkey', 'Clé publique WireGuard copiée !')">
+                📋 Copier la clé
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tableau des Pairs (Clients) WireGuard -->
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <div class="section-icon-box">💻</div>
+              <div>
+                <div class="section-title">Pairs WireGuard Déclarés & Télémétrie</div>
+                <div class="section-subtitle">Appareils autorisés à communiquer via le tunnel chiffré</div>
+              </div>
+            </div>
+          </div>
+
+          <table class="custom-table">
+            <thead>
+              <tr>
+                <th>Clé Publique du Pair</th>
+                <th>IP Assignée</th>
+                <th>Endpoint Distant</th>
+                <th>Dernier Handshake</th>
+                <th>Transfert (RX / TX)</th>
+              </tr>
+            </thead>
+            <tbody id="wg-peers-tbody">
+              <tr>
+                <td colspan="5" style="text-align:center; color:var(--subtext0); padding:20px;">
+                  Aucun client WireGuard actif pour le moment.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Guide de configuration client WireGuard -->
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <div class="section-icon-box" style="background:rgba(166,227,161,0.15); color:var(--green);">📱</div>
+              <div>
+                <div class="section-title">Comment connecter un nouvel appareil (PC, Smartphone, Tablette) ?</div>
+                <div class="section-subtitle">WireGuard est disponible gratuitement sur Windows, macOS, Linux, Android et iOS</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:14px; font-size:0.86rem; color:var(--subtext1); line-height:1.6;">
+            <div style="background:var(--mantle); padding:14px; border-radius:var(--radius-md); border:1px solid rgba(255,255,255,0.05);">
+              <div style="font-weight:700; color:var(--text); margin-bottom:6px;">1. Installez l'application WireGuard</div>
+              Téléchargez l'application officielle WireGuard sur votre téléphone (App Store / Google Play) ou sur votre ordinateur (wireguard.com).
+            </div>
+            <div style="background:var(--mantle); padding:14px; border-radius:var(--radius-md); border:1px solid rgba(255,255,255,0.05);">
+              <div style="font-weight:700; color:var(--text); margin-bottom:6px;">2. Configurez le pair dans NixOS</div>
+              Ajoutez la clé publique de votre client dans la configuration NixOS du NAS pour lui attribuer une IP fixe dans le sous-réseau <code>10.100.0.x/32</code>.
+            </div>
+            <div style="background:var(--mantle); padding:14px; border-radius:var(--radius-md); border:1px solid rgba(255,255,255,0.05);">
+              <div style="font-weight:700; color:var(--text); margin-bottom:6px;">3. Connectez-vous en un clic</div>
+              Activez le tunnel : vous avez désormais un accès direct et chiffré à vos partages Samba, votre serveur sFTP et au tableau de bord STEvE_OS sans ouvrir de ports vulnérables.
+            </div>
+          </div>
+        </div>
+      </div>
 
             <div style="display:flex; gap:10px; margin-top:16px;">
               <button type="button" class="btn btn-secondary btn-sm" style="flex:1;" onclick="restartServiceAction('wireguard-wg0')">

@@ -16,7 +16,6 @@ pub struct NetworkOverview {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VpnSection {
     pub wireguard: WireguardStatus,
-    pub tailscale: TailscaleStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,21 +24,24 @@ pub struct WireguardStatus {
     pub unit: String,
     pub interface: String,
     pub port: u16,
+    pub subnet: String,
     pub public_key: Option<String>,
     pub endpoint: Option<String>,
     pub transfer_rx: Option<String>,
     pub transfer_tx: Option<String>,
     pub peers_count: usize,
     pub status_text: String,
+    pub peers: Vec<WireguardPeerItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TailscaleStatus {
-    pub is_active: bool,
-    pub unit: String,
-    pub tailscale_ip: Option<String>,
-    pub node_name: Option<String>,
-    pub status_text: String,
+pub struct WireguardPeerItem {
+    pub public_key: String,
+    pub allowed_ips: String,
+    pub endpoint: Option<String>,
+    pub latest_handshake: Option<String>,
+    pub transfer_rx: Option<String>,
+    pub transfer_tx: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,7 +82,6 @@ pub fn get_network_overview() -> NetworkOverview {
         primary_lan_ip: get_primary_lan_ip(),
         vpn: VpnSection {
             wireguard: get_wireguard_status(),
-            tailscale: get_tailscale_status(),
         },
         firewall: get_firewall_overview(),
         samba: get_samba_section(),
@@ -132,16 +133,44 @@ fn get_wireguard_status() -> WireguardStatus {
     let mut endpoint = None;
     let mut transfer_rx = None;
     let mut transfer_tx = None;
-    let mut peers_count = 0;
+    let mut peers: Vec<WireguardPeerItem> = Vec::new();
+    let mut current_peer: Option<WireguardPeerItem> = None;
 
     if let Ok(output) = Command::new("wg").arg("show").output() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
             let trimmed = line.trim();
-            if trimmed.starts_with("public key:") {
+            if trimmed.starts_with("public key:") && current_peer.is_none() {
                 public_key = trimmed.split_once(':').map(|(_, v)| v.trim().to_string());
             } else if trimmed.starts_with("peer:") {
-                peers_count += 1;
+                if let Some(p) = current_peer.take() {
+                    peers.push(p);
+                }
+                let peer_key = trimmed.split_once(':').map(|(_, v)| v.trim().to_string()).unwrap_or_default();
+                current_peer = Some(WireguardPeerItem {
+                    public_key: peer_key,
+                    allowed_ips: "10.100.0.x/32".into(),
+                    endpoint: None,
+                    latest_handshake: None,
+                    transfer_rx: None,
+                    transfer_tx: None,
+                });
+            } else if let Some(ref mut p) = current_peer {
+                if trimmed.starts_with("endpoint:") {
+                    p.endpoint = trimmed.split_once(':').map(|(_, v)| v.trim().to_string());
+                } else if trimmed.starts_with("allowed ips:") {
+                    p.allowed_ips = trimmed.split_once(':').map(|(_, v)| v.trim().to_string()).unwrap_or_default();
+                } else if trimmed.starts_with("latest handshake:") {
+                    p.latest_handshake = trimmed.split_once(':').map(|(_, v)| v.trim().to_string());
+                } else if trimmed.starts_with("transfer:") {
+                    if let Some((_, v)) = trimmed.split_once(':') {
+                        let parts: Vec<&str> = v.split(',').collect();
+                        if parts.len() >= 2 {
+                            p.transfer_rx = Some(parts[0].trim().to_string());
+                            p.transfer_tx = Some(parts[1].trim().to_string());
+                        }
+                    }
+                }
             } else if trimmed.starts_with("endpoint:") {
                 endpoint = trimmed.split_once(':').map(|(_, v)| v.trim().to_string());
             } else if trimmed.starts_with("transfer:") {
@@ -154,7 +183,12 @@ fn get_wireguard_status() -> WireguardStatus {
                 }
             }
         }
+        if let Some(p) = current_peer {
+            peers.push(p);
+        }
     }
+
+    let peers_count = peers.len();
 
     let status_text = if is_active {
         "Actif (Interface wg0 en ligne)".into()
@@ -167,49 +201,14 @@ fn get_wireguard_status() -> WireguardStatus {
         unit: "wireguard-wg0".into(),
         interface: "wg0".into(),
         port: 51820,
+        subnet: "10.100.0.1/24".into(),
         public_key,
         endpoint,
         transfer_rx,
         transfer_tx,
         peers_count,
         status_text,
-    }
-}
-
-fn get_tailscale_status() -> TailscaleStatus {
-    let is_active = Command::new("systemctl")
-        .args(["is-active", "tailscaled"])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "active")
-        .unwrap_or(false);
-
-    let tailscale_ip = if is_active {
-        Command::new("tailscale")
-            .args(["ip", "-4"])
-            .output()
-            .ok()
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .filter(|s| !s.is_empty())
-    } else {
-        None
-    };
-
-    let status_text = if is_active {
-        if tailscale_ip.is_some() {
-            "Connecté au réseau Tailnet".into()
-        } else {
-            "Service actif (En attente d'authentification)".into()
-        }
-    } else {
-        "Inactif / Arrêté".into()
-    };
-
-    TailscaleStatus {
-        is_active,
-        unit: "tailscaled".into(),
-        tailscale_ip,
-        node_name: Some("steveos-nas".into()),
-        status_text,
+        peers,
     }
 }
 
