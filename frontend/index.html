@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>STEvE_OS NAS Edition — Dashboard</title>
+  <link rel="icon" type="image/png" href="/assets/logo.png">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="logo-wrap">
+      <div class="logo-badge-img-box"><img src="/assets/logo.png" alt="STEvE_OS Logo" class="brand-logo-img"></div>
+      <div class="logo-text">
+        <h1>STEvE_OS <span class="edition-tag">NAS Edition</span></h1>
+        <p id="header-hostname">steveos-nas • NixOS 26.05</p>
+      </div>
+    </div>
+
+    <div class="header-status-group">
+      <div class="status-pill">
+        <span class="pulse-dot"></span>
+        <span id="header-uptime">Uptime: Chargement...</span>
+      </div>
+      <button type="button" class="btn btn-secondary btn-xs" onclick="refreshAll(true)" title="Actualiser les métriques">
+        <span>🔄</span> Actualiser
+      </button>
+    </div>
+  </header>
+
+  <!-- NAVIGATION TABS -->
+  <nav class="nav-tabs">
+    <button class="tab-btn active" data-tab="tab-overview" onclick="switchTab('tab-overview')">
+      <span>📊</span> Vue d'ensemble
+    </button>
+    <button class="tab-btn" data-tab="tab-storage" onclick="switchTab('tab-storage')">
+      <span>💾</span> Stockage & Disques
+    </button>
+    <button class="tab-btn" data-tab="tab-shares" onclick="switchTab('tab-shares')">
+      <span>📁</span> Partages & sFTP
+    </button>
+    <button class="tab-btn" data-tab="tab-gpu" onclick="switchTab('tab-gpu')">
+      <span>🎬</span> GPU & Transcodage
+    </button>
+    <button class="tab-btn" data-tab="tab-containers" onclick="switchTab('tab-containers')">
+      <span>🐳</span> Conteneurs Docker
+    </button>
+    <button class="tab-btn" data-tab="tab-firewall" onclick="switchTab('tab-firewall')">
+      <span>🛡️</span> Pare-feu & Sécurité
+    </button>
+    <button class="tab-btn" data-tab="tab-logs" onclick="switchTab('tab-logs')">
+      <span>📜</span> Logs & Console
+    </button>
+  </nav>
+
+  <!-- MAIN CONTENT -->
+  <main class="main-content">
+
+    <!-- ================= ONGLET 1 : VUE D'ENSEMBLE ================= -->
+    <div id="tab-overview" class="tab-pane active">
+      <div class="metrics-grid">
+        <!-- CPU Card -->
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-title">Charge Processeur (CPU)</span>
+            <span class="metric-icon">⚡</span>
+          </div>
+          <div class="metric-value-row">
+            <span class="metric-value" id="cpu-usage-val">--%</span>
+            <span class="metric-unit" id="cpu-cores-text">-- cœurs</span>
+          </div>
+          <div class="metric-progress-wrap">
+            <div class="metric-progress-bar progress-mauve" id="cpu-progress-bar" style="width: 0%;"></div>
+          </div>
+          <p id="cpu-model-sub" style="font-size:0.75rem; color:var(--subtext0); margin-top:8px;">Détection...</p>
+        </div>
+
+        <!-- RAM Card -->
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-title">Mémoire Vive (RAM)</span>
+            <span class="metric-icon">🧠</span>
+          </div>
+          <div class="metric-value-row">
+            <span class="metric-value" id="ram-usage-val">--%</span>
+            <span class="metric-unit" id="ram-used-text">-- / -- Go</span>
+          </div>
+          <div class="metric-progress-wrap">
+            <div class="metric-progress-bar progress-green" id="ram-progress-bar" style="width: 0%;"></div>
+          </div>
+          <p id="ram-free-sub" style="font-size:0.75rem; color:var(--subtext0); margin-top:8px;">Mémoire libre disponible</p>
+        </div>
+
+        <!-- Stockage Principal Card -->
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-title">Stockage Principal</span>
+            <span class="metric-icon">💾</span>
+          </div>
+          <div class="metric-value-row">
+            <span class="metric-value" id="storage-main-val">--%</span>
+            <span class="metric-unit" id="storage-main-text">-- / -- To</span>
+          </div>
+          <div class="metric-progress-wrap">
+            <div class="metric-progress-bar progress-peach" id="storage-progress-bar" style="width: 0%;"></div>
+          </div>
+          <p id="storage-free-sub" style="font-size:0.75rem; color:var(--subtext0); margin-top:8px;">Espace libre</p>
+        </div>
+
+        <!-- Température Card -->
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-title">Température CPU</span>
+            <span class="metric-icon">🌡️</span>
+          </div>
+          <div class="metric-value-row">
+            <span class="metric-value" id="temp-cpu-val">-- °C</span>
+            <span class="metric-unit">Normal</span>
+          </div>
+          <div class="metric-progress-wrap">
+            <div class="metric-progress-bar progress-green" id="temp-progress-bar" style="width: 40%;"></div>
+          </div>
+          <p id="temp-sub" style="font-size:0.75rem; color:var(--subtext0); margin-top:8px;">Refroidissement stable</p>
+        </div>
+      </div>
+
+      <!-- Quick Services Bar -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <div class="section-icon-box">⚡</div>
+            <div>
+              <div class="section-title">État des Services Critiques du NAS</div>
+              <div class="section-subtitle">Surveillance en temps réel des démons réseau et de stockage</div>
+            </div>
+          </div>
+        </div>
+        <div id="quick-services-wrap" style="display:flex; flex-wrap:wrap; gap:12px;"></div>
+      </div>
+    </div>
+
+    <!-- ================= ONGLET 2 : STOCKAGE & DISQUES ================= -->
+    <div id="tab-storage" class="tab-pane">
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <div class="section-icon-box">📂</div>
+            <div>
+              <div class="section-title">Volumes de Stockage & Pools de Données</div>
+              <div class="section-subtitle">Points de montage montés et espace disponible</div>
+            </div>
+          </div>
+        </div>
+        <table class="custom-table" id="table-pools">
+          <thead>
+            <tr>
+              <th>Point de Montage</th>
+              <th>Système de Fichiers</th>
+              <th>Utilisé / Total</th>
+              <th>Espace Libre</th>
+              <th>Utilisation</th>
+            </tr>
+          </thead>
+          <tbody id="pools-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <div class="section-icon-box">💽</div>
+            <div>
+              <div class="section-title">Disques Physiques & État Énergétique</div>
+              <div class="section-subtitle">Contrôle du spindown (mise en veille) et santé S.M.A.R.T.</div>
+            </div>
+          </div>
+        </div>
+        <table class="custom-table" id="table-physical-disks">
+          <thead>
+            <tr>
+              <th>Disque</th>
+              <th>Modèle</th>
+              <th>Type</th>
+              <th>Capacité</th>
+              <th>État de Rotation</th>
+              <th>Santé SMART</th>
+              <th style="text-align:right;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="disks-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ================= ONGLET 3 : PARTAGES & SFTP ================= -->
+    <div id="tab-shares" class="tab-pane">
+      <!-- sFTP Hero Banner -->
+      <div class="banner-box info">
+        <div style="font-size:1.8rem;">🔒</div>
+        <div style="flex:1;">
+          <strong style="color:var(--text); font-size:1rem; display:block; margin-bottom:4px;">Accès sFTP Sécurisé Direct</strong>
+          <p style="color:var(--subtext1); font-size:0.86rem; margin-bottom:10px;">
+            Pour vos transferts sécurisés à distance (FileZilla, Cyberduck, Dolphin), utilisez le lien sFTP direct vers votre NAS :
+          </p>
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <code class="banner-code" id="sftp-connection-uri">sftp://chomiam@192.168.1.139:22</code>
+            <button type="button" class="btn btn-primary btn-xs" onclick="copySftpUri()">
+              <span id="sftp-copy-icon">📋</span> Copier le lien sFTP
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Samba Shares -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <div class="section-icon-box">🪟</div>
+            <div>
+              <div class="section-title">Partages Samba (SMB / Windows / Mac)</div>
+              <div class="section-subtitle">Partages de fichiers locaux avec découverte automatique WSDD</div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="restartService('samba-smbd')">
+            🔄 Redémarrer Samba
+          </button>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px;" id="samba-shares-grid">
+          <div class="metric-card">
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+              <span style="font-size:1.4rem;">📁</span>
+              <strong>Partage Principal (/mnt/storage/shares)</strong>
+            </div>
+            <p style="font-size:0.82rem; color:var(--subtext0); margin-bottom:12px;">Accès en lecture et écriture pour les utilisateurs du groupe storage.</p>
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+              <span class="badge badge-success">Actif</span>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="copyText('smb://' + location.hostname + '/shares')">Copier lien SMB</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Active Sessions -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <div class="section-icon-box">👥</div>
+            <div>
+              <div class="section-title">Sessions Clients Actives (Samba & sFTP)</div>
+              <div class="section-subtitle">Utilisateurs actuellement connectés sur vos partages</div>
+            </div>
+          </div>
+        </div>
+        <table class="custom-table">
+          <thead>
+            <tr>
+              <th>Utilisateur</th>
+              <th>Protocole</th>
+              <th>Adresse IP Cliente</th>
+              <th>Statut</th>
+            </tr>
+          </thead>
+          <tbody id="sessions-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ================= ONGLET 4 : GPU & TRANSCODAGE ================= -->
+    <div id="tab-gpu" class="tab-pane">
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <div class="section-icon-box">🎬</div>
+            <div>
+              <div class="section-title">Accélération Matérielle & Transcodage Vidéo</div>
+              <div class="section-subtitle">Détection matérielle du GPU (Intel QSV, AMD VA-API, Nvidia NVENC)</div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-primary btn-xs" onclick="window.open('http://' + location.hostname + ':8096', '_blank')">
+            🚀 Ouvrir Jellyfin
+          </button>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:18px; margin-bottom:20px;">
+          <div class="metric-card">
+            <span class="metric-title">Constructeur & Pilote</span>
+            <div class="metric-value" id="gpu-vendor" style="font-size:1.4rem; margin:10px 0;">Détection...</div>
+            <p id="gpu-model" style="font-size:0.85rem; color:var(--subtext1);">Modèle matériel</p>
+          </div>
+
+          <div class="metric-card">
+            <span class="metric-title">Périphérique DRM Linux</span>
+            <div class="metric-value" id="gpu-dri-status" style="font-size:1.4rem; margin:10px 0;">/dev/dri</div>
+            <p id="gpu-render-node" style="font-size:0.85rem; color:var(--green);">Accessible (/dev/dri/renderD128)</p>
+          </div>
+
+          <div class="metric-card">
+            <span class="metric-title">Tâches de Transcodage Actives</span>
+            <div class="metric-value" id="gpu-active-jobs" style="font-size:1.4rem; margin:10px 0;">0 flux</div>
+            <p style="font-size:0.85rem; color:var(--subtext0);">Jellyfin / FFmpeg</p>
+          </div>
+        </div>
+
+        <div>
+          <h4 style="font-size:0.95rem; margin-bottom:10px; color:var(--text);">Codecs Matériels Pris en Charge Déclarativement :</h4>
+          <div id="gpu-codecs-list" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= ONGLET 5 : CONTENEURS DOCKER ================= -->
+    <div id="tab-containers" class="tab-pane">
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <div class="section-icon-box">🐳</div>
+            <div>
+              <div class="section-title">Conteneurs Docker du NAS</div>
+              <div class="section-subtitle">Applications hébergées en conteneurs avec injection du GPU /dev/dri</div>
+            </div>
+          </div>
+        </div>
+        <table class="custom-table">
+          <thead>
+            <tr>
+              <th>Nom du Conteneur</th>
+              <th>Image</th>
+              <th>Statut</th>
+              <th style="text-align:right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="containers-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ================= ONGLET 6 : PARE-FEU & SÉCURITÉ ================= -->
+    <div id="tab-firewall" class="tab-pane">
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <div class="section-icon-box">🛡️</div>
+            <div>
+              <div class="section-title">Pare-Feu Modulaire (Ports Réseau Autorisés)</div>
+              <div class="section-subtitle">Chaque service déclare et ouvre automatiquement ses ports dans NixOS</div>
+            </div>
+          </div>
+          <span class="badge badge-success" id="firewall-status-badge">🟢 Pare-feu Actif</span>
+        </div>
+
+        <table class="custom-table">
+          <thead>
+            <tr>
+              <th>Port</th>
+              <th>Protocole</th>
+              <th>Service Associé</th>
+              <th>Statut</th>
+            </tr>
+          </thead>
+          <tbody id="firewall-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- Fail2ban Security -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <div class="section-icon-box">🔒</div>
+            <div>
+              <div class="section-title">Sécurité Anti-Bruteforce (Fail2ban)</div>
+              <div class="section-subtitle">Surveillance et blocage automatique des attaques SSH</div>
+            </div>
+          </div>
+        </div>
+        <div id="fail2ban-wrap">
+          <p style="font-size:0.88rem; color:var(--subtext1); margin-bottom:10px;">Adresses IP actuellement bannies par la prison SSH :</p>
+          <div id="banned-ips-list" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= ONGLET 7 : LOGS & CONSOLE ================= -->
+    <div id="tab-logs" class="tab-pane">
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <div class="section-icon-box">📜</div>
+            <div>
+              <div class="section-title">Journal Système en Temps Réel</div>
+              <div class="section-subtitle">Consultez les journaux des services critiques du NAS</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <select id="select-log-unit" class="btn btn-secondary" onchange="loadLogs()" style="padding:6px 12px;">
+              <option value="sshd">sshd (SSH & sFTP)</option>
+              <option value="samba-smbd">samba-smbd (Samba SMB)</option>
+              <option value="jellyfin">jellyfin (Multimédia)</option>
+              <option value="docker">docker (Conteneurs)</option>
+              <option value="fail2ban">fail2ban (Sécurité)</option>
+            </select>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="loadLogs()">
+              🔄 Actualiser
+            </button>
+          </div>
+        </div>
+
+        <div class="terminal-window">
+          <div class="terminal-header">
+            <span style="font-size:0.78rem; color:var(--subtext0); font-family:var(--font-mono);" id="terminal-unit-title">journalctl -u sshd -n 50</span>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="copyLogs()">📋 Copier</button>
+          </div>
+          <div class="terminal-body" id="terminal-content">Chargement des logs...</div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- TOAST CONTAINER -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

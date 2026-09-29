@@ -1,0 +1,12 @@
+[package]
+name = "steveos-nas-dashboard"
+version = "0.1.0"
+edition = "2021"
+description = "Tableau de bord web en Rust & JS pour STEvE_OS NAS Edition (Catppuccin Mocha)"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+axum = { version = "0.7" }
+tower-http = { version = "0.5", features = ["fs", "cors"] }
