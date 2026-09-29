@@ -1759,6 +1759,9 @@ kbd {
 }
 
 /* 4. MODALE NEOVIM */
+#nvim-modal {
+  z-index: 2500 !important;
+}
 .nvim-window {
   width: 980px;
   max-width: 96vw;
