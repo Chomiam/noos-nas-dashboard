@@ -508,7 +508,7 @@ fn detect_package_updates_list(config_dir: &Path, inputs_have_updates: bool) -> 
         ("nvd", "Nix Package Version Diff Tool", "0.2.4"),
         ("git", "Git Distributed Version Control", "2.54.0"),
         ("nh", "Nix Helper CLI", "4.4.2"),
-        ("steveos-nas-dashboard", "Tableau de bord NAS STEvE_OS", "0.1.0"),
+        ("cfspeedtest", "Cloudflare Speedtest CLI", "2.2.2"),
     ];
 
     for (pkg, desc, ver) in check_pkgs {
@@ -828,6 +828,7 @@ fn run_switch_command(config_dir: &Path, update_inputs: bool) -> (bool, String) 
         let mut a = vec!["os", "switch", "-e", &sudo_b];
         if update_inputs {
             a.push("-u");
+            a.push("--commit-lock-file");
         }
         a.push(&dir_str);
         (nh_bin, a)

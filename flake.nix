@@ -100,6 +100,7 @@
               };
             };
 
+            environment.systemPackages = [ pkg ];
             networking.firewall.allowedTCPPorts = lib.optional cfg.openFirewall cfg.port;
           };
         };
