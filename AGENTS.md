@@ -32,3 +32,8 @@
   - **L'architecture** : les composants UI (HTML/CSS/JS) et backend Rust impactés.
   - **Les endpoints / services** : les nouvelles routes ou fonctionnalités ajoutées.
   - **Le numéro de version** attribué.
+
+---
+
+## 🧬 Règle n°4 : Vérification systématique nix-ld pour toute dépendance native
+- Pour toute nouvelle dépendance, outil externe ou bibliothèque requis par le dashboard ou ses services sous-jacents, vérifier systématiquement si des bibliothèques partagées (`.so`) associées doivent être ajoutées dans `modules/services/nix-ld.nix` côté `steveos-nas`.
