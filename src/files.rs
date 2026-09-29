@@ -351,7 +351,10 @@ fn categorize_file(name: &str) -> String {
     let ext = lower.split('.').last().unwrap_or("");
 
     match ext {
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "tiff" | "ico" => "image".into(),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "tiff" | "tif" | "ico"
+        | "heic" | "heif" | "hif" | "avif" | "jxl"
+        | "nef" | "nrw" | "cr2" | "cr3" | "crw" | "arw" | "srf" | "sr2"
+        | "dng" | "raf" | "rw2" | "orf" | "pef" | "3fr" | "psd" | "raw" => "image".into(),
         "mp4" | "mkv" | "avi" | "mov" | "webm" | "flv" | "wmv" | "m4v" => "video".into(),
         "mp3" | "flac" | "wav" | "aac" | "ogg" | "m4a" | "opus" | "wma" => "audio".into(),
         "pdf" | "doc" | "docx" | "odt" | "rtf" | "xls" | "xlsx" => "document".into(),
@@ -463,4 +466,295 @@ pub fn write_file_content(path_str: &str, content: &str) -> Result<String, Strin
     }
     fs::write(&p, content).map_err(|e| format!("Échec d enregistrement : {}", e))?;
     Ok("Fichier enregistré avec succès.".into())
+}
+
+
+// --------------------------------------------------------------------------
+// MOTEUR D'IMAGE MULTI-FORMATS & EXIF (RAW, IPHONE HEIC, STANDARD)
+// --------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ImageInfoResponse {
+    pub name: String,
+    pub path: String,
+    pub size_bytes: u64,
+    pub size_human: String,
+    pub format: String,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub camera_make: Option<String>,
+    pub camera_model: Option<String>,
+    pub lens: Option<String>,
+    pub focal_length: Option<String>,
+    pub aperture: Option<String>,
+    pub shutter_speed: Option<String>,
+    pub iso: Option<String>,
+    pub date_taken: Option<String>,
+    pub exposure_mode: Option<String>,
+    pub white_balance: Option<String>,
+    pub color_space: Option<String>,
+    pub software: Option<String>,
+}
+
+fn calculate_hash<T: std::hash::Hash>(t: &T) -> u64 {
+    use std::hash::Hasher;
+    let mut s = std::collections::hash_map::DefaultHasher::new();
+    t.hash(&mut s);
+    s.finish()
+}
+
+pub fn get_image_preview_path(path_str: &str, is_thumb: bool) -> Result<(PathBuf, String), String> {
+    let p = normalize_user_path(PathBuf::from(path_str));
+    if !p.exists() || !p.is_file() {
+        return Err("Fichier image introuvable.".into());
+    }
+
+    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+
+    // Formats web natifs directs si pleine résolution demandée
+    let is_native = matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif" | "svg");
+    if is_native && !is_thumb {
+        let mime = match ext.as_str() {
+            "jpg" | "jpeg" => "image/jpeg",
+            "png" => "image/png",
+            "webp" => "image/webp",
+            "gif" => "image/gif",
+            "svg" => "image/svg+xml",
+            _ => "application/octet-stream",
+        };
+        return Ok((p, mime.to_string()));
+    }
+
+    // Gestion du cache pour conversions lourdes (RAW, HEIC, TIFF, thumbnails)
+    let meta = fs::metadata(&p).map_err(|e| e.to_string())?;
+    let mtime = meta.modified().ok()
+        .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let size = meta.len();
+
+    let cache_dir = PathBuf::from("/tmp/steveos_image_cache");
+    let _ = fs::create_dir_all(&cache_dir);
+
+    let raw_key = format!("{}_{}_{}_{}", p.display(), mtime, size, is_thumb);
+    let hash = format!("{:x}", calculate_hash(&raw_key));
+    let cached_path = cache_dir.join(format!("{}.jpg", hash));
+
+    if cached_path.exists() && cached_path.metadata().map(|m| m.len() > 100).unwrap_or(false) {
+        return Ok((cached_path, "image/jpeg".to_string()));
+    }
+
+    let is_raw = matches!(
+        ext.as_str(),
+        "nef" | "nrw" | "cr2" | "cr3" | "crw" | "arw" | "srf" | "sr2" | "dng" | "raf" | "rw2" | "orf" | "pef" | "3fr" | "raw"
+    );
+
+    let mut generated = false;
+
+    // Étape 1 : pour les fichiers RAW, extraction instantanée de l'aperçu JPEG intégré
+    if is_raw {
+        if let Ok(out) = std::process::Command::new("exiftool")
+            .args(["-b", "-PreviewImage"])
+            .arg(&p)
+            .output()
+        {
+            if out.status.success() && out.stdout.len() > 2048 && out.stdout.starts_with(&[0xFF, 0xD8, 0xFF]) {
+                if fs::write(&cached_path, &out.stdout).is_ok() {
+                    generated = true;
+                }
+            }
+        }
+
+        if !generated {
+            if let Ok(out) = std::process::Command::new("exiftool")
+                .args(["-b", "-JpgFromRaw"])
+                .arg(&p)
+                .output()
+            {
+                if out.status.success() && out.stdout.len() > 2048 && out.stdout.starts_with(&[0xFF, 0xD8, 0xFF]) {
+                    if fs::write(&cached_path, &out.stdout).is_ok() {
+                        generated = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // Étape 2 : si pas encore généré (iPhone HEIC, TIFF, PSD, ou fallback RAW complet)
+    if !generated {
+        let max_dim = if is_thumb { "400x400>" } else { "2560x1440>" };
+        let input_arg = if is_raw || matches!(ext.as_str(), "heic" | "heif" | "hif" | "psd" | "tiff" | "tif") {
+            format!("{}[0]", p.display())
+        } else {
+            p.display().to_string()
+        };
+
+        let mut cmd = if std::process::Command::new("magick").arg("-version").output().is_ok() {
+            std::process::Command::new("magick")
+        } else {
+            std::process::Command::new("convert")
+        };
+
+        let quality_str = if is_thumb { "80" } else { "88" };
+        let status = cmd
+            .arg(&input_arg)
+            .args([
+                "-auto-orient",
+                "-resize",
+                max_dim,
+                "-quality",
+                quality_str,
+            ])
+            .arg(&cached_path)
+            .status();
+
+        if status.map(|s| s.success()).unwrap_or(false) && cached_path.exists() {
+            generated = true;
+        }
+    }
+
+    // Étape 3 : Fallback ffmpeg pour HEIC / AVIF si ImageMagick délégué n'est pas encore prêt
+    if !generated && matches!(ext.as_str(), "heic" | "heif" | "hif") {
+        let status = std::process::Command::new("ffmpeg")
+            .args(["-y", "-i"])
+            .arg(&p)
+            .args(["-frames:v", "1", "-q:v", "2"])
+            .arg(&cached_path)
+            .status();
+
+        if status.map(|s| s.success()).unwrap_or(false) && cached_path.exists() {
+            generated = true;
+        }
+    }
+
+    if generated && cached_path.exists() {
+        Ok((cached_path, "image/jpeg".to_string()))
+    } else if is_native {
+        let mime = match ext.as_str() {
+            "jpg" | "jpeg" => "image/jpeg",
+            "png" => "image/png",
+            "webp" => "image/webp",
+            "gif" => "image/gif",
+            "svg" => "image/svg+xml",
+            _ => "application/octet-stream",
+        };
+        Ok((p, mime.to_string()))
+    } else {
+        Err(format!("Impossible de convertir l'image au format '.{}' pour l'affichage.", ext))
+    }
+}
+
+pub fn get_image_info(path_str: &str) -> Result<ImageInfoResponse, String> {
+    let p = normalize_user_path(PathBuf::from(path_str));
+    if !p.exists() || !p.is_file() {
+        return Err("Fichier image introuvable.".into());
+    }
+
+    let meta = fs::metadata(&p).map_err(|e| e.to_string())?;
+    let size_bytes = meta.len();
+    let size_human = format_size(size_bytes);
+    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+
+    let pretty_format = match ext.as_str() {
+        "nef" | "nrw" => "Nikon RAW (NEF)",
+        "cr2" => "Canon RAW (CR2)",
+        "cr3" => "Canon RAW (CR3)",
+        "crw" => "Canon RAW (CRW)",
+        "arw" | "srf" | "sr2" => "Sony Alpha RAW (ARW)",
+        "dng" => "Adobe / Apple ProRAW (DNG)",
+        "raf" => "Fujifilm RAW (RAF)",
+        "rw2" => "Panasonic Lumix RAW (RW2)",
+        "orf" => "Olympus RAW (ORF)",
+        "pef" => "Pentax RAW (PEF)",
+        "heic" => "Apple High Efficiency (HEIC)",
+        "heif" | "hif" => "High Efficiency Image (HEIF)",
+        "jpg" | "jpeg" => "JPEG Image",
+        "png" => "Portable Network Graphics (PNG)",
+        "webp" => "Google WebP Image",
+        "gif" => "GIF Image animée/statique",
+        "svg" => "Scalable Vector Graphics (SVG)",
+        "bmp" => "Bitmap Image (BMP)",
+        "tiff" | "tif" => "TIFF Image haute fidélité",
+        "psd" => "Adobe Photoshop Document (PSD)",
+        "avif" => "AV1 Image File (AVIF)",
+        _ => "Image",
+    }.to_string();
+
+    let mut info = ImageInfoResponse {
+        name,
+        path: p.display().to_string(),
+        size_bytes,
+        size_human,
+        format: pretty_format,
+        width: None,
+        height: None,
+        camera_make: None,
+        camera_model: None,
+        lens: None,
+        focal_length: None,
+        aperture: None,
+        shutter_speed: None,
+        iso: None,
+        date_taken: None,
+        exposure_mode: None,
+        white_balance: None,
+        color_space: None,
+        software: None,
+    };
+
+    if let Ok(out) = std::process::Command::new("exiftool")
+        .args(["-json", "-q", "-q"])
+        .arg(&p)
+        .output()
+    {
+        if out.status.success() {
+            if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                if let Some(first) = val.as_array().and_then(|a| a.first()).and_then(|o| o.as_object()) {
+                    let get_str = |key: &str| -> Option<String> {
+                        first.get(key).and_then(|v| {
+                            if let Some(s) = v.as_str() {
+                                Some(s.to_string())
+                            } else if let Some(n) = v.as_i64() {
+                                Some(n.to_string())
+                            } else if let Some(f) = v.as_f64() {
+                                Some(f.to_string())
+                            } else {
+                                None
+                            }
+                        })
+                    };
+
+                    let get_u32 = |key: &str| -> Option<u32> {
+                        first.get(key).and_then(|v| {
+                            if let Some(n) = v.as_u64() {
+                                Some(n as u32)
+                            } else if let Some(s) = v.as_str() {
+                                s.parse::<u32>().ok()
+                            } else {
+                                None
+                            }
+                        })
+                    };
+
+                    info.width = get_u32("ImageWidth").or_else(|| get_u32("ExifImageWidth"));
+                    info.height = get_u32("ImageHeight").or_else(|| get_u32("ExifImageHeight"));
+                    info.camera_make = get_str("Make");
+                    info.camera_model = get_str("Model");
+                    info.lens = get_str("LensModel").or_else(|| get_str("Lens")).or_else(|| get_str("LensID"));
+                    info.focal_length = get_str("FocalLength");
+                    info.aperture = get_str("Aperture").or_else(|| get_str("FNumber")).map(|a| if a.starts_with('f') { a } else { format!("f/{}", a) });
+                    info.shutter_speed = get_str("ShutterSpeed").or_else(|| get_str("ExposureTime"));
+                    info.iso = get_str("ISO");
+                    info.date_taken = get_str("DateTimeOriginal").or_else(|| get_str("CreateDate"));
+                    info.exposure_mode = get_str("ExposureProgram").or_else(|| get_str("ExposureMode"));
+                    info.white_balance = get_str("WhiteBalance");
+                    info.color_space = get_str("ColorSpace");
+                    info.software = get_str("Software");
+                }
+            }
+        }
+    }
+
+    Ok(info)
 }

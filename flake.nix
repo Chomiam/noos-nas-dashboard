@@ -90,6 +90,11 @@
                 dosfstools
                 parted
                 lvm2
+                imagemagick
+                exiftool
+                libheif
+                libraw
+                ffmpeg
               ];
               environment = {
                 STEVEOS_PORT = toString cfg.port;

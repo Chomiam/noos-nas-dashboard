@@ -1081,6 +1081,9 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
     <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">
       <span>📂</span> Ouvrir
     </div>
+    <div class="context-menu-item" onclick="triggerFileAction('view-image')" id="ctx-view-image" style="display:none;">
+      <span>🖼️</span> Visualiser l'image (Haute Définition)
+    </div>
     <div class="context-menu-item" onclick="triggerFileAction('edit-nvim')" id="ctx-edit-nvim" style="display:none;">
       <span>📝</span> Éditer (Neovim)
     </div>
@@ -1319,6 +1322,105 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
     </div>
   </div>
 
+
+  <!-- MODALE VISIONNEUSE D'IMAGES MULTI-FORMATS (RAW, IPHONE HEIC, STANDARD) -->
+  <div class="file-modal-overlay image-viewer-overlay" id="image-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'image-modal')">
+    <div class="image-viewer-window">
+      <!-- Barre d'outils supérieure -->
+      <div class="image-viewer-header">
+        <div class="image-header-left">
+          <span class="image-logo-tag" id="image-viewer-logo-tag">IMAGE</span>
+          <span class="image-viewer-title" id="image-viewer-title" title="Nom du fichier">image.jpg</span>
+          <span class="badge badge-accent" id="image-viewer-format-badge">JPEG</span>
+          <span class="image-meta-pill" id="image-viewer-res-pill">-- × --</span>
+          <span class="image-meta-pill" id="image-viewer-size-pill">-- Mo</span>
+        </div>
+        <div class="image-header-right">
+          <!-- Commandes de Zoom -->
+          <div class="image-btn-group">
+            <button type="button" class="image-tool-btn" onclick="zoomImage(-0.25)" title="Zoom arrière (-)">➖</button>
+            <button type="button" class="image-tool-btn image-zoom-val" id="image-zoom-label" onclick="resetZoom()" title="Réinitialiser zoom (100% / Ajuster)">100%</button>
+            <button type="button" class="image-tool-btn" onclick="zoomImage(0.25)" title="Zoom avant (+)">➕</button>
+            <button type="button" class="image-tool-btn" onclick="fitImageToScreen()" title="Ajuster à l'écran (0)">🎯 Ajuster</button>
+          </div>
+
+          <!-- Commandes de Rotation & Miroir -->
+          <div class="image-btn-group">
+            <button type="button" class="image-tool-btn" onclick="rotateImage(-90)" title="Rotation 90° gauche (Shift+R)">↺</button>
+            <button type="button" class="image-tool-btn" onclick="rotateImage(90)" title="Rotation 90° droite (R)">↻</button>
+            <button type="button" class="image-tool-btn" onclick="flipImageHorizontal()" title="Miroir horizontal (H)">⇄</button>
+          </div>
+
+          <!-- Actions supplémentaires -->
+          <div class="image-btn-group">
+            <button type="button" class="image-tool-btn" id="btn-toggle-exif" onclick="toggleExifSidebar()" title="Métadonnées EXIF de prise de vue (I)">
+              ℹ️ EXIF
+            </button>
+            <a id="image-viewer-download-btn" class="image-tool-btn" download title="Télécharger l'original">
+              ⬇️ Télécharger
+            </a>
+            <button type="button" class="image-tool-btn" onclick="toggleImageViewerFullscreen()" title="Plein écran (F)">
+              ⛶
+            </button>
+          </div>
+
+          <button type="button" class="image-close-btn" onclick="closeImageModal()" title="Fermer (Échap)">
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <!-- Corps principal de visualisation -->
+      <div class="image-viewer-body">
+        <!-- Zone du Canvas d'affichage avec pan & zoom interactif -->
+        <div class="image-viewer-viewport" id="image-viewer-viewport">
+          <div class="image-canvas-container" id="image-canvas-container">
+            <img id="image-viewer-img" class="image-viewer-element" alt="Aperçu image" draggable="false">
+          </div>
+
+          <!-- Spinner de chargement (pour conversion RAW / HEIC en direct) -->
+          <div class="image-loading-overlay" id="image-viewer-loading" style="display:none;">
+            <div class="image-loading-spinner"></div>
+            <div class="image-loading-text" id="image-loading-msg">Décodage de l'image haute fidélité...</div>
+          </div>
+
+          <!-- Flèches flottantes Précédent / Suivant -->
+          <button type="button" class="image-nav-arrow image-nav-prev" id="image-nav-prev" onclick="navigateImageViewer(-1)" title="Image précédente (←)">
+            ‹
+          </button>
+          <button type="button" class="image-nav-arrow image-nav-next" id="image-nav-next" onclick="navigateImageViewer(1)" title="Image suivante (→)">
+            ›
+          </button>
+        </div>
+
+        <!-- Volet latéral Inspecteur EXIF (collapsible) -->
+        <div class="image-exif-sidebar" id="image-exif-sidebar" style="display:none;">
+          <div class="exif-sidebar-header">
+            <h4>📷 Données de Prise de Vue</h4>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="toggleExifSidebar()">✕</button>
+          </div>
+          <div class="exif-sidebar-content" id="image-exif-content">
+            <div class="exif-empty-hint">Chargement des données EXIF...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filmstrip / Carrousel miniature inférieur -->
+      <div class="image-filmstrip-bar" id="image-filmstrip-bar">
+        <div class="image-filmstrip-track" id="image-filmstrip-track">
+          <!-- Vignettes injectées dynamiquement -->
+        </div>
+      </div>
+
+      <!-- Pied d'informations et raccourcis clavier -->
+      <div class="image-viewer-footer">
+        <div class="image-counter-label" id="image-counter-label">1 / 1</div>
+        <div class="image-shortcuts-hint">
+          <b>Molette</b> (Zoom fluide) | <b>Glisser-déposer</b> (Déplacer) | <b>Double-clic</b> (100% / Fit) | <b>← / →</b> (Naviguer) | <b>R</b> (Rotation) | <b>I</b> (Infos EXIF) | <b>F</b> (Plein écran) | <b>Échap</b> (Fermer)
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- MODALE ASSISTANT CRÉATION DE POOL RAID -->
   <div class="file-modal-overlay" id="create-raid-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'create-raid-modal')">

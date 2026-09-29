@@ -2070,13 +2070,18 @@ function renderFilesList(entries) {
   // Rendu Grille
   gridWrap.innerHTML = entries.map(item => {
     const icon = getFileIcon(item);
+    let cardPreview = `<div class="file-card-icon">${icon}</div>`;
+    if (isImageFile(item.name, item.category)) {
+      const thumbUrl = `/api/files/image-view?path=${encodeURIComponent(item.path)}&thumb=true`;
+      cardPreview = `<div class="file-card-icon file-card-img-preview"><img src="${thumbUrl}" loading="lazy" alt="${escapeHtml(item.name)}" onerror="this.onerror=null; this.parentElement.innerHTML='${icon}';"></div>`;
+    }
     return `
       <div class="file-card" 
            data-path="${escapeHtml(item.path)}"
            onclick="handleFileClick(event, '${escapeHtml(item.path)}', ${item.is_dir})"
            ondblclick="handleFileDblClick('${escapeHtml(item.path)}', ${item.is_dir})"
            oncontextmenu="handleItemContextMenu(event, '${escapeHtml(item.path)}')">
-        <div class="file-card-icon">${icon}</div>
+        ${cardPreview}
         <div class="file-card-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
         <div class="file-card-meta">${escapeHtml(item.size_human)}</div>
       </div>
@@ -2114,6 +2119,9 @@ function renderFilesList(entries) {
 
 function getFileIcon(item) {
   if (item.is_dir) return "📁";
+  const name = item.name.toLowerCase();
+  if (/\.(nef|nrw|cr2|cr3|crw|arw|srf|sr2|dng|raf|rw2|orf|pef|3fr|raw)$/i.test(name)) return "📷";
+  if (/\.(heic|heif|hif)$/i.test(name)) return "📱";
   switch (item.category) {
     case "image": return "🖼️";
     case "video": return "🎬";
@@ -2162,7 +2170,9 @@ function handleFileDblClick(path, isDir) {
     const fileName = item ? item.name : path.split("/").pop();
     const cat = item ? item.category : "";
 
-    if (cat === "video" || /\.(mp4|mkv|webm|avi|mov|m4v|flv)$/i.test(fileName)) {
+    if (isImageFile(fileName, cat)) {
+      openImageModal(path, fileName, item);
+    } else if (cat === "video" || /\.(mp4|mkv|webm|avi|mov|m4v|flv)$/i.test(fileName)) {
       openMpvModal(path, fileName);
     } else if (cat === "audio" || /\.(mp3|flac|wav|aac|ogg|m4a|opus|wma)$/i.test(fileName)) {
       openAudioModal(path, fileName, item ? item.size_bytes : 0);
@@ -2239,6 +2249,7 @@ function handleItemContextMenu(e, path) {
   // Activer / désactiver les options
   const ctxOpen = document.getElementById("ctx-open");
   const ctxPaste = document.getElementById("ctx-paste");
+  const ctxViewImage = document.getElementById("ctx-view-image");
   const ctxEdit = document.getElementById("ctx-edit-nvim");
   const ctxPlay = document.getElementById("ctx-play-video");
   const ctxAudio = document.getElementById("ctx-play-audio");
@@ -2253,6 +2264,8 @@ function handleItemContextMenu(e, path) {
   const isEditable = selectedFileItem && !selectedFileItem.is_dir &&
     isNvimEditableFile(selectedFileItem.name, selectedFileItem.category);
 
+  const isImage = selectedFileItem && !selectedFileItem.is_dir && isImageFile(selectedFileItem.name, selectedFileItem.category);
+  if (ctxViewImage) ctxViewImage.style.display = isImage ? "flex" : "none";
   if (ctxEdit) ctxEdit.style.display = isEditable ? "flex" : "none";
   if (ctxPlay) ctxPlay.style.display = isVideo ? "flex" : "none";
   if (ctxAudio) ctxAudio.style.display = isAudio ? "flex" : "none";
@@ -2343,6 +2356,12 @@ async function triggerFileAction(action) {
     case "edit-nvim":
       if (selectedFileItem && !selectedFileItem.is_dir) {
         openNvimModal(selectedFileItem.path, selectedFileItem.name);
+      }
+      break;
+
+    case "view-image":
+      if (selectedFileItem && !selectedFileItem.is_dir) {
+        openImageModal(selectedFileItem.path, selectedFileItem.name, selectedFileItem);
       }
       break;
 
@@ -3581,6 +3600,7 @@ function closeMpvModal() {
 
 function handleModalOverlayClick(e, modalId) {
   if (e.target.id === modalId) {
+    if (modalId === "image-modal") closeImageModal();
     if (modalId === "nvim-modal") closeNvimModal();
     if (modalId === "mpv-modal") closeMpvModal();
     if (modalId === "audio-modal") closeAudioModal();
@@ -4178,4 +4198,481 @@ async function submitRepairPermissions() {
       btn.textContent = "🔧 Valider & Réparer les Permissions";
     }
   }
+}
+
+
+// --------------------------------------------------------------------------
+// MODALE VISIONNEUSE D'IMAGES MULTI-FORMATS & EXIF (RAW, HEIC, WEB)
+// --------------------------------------------------------------------------
+let imageViewerFiles = [];
+let imageViewerIndex = 0;
+let imageViewerZoom = 1.0;
+let imageViewerPanX = 0;
+let imageViewerPanY = 0;
+let imageViewerRotation = 0;
+let imageViewerFlipH = 1;
+let isImagePanning = false;
+let imagePanStartX = 0;
+let imagePanStartY = 0;
+let imageViewerKeyHandler = null;
+let isExifSidebarOpen = false;
+
+function isImageFile(fileName, category) {
+  if (category === "image") return true;
+  return /\.(jpg|jpeg|png|webp|gif|svg|bmp|ico|tiff|tif|heic|heif|hif|avif|jxl|nef|nrw|cr2|cr3|crw|arw|srf|sr2|dng|raf|rw2|orf|pef|3fr|psd|raw)$/i.test(fileName);
+}
+
+function openImageModal(path, fileName, item) {
+  imageViewerFiles = currentEntries.filter(entry => !entry.is_dir && isImageFile(entry.name, entry.category));
+  if (imageViewerFiles.length === 0) {
+    imageViewerFiles = [{
+      name: fileName || path.split("/").pop(),
+      path: path,
+      category: "image",
+      size_bytes: item ? item.size_bytes : 0,
+      size_human: item ? item.size_human : "--",
+    }];
+  }
+
+  imageViewerIndex = imageViewerFiles.findIndex(f => f.path === path);
+  if (imageViewerIndex === -1) imageViewerIndex = 0;
+
+  resetImageTransformState();
+
+  const modal = document.getElementById("image-modal");
+  if (!modal) return;
+  modal.style.display = "flex";
+
+  initImageViewerEvents();
+  renderImageFilmstrip();
+  loadActiveImage();
+
+  if (imageViewerKeyHandler) window.removeEventListener("keydown", imageViewerKeyHandler);
+  imageViewerKeyHandler = handleImageViewerKeydown;
+  window.addEventListener("keydown", imageViewerKeyHandler);
+}
+
+function resetImageTransformState() {
+  imageViewerZoom = 1.0;
+  imageViewerPanX = 0;
+  imageViewerPanY = 0;
+  imageViewerRotation = 0;
+  imageViewerFlipH = 1;
+  applyImageTransform();
+  updateZoomLabel();
+}
+
+function loadActiveImage() {
+  if (imageViewerIndex < 0 || imageViewerIndex >= imageViewerFiles.length) return;
+  const file = imageViewerFiles[imageViewerIndex];
+
+  const titleEl = document.getElementById("image-viewer-title");
+  const logoTag = document.getElementById("image-viewer-logo-tag");
+  const formatBadge = document.getElementById("image-viewer-format-badge");
+  const resPill = document.getElementById("image-viewer-res-pill");
+  const sizePill = document.getElementById("image-viewer-size-pill");
+  const counterLabel = document.getElementById("image-counter-label");
+  const imgEl = document.getElementById("image-viewer-img");
+  const loadingOverlay = document.getElementById("image-viewer-loading");
+  const loadingMsg = document.getElementById("image-loading-msg");
+  const downloadBtn = document.getElementById("image-viewer-download-btn");
+
+  if (titleEl) titleEl.textContent = file.name;
+  if (titleEl) titleEl.title = file.path;
+  if (sizePill) sizePill.textContent = file.size_human || (file.size_bytes ? formatFileSize(file.size_bytes) : "--");
+  if (counterLabel) counterLabel.textContent = `${imageViewerIndex + 1} / ${imageViewerFiles.length}`;
+
+  const ext = file.name.split(".").pop().toUpperCase();
+  if (formatBadge) formatBadge.textContent = ext;
+
+  if (/\.(nef|nrw|cr2|cr3|crw|arw|srf|sr2|dng|raf|rw2|orf|pef|3fr|raw)$/i.test(file.name)) {
+    if (logoTag) { logoTag.textContent = "📷 RAW"; logoTag.style.color = "var(--yellow)"; }
+    if (loadingMsg) loadingMsg.textContent = `Développement RAW (${ext}) en cours...`;
+  } else if (/\.(heic|heif|hif)$/i.test(file.name)) {
+    if (logoTag) { logoTag.textContent = "📱 IPHONE"; logoTag.style.color = "var(--teal)"; }
+    if (loadingMsg) loadingMsg.textContent = "Décodage High Efficiency HEIC Apple...";
+  } else {
+    if (logoTag) { logoTag.textContent = "🖼️ IMAGE"; logoTag.style.color = "var(--mauve)"; }
+    if (loadingMsg) loadingMsg.textContent = "Chargement de l'image...";
+  }
+
+  if (resPill) resPill.textContent = "-- × --";
+  if (downloadBtn) {
+    downloadBtn.href = `/api/files/stream?path=${encodeURIComponent(file.path)}`;
+    downloadBtn.download = file.name;
+  }
+
+  if (loadingOverlay) loadingOverlay.style.display = "flex";
+  resetImageTransformState();
+
+  const previewUrl = `/api/files/image-view?path=${encodeURIComponent(file.path)}`;
+  imgEl.src = previewUrl;
+
+  imgEl.onload = () => {
+    if (loadingOverlay) loadingOverlay.style.display = "none";
+    if (resPill && imgEl.naturalWidth && imgEl.naturalHeight) {
+      const mp = ((imgEl.naturalWidth * imgEl.naturalHeight) / 1000000).toFixed(1);
+      resPill.textContent = `${imgEl.naturalWidth} × ${imgEl.naturalHeight} (${mp} MP)`;
+    }
+  };
+
+  imgEl.onerror = () => {
+    if (loadingOverlay) loadingOverlay.style.display = "none";
+    showToast(`Impossible de charger l'aperçu de : ${file.name}`, "error");
+  };
+
+  updateFilmstripActive();
+  loadExifData(file.path);
+}
+
+function renderImageFilmstrip() {
+  const track = document.getElementById("image-filmstrip-track");
+  if (!track) return;
+
+  track.innerHTML = imageViewerFiles.map((file, idx) => {
+    const ext = file.name.split(".").pop().toUpperCase();
+    const thumbUrl = `/api/files/image-view?path=${encodeURIComponent(file.path)}&thumb=true`;
+    return `
+      <div class="image-filmstrip-item ${idx === imageViewerIndex ? 'active' : ''}" 
+           id="filmstrip-item-${idx}" 
+           onclick="selectImageByIndex(${idx})" 
+           title="${escapeHtml(file.name)}">
+        <img src="${thumbUrl}" loading="lazy" alt="${escapeHtml(file.name)}" onerror="this.src='/favicon.ico';">
+        <span class="thumb-ext-badge">${ext}</span>
+      </div>
+    `;
+  }).join("");
+
+  scrollToActiveFilmstrip();
+}
+
+function updateFilmstripActive() {
+  document.querySelectorAll(".image-filmstrip-item").forEach((el, idx) => {
+    el.classList.toggle("active", idx === imageViewerIndex);
+  });
+  scrollToActiveFilmstrip();
+}
+
+function scrollToActiveFilmstrip() {
+  const activeEl = document.getElementById(`filmstrip-item-${imageViewerIndex}`);
+  if (activeEl) {
+    activeEl.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }
+}
+
+function selectImageByIndex(idx) {
+  if (idx >= 0 && idx < imageViewerFiles.length) {
+    imageViewerIndex = idx;
+    loadActiveImage();
+  }
+}
+
+function navigateImageViewer(direction) {
+  if (imageViewerFiles.length <= 1) return;
+  imageViewerIndex = (imageViewerIndex + direction + imageViewerFiles.length) % imageViewerFiles.length;
+  loadActiveImage();
+}
+
+function applyImageTransform() {
+  const img = document.getElementById("image-viewer-img");
+  if (!img) return;
+  img.style.transform = `translate(${imageViewerPanX}px, ${imageViewerPanY}px) scale(${imageViewerZoom}) rotate(${imageViewerRotation}deg) scaleX(${imageViewerFlipH})`;
+}
+
+function updateZoomLabel() {
+  const label = document.getElementById("image-zoom-label");
+  if (label) {
+    label.textContent = `${Math.round(imageViewerZoom * 100)}%`;
+  }
+}
+
+function zoomImage(delta) {
+  imageViewerZoom = Math.max(0.1, Math.min(8.0, parseFloat((imageViewerZoom + delta).toFixed(2))));
+  applyImageTransform();
+  updateZoomLabel();
+}
+
+function resetZoom() {
+  if (imageViewerZoom === 1.0) {
+    fitImageToScreen();
+  } else {
+    imageViewerZoom = 1.0;
+    imageViewerPanX = 0;
+    imageViewerPanY = 0;
+    applyImageTransform();
+    updateZoomLabel();
+  }
+}
+
+function fitImageToScreen() {
+  const viewport = document.getElementById("image-viewer-viewport");
+  const img = document.getElementById("image-viewer-img");
+  if (!viewport || !img || !img.naturalWidth || !img.naturalHeight) {
+    imageViewerZoom = 1.0;
+    imageViewerPanX = 0;
+    imageViewerPanY = 0;
+    applyImageTransform();
+    updateZoomLabel();
+    return;
+  }
+
+  const vw = viewport.clientWidth * 0.94;
+  const vh = viewport.clientHeight * 0.94;
+
+  const isRotated90 = Math.abs(imageViewerRotation % 180) === 90;
+  const imgW = isRotated90 ? img.naturalHeight : img.naturalWidth;
+  const imgH = isRotated90 ? img.naturalWidth : img.naturalHeight;
+
+  const scaleW = vw / imgW;
+  const scaleH = vh / imgH;
+  const scale = Math.min(scaleW, scaleH, 1.0);
+
+  imageViewerZoom = parseFloat(scale.toFixed(2));
+  imageViewerPanX = 0;
+  imageViewerPanY = 0;
+  applyImageTransform();
+  updateZoomLabel();
+}
+
+function rotateImage(deg) {
+  imageViewerRotation = (imageViewerRotation + deg) % 360;
+  applyImageTransform();
+}
+
+function flipImageHorizontal() {
+  imageViewerFlipH = imageViewerFlipH === 1 ? -1 : 1;
+  applyImageTransform();
+}
+
+function toggleExifSidebar() {
+  const sidebar = document.getElementById("image-exif-sidebar");
+  const btn = document.getElementById("btn-toggle-exif");
+  if (!sidebar) return;
+
+  isExifSidebarOpen = !isExifSidebarOpen;
+  sidebar.style.display = isExifSidebarOpen ? "flex" : "none";
+  if (btn) btn.classList.toggle("active", isExifSidebarOpen);
+}
+
+async function loadExifData(path) {
+  const content = document.getElementById("image-exif-content");
+  if (!content) return;
+
+  content.innerHTML = `<div class="exif-empty-hint">⏳ Analyse des métadonnées EXIF...</div>`;
+
+  try {
+    const res = await fetch(`/api/files/image-info?path=${encodeURIComponent(path)}`);
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      content.innerHTML = `<div class="exif-empty-hint">Aucune métadonnée EXIF détaillée disponible pour cette image.</div>`;
+      return;
+    }
+
+    const data = json.data;
+    let html = "";
+
+    if (data.camera_model || data.camera_make || data.lens) {
+      html += `
+        <div class="exif-card">
+          <div class="exif-card-title">Appareil Photo & Optique</div>
+          <div class="exif-camera-model">${escapeHtml(data.camera_make || "")} ${escapeHtml(data.camera_model || "")}</div>
+          ${data.lens ? `<div class="exif-lens-model">🔍 ${escapeHtml(data.lens)}</div>` : ''}
+        </div>
+      `;
+    }
+
+    if (data.aperture || data.shutter_speed || data.iso || data.focal_length) {
+      html += `
+        <div class="exif-card">
+          <div class="exif-card-title">Paramètres de Prise de Vue</div>
+          <div class="exif-exposure-grid">
+            <div class="exif-tile">
+              <span class="exif-tile-label">Ouverture</span>
+              <span class="exif-tile-val aperture">${escapeHtml(data.aperture || "--")}</span>
+            </div>
+            <div class="exif-tile">
+              <span class="exif-tile-label">Vitesse</span>
+              <span class="exif-tile-val shutter">${escapeHtml(data.shutter_speed || "--")}s</span>
+            </div>
+            <div class="exif-tile">
+              <span class="exif-tile-label">Sensibilité</span>
+              <span class="exif-tile-val iso">ISO ${escapeHtml(data.iso || "--")}</span>
+            </div>
+            <div class="exif-tile">
+              <span class="exif-tile-label">Focale</span>
+              <span class="exif-tile-val focal">${escapeHtml(data.focal_length || "--")}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    html += `
+      <div class="exif-card">
+        <div class="exif-card-title">Propriétés de l'Image</div>
+        <table class="exif-props-table">
+          <tr><td>Format :</td><td>${escapeHtml(data.format)}</td></tr>
+          <tr><td>Poids :</td><td>${escapeHtml(data.size_human)}</td></tr>
+          ${data.width && data.height ? `<tr><td>Dimensions :</td><td>${data.width} × ${data.height}</td></tr>` : ''}
+          ${data.date_taken ? `<tr><td>Date prise :</td><td>${escapeHtml(data.date_taken)}</td></tr>` : ''}
+          ${data.exposure_mode ? `<tr><td>Exposition :</td><td>${escapeHtml(data.exposure_mode)}</td></tr>` : ''}
+          ${data.white_balance ? `<tr><td>Balance blancs :</td><td>${escapeHtml(data.white_balance)}</td></tr>` : ''}
+          ${data.color_space ? `<tr><td>Espace colorimétrique :</td><td>${escapeHtml(data.color_space)}</td></tr>` : ''}
+          ${data.software ? `<tr><td>Logiciel :</td><td>${escapeHtml(data.software)}</td></tr>` : ''}
+        </table>
+      </div>
+    `;
+
+    content.innerHTML = html;
+  } catch (err) {
+    content.innerHTML = `<div class="exif-empty-hint">Impossible de charger les métadonnées : ${escapeHtml(String(err))}</div>`;
+  }
+}
+
+let imageViewerEventsInitialized = false;
+function initImageViewerEvents() {
+  if (imageViewerEventsInitialized) return;
+  imageViewerEventsInitialized = true;
+
+  const viewport = document.getElementById("image-viewer-viewport");
+  if (!viewport) return;
+
+  viewport.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+    const newZoom = Math.max(0.1, Math.min(10.0, parseFloat((imageViewerZoom * zoomFactor).toFixed(2))));
+
+    const rect = viewport.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left - rect.width / 2;
+    const mouseY = e.clientY - rect.top - rect.height / 2;
+
+    imageViewerPanX -= (mouseX - imageViewerPanX) * (zoomFactor - 1);
+    imageViewerPanY -= (mouseY - imageViewerPanY) * (zoomFactor - 1);
+
+    imageViewerZoom = newZoom;
+    applyImageTransform();
+    updateZoomLabel();
+  }, { passive: false });
+
+  viewport.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest(".image-nav-arrow")) return;
+
+    isImagePanning = true;
+    imagePanStartX = e.clientX - imageViewerPanX;
+    imagePanStartY = e.clientY - imageViewerPanY;
+    viewport.classList.add("panning");
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isImagePanning) return;
+    imageViewerPanX = e.clientX - imagePanStartX;
+    imageViewerPanY = e.clientY - imagePanStartY;
+    applyImageTransform();
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (isImagePanning) {
+      isImagePanning = false;
+      viewport.classList.remove("panning");
+    }
+  });
+
+  viewport.addEventListener("dblclick", (e) => {
+    if (e.target.closest(".image-nav-arrow")) return;
+    if (imageViewerZoom >= 1.5) {
+      fitImageToScreen();
+    } else {
+      imageViewerZoom = 2.0;
+      applyImageTransform();
+      updateZoomLabel();
+    }
+  });
+}
+
+function handleImageViewerKeydown(e) {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
+
+  const modal = document.getElementById("image-modal");
+  if (!modal || modal.style.display === "none") return;
+
+  switch (e.code) {
+    case "ArrowLeft":
+      e.preventDefault();
+      navigateImageViewer(-1);
+      break;
+
+    case "ArrowRight":
+      e.preventDefault();
+      navigateImageViewer(1);
+      break;
+
+    case "Equal":
+    case "NumpadAdd":
+      e.preventDefault();
+      zoomImage(0.25);
+      break;
+
+    case "Minus":
+    case "NumpadSubtract":
+      e.preventDefault();
+      zoomImage(-0.25);
+      break;
+
+    case "Digit0":
+    case "Numpad0":
+      e.preventDefault();
+      fitImageToScreen();
+      break;
+
+    case "KeyR":
+      e.preventDefault();
+      rotateImage(e.shiftKey ? -90 : 90);
+      break;
+
+    case "KeyH":
+      e.preventDefault();
+      flipImageHorizontal();
+      break;
+
+    case "KeyI":
+      e.preventDefault();
+      toggleExifSidebar();
+      break;
+
+    case "KeyF":
+      e.preventDefault();
+      toggleImageViewerFullscreen();
+      break;
+
+    case "KeyQ":
+    case "Escape":
+      e.preventDefault();
+      closeImageModal();
+      break;
+  }
+}
+
+function toggleImageViewerFullscreen() {
+  const windowEl = document.querySelector(".image-viewer-window");
+  if (!windowEl) return;
+
+  if (!document.fullscreenElement) {
+    windowEl.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen().catch(() => {});
+  }
+}
+
+function closeImageModal() {
+  const modal = document.getElementById("image-modal");
+  const img = document.getElementById("image-viewer-img");
+
+  if (imageViewerKeyHandler) {
+    window.removeEventListener("keydown", imageViewerKeyHandler);
+    imageViewerKeyHandler = null;
+  }
+
+  if (img) img.removeAttribute("src");
+  if (modal) modal.style.display = "none";
 }

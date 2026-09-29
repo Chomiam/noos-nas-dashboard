@@ -7,8 +7,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::files::{
-    copy_item, create_directory, delete_item, list_directory, move_item, rename_item,
-    ActionRequest, DeleteRequest, DirectoryListing, ListQuery, MkdirRequest, RenameRequest,
+    copy_item, create_directory, delete_item, get_image_info, get_image_preview_path, list_directory, move_item, rename_item,
+    ActionRequest, DeleteRequest, DirectoryListing, ImageInfoResponse, ListQuery, MkdirRequest, RenameRequest,
 };
 use crate::firewall::{get_firewall_overview, FirewallOverview};
 use crate::services::{control_service, get_service_logs, get_services_overview, ServicesOverview};
@@ -25,6 +25,17 @@ pub struct ApiResponse<T> {
     pub success: bool,
     pub data: Option<T>,
     pub message: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImageViewQuery {
+    pub path: String,
+    pub thumb: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImageInfoQuery {
+    pub path: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,6 +88,8 @@ pub fn api_routes() -> Router {
         .route("/files/upload", post(handle_files_upload).layer(axum::extract::DefaultBodyLimit::disable()))
         .route("/files/stream", get(handle_files_stream))
         .route("/files/read", get(handle_files_read))
+        .route("/files/image-view", get(handle_files_image_view))
+        .route("/files/image-info", get(handle_files_image_info))
         .route("/files/write", post(handle_files_write))
         .route("/service/:unit/:action", post(handle_service_action))
         .route("/storage/:disk/spindown", post(handle_disk_spindown))
@@ -653,6 +666,68 @@ async fn handle_files_write(
             success: false,
             data: None,
             message: Some(err),
+        }),
+    }
+}
+
+
+async fn handle_files_image_view(
+    Query(params): Query<ImageViewQuery>,
+    req: axum::extract::Request,
+) -> impl axum::response::IntoResponse {
+    use tower_http::services::fs::ServeFile;
+    use tower::ServiceExt;
+    use axum::response::IntoResponse;
+
+    let is_thumb = params.thumb.unwrap_or(false);
+    let preview_res = tokio::task::spawn_blocking(move || {
+        get_image_preview_path(&params.path, is_thumb)
+    }).await;
+
+    match preview_res {
+        Ok(Ok((file_path, _mime))) => {
+            let service = ServeFile::new(file_path);
+            match service.oneshot(req).await {
+                Ok(resp) => resp.into_response(),
+                Err(err) => (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Erreur lors de la lecture de l'image : {}", err),
+                ).into_response(),
+            }
+        }
+        Ok(Err(err)) => (
+            axum::http::StatusCode::NOT_FOUND,
+            err,
+        ).into_response(),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Erreur serveur : {}", e),
+        ).into_response(),
+    }
+}
+
+async fn handle_files_image_info(
+    Query(params): Query<ImageInfoQuery>,
+) -> Json<ApiResponse<ImageInfoResponse>> {
+    let res = tokio::task::spawn_blocking(move || {
+        get_image_info(&params.path)
+    }).await;
+
+    match res {
+        Ok(Ok(info)) => Json(ApiResponse {
+            success: true,
+            data: Some(info),
+            message: None,
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
         }),
     }
 }
