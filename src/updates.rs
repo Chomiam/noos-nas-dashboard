@@ -825,7 +825,7 @@ fn run_switch_command(config_dir: &Path, update_inputs: bool) -> (bool, String) 
     let nh_bin = nh_binary();
     let sudo_b = sudo_binary();
     let (bin, args) = if Path::new(&nh_bin).exists() {
-        let mut a = vec!["os", "switch", "-e", &sudo_b];
+        let mut a = vec!["os", "switch", "--no-nom", "-e", &sudo_b];
         if update_inputs {
             a.push("-u");
             a.push("--commit-lock-file");
@@ -856,10 +856,28 @@ fn run_switch_command(config_dir: &Path, update_inputs: bool) -> (bool, String) 
                 combined.push_str("\n");
                 combined.push_str(&stderr);
             }
-            (out.status.success(), combined)
+            let cleaned = sanitize_terminal_output(&combined);
+            (out.status.success(), cleaned)
         }
         Err(e) => (false, format!("Impossible d'exécuter {} : {}", bin, e)),
     }
+}
+
+fn sanitize_terminal_output(raw: &str) -> String {
+    let mut out_lines = Vec::new();
+    for line in raw.split('\n') {
+        if line.contains('\r') {
+            let parts: Vec<&str> = line.split('\r').filter(|p| !p.trim().is_empty()).collect();
+            if let Some(last) = parts.last() {
+                out_lines.push(last.to_string());
+            } else {
+                out_lines.push(String::new());
+            }
+        } else {
+            out_lines.push(line.to_string());
+        }
+    }
+    out_lines.join("\n")
 }
 
 fn current_time_formatted() -> String {

@@ -909,20 +909,43 @@ function escapeHtml(str) {
 function parseAnsiToHtml(raw) {
   if (!raw) return "";
 
-  // Nettoyer les sequences privees de terminal
-  let s = String(raw)
-    .replace(/\x1b\[\?[0-9;]*[a-zA-Z]/g, "")
-    .replace(/\x1b\[[0-9;]*[A-GJKST]/g, "");
+  let s = String(raw);
 
-  // Nettoyer les retours chariot multiples (spinners nh / nix)
-  const lines = s.split("\n");
-  const cleanedLines = lines.map(line => {
-    const parts = line.split("\r");
-    return parts[parts.length - 1];
+  // 1. Simuler l effacement de ligne : \x1b[1G ou \x1b[2K -> retour chariot \r
+  s = s.replace(/\x1b\[\?[0-9;]*[a-zA-Z]/g, "")
+       .replace(/\x1b\[[0-9;]*[GgKk]/g, "\r");
+
+  // 2. Traiter les retours chariot (\r) par ligne pour ne garder que le dernier etat
+  const rawLines = s.split("\n");
+  const processedLines = [];
+  for (let line of rawLines) {
+    if (line.includes("\r")) {
+      const parts = line.split("\r").filter(p => p.trim().length > 0);
+      line = parts.length > 0 ? parts[parts.length - 1] : "";
+    }
+    processedLines.push(line);
+  }
+  s = processedLines.join("\n");
+
+  // 3. Dedupliquer les blocs d arbre / graphiques redessines en boucle (ex: nix-output-monitor)
+  const graphMarker = "┏━ Dependency Graph:";
+  if (s.includes(graphMarker)) {
+    const parts = s.split(graphMarker);
+    if (parts.length > 2) {
+      s = parts[0] + graphMarker + parts[parts.length - 1];
+    }
+  }
+
+  // 4. Nettoyer les repetitions residuelles de spinners (ex: ⏱ 0s⏱ 0s⏱ 1s -> ⏱ 1s)
+  s = s.replace(/(?:⏱\s*\d+s)+/g, (match) => {
+    const subMatches = match.match(/⏱\s*\d+s/g);
+    return subMatches ? subMatches[subMatches.length - 1] : match;
   });
-  s = cleanedLines.join("\n");
 
-  // Echapper HTML pour la securite
+  // 5. Nettoyer les sequences curseur restantes (ex: curseur haut/bas \x1b[10A)
+  s = s.replace(/\x1b\[[0-9;]*[A-FJST]/g, "");
+
+  // 6. Echapper HTML pour la securite
   s = escapeHtml(s);
 
   // Mapper les codes ANSI vers les classes CSS Catppuccin Mocha
