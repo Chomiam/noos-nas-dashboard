@@ -61,6 +61,10 @@ pub fn list_directory(req_path: Option<&str>) -> Result<DirectoryListing, String
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(&home));
 
+    if !target.exists() && target.starts_with(&home) {
+        let _ = fs::create_dir_all(&target);
+    }
+
     let canonical = target.canonicalize()
         .map_err(|e| format!("Impossible d'accéder au dossier {} : {}", target.display(), e))?;
 
