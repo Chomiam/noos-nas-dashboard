@@ -33,7 +33,6 @@ pub fn get_firewall_overview() -> FirewallOverview {
         PortRule { port: 5357, protocol: "TCP".into(), service_name: "WSDD (Découverte Web Services Windows)".into(), status: "Autorisé".into() },
         PortRule { port: 8096, protocol: "TCP".into(), service_name: "Jellyfin HTTP (Streaming Multimédia)".into(), status: "Autorisé".into() },
         PortRule { port: 8920, protocol: "TCP".into(), service_name: "Jellyfin HTTPS".into(), status: "Autorisé".into() },
-        PortRule { port: 9090, protocol: "TCP".into(), service_name: "Cockpit (Web Console Linux)".into(), status: "Autorisé".into() },
         PortRule { port: 9339, protocol: "TCP".into(), service_name: "STEvE_OS NAS Dashboard (Ce Tableau de bord)".into(), status: "Autorisé".into() },
     ];
 
@@ -66,5 +65,21 @@ pub fn get_firewall_overview() -> FirewallOverview {
         tcp_ports: tcp_rules,
         udp_ports: udp_rules,
         banned_ips,
+    }
+}
+
+pub fn unban_ip(ip: &str) -> Result<String, String> {
+    let clean_ip = ip.trim();
+    if !clean_ip.chars().all(|c| c.is_ascii_digit() || c == '.' || c == ':') {
+        return Err("Adresse IP invalide".into());
+    }
+    let output = Command::new("fail2ban-client")
+        .args(["set", "sshd", "unbanip", clean_ip])
+        .output()
+        .map_err(|e| format!("Erreur fail2ban-client : {}", e))?;
+    if output.status.success() {
+        Ok(format!("Adresse IP {} débannie avec succès !", clean_ip))
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
     }
 }

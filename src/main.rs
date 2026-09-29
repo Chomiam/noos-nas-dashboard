@@ -20,6 +20,7 @@ mod auth;
 mod files;
 mod firewall;
 mod hardware;
+mod network;
 mod services;
 mod smart;
 mod speedtest;

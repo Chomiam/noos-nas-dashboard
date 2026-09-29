@@ -114,14 +114,11 @@
     <button class="tab-btn" data-tab="tab-storage" onclick="switchTab('tab-storage')">
       <span>💾</span> Stockage & Disques
     </button>
-    <button class="tab-btn" data-tab="tab-shares" onclick="switchTab('tab-shares')">
-      <span>📁</span> Partages & sFTP
+    <button class="tab-btn" data-tab="tab-network" onclick="switchTab('tab-network')">
+      <span>🌐</span> Réseau
     </button>
     <button class="tab-btn" data-tab="tab-containers" onclick="switchTab('tab-containers')">
       <span>🐳</span> Conteneurs Docker
-    </button>
-    <button class="tab-btn" data-tab="tab-firewall" onclick="switchTab('tab-firewall')">
-      <span>🛡️</span> Pare-feu & Sécurité
     </button>
     <button class="tab-btn" data-tab="tab-logs" onclick="switchTab('tab-logs')">
       <span>📜</span> Logs & Console
@@ -1016,18 +1013,423 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
       </div>
     </div>
 
-    <!-- ================= ONGLET 4 : PARTAGES & SFTP ================= -->
-    <div id="tab-shares" class="tab-pane">
-      <!-- Direct sFTP Connection Box -->
-      <div class="section-card" style="border: 1px solid rgba(137, 180, 250, 0.3); background: rgba(137, 180, 250, 0.05);">
-        <div class="section-header">
-          <div class="section-title-wrap">
-            <div class="section-icon-box" style="background:rgba(137,180,250,0.2); color:var(--blue);">🚀</div>
+        <!-- ================= ONGLET RÉSEAU (VPN, PARE-FEU, SAMBA, SFTP) ================= -->
+    <div id="tab-network" class="tab-pane">
+      <!-- BARRE DE SOUS-ONGLETS RÉSEAU -->
+      <div class="network-header-wrap">
+        <div class="network-subnav-bar">
+          <button type="button" class="network-subtab-btn active" data-subtab="subtab-vpn" onclick="switchNetworkSubtab('subtab-vpn')">
+            <span class="subtab-icon">🔒</span>
+            <span class="subtab-text">VPN</span>
+            <span class="subtab-pill-badge" id="badge-subtab-vpn">Vérification...</span>
+          </button>
+          <button type="button" class="network-subtab-btn" data-subtab="subtab-firewall" onclick="switchNetworkSubtab('subtab-firewall')">
+            <span class="subtab-icon">🛡️</span>
+            <span class="subtab-text">Pare-feu</span>
+            <span class="subtab-pill-badge badge-success" id="badge-subtab-firewall">Actif</span>
+          </button>
+          <button type="button" class="network-subtab-btn" data-subtab="subtab-samba" onclick="switchNetworkSubtab('subtab-samba')">
+            <span class="subtab-icon">📁</span>
+            <span class="subtab-text">Samba</span>
+            <span class="subtab-pill-badge" id="badge-subtab-samba">SMB</span>
+          </button>
+          <button type="button" class="network-subtab-btn" data-subtab="subtab-sftp" onclick="switchNetworkSubtab('subtab-sftp')">
+            <span class="subtab-icon">🚀</span>
+            <span class="subtab-text">sFTP</span>
+            <span class="subtab-pill-badge" id="badge-subtab-sftp">Port 22</span>
+          </button>
+        </div>
+        <div class="network-quick-actions">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="loadNetwork(true)">
+            <span>🔄</span> Actualiser
+          </button>
+        </div>
+      </div>
+
+      <!-- SOUS-ONGLET 1 : VPN (WireGuard & Tailscale) -->
+      <div id="subtab-vpn" class="network-subpane active">
+        <div class="vpn-cards-grid">
+          <!-- Carte WireGuard -->
+          <div class="vpn-card vpn-card-wireguard">
             <div>
-              <div class="section-title">Lien Direct sFTP / WireGuard</div>
-              <div class="section-subtitle">Partagez ce lien direct avec les utilisateurs connectés au VPN ou sur le réseau local</div>
+              <div class="vpn-card-header">
+                <div class="vpn-icon-title">
+                  <div class="vpn-icon" style="background:rgba(203,166,247,0.15); color:var(--mauve);">🔒</div>
+                  <div>
+                    <div class="vpn-title">WireGuard VPN</div>
+                    <div class="vpn-desc">Tunnel chiffré ultra-rapide noyau Linux</div>
+                  </div>
+                </div>
+                <span class="badge" id="wg-status-badge">Vérification...</span>
+              </div>
+
+              <div class="vpn-details-list">
+                <div class="vpn-detail-row">
+                  <span class="vpn-detail-label">Interface système :</span>
+                  <span class="vpn-detail-value" id="wg-interface">wg0</span>
+                </div>
+                <div class="vpn-detail-row">
+                  <span class="vpn-detail-label">Port UDP d'écoute :</span>
+                  <span class="vpn-detail-value" id="wg-port">51820</span>
+                </div>
+                <div class="vpn-detail-row">
+                  <span class="vpn-detail-label">Pairs (Peers) actifs :</span>
+                  <span class="vpn-detail-value" id="wg-peers-count">0 connecté(s)</span>
+                </div>
+                <div class="vpn-detail-row">
+                  <span class="vpn-detail-label">Trafic réseau (RX / TX) :</span>
+                  <span class="vpn-detail-value" id="wg-traffic">0 B / 0 B</span>
+                </div>
+                <div class="vpn-detail-row" style="flex-direction:column; align-items:flex-start; gap:4px;">
+                  <span class="vpn-detail-label">Clé publique du serveur :</span>
+                  <div style="display:flex; width:100%; gap:8px; align-items:center;">
+                    <code id="wg-pubkey" style="font-size:0.75rem; color:var(--teal); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; background:rgba(0,0,0,0.2); padding:4px 8px; border-radius:4px;">Non configurée</code>
+                    <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('wg-pubkey', 'Clé publique WireGuard copiée !')">📋</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-top:16px;">
+              <button type="button" class="btn btn-secondary btn-sm" style="flex:1;" onclick="restartServiceAction('wireguard-wg0')">
+                🔄 Redémarrer
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" id="wg-toggle-btn" onclick="toggleServiceAction('wireguard-wg0')">
+                ⚡ Gérer
+              </button>
             </div>
           </div>
+
+          <!-- Carte Tailscale -->
+          <div class="vpn-card vpn-card-tailscale">
+            <div>
+              <div class="vpn-card-header">
+                <div class="vpn-icon-title">
+                  <div class="vpn-icon" style="background:rgba(166,227,161,0.15); color:var(--green);">🪢</div>
+                  <div>
+                    <div class="vpn-title">Tailscale Mesh VPN</div>
+                    <div class="vpn-desc">Accès distant Zero-Config chiffré de bout en bout</div>
+                  </div>
+                </div>
+                <span class="badge" id="ts-status-badge">Vérification...</span>
+              </div>
+
+              <div class="vpn-details-list">
+                <div class="vpn-detail-row">
+                  <span class="vpn-detail-label">Nom du nœud :</span>
+                  <span class="vpn-detail-value" id="ts-node-name">steveos-nas</span>
+                </div>
+                <div class="vpn-detail-row">
+                  <span class="vpn-detail-label">Adresse IP Tailscale (100.x) :</span>
+                  <div style="display:flex; gap:6px; align-items:center;">
+                    <span class="vpn-detail-value" id="ts-ip" style="color:var(--green);">Non assignée</span>
+                    <button type="button" class="btn btn-secondary btn-xs" id="ts-copy-btn" onclick="copyElementText('ts-ip', 'IP Tailscale copiée !')">📋</button>
+                  </div>
+                </div>
+                <div class="vpn-detail-row">
+                  <span class="vpn-detail-label">Statut Tailnet :</span>
+                  <span class="vpn-detail-value" id="ts-status-text">Inactif</span>
+                </div>
+                <div class="vpn-detail-row">
+                  <span class="vpn-detail-label">MagicDNS :</span>
+                  <span class="vpn-detail-value">steveos-nas.ts.net</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-top:16px;">
+              <button type="button" class="btn btn-secondary btn-sm" style="flex:1;" onclick="restartServiceAction('tailscaled')">
+                🔄 Redémarrer
+              </button>
+              <a href="https://login.tailscale.com/admin/machines" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+                ↗ Console Web
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-card" style="border: 1px solid rgba(203, 166, 247, 0.2); background: rgba(203, 166, 247, 0.03);">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <div class="section-icon-box" style="background:rgba(203,166,247,0.15); color:var(--mauve);">💡</div>
+              <div>
+                <div class="section-title">Pourquoi utiliser un VPN sur votre STEvE_OS NAS ?</div>
+                <div class="section-subtitle">Sécurisez l'accès à vos données sans exposer vos ports sur Internet</div>
+              </div>
+            </div>
+          </div>
+          <div style="font-size:0.88rem; color:var(--subtext1); line-height:1.6;">
+            En activant <strong>WireGuard</strong> ou <strong>Tailscale</strong>, vous pouvez accéder à vos fichiers Samba, vos téléchargements sFTP et au tableau de bord STEvE_OS depuis n'importe où dans le monde (PC portable, smartphone) comme si vous étiez chez vous, sans avoir besoin d'ouvrir de port sensible sur votre box Internet.
+          </div>
+        </div>
+      </div>
+
+      <!-- SOUS-ONGLET 2 : PARE-FEU & SÉCURITÉ -->
+      <div id="subtab-firewall" class="network-subpane">
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <div class="section-icon-box">🛡️</div>
+              <div>
+                <div class="section-title">Ports Réseau Autorisés (Pare-feu NixOS)</div>
+                <div class="section-subtitle">Chaque service déclare et ouvre automatiquement ses ports d'écoute</div>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <input type="text" id="firewall-search-input" class="custom-input" placeholder="🔍 Filtrer un port ou service..." oninput="filterFirewallPorts()" style="width:220px; font-size:0.85rem; padding:6px 12px;">
+              <span class="badge badge-success" id="firewall-status-badge">🟢 Pare-feu Actif</span>
+            </div>
+          </div>
+
+          <table class="custom-table">
+            <thead>
+              <tr>
+                <th>Port</th>
+                <th>Protocole</th>
+                <th>Service Associé</th>
+                <th>Statut</th>
+              </tr>
+            </thead>
+            <tbody id="firewall-tbody"></tbody>
+          </table>
+        </div>
+
+        <!-- Fail2ban Security -->
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <div class="section-icon-box" style="background:rgba(243,139,168,0.15); color:var(--red);">🔒</div>
+              <div>
+                <div class="section-title">Sécurité Anti-Bruteforce (Fail2ban)</div>
+                <div class="section-subtitle">Surveillance et blocage automatique des attaques par force brute SSH</div>
+              </div>
+            </div>
+            <span class="badge badge-primary" id="fail2ban-service-badge">Fail2ban Actif</span>
+          </div>
+          <div id="fail2ban-wrap">
+            <p style="font-size:0.88rem; color:var(--subtext1); margin-bottom:12px;">Adresses IP actuellement bannies par la prison SSH :</p>
+            <div id="banned-ips-list" style="display:flex; flex-wrap:wrap; gap:10px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SOUS-ONGLET 3 : SAMBA (SMB / CIFS) -->
+      <div id="subtab-samba" class="network-subpane">
+        <!-- Bannière d'accès rapide SMB -->
+        <div class="section-card" style="border:1px solid rgba(166,227,161,0.25); background:rgba(166,227,161,0.04);">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <div class="section-icon-box" style="background:rgba(166,227,161,0.2); color:var(--green);">📁</div>
+              <div>
+                <div class="section-title">Connexion Réseau Rapide Samba (SMB)</div>
+                <div class="section-subtitle">Accédez à vos partages depuis l'Explorateur Windows, Finder Mac ou le gestionnaire de fichiers Linux</div>
+              </div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="restartServiceAction('samba-smbd')">
+              🔄 Redémarrer Samba
+            </button>
+          </div>
+
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px; margin-top:8px;">
+            <div class="share-connect-box">
+              <div>
+                <span style="font-size:0.75rem; color:var(--subtext0); display:block;">🪟 Windows (Explorateur de fichiers) :</span>
+                <span id="samba-uri-windows" style="color:var(--green); font-weight:700;">\192.168.1.20</span>
+              </div>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('samba-uri-windows', 'Adresse Windows copiée !')">📋 Copier</button>
+            </div>
+            <div class="share-connect-box">
+              <div>
+                <span style="font-size:0.75rem; color:var(--subtext0); display:block;">🍎 macOS (Finder ⌘+K) & Linux :</span>
+                <span id="samba-uri-mac" style="color:var(--teal); font-weight:700;">smb://192.168.1.20</span>
+              </div>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('samba-uri-mac', 'Adresse macOS copiée !')">📋 Copier</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Partages configurés -->
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <div class="section-icon-box">🗂️</div>
+              <div>
+                <div class="section-title">Partages Samba Déclarés</div>
+                <div class="section-subtitle">Dossiers partagés sur le réseau local avec gestion des droits</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="shares-grid" id="samba-shares-grid">
+            <div class="share-card">
+              <div class="share-title">📂 /storage/data</div>
+              <div class="share-meta">Partage Général NAS (smb:// + sFTP)</div>
+              <div class="share-path">/storage/data (chomiam:users, 755)</div>
+              <div style="margin-top:12px; display:flex; gap:8px;">
+                <span class="badge badge-success">Lecture / Écriture</span>
+                <span class="badge badge-primary">Protégé Fail2ban</span>
+              </div>
+            </div>
+            <div class="share-card">
+              <div class="share-title">🎬 /storage/media</div>
+              <div class="share-meta">Bibliothèque Multimédia Jellyfin & DLNA</div>
+              <div class="share-path">/storage/media (Films, Séries, Musique)</div>
+              <div style="margin-top:12px; display:flex; gap:8px;">
+                <span class="badge badge-success">Accès Jellyfin</span>
+                <span class="badge badge-primary">Transcodage GPU</span>
+              </div>
+            </div>
+            <div class="share-card">
+              <div class="share-title">📦 /storage/backups</div>
+              <div class="share-meta">Dépôt de sauvegardes chiffrées & snapshots</div>
+              <div class="share-path">/storage/backups (Accès restreint)</div>
+              <div style="margin-top:12px; display:flex; gap:8px;">
+                <span class="badge badge-warning">Snapshot ZFS</span>
+                <span class="badge badge-primary">SSH chroot</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sessions actives Samba -->
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <div class="section-icon-box">👥</div>
+              <div>
+                <div class="section-title">Sessions Samba Actives en Direct</div>
+                <div class="section-subtitle">Ordinateurs et utilisateurs actuellement connectés aux partages SMB</div>
+              </div>
+            </div>
+          </div>
+          <table class="custom-table">
+            <thead>
+              <tr>
+                <th>Utilisateur</th>
+                <th>Adresse IP Cliente</th>
+                <th>Protocole</th>
+                <th>Statut Session</th>
+              </tr>
+            </thead>
+            <tbody id="samba-sessions-tbody">
+              <tr><td colspan="4" style="text-align:center; color:var(--subtext0);">Aucune session active détectée actuellement.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SOUS-ONGLET 4 : sFTP (SSH) -->
+      <div id="subtab-sftp" class="network-subpane">
+        <!-- Direct sFTP Connection Box -->
+        <div class="section-card" style="border: 1px solid rgba(137, 180, 250, 0.3); background: rgba(137, 180, 250, 0.05);">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <div class="section-icon-box" style="background:rgba(137,180,250,0.2); color:var(--blue);">🚀</div>
+              <div>
+                <div class="section-title">Lien Direct sFTP / SSH Sécurisé</div>
+                <div class="section-subtitle">Transférez vos fichiers via le protocole SSH chiffré de bout en bout</div>
+              </div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="restartServiceAction('sshd')">
+              🔄 Redémarrer SSH
+            </button>
+          </div>
+          <div style="background:var(--mantle); padding:14px 18px; border-radius:var(--radius-md); font-family:var(--font-mono); font-size:0.95rem; color:var(--teal); display:flex; align-items:center; justify-content:space-between; border:1px solid rgba(255,255,255,0.06); margin-top:8px;">
+            <span id="sftp-connection-uri">sftp://chomiam@192.168.1.20:22</span>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <span class="badge badge-success">Port SSH 22 Ouvert</span>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('sftp-connection-uri', 'URI sFTP copiée !')">
+                📋 Copier l'URI
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Spécifications et configuration -->
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">Port d'écoute SSH</span>
+              <span class="metric-icon">🔌</span>
+            </div>
+            <div class="metric-value">22</div>
+            <div class="metric-sub" style="color:var(--green);">● Chiffrement OpenSSH actif</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">Racine d'isolation (Chroot)</span>
+              <span class="metric-icon">🔒</span>
+            </div>
+            <div class="metric-value" style="font-size:1.1rem; font-family:var(--font-mono);">/mnt/storage/sftp</div>
+            <div class="metric-sub" style="color:var(--mauve);">Utilisateurs restreints à leur dossier</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">Protection Anti-Bruteforce</span>
+              <span class="metric-icon">🛡️</span>
+            </div>
+            <div class="metric-value" style="font-size:1.1rem; color:var(--green);">Fail2ban Active</div>
+            <div class="metric-sub" style="color:var(--subtext0);">Bannissement après 5 échecs</div>
+          </div>
+        </div>
+
+        <!-- Guide de connexion pour les logiciels sFTP -->
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <div class="section-icon-box">💻</div>
+              <div>
+                <div class="section-title">Guide Rapide de Connexion Client</div>
+                <div class="section-subtitle">Comment vous connecter avec vos logiciels préférés</div>
+              </div>
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:14px;">
+            <div style="background:var(--mantle); padding:14px; border-radius:var(--radius-md); border:1px solid rgba(255,255,255,0.05);">
+              <div style="font-weight:700; color:var(--text); margin-bottom:6px;">📁 FileZilla / Cyberduck / WinSCP</div>
+              <div style="font-size:0.83rem; color:var(--subtext1); line-height:1.5;">
+                Protocole : <code>SFTP - SSH File Transfer Protocol</code><br>
+                Hôte : <code class="sftp-host-code">192.168.1.20</code> | Port : <code>22</code><br>
+                Identifiant : votre compte administrateur STEvE_OS
+              </div>
+            </div>
+            <div style="background:var(--mantle); padding:14px; border-radius:var(--radius-md); border:1px solid rgba(255,255,255,0.05);">
+              <div style="font-weight:700; color:var(--text); margin-bottom:6px;">💻 Terminal (Linux / macOS / PowerShell)</div>
+              <div style="font-size:0.83rem; color:var(--subtext1); line-height:1.5;">
+                Ligne de commande directe :<br>
+                <code style="color:var(--green); display:block; margin-top:4px;" id="sftp-terminal-cmd">sftp chomiam@192.168.1.20</code>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sessions sFTP / SSH actives -->
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <div class="section-icon-box">👥</div>
+              <div>
+                <div class="section-title">Sessions SSH & sFTP Connectées en Direct</div>
+                <div class="section-subtitle">Utilisateurs actuellement identifiés sur le serveur SSH</div>
+              </div>
+            </div>
+          </div>
+          <table class="custom-table">
+            <thead>
+              <tr>
+                <th>Utilisateur</th>
+                <th>Adresse IP Cliente</th>
+                <th>Protocole</th>
+                <th>Heure de Connexion</th>
+              </tr>
+            </thead>
+            <tbody id="sftp-sessions-tbody">
+              <tr><td colspan="4" style="text-align:center; color:var(--subtext0);">Aucune session active détectée.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
           <button type="button" class="btn btn-secondary btn-xs" onclick="copySftpUri()">
             <span id="sftp-copy-icon">📋</span> Copier l'URI
           </button>
@@ -1137,17 +1539,7 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
       </div>
     </div>
 
-    <!-- ================= ONGLET 7 : PARE-FEU & SÉCURITÉ ================= -->
-    <div id="tab-firewall" class="tab-pane">
-      <div class="section-card">
-        <div class="section-header">
-          <div class="section-title-wrap">
-            <div class="section-icon-box">🛡️</div>
-            <div>
-              <div class="section-title">Ports Ouverts & Déclaration Modulaire NixOS</div>
-              <div class="section-subtitle">Chaque service déclare et ouvre automatiquement ses ports dans NixOS</div>
-            </div>
-          </div>
+    
           <span class="badge badge-success" id="firewall-status-badge">🟢 Pare-feu Actif</span>
         </div>
 

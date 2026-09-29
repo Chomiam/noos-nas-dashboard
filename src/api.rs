@@ -19,7 +19,8 @@ use crate::files::{
     copy_item, create_directory, delete_item, get_image_info, get_image_preview_path, list_directory, move_item, rename_item,
     ActionRequest, DeleteRequest, DirectoryListing, ImageInfoResponse, ListQuery, MkdirRequest, RenameRequest,
 };
-use crate::firewall::{get_firewall_overview, FirewallOverview};
+use crate::firewall::{get_firewall_overview, unban_ip, FirewallOverview};
+use crate::network::{get_network_overview, NetworkOverview};
 use crate::services::{control_service, get_service_logs, get_services_overview, ServicesOverview};
 use crate::storage::{create_raid, format_disk, get_raid_sync_progress, get_storage_overview, mount_volume, repair_path_permissions, trigger_disk_spindown, umount_volume, CreateRaidRequest, FormatDiskRequest, MountVolumeRequest, RaidSyncProgress, RepairPermissionsRequest, StorageOverview, UmountVolumeRequest};
 use crate::system::{cancel_power, get_gpu_info, get_power_status, get_system_info, schedule_power, GpuInfo, ImmediatePowerRequest, PowerStatusResponse, SchedulePowerRequest, SystemInfo};
@@ -91,7 +92,9 @@ pub fn api_routes() -> Router {
         .route("/docker/store", get(handle_docker_store))
         .route("/docker/store/install", post(handle_docker_store_install))
         .route("/docker/store/uninstall", post(handle_docker_store_uninstall))
+        .route("/network", get(handle_network))
         .route("/firewall", get(handle_firewall))
+        .route("/firewall/unban", post(handle_firewall_unban))
         .route("/logs", get(handle_logs))
         .route("/updates/status", get(handle_updates_status))
         .route("/updates/apply", post(handle_updates_apply))
@@ -1134,6 +1137,35 @@ async fn handle_docker_store_uninstall(
             success: true,
             data: Some(msg),
             message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+
+#[derive(Debug, Deserialize)]
+pub struct UnbanRequest {
+    pub ip: String,
+}
+
+async fn handle_network() -> Json<ApiResponse<NetworkOverview>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(get_network_overview()),
+        message: None,
+    })
+}
+
+async fn handle_firewall_unban(Json(payload): Json<UnbanRequest>) -> Json<ApiResponse<String>> {
+    match unban_ip(&payload.ip) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg.clone()),
+            message: Some(msg),
         }),
         Err(err) => Json(ApiResponse {
             success: false,

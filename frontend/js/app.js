@@ -93,11 +93,11 @@ function setupPolling() {
     }
   }, 3000);
 
-  // Rafraîchissement périodique des services et stockage (12 secondes)
+  // Rafraîchissement périodique des services, réseau et stockage (12 secondes)
   setInterval(() => {
     if (activeTab === "tab-storage") loadStorage();
-    if (activeTab === "tab-shares") loadServices();
-    if (activeTab === "tab-containers") loadServices();
+    if (activeTab === "tab-network") loadNetwork();
+    if (activeTab === "tab-containers") refreshContainersAndStore();
   }, 12000);
 
   // Vérification périodique des mises à jour en arrière-plan (30 secondes)
@@ -135,9 +135,8 @@ function switchTab(tabId) {
   if (tabId === "tab-files") navigateToPath(currentFolderPath);
   if (tabId === "tab-updates") checkForUpdates(false);
   if (tabId === "tab-storage") loadStorage();
-  if (tabId === "tab-shares") loadServices();
+  if (tabId === "tab-network") loadNetwork();
   if (tabId === "tab-containers") refreshContainersAndStore();
-  if (tabId === "tab-firewall") loadFirewall();
   if (tabId === "tab-logs") loadLogs();
 }
 
@@ -150,7 +149,7 @@ async function refreshAll(showFeedback = false) {
       loadSystem(),
       loadStorage(),
       loadServices(),
-      loadFirewall(),
+      loadNetwork(),
       checkForUpdates(false),
       loadHardwareInfo(),
       loadSmartInfo(),
@@ -6962,5 +6961,317 @@ function togglePasswordVisibility() {
   } else {
     pwdInput.type = "password";
     if (toggleBtn) toggleBtn.textContent = "👁️";
+  }
+}
+
+
+// --------------------------------------------------------------------------
+// GESTION DU RÉSEAU (VPN, PARE-FEU, SAMBA, SFTP)
+// --------------------------------------------------------------------------
+let activeNetworkSubtab = "subtab-vpn";
+let cachedNetworkData = null;
+window.allFirewallPorts = [];
+
+function switchNetworkSubtab(subtabId) {
+  activeNetworkSubtab = subtabId;
+  document.querySelectorAll(".network-subtab-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.getAttribute("data-subtab") === subtabId);
+  });
+  document.querySelectorAll(".network-subpane").forEach(pane => {
+    pane.classList.toggle("active", pane.id === subtabId);
+  });
+}
+
+async function loadNetwork(showFeedback = false) {
+  try {
+    const res = await fetch("/api/network");
+    const json = await res.json();
+    if (!json.success || !json.data) return;
+
+    const net = json.data;
+    cachedNetworkData = net;
+
+    // --- 1. Adresses IP & Hôte ---
+    const lanIp = net.primary_lan_ip || "127.0.0.1";
+    const user = currentUser || "chomiam";
+
+    // Mettre à jour les URI directes
+    const sftpUri = `sftp://${user}@${lanIp}:22`;
+    const sftpEl = document.getElementById("sftp-connection-uri");
+    if (sftpEl) sftpEl.textContent = sftpUri;
+
+    const sambaWin = document.getElementById("samba-uri-windows");
+    if (sambaWin) sambaWin.textContent = `\\\\${lanIp}`;
+
+    const sambaMac = document.getElementById("samba-uri-mac");
+    if (sambaMac) sambaMac.textContent = `smb://${lanIp}`;
+
+    document.querySelectorAll(".sftp-host-code").forEach(el => {
+      el.textContent = lanIp;
+    });
+
+    const sftpCmd = document.getElementById("sftp-terminal-cmd");
+    if (sftpCmd) sftpCmd.textContent = `sftp ${user}@${lanIp}`;
+
+    // --- 2. VPN (WireGuard & Tailscale) ---
+    const wg = net.vpn.wireguard;
+    const ts = net.vpn.tailscale;
+
+    const wgBadge = document.getElementById("wg-status-badge");
+    if (wgBadge) {
+      wgBadge.textContent = wg.is_active ? "🟢 Actif" : "⚪ Inactif";
+      wgBadge.className = `badge ${wg.is_active ? "badge-success" : "badge-secondary"}`;
+    }
+
+    const wgIface = document.getElementById("wg-interface");
+    if (wgIface) wgIface.textContent = wg.interface || "wg0";
+
+    const wgPort = document.getElementById("wg-port");
+    if (wgPort) wgPort.textContent = wg.port || 51820;
+
+    const wgPeers = document.getElementById("wg-peers-count");
+    if (wgPeers) wgPeers.textContent = `${wg.peers_count} pair(s) configuré(s)`;
+
+    const wgTraffic = document.getElementById("wg-traffic");
+    if (wgTraffic) {
+      if (wg.transfer_rx || wg.transfer_tx) {
+        wgTraffic.textContent = `RX: ${wg.transfer_rx || "0 B"} | TX: ${wg.transfer_tx || "0 B"}`;
+      } else {
+        wgTraffic.textContent = "0 B / 0 B";
+      }
+    }
+
+    const wgPubkey = document.getElementById("wg-pubkey");
+    if (wgPubkey) wgPubkey.textContent = wg.public_key || "Générée automatiquement par NixOS";
+
+    const tsBadge = document.getElementById("ts-status-badge");
+    if (tsBadge) {
+      tsBadge.textContent = ts.is_active ? "🟢 Actif" : "⚪ Inactif";
+      tsBadge.className = `badge ${ts.is_active ? "badge-success" : "badge-secondary"}`;
+    }
+
+    const tsNode = document.getElementById("ts-node-name");
+    if (tsNode) tsNode.textContent = ts.node_name || net.hostname || "steveos-nas";
+
+    const tsIp = document.getElementById("ts-ip");
+    if (tsIp) tsIp.textContent = ts.tailscale_ip || "Non assignée (En attente d'authentification)";
+
+    const tsStatus = document.getElementById("ts-status-text");
+    if (tsStatus) tsStatus.textContent = ts.status_text;
+
+    // Badges de la sous-navigation
+    const badgeVpn = document.getElementById("badge-subtab-vpn");
+    if (badgeVpn) {
+      if (wg.is_active && ts.is_active) {
+        badgeVpn.textContent = "WG & TS Actifs";
+        badgeVpn.className = "subtab-pill-badge badge-success";
+      } else if (wg.is_active) {
+        badgeVpn.textContent = "WireGuard";
+        badgeVpn.className = "subtab-pill-badge badge-success";
+      } else if (ts.is_active) {
+        badgeVpn.textContent = "Tailscale";
+        badgeVpn.className = "subtab-pill-badge badge-success";
+      } else {
+        badgeVpn.textContent = "Inactif";
+        badgeVpn.className = "subtab-pill-badge";
+      }
+    }
+
+    // --- 3. Pare-feu & Fail2ban ---
+    const fw = net.firewall;
+    const fwBadge = document.getElementById("firewall-status-badge");
+    if (fwBadge) {
+      fwBadge.textContent = fw.is_enabled ? "🟢 Pare-feu Actif" : "🔴 Pare-feu Désactivé";
+      fwBadge.className = `badge ${fw.is_enabled ? "badge-success" : "badge-danger"}`;
+    }
+
+    const badgeFw = document.getElementById("badge-subtab-firewall");
+    if (badgeFw) {
+      badgeFw.textContent = fw.is_enabled ? "Actif" : "Désactivé";
+      badgeFw.className = `subtab-pill-badge ${fw.is_enabled ? "badge-success" : "badge-danger"}`;
+    }
+
+    window.allFirewallPorts = [...fw.tcp_ports, ...fw.udp_ports];
+    renderFirewallPorts(window.allFirewallPorts);
+
+    // Fail2ban
+    const bannedWrap = document.getElementById("banned-ips-list");
+    if (bannedWrap) {
+      if (!fw.banned_ips || fw.banned_ips.length === 0) {
+        bannedWrap.innerHTML = `<span style="color:var(--green); font-size:0.85rem;">✔ Aucune adresse IP actuellement bannie par SSH. Système sain et sécurisé.</span>`;
+      } else {
+        bannedWrap.innerHTML = fw.banned_ips.map(ip => `
+          <div style="background:var(--mantle); border:1px solid rgba(243,139,168,0.3); padding:4px 10px; border-radius:var(--radius-md); display:inline-flex; align-items:center; gap:8px;">
+            <span class="badge badge-danger">${escapeHtml(ip)}</span>
+            <button type="button" class="unban-btn" onclick="unbanFirewallIp('${escapeHtml(ip)}')">Débannir</button>
+          </div>
+        `).join("");
+      }
+    }
+
+    // --- 4. Samba (SMB) ---
+    const samba = net.samba;
+    const badgeSamba = document.getElementById("badge-subtab-samba");
+    if (badgeSamba) {
+      badgeSamba.textContent = samba.is_active ? "Actif" : "Inactif";
+      badgeSamba.className = `subtab-pill-badge ${samba.is_active ? "badge-success" : "badge-secondary"}`;
+    }
+
+    const smbSessionsTbody = document.getElementById("samba-sessions-tbody");
+    if (smbSessionsTbody) {
+      if (!samba.active_sessions || samba.active_sessions.length === 0) {
+        smbSessionsTbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--subtext0); padding:16px;">Aucune session Samba active actuellement.</td></tr>`;
+      } else {
+        smbSessionsTbody.innerHTML = samba.active_sessions.map(s => `
+          <tr>
+            <td><strong>${escapeHtml(s.user)}</strong></td>
+            <td><code>${escapeHtml(s.client_ip)}</code></td>
+            <td><span class="badge badge-info">${escapeHtml(s.protocol)}</span></td>
+            <td><span class="badge badge-success">${escapeHtml(s.login_time)}</span></td>
+          </tr>
+        `).join("");
+      }
+    }
+
+    // --- 5. sFTP (SSH) ---
+    const sftp = net.sftp;
+    const badgeSftp = document.getElementById("badge-subtab-sftp");
+    if (badgeSftp) {
+      badgeSftp.textContent = sftp.is_active ? "Port 22" : "Inactif";
+      badgeSftp.className = `subtab-pill-badge ${sftp.is_active ? "badge-success" : "badge-secondary"}`;
+    }
+
+    const sftpSessionsTbody = document.getElementById("sftp-sessions-tbody");
+    if (sftpSessionsTbody) {
+      if (!sftp.active_sessions || sftp.active_sessions.length === 0) {
+        sftpSessionsTbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--subtext0); padding:16px;">Aucune session SSH / sFTP active actuellement.</td></tr>`;
+      } else {
+        sftpSessionsTbody.innerHTML = sftp.active_sessions.map(s => `
+          <tr>
+            <td><strong>${escapeHtml(s.user)}</strong></td>
+            <td><code>${escapeHtml(s.client_ip)}</code></td>
+            <td><span class="badge badge-info">${escapeHtml(s.protocol)}</span></td>
+            <td><span class="badge badge-success">${escapeHtml(s.login_time)}</span></td>
+          </tr>
+        `).join("");
+      }
+    }
+
+    if (showFeedback) {
+      showToast("Données réseau actualisées !", "success");
+    }
+  } catch (err) {
+    console.warn("Erreur fetch /api/network:", err);
+    if (showFeedback) {
+      showToast("Erreur lors de l'actualisation du réseau : " + err, "error");
+    }
+  }
+}
+
+function renderFirewallPorts(ports) {
+  const tbody = document.getElementById("firewall-tbody");
+  if (!tbody) return;
+
+  if (ports.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--subtext0); padding:16px;">Aucun port correspondant.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = ports.map(p => `
+    <tr>
+      <td><strong style="font-family:var(--font-mono); color:var(--mauve);">${p.port}</strong></td>
+      <td><span class="badge badge-info">${escapeHtml(p.protocol)}</span></td>
+      <td>${escapeHtml(p.service_name)}</td>
+      <td><span class="badge badge-success">🟢 ${escapeHtml(p.status)}</span></td>
+    </tr>
+  `).join("");
+}
+
+function filterFirewallPorts() {
+  const input = document.getElementById("firewall-search-input");
+  const query = input ? input.value.trim().toLowerCase() : "";
+  if (!query) {
+    renderFirewallPorts(window.allFirewallPorts || []);
+    return;
+  }
+
+  const filtered = (window.allFirewallPorts || []).filter(p => {
+    return p.port.toString().includes(query) ||
+           p.protocol.toLowerCase().includes(query) ||
+           p.service_name.toLowerCase().includes(query);
+  });
+  renderFirewallPorts(filtered);
+}
+
+async function unbanFirewallIp(ip) {
+  if (!confirm(`Confirmer le déblocage immédiat de l'adresse IP ${ip} ?`)) return;
+
+  try {
+    const res = await fetch("/api/firewall/unban", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ip })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || `IP ${ip} débloquée avec succès !`, "success");
+      loadNetwork();
+    } else {
+      showToast("Erreur lors du déblocage : " + (json.message || "Échec"), "error");
+    }
+  } catch (e) {
+    showToast("Erreur : " + e, "error");
+  }
+}
+
+async function restartServiceAction(unitName) {
+  try {
+    showToast(`Redémarrage de ${unitName} en cours...`, "info");
+    const res = await fetch(`/api/service/${unitName}/restart`, { method: "POST" });
+    const json = await res.json();
+    if (json.success) {
+      showToast(`Service ${unitName} redémarré avec succès !`, "success");
+      loadNetwork();
+    } else {
+      showToast("Échec : " + (json.message || "Erreur"), "error");
+    }
+  } catch (e) {
+    showToast("Erreur d'action : " + e, "error");
+  }
+}
+
+async function toggleServiceAction(unitName) {
+  try {
+    const isCurrentlyActive = cachedNetworkData?.vpn?.wireguard?.is_active ?? false;
+    const action = isCurrentlyActive ? "stop" : "start";
+    showToast(`${action === "start" ? "Démarrage" : "Arrêt"} de ${unitName}...`, "info");
+
+    const res = await fetch(`/api/service/${unitName}/${action}`, { method: "POST" });
+    const json = await res.json();
+    if (json.success) {
+      showToast(`Action '${action}' appliquée sur ${unitName} !`, "success");
+      loadNetwork();
+    } else {
+      showToast("Échec : " + (json.message || "Erreur"), "error");
+    }
+  } catch (e) {
+    showToast("Erreur : " + e, "error");
+  }
+}
+
+function copyElementText(elementId, successMsg) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  const text = el.textContent || el.innerText;
+  if (!text) return;
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      showToast(successMsg || "Texte copié dans le presse-papiers !", "success");
+    }).catch(() => {
+      prompt("Copiez manuellement l'adresse :", text);
+    });
+  } else {
+    prompt("Copiez manuellement l'adresse :", text);
   }
 }
