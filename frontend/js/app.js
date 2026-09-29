@@ -3302,6 +3302,49 @@ function onNvimLangChange(lang) {
   syncNvimEditorScroll();
 }
 
+function openNvimViewerWithContent(titleText, contentText, lang = "yaml", pathHint = "docker-compose.yml") {
+  const modal = document.getElementById("nvim-modal");
+  const title = document.getElementById("nvim-file-title");
+  const pathLabel = document.getElementById("nvim-status-path");
+  const sizeLabel = document.getElementById("nvim-file-size");
+  const textarea = document.getElementById("nvim-textarea");
+  const badge = document.getElementById("nvim-dirty-badge");
+  const modeLabel = document.getElementById("nvim-status-mode");
+
+  if (!modal || !textarea) return;
+
+  nvimCurrentPath = null;
+  nvimIsDirty = false;
+  textarea.readOnly = true;
+
+  if (title) title.textContent = titleText;
+  if (pathLabel) pathLabel.textContent = `${pathHint} [Lecture Seule]`;
+  if (badge) {
+    badge.textContent = "Lecture Seule";
+    badge.className = "badge badge-info";
+    badge.style.display = "inline-block";
+  }
+  if (modeLabel) {
+    modeLabel.textContent = "VIEW";
+    modeLabel.className = "nvim-status-mode";
+  }
+
+  nvimCurrentLang = lang;
+  updateNvimLanguageUI(lang);
+
+  nvimOriginalContent = contentText;
+  textarea.value = contentText;
+  if (sizeLabel) sizeLabel.textContent = `${contentText.length} octets`;
+
+  updateNvimLineNumbers();
+  updateNvimCursorPos();
+  updateNvimHighlighting();
+  syncNvimEditorScroll();
+
+  modal.style.display = "flex";
+  textarea.focus();
+}
+
 async function openNvimModal(path, fileName) {
   nvimCurrentPath = path;
   nvimIsDirty = false;
@@ -3459,9 +3502,11 @@ function handleNvimKeydown(e) {
 }
 
 async function saveNvimFile() {
-  if (!nvimCurrentPath) return;
-
   const textarea = document.getElementById("nvim-textarea");
+  if (!textarea || textarea.readOnly || !nvimCurrentPath) {
+    showToast("Ce document est en lecture seule (:w refusé)", "warning");
+    return;
+  }
   const badge = document.getElementById("nvim-dirty-badge");
   const modeLabel = document.getElementById("nvim-status-mode");
   if (!textarea) return;
@@ -3500,7 +3545,9 @@ function closeNvimModal() {
     }
   }
   const modal = document.getElementById("nvim-modal");
+  const textarea = document.getElementById("nvim-textarea");
   if (modal) modal.style.display = "none";
+  if (textarea) textarea.readOnly = false;
   nvimCurrentPath = null;
   nvimIsDirty = false;
 }
@@ -6238,6 +6285,18 @@ function openDockerConfigModal(appId, customData = null) {
     }
   }
 
+  // Configuration Accélération Matérielle GPU (Jellyfin / Transcodage)
+  const gpuSection = document.getElementById("config-gpu-section");
+  const isGpuApp = (appId === "jellyfin");
+  if (gpuSection) {
+    if (isGpuApp) {
+      gpuSection.style.display = "flex";
+      initGpuSettingsForModal();
+    } else {
+      gpuSection.style.display = "none";
+    }
+  }
+
   modal.style.display = "flex";
 }
 
@@ -6297,6 +6356,176 @@ function updateMediaFolderPreviews() {
   if (pMovies) pMovies.textContent = `${base}/movies`;
   if (pTv) pTv.textContent = `${base}/tv_shows`;
   if (pAnims) pAnims.textContent = `${base}/anims`;
+}
+
+
+function initGpuSettingsForModal() {
+  const profileSelect = document.getElementById("config-app-gpu-profile");
+  const deviceInput = document.getElementById("config-app-gpu-device");
+  const badge = document.getElementById("config-gpu-status-badge");
+  const renderPreview = document.getElementById("config-gpu-rendernode-preview");
+
+  let detectedType = "intel";
+  let detectedModel = "Intel Arc A380 (QuickSync / iHD)";
+  let renderNode = "/dev/dri/renderD128";
+  let devicePath = "/dev/dri:/dev/dri";
+
+  if (window.hardwareData && window.hardwareData.gpu) {
+    const g = window.hardwareData.gpu;
+    if (g.model && g.model.toLowerCase().includes("nvidia")) {
+      detectedType = "nvidia";
+      detectedModel = g.model;
+      devicePath = "--gpus all";
+      renderNode = "/dev/nvidia0";
+    } else if (g.model && g.model.toLowerCase().includes("amd")) {
+      detectedType = "amd";
+      detectedModel = g.model;
+      devicePath = "/dev/dri:/dev/dri";
+      renderNode = g.render_node || "/dev/dri/renderD128";
+    } else if (g.render_node) {
+      renderNode = g.render_node;
+      devicePath = g.device_path || "/dev/dri:/dev/dri";
+      detectedModel = g.model;
+    }
+  }
+
+  if (profileSelect) profileSelect.value = detectedType;
+  if (deviceInput) deviceInput.value = devicePath;
+  if (badge) badge.textContent = `Détecté : ${detectedModel}`;
+  if (renderPreview) renderPreview.textContent = renderNode || devicePath;
+}
+
+function onGpuProfileChange(profile) {
+  const deviceInput = document.getElementById("config-app-gpu-device");
+  const badge = document.getElementById("config-gpu-status-badge");
+  const renderPreview = document.getElementById("config-gpu-rendernode-preview");
+
+  if (profile === "intel") {
+    if (deviceInput) deviceInput.value = "/dev/dri:/dev/dri";
+    if (badge) badge.textContent = "Profil : Intel QuickSync (iHD / VA-API)";
+    if (renderPreview) renderPreview.textContent = "/dev/dri/renderD128";
+  } else if (profile === "amd") {
+    if (deviceInput) deviceInput.value = "/dev/dri:/dev/dri";
+    if (badge) badge.textContent = "Profil : AMD Radeon (VA-API / ROCm)";
+    if (renderPreview) renderPreview.textContent = "/dev/dri/renderD128";
+  } else if (profile === "nvidia") {
+    if (deviceInput) deviceInput.value = "--gpus all";
+    if (badge) badge.textContent = "Profil : Nvidia NVENC (CUDA / Toolkit)";
+    if (renderPreview) renderPreview.textContent = "/dev/nvidia0 (Container Toolkit)";
+  } else if (profile === "none") {
+    if (deviceInput) deviceInput.value = "none";
+    if (badge) badge.textContent = "Transcodage matériel désactivé (CPU)";
+    if (renderPreview) renderPreview.textContent = "Aucun (Software FFmpeg)";
+  }
+}
+
+function openDockerComposeNvimPreview() {
+  const appId = document.getElementById("config-app-id").value.trim() || "service";
+  const title = document.getElementById("config-app-title").textContent.replace("Configuration : ", "").trim() || appId;
+  const port = document.getElementById("config-app-port").value.trim() || "8080";
+  const dataDir = document.getElementById("config-app-data-dir").value.trim() || `/home/chomiam/docker/${appId}`;
+
+  const mediaSection = document.getElementById("config-media-section");
+  const isMedia = mediaSection && mediaSection.style.display !== "none";
+  const mediaDir = (isMedia && document.getElementById("config-app-media-dir"))
+    ? document.getElementById("config-app-media-dir").value.trim()
+    : "";
+
+  const gpuSection = document.getElementById("config-gpu-section");
+  const isGpu = gpuSection && gpuSection.style.display !== "none";
+  const gpuDevice = (isGpu && document.getElementById("config-app-gpu-device"))
+    ? document.getElementById("config-app-gpu-device").value.trim()
+    : "";
+
+  const envRows = document.querySelectorAll("#config-env-rows-container .docker-env-row");
+  const envList = [];
+  envRows.forEach(r => {
+    const k = r.querySelector(".env-key-input").value.trim();
+    const v = r.querySelector(".env-val-input").value.trim();
+    if (k) envList.push({ key: k, val: v });
+  });
+
+  let image = "ghcr.io/getarcaneapp/arcane:latest";
+  if (appId === "jellyfin") image = "lscr.io/linuxserver/jellyfin:latest";
+  else if (appId === "immich") image = "ghcr.io/immich-app/immich-server:release";
+  else if (appId === "qbittorrent") image = "lscr.io/linuxserver/qbittorrent:latest";
+  else if (appId === "jellyseerr") image = "fallenbagel/jellyseerr:latest";
+  else if (appId === "vaultwarden") image = "vaultwarden/server:latest";
+  else if (appId === "uptime-kuma") image = "louislam/uptime-kuma:latest";
+
+  let composeYaml = `# =========================================================================\n`;
+  composeYaml += `# 🐳 STEvE_OS NAS Edition — Configuration Docker Compose\n`;
+  composeYaml += `# Application  : ${title} (${appId})\n`;
+  composeYaml += `# Port hôte    : ${port}\n`;
+  composeYaml += `# Données hôte : ${dataDir}\n`;
+  composeYaml += `# Mode         : Lecture seule NVIM (Aperçu déclaratif)\n`;
+  composeYaml += `# =========================================================================\n\n`;
+  composeYaml += `version: "3.8"\n\n`;
+  composeYaml += `services:\n`;
+  composeYaml += `  ${appId}:\n`;
+  composeYaml += `    image: ${image}\n`;
+  composeYaml += `    container_name: ${appId}\n`;
+  composeYaml += `    restart: unless-stopped\n`;
+  composeYaml += `    ports:\n`;
+  composeYaml += `      - "${port}:${port}"\n`;
+
+  if (envList.length > 0) {
+    composeYaml += `    environment:\n`;
+    envList.forEach(e => {
+      composeYaml += `      - ${e.key}=${e.val}\n`;
+    });
+  }
+
+  composeYaml += `    volumes:\n`;
+  if (appId === "jellyfin") {
+    composeYaml += `      - ${dataDir}/config:/config\n`;
+    composeYaml += `      - ${dataDir}/cache:/cache\n`;
+    if (mediaDir) {
+      composeYaml += `      - ${mediaDir}/movies:/data/movies\n`;
+      composeYaml += `      - ${mediaDir}/tv_shows:/data/tv_shows\n`;
+      composeYaml += `      - ${mediaDir}/anims:/data/anims\n`;
+      composeYaml += `      - ${mediaDir}:/media\n`;
+    }
+  } else {
+    composeYaml += `      - ${dataDir}/data:/data\n`;
+  }
+
+  if (isGpu && gpuDevice && gpuDevice !== "none") {
+    if (gpuDevice === "--gpus all" || gpuDevice === "nvidia") {
+      composeYaml += `    deploy:\n`;
+      composeYaml += `      resources:\n`;
+      composeYaml += `        reservations:\n`;
+      composeYaml += `          devices:\n`;
+      composeYaml += `            - driver: nvidia\n`;
+      composeYaml += `              count: all\n`;
+      composeYaml += `              capabilities: [gpu, video]\n`;
+    } else {
+      composeYaml += `    devices:\n`;
+      composeYaml += `      - ${gpuDevice} # Accélération matérielle (Transcodage GPU)\n`;
+      if (gpuDevice === "/dev/dri:/dev/dri") {
+        composeYaml += `      - /dev/dri/renderD128:/dev/dri/renderD128\n`;
+      }
+    }
+  }
+
+  composeYaml += `\n# =========================================================================\n`;
+  composeYaml += `# ❄️ Équivalent Déclaration NixOS (/etc/nixos/docker/${appId}.nix)\n`;
+  composeYaml += `# =========================================================================\n`;
+  composeYaml += `# virtualisation.oci-containers.containers.${appId} = {\n`;
+  composeYaml += `#   image = "${image}";\n`;
+  composeYaml += `#   autoStart = true;\n`;
+  composeYaml += `#   ports = [ "${port}:${port}" ];\n`;
+  if (isGpu && gpuDevice && gpuDevice !== "none") {
+    composeYaml += `#   extraOptions = [ "${gpuDevice === "--gpus all" ? "--gpus=all" : "--device=" + gpuDevice}" ];\n`;
+  }
+  composeYaml += `# };\n`;
+
+  openNvimViewerWithContent(
+    `docker-compose.yml (${title})`,
+    composeYaml,
+    "yaml",
+    `/home/chomiam/docker/${appId}/docker-compose.yml`
+  );
 }
 
 function updateConfigUrlPreview() {
@@ -6361,11 +6590,21 @@ async function submitDockerDeploy() {
       }
     }
 
+    const gpuSection = document.getElementById("config-gpu-section");
+    let gpuDeviceVal = null;
+    if (gpuSection && gpuSection.style.display !== "none") {
+      const gInput = document.getElementById("config-app-gpu-device");
+      if (gInput && gInput.value.trim()) {
+        gpuDeviceVal = gInput.value.trim();
+      }
+    }
+
     const payload = {
       app_id: appId,
       port: portVal ? parseInt(portVal, 10) : null,
       data_dir: dataDir || null,
       media_dir: mediaDirVal || null,
+      gpu_device: gpuDeviceVal || null,
       env_vars: envVars
     };
 

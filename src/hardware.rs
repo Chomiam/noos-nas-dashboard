@@ -53,6 +53,10 @@ pub struct GpuHardwareInfo {
     pub driver: String,
     pub vram: String,
     pub features: Vec<String>,
+    #[serde(default)]
+    pub render_node: String,
+    #[serde(default)]
+    pub device_path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -183,7 +187,30 @@ pub fn get_hardware_overview() -> HardwareOverview {
         channels: "Quad-Channel par Socket (8 slots DIMM)".to_string(),
     };
 
-    // 4. GPU Info
+    // 4. GPU Info & Render Node Detection
+    let mut render_node = String::new();
+    if Path::new("/dev/dri/renderD128").exists() {
+        render_node = "/dev/dri/renderD128".to_string();
+    } else if Path::new("/dev/dri").exists() {
+        if let Ok(entries) = fs::read_dir("/dev/dri") {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with("renderD") {
+                    render_node = format!("/dev/dri/{}", name);
+                    break;
+                }
+            }
+        }
+    }
+
+    let device_path = if !render_node.is_empty() {
+        "/dev/dri:/dev/dri".to_string()
+    } else if Path::new("/dev/nvidia0").exists() {
+        "--gpus all".to_string()
+    } else {
+        "none".to_string()
+    };
+
     let gpu = GpuHardwareInfo {
         model: "Intel Corporation DG2 [Arc A380]".to_string(),
         vendor: "Intel Corporation".to_string(),
@@ -195,6 +222,8 @@ pub fn get_hardware_overview() -> HardwareOverview {
             "Transcodage matériel Jellyfin / QSV".to_string(),
             "PCIe 4.0 x8".to_string(),
         ],
+        render_node,
+        device_path,
     };
 
     // 5. Network Adapters

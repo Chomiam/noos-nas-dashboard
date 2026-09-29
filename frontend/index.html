@@ -2274,6 +2274,40 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
           </div>
         </div>
 
+        <!-- Section Accélération Matérielle GPU (Jellyfin / Transcodage) -->
+        <div id="config-gpu-section" style="display: none; flex-direction: column; gap: 10px; background: rgba(137, 180, 250, 0.05); border: 1px solid rgba(137, 180, 250, 0.25); border-radius: 12px; padding: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label style="font-size: 0.88rem; font-weight: 700; color: var(--blue); display: flex; align-items: center; gap: 8px; margin: 0;">
+              <span>🎮 Accélération Matérielle GPU (Transcodage Vidéo)</span>
+            </label>
+            <span id="config-gpu-status-badge" style="font-size: 0.74rem; background: rgba(137, 180, 250, 0.15); color: var(--blue); padding: 3px 8px; border-radius: 6px; font-weight: 600;">Détecté : Intel QuickSync (iHD)</span>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--subtext0);">
+            Exposition directe du GPU au conteneur pour le transcodage matériel 4K / AV1 / HEVC sans impacter les performances CPU.
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 10px; margin-top: 4px;">
+            <div style="flex: 1;">
+              <label style="font-size: 0.76rem; color: var(--subtext1); margin-bottom: 4px; display: block;">Chemin du GPU exposé (devices) :</label>
+              <input type="text" id="config-app-gpu-device" class="form-input docker-path-input" value="/dev/dri:/dev/dri" style="width: 100%; font-family: monospace;">
+            </div>
+            <div style="width: 210px;">
+              <label style="font-size: 0.76rem; color: var(--subtext1); margin-bottom: 4px; display: block;">Profil matériel :</label>
+              <select id="config-app-gpu-profile" class="form-input" style="width: 100%; font-size: 0.82rem; height: 38px; background: #11111b; color: var(--text); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;" onchange="onGpuProfileChange(this.value)">
+                <option value="intel">Intel (QuickSync / iHD)</option>
+                <option value="amd">AMD (VA-API / ROCm)</option>
+                <option value="nvidia">Nvidia (NVENC / CUDA)</option>
+                <option value="custom">Personnalisé</option>
+                <option value="none">Désactivé (CPU)</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="font-size: 0.76rem; color: var(--subtext0); display: flex; align-items: center; gap: 8px;">
+            <span>🔍 Nœud de rendu détecté sur l'hôte :</span> <code id="config-gpu-rendernode-preview" style="color:var(--mauve); font-weight:700;">/dev/dri/renderD128</code>
+          </div>
+        </div>
+
         <!-- Variables d'environnement -->
         <div style="display: flex; flex-direction: column; gap: 8px;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -2302,9 +2336,14 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
       </div>
 
       <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; background: var(--mantle); border-top: 1px solid rgba(255, 255, 255, 0.08);">
-        <button type="button" class="btn btn-secondary btn-sm" onclick="closeDockerConfigModal()">
-          Annuler
-        </button>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="closeDockerConfigModal()">
+            Annuler
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-docker-preview-nvim" onclick="openDockerComposeNvimPreview()" title="Visualiser la configuration Docker Compose / Nix avec NVIM en lecture seule">
+            <span>👀</span> Voir Docker Compose (NVIM)
+          </button>
+        </div>
         <button type="button" id="btn-submit-docker-deploy" class="btn btn-primary btn-sm" onclick="submitDockerDeploy()">
           🚀 Déployer l'application
         </button>

@@ -57,6 +57,7 @@ pub struct InstallAppRequest {
     pub port: Option<u16>,
     pub data_dir: Option<String>,
     pub media_dir: Option<String>,
+    pub gpu_device: Option<String>,
     pub env_vars: Option<HashMap<String, String>>,
 }
 
@@ -192,6 +193,7 @@ fn customize_nix_content(
     port: Option<u16>,
     data_dir: Option<&str>,
     media_dir: Option<&str>,
+    gpu_device: Option<&str>,
     env_vars: Option<&HashMap<String, String>>,
 ) -> String {
     let mut res = base_nix.to_string();
@@ -222,6 +224,19 @@ fn customize_nix_content(
                     res = res.replace(old_val, &custom_media);
                 }
             }
+        }
+    }
+
+    // 3. Personnalisation du périphérique GPU (ex: Jellyfin)
+    if let Some(gpu) = gpu_device {
+        let trimmed = gpu.trim();
+        if trimmed == "none" || trimmed.is_empty() {
+            res = res.replace("\"--device=/dev/dri:/dev/dri\"", "");
+            res = res.replace("extraOptions = [\n      \"--device=/dev/dri:/dev/dri\"\n    ];", "extraOptions = [ ];");
+        } else if trimmed == "--gpus all" || trimmed == "--gpus=all" || trimmed == "nvidia" {
+            res = res.replace("\"--device=/dev/dri:/dev/dri\"", "\"--gpus=all\"");
+        } else if trimmed.contains(':') && !res.contains(&format!("\"--device={}\"", trimmed)) {
+            res = res.replace("\"--device=/dev/dri:/dev/dri\"", &format!("\"--device={}\"", trimmed));
         }
     }
 
@@ -342,6 +357,7 @@ pub async fn install_store_app(req: InstallAppRequest) -> Result<String, String>
         req.port,
         req.data_dir.as_deref(),
         req.media_dir.as_deref(),
+        req.gpu_device.as_deref(),
         req.env_vars.as_ref(),
     );
 
@@ -718,6 +734,24 @@ let
   user = config.steveos.user.username;
   dataDir = "/home/${user}/docker/jellyfin";
   mediaDir = "/home/${user}/video";
+  gpuType = config.steveos.hardware.gpu or "intel";
+
+  isNvidia = gpuType == "nvidia" || gpuType == "nvidia-legacy";
+  hasDri = builtins.pathExists "/dev/dri" || gpuType == "intel" || gpuType == "amd";
+
+  gpuOptions =
+    if isNvidia then
+      [ "--gpus=all" ]
+    else if hasDri then
+      [ "--device=/dev/dri:/dev/dri" ]
+    else
+      [ ];
+
+  gpuEnv =
+    if isNvidia then {
+      NVIDIA_VISIBLE_DEVICES = "all";
+      NVIDIA_DRIVER_CAPABILITIES = "all";
+    } else { };
 in
 {
   systemd.tmpfiles.rules = [
@@ -754,10 +788,8 @@ in
       PGID = "100";
       TZ = config.steveos.timeZone or "Europe/Paris";
       UMASK = "002";
-    };
-    extraOptions = [
-      "--device=/dev/dri:/dev/dri"
-    ];
+    } // gpuEnv;
+    extraOptions = gpuOptions;
   };
 
   networking.firewall.allowedTCPPorts = [ 8096 8920 ];
