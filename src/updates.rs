@@ -115,6 +115,15 @@ pub fn nix_binary() -> String {
     find_bin(&["/run/current-system/sw/bin/nix", "nix", "/nix/var/nix/profiles/default/bin/nix", "/usr/bin/nix"])
 }
 
+pub fn sudo_binary() -> String {
+    find_bin(&[
+        "/run/wrappers/bin/sudo",
+        "sudo",
+        "/run/current-system/sw/bin/sudo",
+        "/usr/bin/sudo",
+    ])
+}
+
 pub fn target_user() -> String {
     if let Ok(u) = env::var("STEVEOS_USER") {
         let trimmed = u.trim();
@@ -146,10 +155,13 @@ pub fn create_user_command(bin: &str, args: &[&str]) -> Command {
         let mut cmd = Command::new(prog);
         cmd.args(["-u", &user, "--", bin]);
         cmd.args(args);
+        let sudo_b = sudo_binary();
+        let cur_path = env::var("PATH").unwrap_or_default();
         cmd.env("USER", &user);
         cmd.env("HOME", format!("/home/{}", user));
         cmd.env("NH_FLAKE", "/etc/nixos");
-        cmd.env("NH_ELEVATION_STRATEGY", "sudo");
+        cmd.env("NH_ELEVATION_STRATEGY", &sudo_b);
+        cmd.env("PATH", format!("/run/wrappers/bin:/run/current-system/sw/bin:{}", cur_path));
         cmd
     } else {
         let mut cmd = Command::new(bin);
@@ -811,8 +823,9 @@ fn run_switch_command(config_dir: &Path, update_inputs: bool) -> (bool, String) 
     let dir_str = config_dir.display().to_string();
 
     let nh_bin = nh_binary();
+    let sudo_b = sudo_binary();
     let (bin, args) = if Path::new(&nh_bin).exists() {
-        let mut a = vec!["os", "switch", "-e", "sudo"];
+        let mut a = vec!["os", "switch", "-e", &sudo_b];
         if update_inputs {
             a.push("-u");
         }
