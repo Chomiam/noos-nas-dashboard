@@ -1180,6 +1180,7 @@ kbd {
   overflow: hidden;
   box-sizing: border-box;
   width: 100%;
+  min-width: 0;
   position: relative;
 }
 
