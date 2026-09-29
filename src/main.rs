@@ -1,3 +1,20 @@
+async fn no_cache_layer(req: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
+    let mut resp = next.run(req).await;
+    resp.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-cache, no-store, must-revalidate"),
+    );
+    resp.headers_mut().insert(
+        axum::http::header::PRAGMA,
+        axum::http::HeaderValue::from_static("no-cache"),
+    );
+    resp.headers_mut().insert(
+        axum::http::header::EXPIRES,
+        axum::http::HeaderValue::from_static("0"),
+    );
+    resp
+}
+
 mod api;
 mod files;
 mod firewall;
@@ -27,6 +44,7 @@ async fn main() {
     let app = Router::new()
         .nest("/api", api::api_routes())
         .fallback_service(ServeDir::new(&frontend_dir))
+        .layer(axum::middleware::from_fn(no_cache_layer))
         .layer(CorsLayer::permissive());
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
