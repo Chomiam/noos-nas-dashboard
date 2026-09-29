@@ -180,7 +180,8 @@ fn scan_storage_pools() -> Vec<StoragePool> {
                             mountpoint.split('/').last().unwrap_or("pool").to_string()
                         };
 
-                        let (owner_user, owner_group, permissions_mode, is_user_writable, needs_permission_repair) = check_path_permissions(&mountpoint, "chomiam");
+                        let active_user = target_user();
+                        let (owner_user, owner_group, permissions_mode, is_user_writable, needs_permission_repair) = check_path_permissions(&mountpoint, &active_user);
 
                         pools.push(StoragePool {
                             name: pool_name,
@@ -962,6 +963,61 @@ pub fn trigger_disk_spindown(disk_name: &str) -> Result<String, String> {
 }
 
 
+pub fn target_user() -> String {
+    if let Ok(u) = std::env::var("STEVEOS_USER") {
+        let trimmed = u.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    if let Ok(passwd) = std::fs::read_to_string("/etc/passwd") {
+        for line in passwd.lines() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() >= 7 {
+                if let Ok(uid) = parts[2].parse::<u32>() {
+                    if uid >= 1000 && uid < 65534 {
+                        let shell = parts[6];
+                        if !shell.ends_with("nologin") && !shell.ends_with("false") {
+                            return parts[0].to_string();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    "chomiam".to_string()
+}
+
+fn resolve_uid_name(uid: u32) -> String {
+    if uid == 0 {
+        return "root".to_string();
+    }
+    if let Ok(passwd) = std::fs::read_to_string("/etc/passwd") {
+        for line in passwd.lines() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() >= 3 && parts[2] == uid.to_string() {
+                return parts[0].to_string();
+            }
+        }
+    }
+    uid.to_string()
+}
+
+fn resolve_gid_name(gid: u32) -> String {
+    if gid == 0 {
+        return "root".to_string();
+    }
+    if let Ok(group) = std::fs::read_to_string("/etc/group") {
+        for line in group.lines() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() >= 3 && parts[2] == gid.to_string() {
+                return parts[0].to_string();
+            }
+        }
+    }
+    gid.to_string()
+}
+
 pub fn check_path_permissions(path: &str, target_user: &str) -> (String, String, String, bool, bool) {
     use std::os::unix::fs::MetadataExt;
     if let Ok(meta) = std::fs::metadata(path) {
@@ -971,8 +1027,8 @@ pub fn check_path_permissions(path: &str, target_user: &str) -> (String, String,
         let mode_str = format!("{:04o}", mode);
 
         // Récupérer le nom utilisateur et groupe
-        let user_name = if uid == 0 { "root".to_string() } else if uid == 1000 { "chomiam".to_string() } else { uid.to_string() };
-        let group_name = if gid == 0 { "root".to_string() } else if gid == 989 { "storage".to_string() } else if gid == 100 { "users".to_string() } else { gid.to_string() };
+        let user_name = resolve_uid_name(uid);
+        let group_name = resolve_gid_name(gid);
 
         let writable = Command::new("runuser")
             .args(["-u", target_user, "--", "test", "-w", path])
@@ -1039,7 +1095,8 @@ pub fn repair_path_permissions(req: &RepairPermissionsRequest) -> Result<String,
         return Err(format!("Le chemin '{}' n'existe pas ou n'est pas monté.", path));
     }
 
-    let target_user = req.target_user.as_deref().unwrap_or("chomiam");
+    let default_user = target_user();
+    let target_user = req.target_user.as_deref().unwrap_or(&default_user);
     let target_group = req.target_group.as_deref().unwrap_or("storage");
 
     // Vérification du mot de passe si fourni
@@ -1191,7 +1248,8 @@ pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
     }
 
     // Application automatique des permissions pour l'utilisateur NAS et le groupe storage
-    let _ = Command::new("chown").args(["-R", "chomiam:storage", mount_target]).output();
+    let primary_user = target_user();
+    let _ = Command::new("chown").args(["-R", &format!("{}:storage", primary_user), mount_target]).output();
     let _ = Command::new("chmod").args(["2775", mount_target]).output();
 
     Ok(format!(
