@@ -98,6 +98,36 @@ pub fn get_iso_job_store() -> IsoJobStore {
     ISO_JOBS.get_or_init(|| Arc::new(RwLock::new(HashMap::new()))).clone()
 }
 
+
+pub fn get_libvirt_uri() -> String {
+    for sock in &["/run/libvirt/libvirt-sock", "/var/run/libvirt/libvirt-sock"] {
+        if StdPath::new(sock).exists() {
+            return format!("qemu:///system?socket={}", sock);
+        }
+    }
+    "qemu:///system".to_string()
+}
+
+pub fn get_all_devices_in_iommu_group(pci_address: &str) -> Vec<String> {
+    let pci_path = StdPath::new("/sys/bus/pci/devices").join(pci_address);
+    let iommu_group_link = pci_path.join("iommu_group");
+    if let Ok(target) = fs::read_link(&iommu_group_link) {
+        if let Some(group_name) = target.file_name() {
+            let group_devices_dir = StdPath::new("/sys/kernel/iommu_groups").join(group_name).join("devices");
+            if let Ok(entries) = fs::read_dir(group_devices_dir) {
+                let mut dev_list = Vec::new();
+                for entry in entries.flatten() {
+                    let dev_name = entry.file_name().to_string_lossy().to_string();
+                    dev_list.push(dev_name);
+                }
+                dev_list.sort();
+                return dev_list;
+            }
+        }
+    }
+    vec![pci_address.to_string()]
+}
+
 pub fn get_virsh_bin() -> String {
     for p in &["/run/current-system/sw/bin/virsh", "/usr/bin/virsh", "virsh"] {
         if StdPath::new(p).exists() {
@@ -151,12 +181,12 @@ pub fn get_isos_dir() -> PathBuf {
 
 pub fn ensure_default_nat_network() {
     let virsh = get_virsh_bin();
-    let check = Command::new(&virsh).args(&["-c", "qemu:///system", "net-info", "default"]).output();
+    let check = Command::new(&virsh).args(&["-c", &get_libvirt_uri(), "net-info", "default"]).output();
     if let Ok(out) = check {
         if out.status.success() {
             let txt = String::from_utf8_lossy(&out.stdout);
             if txt.contains("Active:         no") {
-                let _ = Command::new(&virsh).args(&["-c", "qemu:///system", "net-start", "default"]).output();
+                let _ = Command::new(&virsh).args(&["-c", &get_libvirt_uri(), "net-start", "default"]).output();
             }
             return;
         }
@@ -174,9 +204,9 @@ pub fn ensure_default_nat_network() {
 </network>"#;
     let tmp_path = "/tmp/libvirt_default_net.xml";
     if fs::write(tmp_path, xml).is_ok() {
-        let _ = Command::new(&virsh).args(&["-c", "qemu:///system", "net-define", tmp_path]).output();
-        let _ = Command::new(&virsh).args(&["-c", "qemu:///system", "net-autostart", "default"]).output();
-        let _ = Command::new(&virsh).args(&["-c", "qemu:///system", "net-start", "default"]).output();
+        let _ = Command::new(&virsh).args(&["-c", &get_libvirt_uri(), "net-define", tmp_path]).output();
+        let _ = Command::new(&virsh).args(&["-c", &get_libvirt_uri(), "net-autostart", "default"]).output();
+        let _ = Command::new(&virsh).args(&["-c", &get_libvirt_uri(), "net-start", "default"]).output();
         let _ = fs::remove_file(tmp_path);
     }
 }
@@ -186,7 +216,7 @@ pub fn list_vms() -> Vec<VirtualMachine> {
     let virsh = get_virsh_bin();
     let mut vms = Vec::new();
 
-    let output = match Command::new(&virsh).args(&["-c", "qemu:///system", "list", "--all", "--name"]).output() {
+    let output = match Command::new(&virsh).args(&["-c", &get_libvirt_uri(), "list", "--all", "--name"]).output() {
         Ok(out) => String::from_utf8_lossy(&out.stdout).to_string(),
         Err(_) => return vms,
     };
@@ -212,7 +242,7 @@ pub fn list_vms() -> Vec<VirtualMachine> {
             gpu_passthrough: None,
         };
 
-        if let Ok(info_out) = Command::new(&virsh).args(&["-c", "qemu:///system", "dominfo", name]).output() {
+        if let Ok(info_out) = Command::new(&virsh).args(&["-c", &get_libvirt_uri(), "dominfo", name]).output() {
             let info_txt = String::from_utf8_lossy(&info_out.stdout);
             for info_line in info_txt.lines() {
                 let parts: Vec<&str> = info_line.splitn(2, ':').collect();
@@ -237,7 +267,7 @@ pub fn list_vms() -> Vec<VirtualMachine> {
             vm.vnc_port = get_vm_vnc_port(name);
         }
 
-        if let Ok(blk_out) = Command::new(&virsh).args(&["-c", "qemu:///system", "domblklist", name, "--details"]).output() {
+        if let Ok(blk_out) = Command::new(&virsh).args(&["-c", &get_libvirt_uri(), "domblklist", name, "--details"]).output() {
             let blk_txt = String::from_utf8_lossy(&blk_out.stdout);
             for b_line in blk_txt.lines().skip(2) {
                 let cols: Vec<&str> = b_line.split_whitespace().collect();
@@ -252,7 +282,7 @@ pub fn list_vms() -> Vec<VirtualMachine> {
             }
         }
 
-        if let Ok(xml_out) = Command::new(&virsh).args(&["-c", "qemu:///system", "dumpxml", name]).output() {
+        if let Ok(xml_out) = Command::new(&virsh).args(&["-c", &get_libvirt_uri(), "dumpxml", name]).output() {
             let xml = String::from_utf8_lossy(&xml_out.stdout);
             if xml.contains("bridge='br0'") {
                 vm.network_type = "bridge".to_string();
@@ -279,7 +309,7 @@ pub fn list_vms() -> Vec<VirtualMachine> {
 
 pub fn get_vm_vnc_port(name: &str) -> Option<u16> {
     let virsh = get_virsh_bin();
-    let out = Command::new(&virsh).args(&["-c", "qemu:///system", "domdisplay", name]).output().ok()?;
+    let out = Command::new(&virsh).args(&["-c", &get_libvirt_uri(), "domdisplay", name]).output().ok()?;
     let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
 
     if text.contains(":") {
@@ -310,8 +340,8 @@ pub fn control_vm(name: &str, action: &str) -> Result<String, String> {
         "pause" => "suspend",
         "resume" => "resume",
         "delete" => {
-            let _ = Command::new(&virsh).args(&["-c", "qemu:///system", "destroy", name]).output();
-            let out = Command::new(&virsh).args(&["-c", "qemu:///system", "undefine", name, "--remove-all-storage"]).output()
+            let _ = Command::new(&virsh).args(&["-c", &get_libvirt_uri(), "destroy", name]).output();
+            let out = Command::new(&virsh).args(&["-c", &get_libvirt_uri(), "undefine", name, "--remove-all-storage"]).output()
                 .map_err(|e| format!("Erreur lors de la suppression de la VM : {}", e))?;
             if out.status.success() {
                 return Ok("Machine virtuelle et stockages associés supprimés avec succès.".to_string());
@@ -322,7 +352,7 @@ pub fn control_vm(name: &str, action: &str) -> Result<String, String> {
         _ => return Err("Action inconnue (utilisez start, shutdown, reset, destroy, pause, resume, delete).".to_string()),
     };
 
-    let out = Command::new(&virsh).args(&["-c", "qemu:///system", cmd_arg, name]).output()
+    let out = Command::new(&virsh).args(&["-c", &get_libvirt_uri(), cmd_arg, name]).output()
         .map_err(|e| format!("Impossible d'exécuter l'action {} : {}", action, e))?;
 
     if out.status.success() {
@@ -358,15 +388,25 @@ pub fn create_vm(req: CreateVmRequest) -> Result<String, String> {
         return Err(format!("Erreur qemu-img : {}", String::from_utf8_lossy(&img_create.stderr)));
     }
 
+    let uri = get_libvirt_uri();
     let mut args = vec![
-        "--connect".to_string(), "qemu:///system".to_string(),
+        "--connect".to_string(), uri,
         "--name".to_string(), name.to_string(),
         "--vcpus".to_string(), req.vcpus.max(1).to_string(),
         "--memory".to_string(), req.memory_mb.max(512).to_string(),
         "--disk".to_string(), format!("path={},format=qcow2,bus=virtio", disk_path.display()),
         "--graphics".to_string(), "vnc,listen=127.0.0.1".to_string(),
         "--noautoconsole".to_string(),
+        "--osinfo".to_string(), "detect=on,require=off".to_string(),
     ];
+
+    if req.os_type == "windows" {
+        args.push("--os-variant".to_string());
+        args.push("win11".to_string());
+    } else if req.os_type == "linux" {
+        args.push("--os-variant".to_string());
+        args.push("linux2022".to_string());
+    }
 
     if req.enable_uefi.unwrap_or(true) {
         args.push("--boot".to_string());
@@ -397,11 +437,28 @@ pub fn create_vm(req: CreateVmRequest) -> Result<String, String> {
         args.push("--import".to_string());
     }
 
+    let mut is_nvidia_gpu = false;
     if let Some(ref pci) = req.gpu_pci {
-        if !pci.trim().is_empty() {
-            args.push("--hostdev".to_string());
-            args.push(pci.clone());
+        let trimmed_pci = pci.trim();
+        if !trimmed_pci.is_empty() {
+            let vendor_path = format!("/sys/bus/pci/devices/{}/vendor", trimmed_pci);
+            if fs::read_to_string(vendor_path).unwrap_or_default().trim() == "0x10de" {
+                is_nvidia_gpu = true;
+            }
+
+            // Attacher tous les périphériques du même groupe IOMMU (ex: GPU + contrôleur Audio HDMI Nvidia)
+            let group_devs = get_all_devices_in_iommu_group(trimmed_pci);
+            for dev in group_devs {
+                args.push("--hostdev".to_string());
+                args.push(dev);
+            }
         }
+    }
+
+    // Contournement Erreur 43 Nvidia & compatibilité maximale (Nvidia moderne & Nvidia Legacy)
+    if is_nvidia_gpu || req.os_type == "windows" {
+        args.push("--features".to_string());
+        args.push("kvm.hidden=on,hyperv.relaxed=on,hyperv.vapic=on,hyperv.spinlocks=on,hyperv.vendor_id=1234567890ab".to_string());
     }
 
     let output = Command::new(&virt_install).args(&args).output()
@@ -650,8 +707,18 @@ pub fn detect_gpus() -> Vec<GpuDeviceInfo> {
 
                     let mut conflict_warning = None;
                     let has_drm = StdPath::new("/dev/dri/renderD128").exists() || StdPath::new("/dev/dri/card0").exists();
+                    let has_nvidia_dev = StdPath::new("/dev/nvidiactl").exists() || StdPath::new("/dev/nvidia0").exists();
 
-                    if is_jellyfin_active && has_drm {
+                    if vendor_code == "0x10de" {
+                        // Détection Nvidia / Nvidia Legacy
+                        if has_nvidia_dev || driver.contains("nvidia") {
+                            if is_jellyfin_active {
+                                conflict_warning = Some("Ce GPU NVIDIA est actuellement configuré pour le transcodage matériel Jellyfin / Docker (NVENC/NVDEC). L'assigner à une machine virtuelle suspendra l'accélération Jellyfin pendant l'exécution de la VM.".to_string());
+                            } else {
+                                conflict_warning = Some("Pilote propriétaire Nvidia actif sur l'hôte. Lors du passthrough VFIO, le pilote sera détaché du noyau hôte au démarrage de la VM.".to_string());
+                            }
+                        }
+                    } else if is_jellyfin_active && has_drm {
                         conflict_warning = Some("Ce GPU est actuellement exploité par le service Jellyfin pour le transcodage matériel 4K. L'assigner à une VM désactivera l'accélération matérielle Jellyfin pendant l'exécution de la VM.".to_string());
                     }
 
