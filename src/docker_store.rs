@@ -25,6 +25,8 @@ pub struct StoreApp {
     #[serde(default)]
     pub recommended: bool,
     #[serde(default)]
+    pub media_support: bool,
+    #[serde(default)]
     pub volumes: Vec<StoreVolume>,
     #[serde(default)]
     pub nix_file: String,
@@ -54,6 +56,7 @@ pub struct InstallAppRequest {
     pub app_id: String,
     pub port: Option<u16>,
     pub data_dir: Option<String>,
+    pub media_dir: Option<String>,
     pub env_vars: Option<HashMap<String, String>>,
 }
 
@@ -188,6 +191,7 @@ fn customize_nix_content(
     app_id: &str,
     port: Option<u16>,
     data_dir: Option<&str>,
+    media_dir: Option<&str>,
     env_vars: Option<&HashMap<String, String>>,
 ) -> String {
     let mut res = base_nix.to_string();
@@ -200,6 +204,23 @@ fn customize_nix_content(
             let custom_pattern = format!("dataDir = \"{}\";", trimmed);
             if res.contains(&default_pattern) {
                 res = res.replace(&default_pattern, &custom_pattern);
+            }
+        }
+    }
+
+    // 2. Personnalisation du dossier média (ex: Jellyfin)
+    if let Some(m_dir) = media_dir {
+        let trimmed = m_dir.trim().trim_end_matches('/');
+        if !trimmed.is_empty() {
+            let default_media = "mediaDir = \"/home/${user}/video\";";
+            let custom_media = format!("mediaDir = \"{}\";", trimmed);
+            if res.contains(default_media) {
+                res = res.replace(default_media, &custom_media);
+            } else if let Some(idx) = res.find("mediaDir = \"") {
+                if let Some(end_idx) = res[idx..].find("\";") {
+                    let old_val = &res[idx..idx + end_idx + 2];
+                    res = res.replace(old_val, &custom_media);
+                }
             }
         }
     }
@@ -313,13 +334,14 @@ pub async fn install_store_app(req: InstallAppRequest) -> Result<String, String>
         Err(_) => get_embedded_app_nix(&clean_id)?,
     };
 
-    // Appliquer les personnalisations (port, data_dir, env_vars)
+    // Appliquer les personnalisations (port, data_dir, media_dir, env_vars)
     let user = get_target_user();
     let customized_nix = customize_nix_content(
         &base_nix,
         &clean_id,
         req.port,
         req.data_dir.as_deref(),
+        req.media_dir.as_deref(),
         req.env_vars.as_ref(),
     );
 
@@ -333,6 +355,28 @@ pub async fn install_store_app(req: InstallAppRequest) -> Result<String, String>
     let _ = std::fs::create_dir_all(&app_data_dir);
     let _ = Command::new("chown").args(["-R", &format!("{}:users", user), &app_data_dir]).status();
     let _ = Command::new("chmod").args(["-R", "0775", &app_data_dir]).status();
+
+    // Gestion spécifique des dossiers médias pour Jellyfin (ou apps multimédias)
+    if clean_id == "jellyfin" || req.media_dir.is_some() {
+        let media_path = req.media_dir.clone().unwrap_or_else(|| format!("/home/{}/video", user));
+        let m_path = std::path::PathBuf::from(&media_path);
+
+        let movies_dir = m_path.join("movies");
+        let tv_shows_dir = m_path.join("tv_shows");
+        let anims_dir = m_path.join("anims");
+
+        let _ = std::fs::create_dir_all(&m_path);
+        let _ = std::fs::create_dir_all(&movies_dir);
+        let _ = std::fs::create_dir_all(&tv_shows_dir);
+        let _ = std::fs::create_dir_all(&anims_dir);
+
+        let _ = Command::new("chown").args(["-R", &format!("{}:users", user), &media_path]).status();
+        let _ = Command::new("chmod").args(["-R", "0775", &media_path]).status();
+
+        if media_path.starts_with("/mnt/storage") {
+            let _ = Command::new("chmod").args(["-R", "2775", &media_path]).status();
+        }
+    }
 
     // Écrire le fichier .nix
     if let Err(e) = std::fs::write(&target_nix_file, customized_nix) {
@@ -468,6 +512,7 @@ fn get_embedded_catalog() -> StoreCatalog {
                 icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/arcane/icon.svg".into(),
                 default_port: 3552,
                 recommended: true,
+                media_support: false,
                 volumes: vec![
                     StoreVolume {
                         host: "/home/{USER}/docker/arcane/data".into(),
@@ -487,6 +532,51 @@ fn get_embedded_catalog() -> StoreCatalog {
                 container_status: None,
             },
             StoreApp {
+                id: "jellyfin".into(),
+                name: "Jellyfin".into(),
+                version: "latest".into(),
+                category: "Multimédia".into(),
+                tagline: "Système multimédia libre pour streamer vos films, séries et animés".into(),
+                description: "Serveur multimédia open-source puissant sans abonnement ni pistage. Organisez et streamez vos bibliothèques (Films, Séries, Animés) sur tous vos écrans avec transcodage matériel.".into(),
+                website: "https://jellyfin.org/".into(),
+                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/jellyfin/icon.svg".into(),
+                default_port: 8096,
+                recommended: true,
+                media_support: true,
+                volumes: vec![
+                    StoreVolume {
+                        host: "/home/{USER}/docker/jellyfin/config".into(),
+                        container: "/config".into(),
+                        description: "Configuration Jellyfin et base de données".into(),
+                    },
+                    StoreVolume {
+                        host: "/home/{USER}/docker/jellyfin/cache".into(),
+                        container: "/cache".into(),
+                        description: "Cache de transcodage et métadonnées".into(),
+                    },
+                    StoreVolume {
+                        host: "{MEDIA_DIR}/movies".into(),
+                        container: "/data/movies".into(),
+                        description: "Dossier des films".into(),
+                    },
+                    StoreVolume {
+                        host: "{MEDIA_DIR}/tv_shows".into(),
+                        container: "/data/tv_shows".into(),
+                        description: "Dossier des séries TV".into(),
+                    },
+                    StoreVolume {
+                        host: "{MEDIA_DIR}/anims".into(),
+                        container: "/data/anims".into(),
+                        description: "Dossier des animés et animations".into(),
+                    },
+                ],
+                nix_file: "jellyfin.nix".into(),
+                is_installed: false,
+                is_running: false,
+                container_id: None,
+                container_status: None,
+            },
+            StoreApp {
                 id: "immich".into(),
                 name: "Immich".into(),
                 version: "latest".into(),
@@ -497,6 +587,7 @@ fn get_embedded_catalog() -> StoreCatalog {
                 icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/immich/icon.svg".into(),
                 default_port: 2283,
                 recommended: true,
+                media_support: false,
                 volumes: vec![
                     StoreVolume {
                         host: "/home/{USER}/docker/immich/upload".into(),
@@ -521,6 +612,7 @@ fn get_embedded_catalog() -> StoreCatalog {
                 icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/jellyseerr/icon.svg".into(),
                 default_port: 5055,
                 recommended: true,
+                media_support: false,
                 volumes: vec![
                     StoreVolume {
                         host: "/home/{USER}/docker/jellyseerr/config".into(),
@@ -545,6 +637,7 @@ fn get_embedded_catalog() -> StoreCatalog {
                 icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/qbittorrent/icon.svg".into(),
                 default_port: 8085,
                 recommended: false,
+                media_support: false,
                 volumes: vec![
                     StoreVolume {
                         host: "/home/{USER}/docker/qbittorrent/config".into(),
@@ -574,6 +667,7 @@ fn get_embedded_catalog() -> StoreCatalog {
                 icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/vaultwarden/icon.svg".into(),
                 default_port: 8222,
                 recommended: true,
+                media_support: false,
                 volumes: vec![
                     StoreVolume {
                         host: "/home/{USER}/docker/vaultwarden/data".into(),
@@ -598,6 +692,7 @@ fn get_embedded_catalog() -> StoreCatalog {
                 icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/uptime-kuma/icon.svg".into(),
                 default_port: 3001,
                 recommended: false,
+                media_support: false,
                 volumes: vec![
                     StoreVolume {
                         host: "/home/{USER}/docker/uptime-kuma/data".into(),
@@ -617,6 +712,58 @@ fn get_embedded_catalog() -> StoreCatalog {
 
 fn get_embedded_app_nix(app_id: &str) -> Result<String, String> {
     match app_id {
+        "jellyfin" => Ok(r#"{ config, lib, pkgs, ... }:
+
+let
+  user = config.steveos.user.username;
+  dataDir = "/home/${user}/docker/jellyfin";
+  mediaDir = "/home/${user}/video";
+in
+{
+  systemd.tmpfiles.rules = [
+    "d /home/${user}/docker 0775 ${user} users -"
+    "d ${dataDir} 0775 ${user} users -"
+    "d ${dataDir}/config 0775 ${user} users -"
+    "d ${dataDir}/cache 0775 ${user} users -"
+    "d ${mediaDir} 0775 ${user} users -"
+    "d ${mediaDir}/movies 0775 ${user} users -"
+    "d ${mediaDir}/tv_shows 0775 ${user} users -"
+    "d ${mediaDir}/anims 0775 ${user} users -"
+  ];
+
+  virtualisation.oci-containers.backend = "docker";
+  virtualisation.oci-containers.containers.jellyfin = {
+    image = "lscr.io/linuxserver/jellyfin:latest";
+    autoStart = true;
+    ports = [
+      "8096:8096"
+      "8920:8920"
+      "1900:1900/udp"
+      "7359:7359/udp"
+    ];
+    volumes = [
+      "${dataDir}/config:/config"
+      "${dataDir}/cache:/cache"
+      "${mediaDir}/movies:/data/movies"
+      "${mediaDir}/tv_shows:/data/tv_shows"
+      "${mediaDir}/anims:/data/anims"
+      "${mediaDir}:/media"
+    ];
+    environment = {
+      PUID = "1000";
+      PGID = "100";
+      TZ = config.steveos.timeZone or "Europe/Paris";
+      UMASK = "002";
+    };
+    extraOptions = [
+      "--device=/dev/dri:/dev/dri"
+    ];
+  };
+
+  networking.firewall.allowedTCPPorts = [ 8096 8920 ];
+  networking.firewall.allowedUDPPorts = [ 1900 7359 ];
+}
+"#.to_string()),
         "arcane" => Ok(r#"{ config, lib, pkgs, ... }:
 
 let

@@ -2234,6 +2234,46 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
           </div>
         </div>
 
+        <!-- Section Bibliothèque Médias (Jellyfin / Multimédia) -->
+        <div id="config-media-section" style="display: none; flex-direction: column; gap: 10px; background: rgba(166, 227, 161, 0.05); border: 1px solid rgba(166, 227, 161, 0.25); border-radius: 12px; padding: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label style="font-size: 0.88rem; font-weight: 700; color: var(--green); display: flex; align-items: center; gap: 8px; margin: 0;">
+              <span>🎬 Répertoire des bibliothèques multimédias</span>
+            </label>
+            <span style="font-size: 0.74rem; background: rgba(166, 227, 161, 0.15); color: var(--green); padding: 3px 8px; border-radius: 6px; font-weight: 600;">Permissions 0775 automatiques</span>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--subtext0);">
+            Choisissez l'emplacement de vos médias. Les sous-dossiers <code style="color:var(--peach);">movies</code>, <code style="color:var(--peach);">tv_shows</code> et <code style="color:var(--peach);">anims</code> y seront créés automatiquement avec les permissions lecture/écriture nécessaires.
+          </div>
+
+          <!-- Choix rapide entre /home/{user}/video et /mnt/storage -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px;">
+            <button type="button" id="btn-media-opt-home" class="media-choice-btn active" onclick="selectMediaPreset('/home/chomiam/video')">
+              <div style="font-weight: 700; font-size: 0.84rem; display: flex; align-items: center; gap: 6px; color: var(--text);">
+                <span>📁 Dossier Personnel</span>
+              </div>
+              <div style="font-size: 0.75rem; color: var(--subtext0); margin-top: 2px; font-family: monospace;">/home/chomiam/video</div>
+            </button>
+            <button type="button" id="btn-media-opt-storage" class="media-choice-btn" onclick="selectMediaPreset('/mnt/storage')">
+              <div style="font-weight: 700; font-size: 0.84rem; display: flex; align-items: center; gap: 6px; color: var(--text);">
+                <span>💾 Pool de Stockage</span>
+              </div>
+              <div style="font-size: 0.75rem; color: var(--subtext0); margin-top: 2px; font-family: monospace;">/mnt/storage</div>
+            </button>
+          </div>
+
+          <div style="margin-top: 4px;">
+            <input type="text" id="config-app-media-dir" class="form-input docker-path-input" placeholder="/home/chomiam/video" style="width: 100%;" oninput="updateMediaFolderPreviews()">
+          </div>
+
+          <!-- Dossiers créés automatiquement -->
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; font-size: 0.78rem;">
+            <span style="background: #11111b; border: 1px solid rgba(255, 255, 255, 0.08); padding: 5px 10px; border-radius: 7px; color: var(--text);">🍿 Films : <code style="color:var(--mauve);" id="preview-folder-movies">.../movies</code></span>
+            <span style="background: #11111b; border: 1px solid rgba(255, 255, 255, 0.08); padding: 5px 10px; border-radius: 7px; color: var(--text);">📺 Séries : <code style="color:var(--mauve);" id="preview-folder-tv">.../tv_shows</code></span>
+            <span style="background: #11111b; border: 1px solid rgba(255, 255, 255, 0.08); padding: 5px 10px; border-radius: 7px; color: var(--text);">⛩️ Animés : <code style="color:var(--mauve);" id="preview-folder-anims">.../anims</code></span>
+          </div>
+        </div>
+
         <!-- Variables d'environnement -->
         <div style="display: flex; flex-direction: column; gap: 8px;">
           <div style="display: flex; justify-content: space-between; align-items: center;">

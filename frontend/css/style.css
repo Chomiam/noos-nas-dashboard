@@ -4958,3 +4958,28 @@ select.form-control option,
   flex: 2;
   font-weight: 700 !important;
 }
+
+/* Choix rapide des dossiers médias (Jellyfin) */
+.media-choice-btn {
+  text-align: left;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #11111b;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+}
+
+.media-choice-btn:hover {
+  background: rgba(166, 227, 161, 0.08);
+  border-color: rgba(166, 227, 161, 0.4);
+  transform: translateY(-1px);
+}
+
+.media-choice-btn.active {
+  background: rgba(166, 227, 161, 0.12);
+  border-color: var(--green);
+  box-shadow: 0 0 12px rgba(166, 227, 161, 0.25);
+}

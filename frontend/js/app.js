@@ -6137,6 +6137,13 @@ function closeStoreAppModal() {
 }
 
 const DEFAULT_DOCKER_ENVS = {
+  "jellyfin": [
+    { key: "TZ", value: "Europe/Paris" },
+    { key: "PUID", value: "1000" },
+    { key: "PGID", value: "100" },
+    { key: "UMASK", value: "002" },
+    { key: "JELLYFIN_PublishedServerUrl", value: "" }
+  ],
   "arcane": [
     { key: "PORT", value: "3552" },
     { key: "ENCRYPTION_KEY", value: "0c8f24b63e073f21f04431b2bd81f6f65bbf5b2571ccaf9eda3dc5eab3486f85" }
@@ -6214,6 +6221,23 @@ function openDockerConfigModal(appId, customData = null) {
     envs.forEach(e => addDockerConfigEnvRow(e.key, e.value));
   }
 
+  // Configuration médiathèque (Jellyfin / Multimédia)
+  const mediaSection = document.getElementById("config-media-section");
+  const isMediaApp = (appId === "jellyfin") || (app && app.media_support);
+  if (mediaSection) {
+    if (isMediaApp) {
+      mediaSection.style.display = "flex";
+      const mediaInput = document.getElementById("config-app-media-dir");
+      if (mediaInput && (!mediaInput.value || mediaInput.dataset.app !== appId)) {
+        mediaInput.value = "/home/chomiam/video";
+        mediaInput.dataset.app = appId;
+      }
+      selectMediaPreset(mediaInput ? mediaInput.value : "/home/chomiam/video", false);
+    } else {
+      mediaSection.style.display = "none";
+    }
+  }
+
   modal.style.display = "flex";
 }
 
@@ -6238,6 +6262,41 @@ function openDockerConfigModalForContainer(containerName) {
 function closeDockerConfigModal() {
   const modal = document.getElementById("docker-config-modal");
   if (modal) modal.style.display = "none";
+}
+
+
+function selectMediaPreset(path, updateInput = true) {
+  const mediaInput = document.getElementById("config-app-media-dir");
+  if (updateInput && mediaInput) {
+    mediaInput.value = path;
+  }
+
+  const currentVal = (mediaInput && mediaInput.value.trim()) ? mediaInput.value.trim() : path;
+
+  const btnHome = document.getElementById("btn-media-opt-home");
+  const btnStorage = document.getElementById("btn-media-opt-storage");
+
+  if (btnHome) {
+    btnHome.classList.toggle("active", currentVal.startsWith("/home"));
+  }
+  if (btnStorage) {
+    btnStorage.classList.toggle("active", currentVal.startsWith("/mnt/storage"));
+  }
+
+  updateMediaFolderPreviews();
+}
+
+function updateMediaFolderPreviews() {
+  const mediaInput = document.getElementById("config-app-media-dir");
+  const base = (mediaInput && mediaInput.value.trim()) ? mediaInput.value.trim().replace(/\/+$/, "") : "/home/chomiam/video";
+
+  const pMovies = document.getElementById("preview-folder-movies");
+  const pTv = document.getElementById("preview-folder-tv");
+  const pAnims = document.getElementById("preview-folder-anims");
+
+  if (pMovies) pMovies.textContent = `${base}/movies`;
+  if (pTv) pTv.textContent = `${base}/tv_shows`;
+  if (pAnims) pAnims.textContent = `${base}/anims`;
 }
 
 function updateConfigUrlPreview() {
@@ -6293,10 +6352,20 @@ async function submitDockerDeploy() {
   closeDockerConfigModal();
 
   try {
+    const mediaSection = document.getElementById("config-media-section");
+    let mediaDirVal = null;
+    if (mediaSection && mediaSection.style.display !== "none") {
+      const mInput = document.getElementById("config-app-media-dir");
+      if (mInput && mInput.value.trim()) {
+        mediaDirVal = mInput.value.trim();
+      }
+    }
+
     const payload = {
       app_id: appId,
       port: portVal ? parseInt(portVal, 10) : null,
       data_dir: dataDir || null,
+      media_dir: mediaDirVal || null,
       env_vars: envVars
     };
 
