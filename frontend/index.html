@@ -60,9 +60,6 @@
     <button class="tab-btn" data-tab="tab-shares" onclick="switchTab('tab-shares')">
       <span>📁</span> Partages & sFTP
     </button>
-    <button class="tab-btn" data-tab="tab-gpu" onclick="switchTab('tab-gpu')">
-      <span>🎬</span> GPU & Transcodage
-    </button>
     <button class="tab-btn" data-tab="tab-containers" onclick="switchTab('tab-containers')">
       <span>🐳</span> Conteneurs Docker
     </button>
@@ -1026,32 +1023,6 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
       </div>
     </div>
 
-    <!-- ================= ONGLET 5 : GPU & TRANSCODAGE ================= -->
-    <div id="tab-gpu" class="tab-pane">
-      <div class="section-card">
-        <div class="section-header">
-          <div class="section-title-wrap">
-            <div class="section-icon-box">🎬</div>
-            <div>
-              <div class="section-title">Accélération Matérielle & GPU Détecté</div>
-              <div class="section-subtitle">Configuration automatique NixOS avec VA-API, Intel QSV ou NVIDIA NVENC</div>
-            </div>
-          </div>
-          <span class="badge badge-primary" id="gpu-vendor-badge">Détection...</span>
-        </div>
-
-        <div class="gpu-box">
-          <div class="gpu-model-name" id="gpu-model-title">Détection du processeur graphique...</div>
-          <div style="font-size:0.88rem; color:var(--subtext0); margin-top:4px;" id="gpu-driver-info">Pilotes & API de transcodage matériel</div>
-
-          <div style="margin-top:16px;">
-            <div style="font-size:0.85rem; font-weight:600; color:var(--text); margin-bottom:8px;">Codecs Matériels Disponibles (VA-API / QSV) :</div>
-            <div class="codec-badges-wrap" id="gpu-codecs-list"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- ================= ONGLET 6 : CONTENEURS DOCKER ================= -->
     <div id="tab-containers" class="tab-pane">
       <div class="section-card">
@@ -1236,7 +1207,7 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
   <!-- TOAST CONTAINER -->
   <div class="toast-container" id="toast-container"></div>
 
-  <script src="/js/app.js?v=20260929_17"></script>
+  <script src="/js/app.js?v=20260929_18"></script>
   <!-- MENU CONTEXTUEL CLIC DROIT -->
   <div class="context-menu" id="files-context-menu">
     <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">

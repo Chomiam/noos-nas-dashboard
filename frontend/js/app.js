@@ -71,7 +71,6 @@ function switchTab(tabId) {
   if (tabId === "tab-updates") checkForUpdates(false);
   if (tabId === "tab-storage") loadStorage();
   if (tabId === "tab-shares") loadServices();
-  if (tabId === "tab-gpu") loadGpu();
   if (tabId === "tab-containers") loadServices();
   if (tabId === "tab-firewall") loadFirewall();
   if (tabId === "tab-logs") loadLogs();
@@ -86,7 +85,6 @@ async function refreshAll(showFeedback = false) {
       loadSystem(),
       loadStorage(),
       loadServices(),
-      loadGpu(),
       loadFirewall(),
       checkForUpdates(false),
       loadHardwareInfo(),
@@ -1365,38 +1363,6 @@ async function loadServices() {
   }
 }
 
-// --------------------------------------------------------------------------
-// GPU & TRANSCODAGE
-// --------------------------------------------------------------------------
-async function loadGpu() {
-  try {
-    const res = await fetch("/api/gpu");
-    const json = await res.json();
-    if (!json.success || !json.data) return;
-
-    const gpu = json.data;
-
-    const vendorBadge = document.getElementById("gpu-vendor-badge");
-    if (vendorBadge) vendorBadge.textContent = gpu.vendor;
-
-    const modelTitle = document.getElementById("gpu-model-title");
-    if (modelTitle) modelTitle.textContent = gpu.model_name;
-
-    const driverInfo = document.getElementById("gpu-driver-info");
-    if (driverInfo) {
-      driverInfo.textContent = `Pilote: ${gpu.driver} • Node: ${gpu.render_node || '/dev/dri/renderD128'} • ${gpu.dri_available ? 'Accélération matérielle active' : 'Accélération non disponible'}`;
-    }
-
-    const codecsList = document.getElementById("gpu-codecs-list");
-    if (codecsList) {
-      codecsList.innerHTML = gpu.hardware_codecs_supported.map(c => `
-        <span class="badge badge-mauve" style="font-size:0.82rem; padding:6px 12px;">✔ ${escapeHtml(c)}</span>
-      `).join("");
-    }
-  } catch (err) {
-    console.warn("Erreur fetch /api/gpu:", err);
-  }
-}
 
 // --------------------------------------------------------------------------
 // PARE-FEU MODULAIRE
