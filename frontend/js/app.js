@@ -15,6 +15,7 @@ function initApp() {
   refreshAll(false);
   updateSftpUri();
   checkForUpdates(false);
+  initDragAndDrop();
 }
 
 function setupPolling() {
@@ -1355,7 +1356,7 @@ function updateSidebarNavActive(path) {
     "/home/chomiam/videos": "fnav-vids",
     "/home/chomiam/musique": "fnav-music",
     "/home/chomiam/telechargements": "fnav-dl",
-    "/home/chomiam/downloads": "fnav-downloads",
+    "/home/chomiam/downloads": "fnav-dl",
     "/home/chomiam/pictures": "fnav-pics",
     "/home/chomiam/music": "fnav-music",
     "/": "fnav-root",
@@ -1477,7 +1478,17 @@ function handleFileDblClick(path, isDir) {
   if (isDir) {
     navigateToPath(path);
   } else {
-    showToast(`Fichier : ${path}`, "info");
+    const item = currentEntries.find(i => i.path === path);
+    const fileName = item ? item.name : path.split("/").pop();
+    const cat = item ? item.category : "";
+
+    if (cat === "video" || /\.(mp4|mkv|webm|avi|mov|m4v|flv)$/i.test(fileName)) {
+      openMpvModal(path, fileName);
+    } else if (cat === "code" || cat === "document" || /\.(nix|txt|sh|bash|conf|json|toml|yaml|yml|md|rs|js|py|c|h|css|html|log|env|service|ini)$/i.test(fileName)) {
+      openNvimModal(path, fileName);
+    } else {
+      showToast(`Fichier : ${fileName}`, "info");
+    }
   }
 }
 
@@ -1546,9 +1557,19 @@ function handleItemContextMenu(e, path) {
   // Activer / désactiver les options
   const ctxOpen = document.getElementById("ctx-open");
   const ctxPaste = document.getElementById("ctx-paste");
+  const ctxEdit = document.getElementById("ctx-edit-nvim");
+  const ctxPlay = document.getElementById("ctx-play-video");
 
   if (ctxOpen) ctxOpen.style.display = selectedFileItem && selectedFileItem.is_dir ? "flex" : "none";
   if (ctxPaste) ctxPaste.classList.toggle("disabled", !fileClipboard);
+
+  const isVideo = selectedFileItem && !selectedFileItem.is_dir &&
+    (selectedFileItem.category === "video" || /\.(mp4|mkv|webm|avi|mov|m4v|flv)$/i.test(selectedFileItem.name));
+  const isEditable = selectedFileItem && !selectedFileItem.is_dir &&
+    (selectedFileItem.category === "code" || selectedFileItem.category === "document" || /\.(nix|txt|sh|bash|conf|json|toml|yaml|yml|md|rs|js|py|c|h|css|html|log|env|service|ini)$/i.test(selectedFileItem.name));
+
+  if (ctxEdit) ctxEdit.style.display = isEditable ? "flex" : "none";
+  if (ctxPlay) ctxPlay.style.display = isVideo ? "flex" : "none";
 
   positionContextMenu(menu, e.clientX, e.clientY);
 }
@@ -1574,6 +1595,11 @@ function handleBackgroundContextMenu(e) {
   if (ctxCut) ctxCut.style.display = "none";
   if (ctxRename) ctxRename.style.display = "none";
   if (ctxDelete) ctxDelete.style.display = "none";
+
+  const ctxEdit = document.getElementById("ctx-edit-nvim");
+  const ctxPlay = document.getElementById("ctx-play-video");
+  if (ctxEdit) ctxEdit.style.display = "none";
+  if (ctxPlay) ctxPlay.style.display = "none";
 
   if (ctxPaste) {
     ctxPaste.style.display = "flex";
@@ -1624,6 +1650,18 @@ async function triggerFileAction(action) {
 
     case "new-folder":
       promptCreateFolder();
+      break;
+
+    case "edit-nvim":
+      if (selectedFileItem && !selectedFileItem.is_dir) {
+        openNvimModal(selectedFileItem.path, selectedFileItem.name);
+      }
+      break;
+
+    case "play-video":
+      if (selectedFileItem && !selectedFileItem.is_dir) {
+        openMpvModal(selectedFileItem.path, selectedFileItem.name);
+      }
       break;
 
     case "copy":
@@ -1996,5 +2034,554 @@ async function triggerSpeedtest() {
     if (icon) icon.textContent = "🚀";
     if (label) label.textContent = "Relancer le Speedtest";
     if (banner) banner.style.display = "none";
+  }
+}
+
+
+// --------------------------------------------------------------------------
+// GLISSER-DÉPOSER & GESTIONNAIRE DE TÉLÉVERSEMENT (UPLOAD)
+// --------------------------------------------------------------------------
+function initDragAndDrop() {
+  const container = document.getElementById("files-view-container");
+  const overlay = document.getElementById("files-drop-overlay");
+  const targetLabel = document.getElementById("drop-target-path-text");
+  if (!container || !overlay) return;
+
+  let dragCounter = 0;
+
+  container.addEventListener("dragenter", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter++;
+    if (e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes("Files")) {
+      overlay.style.display = "flex";
+      if (targetLabel) targetLabel.textContent = `Destination : ${currentFolderPath}`;
+    }
+  });
+
+  container.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  });
+
+  container.addEventListener("dragleave", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter--;
+    if (dragCounter <= 0) {
+      dragCounter = 0;
+      overlay.style.display = "none";
+    }
+  });
+
+  container.addEventListener("drop", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter = 0;
+    overlay.style.display = "none";
+
+    const files = e.dataTransfer ? e.dataTransfer.files : null;
+    if (files && files.length > 0) {
+      let targetPath = currentFolderPath;
+      const targetCard = e.target.closest(".file-card, tr");
+      if (targetCard) {
+        const itemPath = targetCard.getAttribute("data-path");
+        const item = currentEntries.find(i => i.path === itemPath);
+        if (item && item.is_dir) {
+          targetPath = item.path;
+        }
+      }
+      uploadFiles(files, targetPath);
+    }
+  });
+}
+
+function handleFileSelect(e) {
+  const files = e.target.files;
+  if (files && files.length > 0) {
+    uploadFiles(files, currentFolderPath);
+  }
+  e.target.value = "";
+}
+
+function uploadFiles(fileList, targetDir) {
+  if (!fileList || fileList.length === 0) return;
+
+  const tray = document.getElementById("upload-tray");
+  const summary = document.getElementById("upload-tray-summary");
+  const speedBadge = document.getElementById("upload-speed-badge");
+  const progressBar = document.getElementById("upload-overall-bar");
+  const filesListEl = document.getElementById("upload-files-list");
+  const icon = document.getElementById("upload-tray-icon");
+
+  if (!tray) return;
+
+  tray.style.display = "block";
+  tray.classList.remove("minimized");
+  if (icon) icon.textContent = "⏳";
+  if (progressBar) progressBar.style.width = "0%";
+  if (speedBadge) speedBadge.textContent = "Calcul...";
+
+  const totalFiles = fileList.length;
+  if (summary) summary.textContent = `Téléversement (${totalFiles} fichier${totalFiles > 1 ? "s" : ""})`;
+
+  if (filesListEl) {
+    filesListEl.innerHTML = "";
+    Array.from(fileList).forEach(file => {
+      const row = document.createElement("div");
+      row.className = "upload-file-row";
+      row.innerHTML = `
+        <span class="upload-file-name" title="${escapeHtml(file.name)}">📄 ${escapeHtml(file.name)}</span>
+        <div class="upload-file-meta">
+          <span>${formatFileSize(file.size)}</span>
+          <span class="status-indicator">⏳ 0%</span>
+        </div>
+      `;
+      filesListEl.appendChild(row);
+    });
+  }
+
+  const formData = new FormData();
+  Array.from(fileList).forEach(file => {
+    formData.append("files", file);
+  });
+
+  const startTime = Date.now();
+  let lastLoaded = 0;
+  let lastTime = startTime;
+
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", `/api/files/upload?dir=${encodeURIComponent(targetDir)}`);
+
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) {
+      const percent = Math.round((e.loaded / e.total) * 100);
+      if (progressBar) progressBar.style.width = `${percent}%`;
+
+      const now = Date.now();
+      const timeDiff = (now - lastTime) / 1000;
+      if (timeDiff >= 0.4) {
+        const bytesDiff = e.loaded - lastLoaded;
+        const speed = bytesDiff / timeDiff;
+        if (speedBadge) speedBadge.textContent = `${formatSpeed(speed)}`;
+        lastLoaded = e.loaded;
+        lastTime = now;
+      }
+
+      if (summary) {
+        summary.textContent = `Téléversement (${percent}%) - ${formatFileSize(e.loaded)} / ${formatFileSize(e.total)}`;
+      }
+
+      if (filesListEl) {
+        const rows = filesListEl.querySelectorAll(".upload-file-row .status-indicator");
+        rows.forEach(ind => {
+          if (percent === 100) {
+            ind.textContent = "⏳ Écriture disque...";
+          } else {
+            ind.textContent = `⏵ ${percent}%`;
+          }
+        });
+      }
+    }
+  };
+
+  xhr.onload = () => {
+    if (xhr.status >= 200 && xhr.status < 300) {
+      if (progressBar) progressBar.style.width = "100%";
+      if (icon) icon.textContent = "✔";
+      if (summary) summary.textContent = `Transfert terminé (${totalFiles} fichier${totalFiles > 1 ? "s" : ""})`;
+      if (speedBadge) speedBadge.textContent = "Terminé";
+
+      if (filesListEl) {
+        const rows = filesListEl.querySelectorAll(".upload-file-row .status-indicator");
+        rows.forEach(ind => {
+          ind.textContent = "✔ Prêt";
+          ind.style.color = "var(--green)";
+        });
+      }
+
+      showToast(`Téléversement de ${totalFiles} fichier(s) réussi !`, "success");
+      navigateToPath(currentFolderPath);
+    } else {
+      if (icon) icon.textContent = "❌";
+      if (summary) summary.textContent = "Échec du téléversement";
+      if (speedBadge) speedBadge.textContent = "Erreur";
+      showToast("Erreur lors du transfert : " + (xhr.responseText || xhr.statusText), "error");
+    }
+  };
+
+  xhr.onerror = () => {
+    if (icon) icon.textContent = "❌";
+    if (summary) summary.textContent = "Erreur réseau";
+    if (speedBadge) speedBadge.textContent = "Erreur";
+    showToast("Erreur réseau pendant le téléversement", "error");
+  };
+
+  xhr.send(formData);
+}
+
+function formatFileSize(bytes) {
+  if (!bytes || bytes === 0) return "0 o";
+  const k = 1024;
+  const sizes = ["o", "Ko", "Mo", "Go", "To"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+}
+
+function formatSpeed(bytesPerSec) {
+  return `${formatFileSize(bytesPerSec)}/s`;
+}
+
+function toggleUploadTrayMinimize() {
+  const tray = document.getElementById("upload-tray");
+  const btn = document.getElementById("upload-tray-min-btn");
+  if (!tray) return;
+  tray.classList.toggle("minimized");
+  if (btn) btn.textContent = tray.classList.contains("minimized") ? "□" : "_";
+}
+
+function closeUploadTray() {
+  const tray = document.getElementById("upload-tray");
+  if (tray) tray.style.display = "none";
+}
+
+// --------------------------------------------------------------------------
+// MODALE ÉDITEUR CONTEXTUEL STYLE NEOVIM
+// --------------------------------------------------------------------------
+let nvimCurrentPath = null;
+let nvimOriginalContent = "";
+let nvimIsDirty = false;
+
+async function openNvimModal(path, fileName) {
+  nvimCurrentPath = path;
+  nvimIsDirty = false;
+
+  const modal = document.getElementById("nvim-modal");
+  const title = document.getElementById("nvim-file-title");
+  const pathLabel = document.getElementById("nvim-status-path");
+  const sizeLabel = document.getElementById("nvim-file-size");
+  const textarea = document.getElementById("nvim-textarea");
+  const badge = document.getElementById("nvim-dirty-badge");
+  const modeLabel = document.getElementById("nvim-status-mode");
+
+  if (!modal || !textarea) return;
+
+  if (title) title.textContent = fileName || path.split("/").pop();
+  if (pathLabel) pathLabel.textContent = path;
+  if (badge) badge.style.display = "none";
+  if (modeLabel) {
+    modeLabel.textContent = "NORMAL";
+    modeLabel.className = "nvim-status-mode";
+  }
+
+  textarea.value = "Chargement en cours...";
+  modal.style.display = "flex";
+
+  try {
+    const res = await fetch(`/api/files/read?path=${encodeURIComponent(path)}`);
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      showToast(json.message || "Impossible de lire le fichier", "error");
+      closeNvimModal();
+      return;
+    }
+
+    const data = json.data;
+    nvimOriginalContent = data.content;
+    textarea.value = data.content;
+    if (sizeLabel) sizeLabel.textContent = formatFileSize(data.size_bytes) + (data.is_truncated ? " (tronqué)" : "");
+
+    updateNvimLineNumbers();
+    updateNvimCursorPos();
+    textarea.focus();
+  } catch (err) {
+    showToast("Erreur lors de l'ouverture du fichier : " + err, "error");
+    closeNvimModal();
+  }
+}
+
+function onNvimContentChange() {
+  const textarea = document.getElementById("nvim-textarea");
+  const badge = document.getElementById("nvim-dirty-badge");
+  const modeLabel = document.getElementById("nvim-status-mode");
+
+  if (!textarea) return;
+
+  nvimIsDirty = (textarea.value !== nvimOriginalContent);
+  if (badge) badge.style.display = nvimIsDirty ? "inline-block" : "none";
+  if (modeLabel) {
+    modeLabel.textContent = "INSERT";
+    modeLabel.className = "nvim-status-mode insert";
+  }
+
+  updateNvimLineNumbers();
+  updateNvimCursorPos();
+}
+
+function updateNvimLineNumbers() {
+  const textarea = document.getElementById("nvim-textarea");
+  const lineNumbers = document.getElementById("nvim-line-numbers");
+  if (!textarea || !lineNumbers) return;
+
+  const count = textarea.value.split("\n").length;
+  let linesHtml = "";
+  for (let i = 1; i <= count; i++) {
+    linesHtml += `${i}<br>`;
+  }
+  lineNumbers.innerHTML = linesHtml;
+}
+
+function syncNvimLineNumbers() {
+  const textarea = document.getElementById("nvim-textarea");
+  const lineNumbers = document.getElementById("nvim-line-numbers");
+  if (textarea && lineNumbers) {
+    lineNumbers.scrollTop = textarea.scrollTop;
+  }
+}
+
+function updateNvimCursorPos() {
+  const textarea = document.getElementById("nvim-textarea");
+  const posLabel = document.getElementById("nvim-status-pos");
+  if (!textarea || !posLabel) return;
+
+  const selStart = textarea.selectionStart || 0;
+  const lines = textarea.value.substring(0, selStart).split("\n");
+  const line = lines.length;
+  const col = lines[lines.length - 1].length + 1;
+  posLabel.textContent = `L: ${line} | C: ${col}`;
+}
+
+function handleNvimKeydown(e) {
+  const textarea = document.getElementById("nvim-textarea");
+  const modeLabel = document.getElementById("nvim-status-mode");
+
+  if (e.key === "Tab") {
+    e.preventDefault();
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    textarea.value = textarea.value.substring(0, start) + "  " + textarea.value.substring(end);
+    textarea.selectionStart = textarea.selectionEnd = start + 2;
+    onNvimContentChange();
+    return;
+  }
+
+  if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+    e.preventDefault();
+    saveNvimFile();
+    return;
+  }
+
+  if (e.key === "Escape") {
+    if (modeLabel) {
+      modeLabel.textContent = "NORMAL";
+      modeLabel.className = "nvim-status-mode";
+    }
+    return;
+  }
+
+  if (modeLabel && modeLabel.textContent === "NORMAL") {
+    if (e.key === "i" || e.key === "a" || e.key === "o") {
+      modeLabel.textContent = "INSERT";
+      modeLabel.className = "nvim-status-mode insert";
+    }
+  }
+
+  setTimeout(updateNvimCursorPos, 10);
+}
+
+async function saveNvimFile() {
+  if (!nvimCurrentPath) return;
+
+  const textarea = document.getElementById("nvim-textarea");
+  const badge = document.getElementById("nvim-dirty-badge");
+  const modeLabel = document.getElementById("nvim-status-mode");
+  if (!textarea) return;
+
+  try {
+    const res = await fetch("/api/files/write", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path: nvimCurrentPath,
+        content: textarea.value
+      })
+    });
+    const json = await res.json();
+    if (json.success) {
+      nvimOriginalContent = textarea.value;
+      nvimIsDirty = false;
+      if (badge) badge.style.display = "none";
+      if (modeLabel) {
+        modeLabel.textContent = "NORMAL";
+        modeLabel.className = "nvim-status-mode";
+      }
+      showToast("Fichier enregistré (:w) avec succès !", "success");
+    } else {
+      showToast("Échec de l'enregistrement : " + (json.message || "Erreur"), "error");
+    }
+  } catch (err) {
+    showToast("Erreur lors de la sauvegarde : " + err, "error");
+  }
+}
+
+function closeNvimModal() {
+  if (nvimIsDirty) {
+    if (!confirm("Des modifications ne sont pas enregistrées. Voulez-vous quitter sans sauvegarder (:q!) ?")) {
+      return;
+    }
+  }
+  const modal = document.getElementById("nvim-modal");
+  if (modal) modal.style.display = "none";
+  nvimCurrentPath = null;
+  nvimIsDirty = false;
+}
+
+// --------------------------------------------------------------------------
+// MODALE LECTEUR VIDÉO STYLE MPV
+// --------------------------------------------------------------------------
+let mpvKeyHandler = null;
+
+function openMpvModal(path, fileName) {
+  const modal = document.getElementById("mpv-modal");
+  const title = document.getElementById("mpv-video-title");
+  const video = document.getElementById("mpv-video-element");
+  const nativeBtn = document.getElementById("mpv-open-native-btn");
+
+  if (!modal || !video) return;
+
+  const streamUrl = `/api/files/stream?path=${encodeURIComponent(path)}`;
+  if (title) title.textContent = fileName || path.split("/").pop();
+  if (nativeBtn) nativeBtn.href = streamUrl;
+
+  video.src = streamUrl;
+  video.currentTime = 0;
+  modal.style.display = "flex";
+  video.play().catch(() => {});
+
+  if (mpvKeyHandler) window.removeEventListener("keydown", mpvKeyHandler);
+  mpvKeyHandler = (e) => handleMpvKeydown(e, video);
+  window.addEventListener("keydown", mpvKeyHandler);
+}
+
+function handleMpvKeydown(e, video) {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+
+  const modal = document.getElementById("mpv-modal");
+  if (!modal || modal.style.display === "none") return;
+
+  switch (e.code) {
+    case "Space":
+    case "KeyP":
+      e.preventDefault();
+      if (video.paused) {
+        video.play();
+        showMpvOsd("▶ Lecture");
+      } else {
+        video.pause();
+        showMpvOsd("⏸ Pause");
+      }
+      break;
+
+    case "ArrowLeft":
+      e.preventDefault();
+      const stepLeft = e.shiftKey ? 1 : 5;
+      video.currentTime = Math.max(0, video.currentTime - stepLeft);
+      showMpvOsd(`⏪ -${stepLeft}s`);
+      break;
+
+    case "ArrowRight":
+      e.preventDefault();
+      const stepRight = e.shiftKey ? 1 : 5;
+      video.currentTime = Math.min(video.duration || 999999, video.currentTime + stepRight);
+      showMpvOsd(`⏩ +${stepRight}s`);
+      break;
+
+    case "ArrowUp":
+      e.preventDefault();
+      video.volume = Math.min(1, parseFloat((video.volume + 0.05).toFixed(2)));
+      showMpvOsd(`🔊 Volume : ${Math.round(video.volume * 100)}%`);
+      break;
+
+    case "ArrowDown":
+      e.preventDefault();
+      video.volume = Math.max(0, parseFloat((video.volume - 0.05).toFixed(2)));
+      showMpvOsd(`🔉 Volume : ${Math.round(video.volume * 100)}%`);
+      break;
+
+    case "KeyM":
+      e.preventDefault();
+      video.muted = !video.muted;
+      showMpvOsd(video.muted ? "🔇 Muet" : "🔊 Son réactivé");
+      break;
+
+    case "KeyF":
+      e.preventDefault();
+      if (!document.fullscreenElement) {
+        video.requestFullscreen().catch(() => {});
+      } else {
+        document.exitFullscreen().catch(() => {});
+      }
+      break;
+
+    case "BracketLeft":
+      e.preventDefault();
+      video.playbackRate = Math.max(0.25, parseFloat((video.playbackRate - 0.25).toFixed(2)));
+      showMpvOsd(`⏱ Vitesse : ${video.playbackRate}x`);
+      break;
+
+    case "BracketRight":
+      e.preventDefault();
+      video.playbackRate = Math.min(3, parseFloat((video.playbackRate + 0.25).toFixed(2)));
+      showMpvOsd(`⏱ Vitesse : ${video.playbackRate}x`);
+      break;
+
+    case "KeyQ":
+    case "Escape":
+      e.preventDefault();
+      closeMpvModal();
+      break;
+  }
+}
+
+let osdTimeout = null;
+function showMpvOsd(text) {
+  const osd = document.getElementById("mpv-osd-hint");
+  if (!osd) return;
+
+  osd.textContent = text;
+  osd.style.display = "block";
+  osd.style.animation = "none";
+  osd.offsetHeight;
+  osd.style.animation = "osdFade 1.2s ease-out forwards";
+
+  if (osdTimeout) clearTimeout(osdTimeout);
+  osdTimeout = setTimeout(() => {
+    osd.style.display = "none";
+  }, 1200);
+}
+
+function closeMpvModal() {
+  const modal = document.getElementById("mpv-modal");
+  const video = document.getElementById("mpv-video-element");
+
+  if (video) {
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+  }
+
+  if (mpvKeyHandler) {
+    window.removeEventListener("keydown", mpvKeyHandler);
+    mpvKeyHandler = null;
+  }
+
+  if (modal) modal.style.display = "none";
+}
+
+function handleModalOverlayClick(e, modalId) {
+  if (e.target.id === modalId) {
+    if (modalId === "nvim-modal") closeNvimModal();
+    if (modalId === "mpv-modal") closeMpvModal();
   }
 }

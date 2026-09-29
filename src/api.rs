@@ -61,6 +61,10 @@ pub fn api_routes() -> Router {
         .route("/files/rename", post(handle_files_rename))
         .route("/files/copy", post(handle_files_copy))
         .route("/files/move", post(handle_files_move))
+        .route("/files/upload", post(handle_files_upload).layer(axum::extract::DefaultBodyLimit::disable()))
+        .route("/files/stream", get(handle_files_stream))
+        .route("/files/read", get(handle_files_read))
+        .route("/files/write", post(handle_files_write))
         .route("/service/:unit/:action", post(handle_service_action))
         .route("/storage/:disk/spindown", post(handle_disk_spindown))
         .route("/hardware", get(handle_hardware))
@@ -401,4 +405,149 @@ async fn handle_speedtest_run() -> Json<ApiResponse<SpeedtestResult>> {
         data: Some(res),
         message: None,
     })
+}
+
+
+#[derive(Deserialize)]
+pub struct UploadQuery {
+    pub dir: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct UploadedFileItem {
+    pub name: String,
+    pub bytes: u64,
+}
+
+async fn handle_files_upload(
+    Query(params): Query<UploadQuery>,
+    mut multipart: axum::extract::Multipart,
+) -> Json<ApiResponse<Vec<UploadedFileItem>>> {
+    use std::path::{Path, PathBuf};
+    use tokio::io::AsyncWriteExt;
+
+    let target_dir = crate::files::normalize_user_path(PathBuf::from(
+        params.dir.unwrap_or_else(|| "/home/chomiam".to_string())
+    ));
+    if !target_dir.is_dir() {
+        return Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some("Dossier de destination introuvable.".into()),
+        });
+    }
+
+    let mut uploaded = Vec::new();
+
+    while let Ok(Some(mut field)) = multipart.next_field().await {
+        let raw_name = field.file_name().unwrap_or("fichier_sans_nom").to_string();
+        let safe_name = Path::new(&raw_name)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("fichier")
+            .to_string();
+
+        if safe_name.is_empty() || safe_name == "." || safe_name == ".." {
+            continue;
+        }
+
+        let dest_path = target_dir.join(&safe_name);
+        let mut file = match tokio::fs::File::create(&dest_path).await {
+            Ok(f) => f,
+            Err(e) => {
+                return Json(ApiResponse {
+                    success: false,
+                    data: Some(uploaded),
+                    message: Some(format!("Impossible de créer le fichier '{}' : {}", safe_name, e)),
+                });
+            }
+        };
+
+        let mut bytes_written = 0u64;
+        while let Ok(Some(chunk)) = field.chunk().await {
+            if let Err(e) = file.write_all(&chunk).await {
+                return Json(ApiResponse {
+                    success: false,
+                    data: Some(uploaded),
+                    message: Some(format!("Erreur lors de l'écriture de '{}' : {}", safe_name, e)),
+                });
+            }
+            bytes_written += chunk.len() as u64;
+        }
+
+        let _ = file.flush().await;
+
+        uploaded.push(UploadedFileItem {
+            name: safe_name,
+            bytes: bytes_written,
+        });
+    }
+
+    Json(ApiResponse {
+        success: true,
+        data: Some(uploaded),
+        message: Some("Transfert(s) terminé(s) avec succès.".into()),
+    })
+}
+
+#[derive(Deserialize)]
+pub struct StreamQuery {
+    pub path: String,
+}
+
+async fn handle_files_stream(
+    Query(params): Query<StreamQuery>,
+    req: axum::extract::Request,
+) -> impl axum::response::IntoResponse {
+    use std::path::PathBuf;
+    use tower_http::services::fs::ServeFile;
+    use tower::ServiceExt;
+    use axum::response::IntoResponse;
+
+    let file_path = crate::files::normalize_user_path(PathBuf::from(&params.path));
+    if !file_path.exists() || !file_path.is_file() {
+        return (axum::http::StatusCode::NOT_FOUND, "Fichier multimédia introuvable.").into_response();
+    }
+    let service = ServeFile::new(file_path);
+    match service.oneshot(req).await {
+        Ok(res) => res.into_response(),
+        Err(err) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Erreur lors de la lecture du flux : {}", err),
+        ).into_response(),
+    }
+}
+
+async fn handle_files_read(
+    Query(params): Query<crate::files::ReadFileQuery>,
+) -> Json<ApiResponse<crate::files::ReadFileResponse>> {
+    match crate::files::read_file_content(&params.path) {
+        Ok(data) => Json(ApiResponse {
+            success: true,
+            data: Some(data),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_files_write(
+    Json(payload): Json<crate::files::WriteFileRequest>,
+) -> Json<ApiResponse<String>> {
+    match crate::files::write_file_content(&payload.path, &payload.content) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
 }

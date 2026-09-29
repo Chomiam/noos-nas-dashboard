@@ -54,7 +54,7 @@ pub struct ActionRequest {
 }
 
 
-fn normalize_user_path(target: PathBuf) -> PathBuf {
+pub fn normalize_user_path(target: PathBuf) -> PathBuf {
     if target.exists() {
         return target;
     }
@@ -71,7 +71,7 @@ fn normalize_user_path(target: PathBuf) -> PathBuf {
         .replace("/Music", "/musique")
         .replace("/Téléchargements", "/telechargements")
         .replace("/Telechargements", "/telechargements")
-        .replace("/Downloads", "/downloads")
+        .replace("/Downloads", "/telechargements").replace("/downloads", "/telechargements")
         .replace("/Pictures", "/images");
 
     let p_lower = PathBuf::from(&lower_variant);
@@ -387,4 +387,64 @@ fn format_system_time(time: SystemTime) -> String {
     let day = (day_of_year % 30) + 1;
 
     format!("{:04}-{:02}-{:02} {:02}:{:02}", year, month, day, hours, mins)
+}
+
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReadFileResponse {
+    pub content: String,
+    pub path: String,
+    pub name: String,
+    pub size_bytes: u64,
+    pub is_truncated: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReadFileQuery {
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WriteFileRequest {
+    pub path: String,
+    pub content: String,
+}
+
+pub fn read_file_content(path_str: &str) -> Result<ReadFileResponse, String> {
+    let p = normalize_user_path(PathBuf::from(path_str));
+    if !p.exists() || !p.is_file() {
+        return Err("Fichier introuvable.".into());
+    }
+    let metadata = fs::metadata(&p).map_err(|e| e.to_string())?;
+    let size = metadata.len();
+
+    const MAX_SIZE: u64 = 5 * 1024 * 1024; // 5 Mo max pour affichage texte
+    let (content, is_truncated) = if size > MAX_SIZE {
+        use std::io::Read;
+        let mut file = fs::File::open(&p).map_err(|e| e.to_string())?;
+        let mut buf = vec![0u8; MAX_SIZE as usize];
+        file.read_exact(&mut buf).map_err(|e| e.to_string())?;
+        (String::from_utf8_lossy(&buf).to_string(), true)
+    } else {
+        let bytes = fs::read(&p).map_err(|e| e.to_string())?;
+        (String::from_utf8_lossy(&bytes).to_string(), false)
+    };
+
+    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+    Ok(ReadFileResponse {
+        content,
+        path: p.display().to_string(),
+        name,
+        size_bytes: size,
+        is_truncated,
+    })
+}
+
+pub fn write_file_content(path_str: &str, content: &str) -> Result<String, String> {
+    let p = normalize_user_path(PathBuf::from(path_str));
+    if !p.exists() {
+        return Err("Fichier cible introuvable.".into());
+    }
+    fs::write(&p, content).map_err(|e| format!("Échec d enregistrement : {}", e))?;
+    Ok("Fichier enregistré avec succès.".into())
 }

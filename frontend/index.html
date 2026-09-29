@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20260929_5">
+  <link rel="stylesheet" href="/css/style.css?v=20260929_6">
 </head>
 <body>
 
@@ -437,9 +437,7 @@
           <button type="button" class="files-nav-item" id="fnav-dl" onclick="navigateToPath('/home/chomiam/telechargements')">
             <span>📥</span> telechargements
           </button>
-          <button type="button" class="files-nav-item" id="fnav-downloads" onclick="navigateToPath('/home/chomiam/downloads')">
-            <span>⬇️</span> downloads
-          </button>
+
 
           <div class="files-category-title">Système & Stockage</div>
           <button type="button" class="files-nav-item" id="fnav-root" onclick="navigateToPath('/')">
@@ -470,6 +468,10 @@
               <button type="button" class="btn btn-primary btn-xs" onclick="promptCreateFolder()">
                 ➕ Nouveau Dossier
               </button>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="document.getElementById('files-upload-input').click()" title="Téléverser des fichiers de votre PC vers ce dossier">
+                📤 Téléverser
+              </button>
+              <input type="file" id="files-upload-input" multiple style="display:none;" onchange="handleFileSelect(event)">
               <div class="files-breadcrumbs" id="files-breadcrumbs"></div>
             </div>
 
@@ -487,6 +489,13 @@
 
           <!-- Zone d'affichage des fichiers -->
           <div class="files-view-container" id="files-view-container" oncontextmenu="handleBackgroundContextMenu(event)">
+            <div class="files-drop-overlay" id="files-drop-overlay" style="display:none;">
+              <div class="drop-overlay-box">
+                <div class="drop-icon-animated">📥</div>
+                <div class="drop-title">Déposez vos fichiers ici</div>
+                <div class="drop-subtitle" id="drop-target-path-text">Transfert direct vers le NAS</div>
+              </div>
+            </div>
             <div class="files-grid" id="files-grid-wrap"></div>
             <table class="files-table-view" id="files-table-wrap" style="display:none;">
               <thead>
@@ -984,11 +993,17 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
   <!-- TOAST CONTAINER -->
   <div class="toast-container" id="toast-container"></div>
 
-  <script src="/js/app.js?v=20260929_5"></script>
+  <script src="/js/app.js?v=20260929_6"></script>
   <!-- MENU CONTEXTUEL CLIC DROIT -->
   <div class="context-menu" id="files-context-menu">
     <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">
       <span>📂</span> Ouvrir
+    </div>
+    <div class="context-menu-item" onclick="triggerFileAction('edit-nvim')" id="ctx-edit-nvim" style="display:none;">
+      <span>📝</span> Éditer (Neovim)
+    </div>
+    <div class="context-menu-item" onclick="triggerFileAction('play-video')" id="ctx-play-video" style="display:none;">
+      <span>🎬</span> Prévisualiser (MPV)
     </div>
     <div class="context-menu-divider"></div>
     <div class="context-menu-item" onclick="triggerFileAction('copy')" id="ctx-copy">
@@ -1010,6 +1025,89 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
     <div class="context-menu-divider"></div>
     <div class="context-menu-item" onclick="triggerFileAction('new-folder')" id="ctx-new-folder">
       <span>➕</span> Nouveau dossier
+    </div>
+  </div>
+
+
+  <!-- POPUP FLOTTANTE DE PROGRESSION DU TÉLÉVERSEMENT -->
+  <div class="upload-tray" id="upload-tray" style="display:none;">
+    <div class="upload-tray-header">
+      <div class="upload-tray-title">
+        <span class="upload-pulse-icon" id="upload-tray-icon">⏳</span>
+        <span id="upload-tray-summary">Téléversement (0/0)</span>
+      </div>
+      <div class="upload-tray-actions">
+        <span id="upload-speed-badge" class="badge badge-accent">0 Mo/s</span>
+        <button type="button" class="upload-tray-btn" onclick="toggleUploadTrayMinimize()" id="upload-tray-min-btn" title="Minimiser / Agrandir">_</button>
+        <button type="button" class="upload-tray-btn" onclick="closeUploadTray()" title="Fermer">✕</button>
+      </div>
+    </div>
+    <div class="upload-tray-body" id="upload-tray-body">
+      <div class="upload-overall-progress">
+        <div class="upload-progress-bar" id="upload-overall-bar" style="width: 0%;"></div>
+      </div>
+      <div class="upload-files-list" id="upload-files-list"></div>
+    </div>
+  </div>
+
+  <!-- MODALE ÉDITEUR CONTEXTUEL STYLE NEOVIM -->
+  <div class="file-modal-overlay" id="nvim-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'nvim-modal')">
+    <div class="file-modal-window nvim-window">
+      <div class="file-modal-header nvim-header">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="nvim-logo-tag">NVIM</span>
+          <span class="file-modal-title" id="nvim-file-title">fichier</span>
+          <span class="badge badge-warning" id="nvim-dirty-badge" style="display:none;">Modifié</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span id="nvim-file-size" style="font-size:0.75rem; color:var(--subtext0);"></span>
+          <button type="button" class="btn btn-primary btn-xs" onclick="saveNvimFile()" title="Sauvegarder (:w)">
+            💾 Enregistrer (:w)
+          </button>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="closeNvimModal()" title="Fermer (:q)">
+            ✕ Quitter (:q)
+          </button>
+        </div>
+      </div>
+      <div class="nvim-body">
+        <div class="nvim-line-numbers" id="nvim-line-numbers">1</div>
+        <textarea class="nvim-textarea" id="nvim-textarea" spellcheck="false" oninput="onNvimContentChange()" onkeydown="handleNvimKeydown(event)" onscroll="syncNvimLineNumbers()"></textarea>
+      </div>
+      <div class="nvim-statusline">
+        <div class="nvim-status-mode" id="nvim-status-mode">NORMAL</div>
+        <div class="nvim-status-file" id="nvim-status-path">/chemin/fichier</div>
+        <div class="nvim-status-pos" id="nvim-status-pos">L: 1 | C: 1</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODALE LECTEUR VIDÉO STYLE MPV -->
+  <div class="file-modal-overlay" id="mpv-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'mpv-modal')">
+    <div class="file-modal-window mpv-window">
+      <div class="file-modal-header mpv-header">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="mpv-logo-tag">MPV</span>
+          <span class="file-modal-title" id="mpv-video-title">video.mp4</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="badge badge-accent" id="mpv-resolution-badge">Direct Stream</span>
+          <a id="mpv-open-native-btn" class="btn btn-secondary btn-xs" target="_blank" title="Ouvrir le flux direct">
+            ↗ Flux
+          </a>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="closeMpvModal()" title="Fermer (q)">
+            ✕ Fermer (q)
+          </button>
+        </div>
+      </div>
+      <div class="mpv-player-container" id="mpv-player-container">
+        <video id="mpv-video-element" class="mpv-video" controls autoplay playsinline preload="metadata">
+          Votre navigateur ne prend pas en charge la balise vidéo.
+        </video>
+        <div class="mpv-osd-hint" id="mpv-osd-hint" style="display:none;"></div>
+      </div>
+      <div class="mpv-footer-info">
+        <span>Contrôles MPV : <b>Espace</b> (Pause) | <b>← / →</b> (±5s) | <b>Shift + ←/→</b> (±1s) | <b>↑ / ↓</b> (Vol) | <b>F</b> (Plein écran) | <b>[ / ]</b> (Vitesse) | <b>M</b> (Muet)</span>
+      </div>
     </div>
   </div>
 
