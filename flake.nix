@@ -34,7 +34,7 @@
       nixosModules.default = { config, lib, pkgs, ... }:
         let
           cfg = config.services.steveos-nas-dashboard;
-          pkg = self.packages.${pkgs.system}.default;
+          pkg = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
         in {
           options.services.steveos-nas-dashboard = {
             enable = lib.mkEnableOption "Tableau de bord STEvE_OS NAS Edition";
@@ -79,7 +79,7 @@
                 gnugrep
                 gnused
                 findutils
-                utillinux
+                util-linux
                 procps
                 which
               ];
