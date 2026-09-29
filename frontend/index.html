@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20260929_6">
+  <link rel="stylesheet" href="/css/style.css?v=20260929_7">
 </head>
 <body>
 
@@ -993,7 +993,7 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
   <!-- TOAST CONTAINER -->
   <div class="toast-container" id="toast-container"></div>
 
-  <script src="/js/app.js?v=20260929_6"></script>
+  <script src="/js/app.js?v=20260929_7"></script>
   <!-- MENU CONTEXTUEL CLIC DROIT -->
   <div class="context-menu" id="files-context-menu">
     <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">
@@ -1004,6 +1004,9 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
     </div>
     <div class="context-menu-item" onclick="triggerFileAction('play-video')" id="ctx-play-video" style="display:none;">
       <span>🎬</span> Prévisualiser (MPV)
+    </div>
+    <div class="context-menu-item" onclick="triggerFileAction('play-audio')" id="ctx-play-audio" style="display:none;">
+      <span>🎵</span> Écouter (Lecteur Audio)
     </div>
     <div class="context-menu-divider"></div>
     <div class="context-menu-item" onclick="triggerFileAction('copy')" id="ctx-copy">
@@ -1107,6 +1110,95 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
       </div>
       <div class="mpv-footer-info">
         <span>Contrôles MPV : <b>Espace</b> (Pause) | <b>← / →</b> (±5s) | <b>Shift + ←/→</b> (±1s) | <b>↑ / ↓</b> (Vol) | <b>F</b> (Plein écran) | <b>[ / ]</b> (Vitesse) | <b>M</b> (Muet)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODALE LECTEUR AUDIO AVEC ÉQUALISEUR SPECTRE EN DIRECT -->
+  <div class="file-modal-overlay" id="audio-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'audio-modal')">
+    <div class="file-modal-window audio-window">
+      <!-- En-tête -->
+      <div class="file-modal-header audio-header">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="audio-logo-tag">AUDIO</span>
+          <span class="file-modal-title" id="audio-file-title">titre.mp3</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="badge badge-accent" id="audio-format-badge">FLAC / MP3</span>
+          <span id="audio-file-size" style="font-size:0.75rem; color:var(--subtext0);"></span>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="closeAudioModal()" title="Fermer (q)">
+            ✕ Fermer (q)
+          </button>
+        </div>
+      </div>
+
+      <!-- Corps du lecteur audio -->
+      <div class="audio-player-body">
+        <!-- Visualiseur de fréquences (Canvas Equalizer interactif) -->
+        <div class="audio-visualizer-container">
+          <canvas id="audio-visualizer-canvas" class="audio-visualizer-canvas" width="680" height="170"></canvas>
+          <div class="audio-freq-labels">
+            <span>32Hz</span>
+            <span>64Hz</span>
+            <span>125Hz</span>
+            <span>250Hz</span>
+            <span>500Hz</span>
+            <span>1kHz</span>
+            <span>2kHz</span>
+            <span>4kHz</span>
+            <span>8kHz</span>
+            <span>16kHz</span>
+          </div>
+        </div>
+
+        <!-- Élément audio HTML5 connecté à la Web Audio API -->
+        <audio id="audio-element" preload="metadata" crossorigin="anonymous"></audio>
+
+        <!-- Barre de progression scrub interactive -->
+        <div class="audio-timeline-wrap">
+          <span class="audio-time-label" id="audio-current-time">00:00</span>
+          <div class="audio-scrub-bar" id="audio-scrub-bar" onclick="seekAudio(event)">
+            <div class="audio-scrub-progress" id="audio-scrub-progress" style="width: 0%;"></div>
+            <div class="audio-scrub-thumb" id="audio-scrub-thumb" style="left: 0%;"></div>
+          </div>
+          <span class="audio-time-label" id="audio-total-time">00:00</span>
+        </div>
+
+        <!-- Commandes et boutons du player -->
+        <div class="audio-controls-row">
+          <div class="audio-controls-left">
+            <button type="button" class="audio-btn-icon" id="audio-btn-loop" onclick="toggleAudioLoop()" title="Répéter en boucle (R)">
+              🔁
+            </button>
+            <button type="button" class="audio-btn-icon" onclick="changeAudioSpeed()" id="audio-btn-speed" title="Vitesse de lecture">
+              1.0x
+            </button>
+          </div>
+
+          <div class="audio-controls-center">
+            <button type="button" class="audio-btn-icon" onclick="skipAudio(-10)" title="Reculer de 10s (←)">
+              ⏮ 10s
+            </button>
+            <button type="button" class="audio-play-circle" id="audio-btn-play" onclick="toggleAudioPlay()" title="Lecture / Pause (Espace)">
+              <span id="audio-play-icon">▶</span>
+            </button>
+            <button type="button" class="audio-btn-icon" onclick="skipAudio(10)" title="Avancer de 10s (→)">
+              10s ⏭
+            </button>
+          </div>
+
+          <div class="audio-controls-right">
+            <button type="button" class="audio-btn-icon" id="audio-btn-mute" onclick="toggleAudioMute()" title="Muet (M)">
+              🔊
+            </button>
+            <input type="range" class="audio-volume-slider" id="audio-volume-slider" min="0" max="1" step="0.05" value="0.8" oninput="setAudioVolume(this.value)">
+          </div>
+        </div>
+
+        <!-- Raccourcis info -->
+        <div class="audio-footer-hints">
+          Raccourcis : <b>Espace</b> (Play/Pause) | <b>← / →</b> (±5s) | <b>↑ / ↓</b> (Volume) | <b>M</b> (Muet) | <b>R</b> (Boucle) | <b>Q</b> (Fermer)
+        </div>
       </div>
     </div>
   </div>

@@ -1875,3 +1875,195 @@ kbd {
   color: var(--subtext0);
   text-align: center;
 }
+
+
+/* ==========================================================================
+   MODULE FICHIERS : LECTEUR AUDIO HIFI AVEC ÉQUALISEUR SPECTRE EN DIRECT
+   ========================================================================== */
+.audio-window {
+  width: 740px;
+  max-width: 95vw;
+  background: #0d0e17;
+  border: 1px solid rgba(203, 166, 247, 0.3);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.8), 0 0 30px rgba(203, 166, 247, 0.12);
+}
+
+.audio-logo-tag {
+  background: rgba(249, 226, 175, 0.15);
+  color: var(--yellow);
+  border: 1px solid rgba(249, 226, 175, 0.3);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+}
+
+.audio-player-body {
+  padding: 20px 24px 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.audio-visualizer-container {
+  height: 180px;
+  position: relative;
+  background: radial-gradient(circle at center, rgba(30, 30, 46, 0.7) 0%, rgba(13, 14, 23, 0.98) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.6);
+}
+
+.audio-visualizer-canvas {
+  width: 100%;
+  height: 152px;
+  display: block;
+}
+
+.audio-freq-labels {
+  display: flex;
+  justify-content: space-between;
+  width: calc(100% - 32px);
+  padding: 4px 0 6px;
+  font-size: 0.65rem;
+  color: #585b70;
+  font-family: var(--font-mono);
+  user-select: none;
+}
+
+.audio-timeline-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.audio-time-label {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--subtext0);
+  width: 44px;
+  text-align: center;
+  user-select: none;
+}
+
+.audio-scrub-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--surface0);
+  border-radius: 4px;
+  position: relative;
+  cursor: pointer;
+  transition: height 0.15s ease;
+}
+
+.audio-scrub-bar:hover {
+  height: 10px;
+}
+
+.audio-scrub-progress {
+  height: 100%;
+  background: linear-gradient(90deg, var(--teal), var(--mauve), var(--pink));
+  border-radius: 4px;
+  width: 0%;
+  transition: width 0.1s linear;
+}
+
+.audio-scrub-thumb {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 14px;
+  height: 14px;
+  background: #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 10px var(--mauve);
+  pointer-events: none;
+}
+
+.audio-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+}
+
+.audio-controls-left, .audio-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.audio-controls-center {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.audio-play-circle {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--mauve), var(--blue));
+  border: none;
+  color: #11111b;
+  font-size: 1.25rem;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 18px rgba(203, 166, 247, 0.4);
+}
+
+.audio-play-circle:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 24px rgba(203, 166, 247, 0.6);
+}
+
+.audio-btn-icon {
+  background: var(--surface0);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.audio-btn-icon:hover {
+  background: var(--surface1);
+  color: var(--mauve);
+}
+
+.audio-btn-icon.active {
+  background: rgba(203, 166, 247, 0.2);
+  border-color: var(--mauve);
+  color: var(--mauve);
+}
+
+.audio-volume-slider {
+  accent-color: var(--mauve);
+  width: 85px;
+  cursor: pointer;
+}
+
+.audio-footer-hints {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 0.72rem;
+  color: var(--subtext0);
+  text-align: center;
+}

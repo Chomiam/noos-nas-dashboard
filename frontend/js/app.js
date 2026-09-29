@@ -1484,6 +1484,8 @@ function handleFileDblClick(path, isDir) {
 
     if (cat === "video" || /\.(mp4|mkv|webm|avi|mov|m4v|flv)$/i.test(fileName)) {
       openMpvModal(path, fileName);
+    } else if (cat === "audio" || /\.(mp3|flac|wav|aac|ogg|m4a|opus|wma)$/i.test(fileName)) {
+      openAudioModal(path, fileName, item ? item.size_bytes : 0);
     } else if (cat === "code" || cat === "document" || /\.(nix|txt|sh|bash|conf|json|toml|yaml|yml|md|rs|js|py|c|h|css|html|log|env|service|ini)$/i.test(fileName)) {
       openNvimModal(path, fileName);
     } else {
@@ -1559,17 +1561,21 @@ function handleItemContextMenu(e, path) {
   const ctxPaste = document.getElementById("ctx-paste");
   const ctxEdit = document.getElementById("ctx-edit-nvim");
   const ctxPlay = document.getElementById("ctx-play-video");
+  const ctxAudio = document.getElementById("ctx-play-audio");
 
   if (ctxOpen) ctxOpen.style.display = selectedFileItem && selectedFileItem.is_dir ? "flex" : "none";
   if (ctxPaste) ctxPaste.classList.toggle("disabled", !fileClipboard);
 
   const isVideo = selectedFileItem && !selectedFileItem.is_dir &&
     (selectedFileItem.category === "video" || /\.(mp4|mkv|webm|avi|mov|m4v|flv)$/i.test(selectedFileItem.name));
+  const isAudio = selectedFileItem && !selectedFileItem.is_dir &&
+    (selectedFileItem.category === "audio" || /\.(mp3|flac|wav|aac|ogg|m4a|opus|wma)$/i.test(selectedFileItem.name));
   const isEditable = selectedFileItem && !selectedFileItem.is_dir &&
     (selectedFileItem.category === "code" || selectedFileItem.category === "document" || /\.(nix|txt|sh|bash|conf|json|toml|yaml|yml|md|rs|js|py|c|h|css|html|log|env|service|ini)$/i.test(selectedFileItem.name));
 
   if (ctxEdit) ctxEdit.style.display = isEditable ? "flex" : "none";
   if (ctxPlay) ctxPlay.style.display = isVideo ? "flex" : "none";
+  if (ctxAudio) ctxAudio.style.display = isAudio ? "flex" : "none";
 
   positionContextMenu(menu, e.clientX, e.clientY);
 }
@@ -1598,8 +1604,10 @@ function handleBackgroundContextMenu(e) {
 
   const ctxEdit = document.getElementById("ctx-edit-nvim");
   const ctxPlay = document.getElementById("ctx-play-video");
+  const ctxAudio = document.getElementById("ctx-play-audio");
   if (ctxEdit) ctxEdit.style.display = "none";
   if (ctxPlay) ctxPlay.style.display = "none";
+  if (ctxAudio) ctxAudio.style.display = "none";
 
   if (ctxPaste) {
     ctxPaste.style.display = "flex";
@@ -1661,6 +1669,12 @@ async function triggerFileAction(action) {
     case "play-video":
       if (selectedFileItem && !selectedFileItem.is_dir) {
         openMpvModal(selectedFileItem.path, selectedFileItem.name);
+      }
+      break;
+
+    case "play-audio":
+      if (selectedFileItem && !selectedFileItem.is_dir) {
+        openAudioModal(selectedFileItem.path, selectedFileItem.name, selectedFileItem.size_bytes);
       }
       break;
 
@@ -2583,5 +2597,346 @@ function handleModalOverlayClick(e, modalId) {
   if (e.target.id === modalId) {
     if (modalId === "nvim-modal") closeNvimModal();
     if (modalId === "mpv-modal") closeMpvModal();
+    if (modalId === "audio-modal") closeAudioModal();
   }
+}
+
+
+// --------------------------------------------------------------------------
+// MODALE LECTEUR AUDIO HIFI & ÉQUALISEUR SPECTRE EN DIRECT
+// --------------------------------------------------------------------------
+let audioCtx = null;
+let audioSourceNode = null;
+let audioAnalyserNode = null;
+let audioAnimId = null;
+let audioPeakHeights = [];
+let audioKeyHandler = null;
+let currentAudioPath = null;
+const audioSpeeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+let audioSpeedIndex = 2;
+
+function openAudioModal(path, fileName, sizeBytes) {
+  currentAudioPath = path;
+  const modal = document.getElementById("audio-modal");
+  const title = document.getElementById("audio-file-title");
+  const formatBadge = document.getElementById("audio-format-badge");
+  const sizeLabel = document.getElementById("audio-file-size");
+  const audioEl = document.getElementById("audio-element");
+  const playIcon = document.getElementById("audio-play-icon");
+  const loopBtn = document.getElementById("audio-btn-loop");
+  const speedBtn = document.getElementById("audio-btn-speed");
+  const progressBar = document.getElementById("audio-scrub-progress");
+  const thumb = document.getElementById("audio-scrub-thumb");
+  const curTime = document.getElementById("audio-current-time");
+  const totTime = document.getElementById("audio-total-time");
+
+  if (!modal || !audioEl) return;
+
+  const ext = (fileName || path).split(".").pop().toUpperCase();
+  if (title) title.textContent = fileName || path.split("/").pop();
+  if (formatBadge) formatBadge.textContent = ext || "AUDIO";
+  if (sizeLabel && sizeBytes) sizeLabel.textContent = formatFileSize(sizeBytes);
+  if (playIcon) playIcon.textContent = "▶";
+  if (progressBar) progressBar.style.width = "0%";
+  if (thumb) thumb.style.left = "0%";
+  if (curTime) curTime.textContent = "00:00";
+  if (totTime) totTime.textContent = "00:00";
+  if (loopBtn) loopBtn.classList.remove("active");
+  if (speedBtn) speedBtn.textContent = "1.0x";
+  audioSpeedIndex = 2;
+  audioEl.loop = false;
+  audioEl.playbackRate = 1.0;
+
+  const streamUrl = `/api/files/stream?path=${encodeURIComponent(path)}`;
+  audioEl.src = streamUrl;
+
+  if (!audioCtx) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass) {
+      audioCtx = new AudioContextClass();
+      audioSourceNode = audioCtx.createMediaElementSource(audioEl);
+      audioAnalyserNode = audioCtx.createAnalyser();
+      audioAnalyserNode.fftSize = 128;
+      audioAnalyserNode.smoothingTimeConstant = 0.82;
+      audioSourceNode.connect(audioAnalyserNode);
+      audioAnalyserNode.connect(audioCtx.destination);
+    }
+  }
+
+  modal.style.display = "flex";
+
+  if (audioCtx && audioCtx.state === "suspended") {
+    audioCtx.resume();
+  }
+
+  audioEl.play().then(() => {
+    if (playIcon) playIcon.textContent = "⏸";
+  }).catch(() => {
+    if (playIcon) playIcon.textContent = "▶";
+  });
+
+  startAudioVisualizer();
+
+  audioEl.ontimeupdate = () => {
+    if (!audioEl.duration) return;
+    const percent = (audioEl.currentTime / audioEl.duration) * 100;
+    if (progressBar) progressBar.style.width = `${percent}%`;
+    if (thumb) thumb.style.left = `${percent}%`;
+    if (curTime) curTime.textContent = formatAudioTime(audioEl.currentTime);
+  };
+
+  audioEl.onloadedmetadata = () => {
+    if (totTime && audioEl.duration) totTime.textContent = formatAudioTime(audioEl.duration);
+  };
+
+  audioEl.onended = () => {
+    if (!audioEl.loop && playIcon) {
+      playIcon.textContent = "▶";
+    }
+  };
+
+  if (audioKeyHandler) window.removeEventListener("keydown", audioKeyHandler);
+  audioKeyHandler = (e) => handleAudioKeydown(e, audioEl);
+  window.addEventListener("keydown", audioKeyHandler);
+}
+
+function startAudioVisualizer() {
+  const canvas = document.getElementById("audio-visualizer-canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth || 680;
+  const height = canvas.clientHeight || 152;
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  ctx.scale(dpr, dpr);
+
+  const bufferLength = audioAnalyserNode ? audioAnalyserNode.frequencyBinCount : 32;
+  const dataArray = new Uint8Array(bufferLength);
+  const barCount = 36;
+  if (audioPeakHeights.length !== barCount) {
+    audioPeakHeights = new Array(barCount).fill(0);
+  }
+
+  function draw() {
+    audioAnimId = requestAnimationFrame(draw);
+
+    if (audioAnalyserNode) {
+      audioAnalyserNode.getByteFrequencyData(dataArray);
+    }
+
+    ctx.clearRect(0, 0, width, height);
+
+    const padding = 12;
+    const availableWidth = width - (padding * 2);
+    const barSpacing = 4;
+    const barWidth = Math.max(4, Math.floor((availableWidth - (barSpacing * (barCount - 1))) / barCount));
+
+    for (let i = 0; i < barCount; i++) {
+      const dataIndex = Math.min(Math.floor((i / barCount) * (bufferLength * 0.85)), bufferLength - 1);
+      const value = dataArray[dataIndex] || 0;
+      const percent = value / 255;
+      const maxBarHeight = height - 24;
+      const targetHeight = Math.max(3, percent * maxBarHeight);
+
+      if (targetHeight > audioPeakHeights[i]) {
+        audioPeakHeights[i] = targetHeight;
+      } else {
+        audioPeakHeights[i] = Math.max(0, audioPeakHeights[i] - 1.4);
+      }
+
+      const x = padding + i * (barWidth + barSpacing);
+      const y = height - targetHeight - 4;
+
+      const grad = ctx.createLinearGradient(0, height, 0, y);
+      grad.addColorStop(0, "#94e2d5");
+      grad.addColorStop(0.35, "#89b4fa");
+      grad.addColorStop(0.75, "#cba6f7");
+      grad.addColorStop(1, "#f38ba8");
+
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(x, y, barWidth, targetHeight, [3, 3, 0, 0]);
+      } else {
+        ctx.rect(x, y, barWidth, targetHeight);
+      }
+      ctx.fill();
+
+      if (audioPeakHeights[i] > 4) {
+        const peakY = height - audioPeakHeights[i] - 8;
+        ctx.fillStyle = "#f9e2af";
+        ctx.shadowColor = "#cba6f7";
+        ctx.shadowBlur = 4;
+        ctx.fillRect(x, peakY, barWidth, 2);
+        ctx.shadowBlur = 0;
+      }
+    }
+  }
+
+  if (audioAnimId) cancelAnimationFrame(audioAnimId);
+  draw();
+}
+
+function toggleAudioPlay() {
+  const audioEl = document.getElementById("audio-element");
+  const playIcon = document.getElementById("audio-play-icon");
+  if (!audioEl) return;
+
+  if (audioCtx && audioCtx.state === "suspended") {
+    audioCtx.resume();
+  }
+
+  if (audioEl.paused) {
+    audioEl.play().then(() => {
+      if (playIcon) playIcon.textContent = "⏸";
+    });
+  } else {
+    audioEl.pause();
+    if (playIcon) playIcon.textContent = "▶";
+  }
+}
+
+function seekAudio(e) {
+  const audioEl = document.getElementById("audio-element");
+  const scrubBar = document.getElementById("audio-scrub-bar");
+  if (!audioEl || !scrubBar || !audioEl.duration) return;
+
+  const rect = scrubBar.getBoundingClientRect();
+  const clickX = e.clientX - rect.left;
+  const width = rect.width;
+  const ratio = Math.max(0, Math.min(1, clickX / width));
+  audioEl.currentTime = ratio * audioEl.duration;
+}
+
+function skipAudio(seconds) {
+  const audioEl = document.getElementById("audio-element");
+  if (!audioEl) return;
+  audioEl.currentTime = Math.max(0, Math.min(audioEl.duration || 999999, audioEl.currentTime + seconds));
+}
+
+function toggleAudioLoop() {
+  const audioEl = document.getElementById("audio-element");
+  const loopBtn = document.getElementById("audio-btn-loop");
+  if (!audioEl) return;
+  audioEl.loop = !audioEl.loop;
+  if (loopBtn) loopBtn.classList.toggle("active", audioEl.loop);
+  showToast(audioEl.loop ? "Répétition en boucle activée" : "Répétition désactivée", "info");
+}
+
+function changeAudioSpeed() {
+  const audioEl = document.getElementById("audio-element");
+  const speedBtn = document.getElementById("audio-btn-speed");
+  if (!audioEl) return;
+
+  audioSpeedIndex = (audioSpeedIndex + 1) % audioSpeeds.length;
+  const speed = audioSpeeds[audioSpeedIndex];
+  audioEl.playbackRate = speed;
+  if (speedBtn) speedBtn.textContent = `${speed.toFixed(1)}x`;
+}
+
+function setAudioVolume(val) {
+  const audioEl = document.getElementById("audio-element");
+  const muteBtn = document.getElementById("audio-btn-mute");
+  if (!audioEl) return;
+  audioEl.volume = parseFloat(val);
+  if (muteBtn) muteBtn.textContent = audioEl.volume === 0 ? "🔇" : "🔊";
+}
+
+function toggleAudioMute() {
+  const audioEl = document.getElementById("audio-element");
+  const muteBtn = document.getElementById("audio-btn-mute");
+  const volumeSlider = document.getElementById("audio-volume-slider");
+  if (!audioEl) return;
+
+  audioEl.muted = !audioEl.muted;
+  if (muteBtn) muteBtn.textContent = audioEl.muted ? "🔇" : "🔊";
+  if (volumeSlider) volumeSlider.value = audioEl.muted ? 0 : audioEl.volume;
+}
+
+function formatAudioTime(secs) {
+  if (isNaN(secs) || secs < 0) return "00:00";
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+}
+
+function handleAudioKeydown(e, audioEl) {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+  const modal = document.getElementById("audio-modal");
+  if (!modal || modal.style.display === "none") return;
+
+  switch (e.code) {
+    case "Space":
+    case "KeyP":
+      e.preventDefault();
+      toggleAudioPlay();
+      break;
+
+    case "ArrowLeft":
+      e.preventDefault();
+      skipAudio(e.shiftKey ? -1 : -5);
+      break;
+
+    case "ArrowRight":
+      e.preventDefault();
+      skipAudio(e.shiftKey ? 1 : 5);
+      break;
+
+    case "ArrowUp":
+      e.preventDefault();
+      audioEl.volume = Math.min(1, parseFloat((audioEl.volume + 0.05).toFixed(2)));
+      const vSliderUp = document.getElementById("audio-volume-slider");
+      if (vSliderUp) vSliderUp.value = audioEl.volume;
+      break;
+
+    case "ArrowDown":
+      e.preventDefault();
+      audioEl.volume = Math.max(0, parseFloat((audioEl.volume - 0.05).toFixed(2)));
+      const vSliderDown = document.getElementById("audio-volume-slider");
+      if (vSliderDown) vSliderDown.value = audioEl.volume;
+      break;
+
+    case "KeyM":
+      e.preventDefault();
+      toggleAudioMute();
+      break;
+
+    case "KeyR":
+      e.preventDefault();
+      toggleAudioLoop();
+      break;
+
+    case "KeyQ":
+    case "Escape":
+      e.preventDefault();
+      closeAudioModal();
+      break;
+  }
+}
+
+function closeAudioModal() {
+  const modal = document.getElementById("audio-modal");
+  const audioEl = document.getElementById("audio-element");
+
+  if (audioEl) {
+    audioEl.pause();
+    audioEl.removeAttribute("src");
+    audioEl.load();
+  }
+
+  if (audioAnimId) {
+    cancelAnimationFrame(audioAnimId);
+    audioAnimId = null;
+  }
+
+  if (audioKeyHandler) {
+    window.removeEventListener("keydown", audioKeyHandler);
+    audioKeyHandler = null;
+  }
+
+  if (modal) modal.style.display = "none";
+  currentAudioPath = null;
 }

@@ -60,6 +60,7 @@
               description = "STEvE_OS NAS Dashboard Web Server";
               after = [ "network.target" ];
               wantedBy = [ "multi-user.target" ];
+              stopIfChanged = false;
               path = with pkgs; [
                 git
                 gh
