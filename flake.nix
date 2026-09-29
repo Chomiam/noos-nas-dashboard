@@ -77,7 +77,6 @@
                 STEVEOS_PORT = toString cfg.port;
                 STEVEOS_FRONTEND_DIR = "${pkg}/share/steveos-nas-dashboard/frontend";
                 STEVEOS_CONFIG_DIR = "/etc/nixos";
-                PATH = "/run/current-system/sw/bin:/run/wrappers/bin";
                 NIX_CONFIG = "extra-experimental-features = nix-command flakes";
               };
               serviceConfig = {
