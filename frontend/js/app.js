@@ -5523,12 +5523,21 @@ async function startYoutubeDownload() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         url: url,
-        format: currentYoutubeFormat,
+        format: currentYoutubeFormat || "mp4",
         output_dir: dest_dir,
-        filename: custom_name || null,
-        custom_filename: custom_name || null
+        filename: custom_name || ""
       })
     });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      let errMsg = errText;
+      try {
+        const errJson = JSON.parse(errText);
+        if (errJson.message) errMsg = errJson.message;
+      } catch (_) {}
+      throw new Error(errMsg || `Erreur serveur HTTP ${res.status}`);
+    }
 
     const json = await res.json();
     if (!json.success || !json.data) {

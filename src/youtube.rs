@@ -30,15 +30,22 @@ pub struct YoutubeInfoRequest {
 #[derive(Debug, Clone, Deserialize)]
 pub struct YoutubeDownloadRequest {
     pub url: String,
-    pub format: String, // "mp4" or "mp3"
+    #[serde(default = "default_format")]
+    pub format: Option<String>, // "mp4" or "mp3"
     #[serde(default = "default_output_dir")]
-    pub output_dir: String,
-    #[serde(alias = "custom_filename", default)]
+    pub output_dir: Option<String>,
+    #[serde(default)]
     pub filename: Option<String>,
+    #[serde(default)]
+    pub custom_filename: Option<String>,
 }
 
-fn default_output_dir() -> String {
-    "/home/chomiam/videos".to_string()
+fn default_format() -> Option<String> {
+    Some("mp4".to_string())
+}
+
+fn default_output_dir() -> Option<String> {
+    Some("/home/chomiam/videos".to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,7 +71,7 @@ fn get_jobs_map() -> &'static Arc<Mutex<HashMap<String, YoutubeJobStatus>>> {
 }
 
 fn sanitize_filename(name: &str) -> String {
-    let forbidden = ['/', '\\', ':', '*', '?', '"', '<', '>', '|', '\0', '\n', '\r', '\t'];
+    let forbidden = ['/', '\\', ':', '*', '?', '"', '<', '>', '|', '%', '\'', '`', '$', ';', '\0', '\n', '\r', '\t'];
     let mut clean = String::with_capacity(name.len());
     for ch in name.chars() {
         if forbidden.contains(&ch) {
@@ -73,11 +80,26 @@ fn sanitize_filename(name: &str) -> String {
             clean.push(ch);
         }
     }
-    let trimmed = clean.trim();
+
+    let mut result = String::with_capacity(clean.len());
+    let mut prev_underscore = false;
+    for ch in clean.trim().chars() {
+        if ch == '_' {
+            if !prev_underscore {
+                result.push('_');
+                prev_underscore = true;
+            }
+        } else {
+            result.push(ch);
+            prev_underscore = false;
+        }
+    }
+
+    let trimmed = result.trim_matches(|c: char| c == ' ' || c == '.' || c == '_' || c == '-');
     if trimmed.is_empty() {
         "video".to_string()
     } else {
-        trimmed.to_string()
+        trimmed.chars().take(180).collect()
     }
 }
 
@@ -174,25 +196,27 @@ pub fn start_youtube_download(req: YoutubeDownloadRequest) -> Result<String, Str
         return Err("URL manquante.".into());
     }
 
-    let is_mp3 = req.format.to_lowercase() == "mp3";
+    let format_str = req.format.unwrap_or_else(|| "mp4".into()).to_lowercase();
+    let is_mp3 = format_str == "mp3";
     let ext = if is_mp3 { "mp3" } else { "mp4" };
 
-    let norm_dir = crate::files::normalize_user_path(PathBuf::from(req.output_dir.trim()));
+    let default_dir = if is_mp3 { "/home/chomiam/musique".to_string() } else { "/home/chomiam/videos".to_string() };
+    let out_dir_raw = req.output_dir.unwrap_or(default_dir);
+    let norm_dir = crate::files::normalize_user_path(PathBuf::from(out_dir_raw.trim()));
     if !norm_dir.exists() {
         fs::create_dir_all(&norm_dir).map_err(|e| format!("Impossible de créer le dossier de sortie : {}", e))?;
     }
 
-    let raw_name = sanitize_filename(req.filename.as_deref().unwrap_or(""));
-    let base_name = if raw_name.is_empty() {
-        "video".to_string()
-    } else if raw_name.ends_with(".mp4") || raw_name.ends_with(".mp3") {
-        raw_name.rsplitn(2, '.').last().unwrap_or("video").to_string()
+    let raw_name = req.filename.or(req.custom_filename).unwrap_or_default();
+    let sanitized = sanitize_filename(&raw_name);
+    let base_name = if sanitized.ends_with(".mp4") || sanitized.ends_with(".mp3") {
+        sanitized.rsplitn(2, '.').last().unwrap_or("video").to_string()
     } else {
-        raw_name
+        sanitized
     };
 
     let target_file_path = norm_dir.join(format!("{}.{}", base_name, ext));
-    let job_id = format!("{}_{}", base_name, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+    let job_id = format!("yt_{}_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(), std::process::id());
 
     let job = YoutubeJobStatus {
         id: job_id.clone(),
