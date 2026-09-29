@@ -6,6 +6,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::trash::{delete_trash_item, empty_trash, get_trash_overview, restore_trash_item, TrashActionRequest, TrashOverview};
 use crate::files::{
     copy_item, create_directory, delete_item, get_image_info, get_image_preview_path, list_directory, move_item, rename_item,
     ActionRequest, DeleteRequest, DirectoryListing, ImageInfoResponse, ListQuery, MkdirRequest, RenameRequest,
@@ -95,6 +96,10 @@ pub fn api_routes() -> Router {
         .route("/files/image-view", get(handle_files_image_view))
         .route("/files/image-info", get(handle_files_image_info))
         .route("/files/write", post(handle_files_write))
+        .route("/files/trash", get(handle_trash_overview))
+        .route("/files/trash/restore", post(handle_trash_restore))
+        .route("/files/trash/delete", post(handle_trash_delete))
+        .route("/files/trash/empty", post(handle_trash_empty))
         .route("/service/:unit/:action", post(handle_service_action))
         .route("/storage/:disk/spindown", post(handle_disk_spindown))
         .route("/hardware", get(handle_hardware))
@@ -323,6 +328,71 @@ async fn handle_files_list(Query(params): Query<ListQuery>) -> Json<ApiResponse<
     }
 }
 
+
+async fn handle_trash_overview() -> Json<ApiResponse<TrashOverview>> {
+    match get_trash_overview() {
+        Ok(data) => Json(ApiResponse {
+            success: true,
+            data: Some(data),
+            message: None,
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+    }
+}
+
+async fn handle_trash_restore(
+    Json(payload): Json<TrashActionRequest>,
+) -> Json<ApiResponse<()>> {
+    match restore_trash_item(&payload.id) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: None,
+            message: Some(msg),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+    }
+}
+
+async fn handle_trash_delete(
+    Json(payload): Json<TrashActionRequest>,
+) -> Json<ApiResponse<()>> {
+    match delete_trash_item(&payload.id) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: None,
+            message: Some(msg),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+    }
+}
+
+async fn handle_trash_empty() -> Json<ApiResponse<()>> {
+    match empty_trash() {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: None,
+            message: Some(msg),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+    }
+}
+
 async fn handle_files_mkdir(Json(req): Json<MkdirRequest>) -> Json<ApiResponse<String>> {
     let res = tokio::task::spawn_blocking(move || {
         create_directory(&req.path, &req.name)
@@ -348,8 +418,9 @@ async fn handle_files_mkdir(Json(req): Json<MkdirRequest>) -> Json<ApiResponse<S
 }
 
 async fn handle_files_delete(Json(req): Json<DeleteRequest>) -> Json<ApiResponse<String>> {
+    let permanent = req.permanent.unwrap_or(false);
     let res = tokio::task::spawn_blocking(move || {
-        delete_item(&req.path)
+        delete_item(&req.path, permanent)
     }).await;
 
     match res {

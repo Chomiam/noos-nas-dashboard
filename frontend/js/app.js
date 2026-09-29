@@ -16,6 +16,7 @@ function initApp() {
   updateSftpUri();
   checkForUpdates(false);
   fetchPowerStatus();
+  fetchTrashCount();
   initDragAndDrop();
 }
 
@@ -42,6 +43,10 @@ function setupPolling() {
   setInterval(() => {
     fetchPowerStatus();
   }, 15000);
+
+  setInterval(() => {
+    fetchTrashCount();
+  }, 30000);
 }
 
 // --------------------------------------------------------------------------
@@ -1984,6 +1989,9 @@ function hideAutocompleteDropdown() {
 // EXPLORATEUR DE FICHIERS (FILE MANAGER)
 // --------------------------------------------------------------------------
 let currentFolderPath = "/home/chomiam";
+let isTrashView = false;
+let trashOverview = null;
+let selectedTrashItem = null;
 let currentFolderParent = null;
 let currentEntries = [];
 let fileViewMode = "grid";
@@ -1991,6 +1999,12 @@ let fileClipboard = null; // { action: 'copy' | 'cut', path: string, name: strin
 let selectedFileItem = null;
 
 async function navigateToPath(targetPath) {
+  isTrashView = false;
+  selectedTrashItem = null;
+  const normalTb = document.getElementById("files-toolbar-normal");
+  const trashTb = document.getElementById("files-toolbar-trash");
+  if (normalTb) normalTb.style.display = "flex";
+  if (trashTb) trashTb.style.display = "none";
   if (!targetPath) return;
 
   try {
@@ -2017,6 +2031,12 @@ async function navigateToPath(targetPath) {
 }
 
 function updateSidebarNavActive(path) {
+  if (path === "/corbeille" || isTrashView) {
+    document.querySelectorAll(".files-nav-item").forEach(item => item.classList.remove("active"));
+    const el = document.getElementById("fnav-trash");
+    if (el) el.classList.add("active");
+    return;
+  }
   const normPath = path ? path.replace(/\/+$/, '') : '';
   const mapping = {
     "/home/chomiam": "fnav-home",
@@ -2251,6 +2271,11 @@ function handleItemContextMenu(e, path) {
   e.preventDefault();
   e.stopPropagation();
 
+  if (isTrashView) {
+    handleTrashContextMenu(e, path);
+    return;
+  }
+
   selectedFileItem = currentEntries.find(i => i.path === path) || null;
 
   const menu = document.getElementById("files-context-menu");
@@ -2413,7 +2438,24 @@ async function triggerFileAction(action) {
 
     case "delete":
       if (!selectedFileItem) return;
-      confirmDelete(selectedFileItem);
+      confirmDelete(selectedFileItem, false);
+      break;
+
+    case "delete-permanent":
+      if (!selectedFileItem) return;
+      confirmDelete(selectedFileItem, true);
+      break;
+
+    case "trash-restore":
+      if (selectedTrashItem) {
+        restoreTrashItem(selectedTrashItem.id);
+      }
+      break;
+
+    case "trash-delete":
+      if (selectedTrashItem) {
+        deleteTrashPermanent(selectedTrashItem.id);
+      }
       break;
   }
 }
@@ -2468,24 +2510,31 @@ async function promptRename(item) {
   }
 }
 
-async function confirmDelete(item) {
-  const isDir = item.is_dir;
-  const msg = isDir 
-    ? `Êtes-vous sûr de vouloir supprimer définitivement le dossier "${item.name}" et tout son contenu ?`
-    : `Êtes-vous sûr de vouloir supprimer définitivement le fichier "${item.name}" ?`;
+async function confirmDelete(item, permanent = false) {
+  if (permanent) {
+    const isDir = item.is_dir;
+    const msg = isDir 
+      ? `Êtes-vous sûr de vouloir supprimer DÉFINITIVEMENT le dossier "${item.name}" et tout son contenu ? Cette action est irréversible.`
+      : `Êtes-vous sûr de vouloir supprimer DÉFINITIVEMENT le fichier "${item.name}" ? Cette action est irréversible.`;
 
-  if (!confirm(msg)) return;
+    if (!confirm(msg)) return;
+  }
 
   try {
     const res = await fetch("/api/files/delete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: item.path })
+      body: JSON.stringify({ path: item.path, permanent: permanent })
     });
     const json = await res.json();
     if (json.success) {
-      showToast(json.message || "Suppression effectuée", "success");
+      if (permanent) {
+        showToast(json.message || "Suppression définitive effectuée.", "success");
+      } else {
+        showToast(json.message || `'${item.name}' déplacé dans la corbeille (rétention 30 jours)`, "success");
+      }
       refreshCurrentFolder();
+      fetchTrashCount();
     } else {
       showToast(json.message || "Échec de suppression", "error");
     }
@@ -4944,5 +4993,263 @@ async function cancelScheduledPower() {
     }
   } catch (err) {
     showToast("Erreur lors de l'annulation : " + err, "error");
+  }
+}
+
+
+// ==========================================================================
+// GESTION DE LA CORBEILLE (TRASH) AVEC RÉTENTION 30 JOURS
+// ==========================================================================
+async function navigateToTrash() {
+  isTrashView = true;
+  currentFolderPath = "/corbeille";
+  updateSidebarNavActive("/corbeille");
+
+  const normalTb = document.getElementById("files-toolbar-normal");
+  const trashTb = document.getElementById("files-toolbar-trash");
+  if (normalTb) normalTb.style.display = "none";
+  if (trashTb) trashTb.style.display = "flex";
+
+  const breadcrumb = document.getElementById("files-breadcrumbs");
+  if (breadcrumb) {
+    breadcrumb.innerHTML = '<span class="crumb-item active" style="color:var(--mauve);">🗑️ Corbeille (Rétention automatique 30 jours)</span>';
+  }
+
+  await refreshTrash();
+}
+
+async function refreshTrash() {
+  try {
+    const res = await fetch("/api/files/trash");
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      showToast(json.message || "Erreur lors du chargement de la corbeille", "error");
+      return;
+    }
+
+    trashOverview = json.data;
+    updateTrashBadge(trashOverview.total_items);
+    renderTrashList(trashOverview.items);
+    updateFilesStatusBar(trashOverview.total_items, trashOverview.total_size_bytes);
+  } catch (err) {
+    showToast("Erreur lors de la récupération de la corbeille : " + err, "error");
+  }
+}
+
+async function fetchTrashCount() {
+  try {
+    const res = await fetch("/api/files/trash");
+    const json = await res.json();
+    if (json.success && json.data) {
+      updateTrashBadge(json.data.total_items);
+    }
+  } catch (err) {
+    // Silently ignore
+  }
+}
+
+function updateTrashBadge(count) {
+  const badge = document.getElementById("trash-badge-count");
+  if (badge) {
+    badge.textContent = count;
+    badge.style.display = count > 0 ? "inline-block" : "none";
+  }
+}
+
+function renderTrashList(items) {
+  const gridWrap = document.getElementById("files-grid-wrap");
+  const tableBody = document.getElementById("files-table-tbody");
+  const gridContainer = document.getElementById("files-grid-wrap");
+  const tableContainer = document.getElementById("files-table-wrap");
+
+  if (!gridWrap || !tableBody) return;
+
+  const btnRestore = document.getElementById("btn-trash-restore");
+  const btnDeletePerm = document.getElementById("btn-trash-delete-perm");
+  if (btnRestore) btnRestore.disabled = true;
+  if (btnDeletePerm) btnDeletePerm.disabled = true;
+
+  if (items.length === 0) {
+    const emptyHtml = '<div style="grid-column:1/-1; padding:60px 20px; text-align:center; color:var(--subtext0);">' +
+      '<div style="font-size:3rem; margin-bottom:12px;">🗑️</div>' +
+      '<div style="font-size:1.1rem; font-weight:600; color:var(--text);">La corbeille est vide</div>' +
+      '<div style="font-size:0.85rem; margin-top:6px; color:var(--subtext0);">Les fichiers supprimés sont conservés ici pendant 30 jours avant purge définitive.</div>' +
+    '</div>';
+    gridWrap.innerHTML = emptyHtml;
+    tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--subtext0); padding:40px;">🗑️ La corbeille est vide (rétention automatique de 30 jours)</td></tr>';
+    return;
+  }
+
+  // Rendu Grille
+  gridWrap.innerHTML = items.map(item => {
+    const icon = getFileIcon(item);
+    let cardPreview = '<div class="file-card-icon">' + icon + '</div>';
+    if (isImageFile(item.name, item.category)) {
+      const thumbUrl = '/api/files/image-view?path=' + encodeURIComponent(item.trash_path) + '&thumb=true';
+      cardPreview = '<div class="file-card-icon file-card-img-preview" style="width:100%; height:80px; max-height:80px; overflow:hidden; border-radius:6px; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.35);"><img src="' + thumbUrl + '" loading="lazy" alt="' + escapeHtml(item.name) + '" style="width:100%; height:100%; max-width:100%; max-height:100%; object-fit:cover; display:block; border-radius:5px;" onerror="this.onerror=null; this.parentElement.className=\'file-card-icon\'; this.parentElement.style=\'width:100%; height:80px; display:flex; align-items:center; justify-content:center; font-size:2.4rem;\'; this.parentElement.innerHTML=\'' + icon + '\';"></div>';
+    }
+
+    const pillClass = item.days_remaining > 10 ? 'days-safe' : (item.days_remaining > 3 ? 'days-warning' : 'days-danger');
+
+    return '<div class="file-card" style="min-width:0; overflow:hidden;" ' +
+           'data-trash-id="' + escapeHtml(item.id) + '" ' +
+           'onclick="handleTrashCardClick(event, \'' + escapeHtml(item.id) + '\')" ' +
+           'ondblclick="promptRestoreTrashItem(\'' + escapeHtml(item.id) + '\', \'' + escapeHtml(item.name) + '\', \'' + escapeHtml(item.original_path) + '\')" ' +
+           'oncontextmenu="handleTrashContextMenu(event, \'' + escapeHtml(item.id) + '\')">' +
+        cardPreview +
+        '<div class="file-card-name" title="' + escapeHtml(item.name) + '">' + escapeHtml(item.name) + '</div>' +
+        '<div class="trash-orig-path" title="' + escapeHtml(item.original_path) + '">' + escapeHtml(item.original_path) + '</div>' +
+        '<div class="file-card-meta">' + escapeHtml(item.size_human) + '</div>' +
+        '<div class="trash-card-days ' + pillClass + '">⏳ ' + item.days_remaining + ' j restants</div>' +
+      '</div>';
+  }).join("");
+
+  // Rendu Tableau
+  tableBody.innerHTML = items.map(item => {
+    const icon = getFileIcon(item);
+    const pillClass = item.days_remaining > 10 ? 'days-safe' : (item.days_remaining > 3 ? 'days-warning' : 'days-danger');
+    return '<tr data-trash-id="' + escapeHtml(item.id) + '" ' +
+          'onclick="handleTrashCardClick(event, \'' + escapeHtml(item.id) + '\')" ' +
+          'ondblclick="promptRestoreTrashItem(\'' + escapeHtml(item.id) + '\', \'' + escapeHtml(item.name) + '\', \'' + escapeHtml(item.original_path) + '\')" ' +
+          'oncontextmenu="handleTrashContextMenu(event, \'' + escapeHtml(item.id) + '\')">' +
+        '<td>' +
+          '<span style="font-size:1.1rem; margin-right:8px;">' + icon + '</span>' +
+          '<strong style="color:var(--text);">' + escapeHtml(item.name) + '</strong>' +
+        '</td>' +
+        '<td style="color:var(--subtext0); font-family:var(--font-mono); font-size:0.75rem; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + escapeHtml(item.original_path) + '">' +
+          escapeHtml(item.original_path) +
+        '</td>' +
+        '<td style="color:var(--subtext0); font-size:0.8rem;">' + escapeHtml(item.deletion_date || "--") + '</td>' +
+        '<td>' +
+          '<span class="trash-card-days ' + pillClass + '">⏳ ' + item.days_remaining + ' jours</span>' +
+        '</td>' +
+        '<td style="color:var(--subtext0); font-family:var(--font-mono); font-size:0.8rem;">' + escapeHtml(item.size_human) + '</td>' +
+        '<td style="text-align:right;">' +
+          '<button type="button" class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); restoreTrashItem(\'' + escapeHtml(item.id) + '\')" title="Restaurer">🔄</button>' +
+          '<button type="button" class="btn btn-danger btn-xs" onclick="event.stopPropagation(); deleteTrashPermanent(\'' + escapeHtml(item.id) + '\')" title="Supprimer définitivement" style="margin-left:4px;">❌</button>' +
+        '</td>' +
+      '</tr>';
+  }).join("");
+
+  if (fileViewMode === "grid") {
+    gridContainer.style.display = "grid";
+    tableContainer.style.display = "none";
+  } else {
+    gridContainer.style.display = "none";
+    tableContainer.style.display = "table";
+  }
+}
+
+function handleTrashCardClick(e, id) {
+  selectedTrashItem = trashOverview?.items.find(i => i.id === id) || null;
+  document.querySelectorAll(".file-card, tr").forEach(el => el.classList.remove("selected"));
+  const card = document.querySelector('[data-trash-id="' + CSS.escape(id) + '"]');
+  if (card) card.classList.add("selected");
+
+  const btnRestore = document.getElementById("btn-trash-restore");
+  const btnDeletePerm = document.getElementById("btn-trash-delete-perm");
+  if (btnRestore) btnRestore.disabled = !selectedTrashItem;
+  if (btnDeletePerm) btnDeletePerm.disabled = !selectedTrashItem;
+}
+
+function handleTrashContextMenu(e, id) {
+  e.preventDefault();
+  e.stopPropagation();
+  handleTrashCardClick(e, id);
+
+  const menu = document.getElementById("files-context-menu");
+  if (!menu) return;
+
+  document.querySelectorAll(".context-menu-item").forEach(el => el.style.display = "none");
+  const ctxRestore = document.getElementById("ctx-trash-restore");
+  const ctxDelete = document.getElementById("ctx-trash-delete");
+  if (ctxRestore) ctxRestore.style.display = "flex";
+  if (ctxDelete) ctxDelete.style.display = "flex";
+
+  positionContextMenu(menu, e.clientX, e.clientY);
+}
+
+function promptRestoreTrashItem(id, name, origPath) {
+  if (confirm('Voulez-vous restaurer "' + name + '" à son emplacement d\'origine ?\nDestination : ' + origPath)) {
+    restoreTrashItem(id);
+  }
+}
+
+function restoreSelectedTrashItem() {
+  if (selectedTrashItem) {
+    restoreTrashItem(selectedTrashItem.id);
+  } else {
+    showToast("Veuillez sélectionner un élément à restaurer.", "warning");
+  }
+}
+
+function deleteSelectedTrashPermanent() {
+  if (selectedTrashItem) {
+    deleteTrashPermanent(selectedTrashItem.id);
+  } else {
+    showToast("Veuillez sélectionner un élément à supprimer.", "warning");
+  }
+}
+
+async function restoreTrashItem(id) {
+  try {
+    const res = await fetch("/api/files/trash/restore", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: id })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.message || "Élément restauré avec succès.", "success");
+      await refreshTrash();
+    } else {
+      showToast(json.message || "Échec de restauration", "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau : " + err, "error");
+  }
+}
+
+async function deleteTrashPermanent(id) {
+  if (!confirm("Voulez-vous supprimer définitivement cet élément de la corbeille ? Cette action est irréversible.")) {
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/files/trash/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: id })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.message || "Élément définitivement supprimé.", "success");
+      await refreshTrash();
+    } else {
+      showToast(json.message || "Échec de la suppression", "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau : " + err, "error");
+  }
+}
+
+async function emptyEntireTrash() {
+  if (!confirm("Voulez-vous vraiment VIDER TOUTE la corbeille ? Tous les éléments seront définitivement supprimés de manière irréversible.")) {
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/files/trash/empty", {
+      method: "POST"
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.message || "Corbeille vidée avec succès.", "success");
+      await refreshTrash();
+    } else {
+      showToast(json.message || "Échec de vidage de la corbeille", "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau : " + err, "error");
   }
 }

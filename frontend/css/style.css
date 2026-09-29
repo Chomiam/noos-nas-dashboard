@@ -3734,3 +3734,74 @@ select.form-control option,
   font-size: 0.8rem;
   pointer-events: none;
 }
+
+
+/* ==========================================================================
+   CORBEILLE (TRASH) AVEC RÉTENTION 30 JOURS
+   ========================================================================== */
+.trash-badge-count {
+  margin-left: auto;
+  background: var(--surface1);
+  color: var(--subtext0);
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  padding: 1px 7px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.files-nav-item.active .trash-badge-count {
+  background: var(--mauve);
+  color: #11111b;
+  font-weight: 700;
+}
+
+.trash-retention-pill-header {
+  margin-left: 8px;
+  background: rgba(203, 166, 247, 0.1);
+  border: 1px solid rgba(203, 166, 247, 0.25);
+  color: var(--mauve);
+  font-size: 0.78rem;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.trash-card-days {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-top: 4px;
+  display: inline-block;
+}
+
+.trash-card-days.days-safe {
+  background: rgba(166, 227, 161, 0.15);
+  color: var(--green);
+  border: 1px solid rgba(166, 227, 161, 0.3);
+}
+
+.trash-card-days.days-warning {
+  background: rgba(249, 226, 175, 0.15);
+  color: var(--yellow);
+  border: 1px solid rgba(249, 226, 175, 0.3);
+}
+
+.trash-card-days.days-danger {
+  background: rgba(243, 139, 168, 0.15);
+  color: var(--red);
+  border: 1px solid rgba(243, 139, 168, 0.3);
+}
+
+.trash-orig-path {
+  font-size: 0.7rem;
+  color: var(--subtext0);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}

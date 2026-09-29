@@ -25,6 +25,7 @@ mod speedtest;
 mod storage;
 mod system;
 mod terminal;
+mod trash;
 mod updates;
 
 use axum::Router;
@@ -61,6 +62,7 @@ async fn main() {
     println!("\x1b[0m");
 
     updates::start_background_checker();
+    trash::start_background_pruner();
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await

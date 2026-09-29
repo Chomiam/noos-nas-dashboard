@@ -39,6 +39,7 @@ pub struct MkdirRequest {
 #[derive(Debug, Deserialize)]
 pub struct DeleteRequest {
     pub path: String,
+    pub permanent: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -215,27 +216,30 @@ pub fn create_directory(base_dir: &str, dir_name: &str) -> Result<String, String
     Ok(format!("Dossier '{}' créé avec succès.", name))
 }
 
-pub fn delete_item(item_path: &str) -> Result<String, String> {
-    let p = normalize_user_path(PathBuf::from(item_path));
-    if !p.exists() {
-        return Err("Fichier ou dossier introuvable.".into());
-    }
+pub fn delete_item(item_path: &str, permanent: bool) -> Result<String, String> {
+    if permanent {
+        let p = normalize_user_path(PathBuf::from(item_path));
+        if !p.exists() {
+            return Err("Fichier ou dossier introuvable.".into());
+        }
 
-    // Protection contre la suppression des répertoires vitaux
-    let canonical = p.canonicalize().map_err(|e| e.to_string())?;
-    let path_str = canonical.display().to_string();
-    if path_str == "/" || path_str == "/home" || path_str == "/etc" || path_str == "/nix" || path_str == "/boot" {
-        return Err("Suppression interdite sur un répertoire système racine.".into());
-    }
+        let canonical = p.canonicalize().map_err(|e| e.to_string())?;
+        let path_str = canonical.display().to_string();
+        if path_str == "/" || path_str == "/home" || path_str == "/etc" || path_str == "/nix" || path_str == "/boot" || path_str == "/mnt" {
+            return Err("Suppression interdite sur un répertoire système racine.".into());
+        }
 
-    if canonical.is_dir() {
-        fs::remove_dir_all(&canonical)
-            .map_err(|e| format!("Échec de suppression du dossier : {}", e))?;
-        Ok(format!("Dossier '{}' supprimé.", canonical.file_name().and_then(|f| f.to_str()).unwrap_or("")))
+        if canonical.is_dir() {
+            fs::remove_dir_all(&canonical)
+                .map_err(|e| format!("Échec de suppression du dossier : {}", e))?;
+            Ok(format!("Dossier {} supprimé définitivement.", canonical.file_name().and_then(|f| f.to_str()).unwrap_or("")))
+        } else {
+            fs::remove_file(&canonical)
+                .map_err(|e| format!("Échec de suppression du fichier : {}", e))?;
+            Ok(format!("Fichier {} supprimé définitivement.", canonical.file_name().and_then(|f| f.to_str()).unwrap_or("")))
+        }
     } else {
-        fs::remove_file(&canonical)
-            .map_err(|e| format!("Échec de suppression du fichier : {}", e))?;
-        Ok(format!("Fichier '{}' supprimé.", canonical.file_name().and_then(|f| f.to_str()).unwrap_or("")))
+        crate::trash::move_to_trash(item_path)
     }
 }
 
@@ -314,7 +318,7 @@ pub fn move_item(src: &str, dest_dir: &str) -> Result<String, String> {
     if fs::rename(src_path, &target).is_err() {
         // Fallback copie + suppression (si partitions différentes)
         copy_item(src, dest_dir)?;
-        let _ = delete_item(src);
+        let _ = delete_item(src, true);
     }
 
     Ok("Élément déplacé avec succès.".into())
@@ -335,7 +339,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-fn categorize_file(name: &str) -> String {
+pub fn categorize_file(name: &str) -> String {
     let lower = name.to_lowercase();
 
     // Fichiers speciaux / dotfiles connus
@@ -370,7 +374,7 @@ fn categorize_file(name: &str) -> String {
     }
 }
 
-fn format_size(bytes: u64) -> String {
+pub fn format_size(bytes: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = KB * 1024;
     const GB: u64 = MB * 1024;
