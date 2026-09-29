@@ -13,7 +13,7 @@ use crate::files::{
 use crate::firewall::{get_firewall_overview, FirewallOverview};
 use crate::services::{control_service, get_service_logs, get_services_overview, ServicesOverview};
 use crate::storage::{create_raid, format_disk, get_raid_sync_progress, get_storage_overview, mount_volume, repair_path_permissions, trigger_disk_spindown, umount_volume, CreateRaidRequest, FormatDiskRequest, MountVolumeRequest, RaidSyncProgress, RepairPermissionsRequest, StorageOverview, UmountVolumeRequest};
-use crate::system::{get_gpu_info, get_system_info, GpuInfo, SystemInfo};
+use crate::system::{cancel_power, get_gpu_info, get_power_status, get_system_info, schedule_power, GpuInfo, ImmediatePowerRequest, PowerStatusResponse, SchedulePowerRequest, SystemInfo};
 use crate::terminal::{autocomplete, execute_command, CompleteRequest, CompleteResponse, ExecRequest, ExecResponse};
 use crate::updates::{apply_intelligent_update, check_updates, get_live_log, ApplyUpdateResult, UpdateCheckStatus};
 use crate::hardware::{get_hardware_overview, HardwareOverview};
@@ -63,6 +63,10 @@ pub struct LiveLogsResponse {
 pub fn api_routes() -> Router {
     Router::new()
         .route("/system", get(handle_system))
+        .route("/system/power/status", get(handle_power_status))
+        .route("/system/power/immediate", post(handle_power_immediate))
+        .route("/system/power/schedule", post(handle_power_schedule))
+        .route("/system/power/cancel", post(handle_power_cancel))
         .route("/gpu", get(handle_gpu))
         .route("/storage", get(handle_storage))
         .route("/storage/raids/progress", get(handle_raid_progress))
@@ -97,6 +101,68 @@ pub fn api_routes() -> Router {
         .route("/smart", get(handle_smart))
         .route("/speedtest/latest", get(handle_speedtest_latest))
         .route("/speedtest/run", post(handle_speedtest_run))
+}
+
+
+async fn handle_power_status() -> Json<ApiResponse<PowerStatusResponse>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(get_power_status()),
+        message: None,
+    })
+}
+
+async fn handle_power_immediate(
+    Json(req): Json<ImmediatePowerRequest>,
+) -> Json<ApiResponse<()>> {
+    let action = req.action.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
+        let _ = std::process::Command::new("systemctl")
+            .arg(if action == "reboot" { "reboot" } else { "poweroff" })
+            .spawn();
+    });
+
+    Json(ApiResponse {
+        success: true,
+        data: None,
+        message: Some(format!(
+            "Ordre de {} envoyé au système",
+            if req.action == "reboot" { "redémarrage" } else { "mise hors tension" }
+        )),
+    })
+}
+
+async fn handle_power_schedule(
+    Json(req): Json<SchedulePowerRequest>,
+) -> Json<ApiResponse<()>> {
+    match schedule_power(req) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: None,
+            message: Some(msg),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+    }
+}
+
+async fn handle_power_cancel() -> Json<ApiResponse<()>> {
+    match cancel_power() {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: None,
+            message: Some(msg),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+    }
 }
 
 async fn handle_system() -> Json<ApiResponse<SystemInfo>> {

@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -265,4 +267,119 @@ pub fn get_gpu_info() -> GpuInfo {
         hardware_codecs_supported,
         active_transcoding_jobs,
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PowerStatusResponse {
+    pub is_scheduled: bool,
+    pub mode: Option<String>,
+    pub target_timestamp: Option<u64>,
+    pub seconds_remaining: Option<i64>,
+    pub wall_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ImmediatePowerRequest {
+    pub action: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SchedulePowerRequest {
+    pub action: String,
+    pub delay_minutes: Option<u32>,
+    pub time_hhmm: Option<String>,
+    pub wall_message: Option<String>,
+}
+
+pub fn get_power_status() -> PowerStatusResponse {
+    let sched_file = Path::new("/run/systemd/shutdown/scheduled");
+    if sched_file.exists() {
+        if let Ok(content) = fs::read_to_string(sched_file) {
+            let mut usec: Option<u64> = None;
+            let mut mode = "poweroff".to_string();
+            let mut wall_msg: Option<String> = None;
+
+            for line in content.lines() {
+                if let Some(val) = line.strip_prefix("USEC=") {
+                    usec = val.trim().parse::<u64>().ok();
+                } else if let Some(val) = line.strip_prefix("MODE=") {
+                    mode = val.trim().to_string();
+                } else if let Some(val) = line.strip_prefix("WALL_MESSAGE=") {
+                    wall_msg = Some(val.trim().to_string());
+                }
+            }
+
+            if let Some(u) = usec {
+                let target_sec = u / 1_000_000;
+                let now_sec = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let remaining = target_sec as i64 - now_sec as i64;
+
+                return PowerStatusResponse {
+                    is_scheduled: true,
+                    mode: Some(mode),
+                    target_timestamp: Some(target_sec),
+                    seconds_remaining: Some(remaining),
+                    wall_message: wall_msg,
+                };
+            }
+        }
+    }
+
+    PowerStatusResponse {
+        is_scheduled: false,
+        mode: None,
+        target_timestamp: None,
+        seconds_remaining: None,
+        wall_message: None,
+    }
+}
+
+pub fn schedule_power(req: SchedulePowerRequest) -> Result<String, String> {
+    let mode_flag = if req.action == "reboot" { "-r" } else { "-P" };
+    let time_spec = if let Some(min) = req.delay_minutes {
+        format!("+{}", min)
+    } else if let Some(time) = req.time_hhmm {
+        let t = time.trim();
+        if !t.contains(':') || t.len() != 5 {
+            return Err("Format d'heure invalide. Utilisez HH:MM (ex: 23:30).".into());
+        }
+        t.to_string()
+    } else {
+        return Err("Veuillez spécifier un délai en minutes ou une heure précise (HH:MM).".into());
+    };
+
+    let mut cmd = Command::new("shutdown");
+    cmd.arg(mode_flag).arg(&time_spec);
+
+    if let Some(msg) = req.wall_message {
+        if !msg.trim().is_empty() {
+            cmd.arg(msg.trim());
+        }
+    }
+
+    let out = cmd.output().map_err(|e| format!("Erreur lors de l'exécution de shutdown : {}", e))?;
+    if !out.status.success() {
+        let err_msg = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("Échec de planification : {}", err_msg.trim()));
+    }
+
+    let action_str = if req.action == "reboot" { "Redémarrage" } else { "Arrêt" };
+    Ok(format!("{} planifié avec succès pour {}", action_str, time_spec))
+}
+
+pub fn cancel_power() -> Result<String, String> {
+    let out = Command::new("shutdown")
+        .arg("-c")
+        .output()
+        .map_err(|e| format!("Erreur lors de l'exécution de shutdown -c : {}", e))?;
+
+    if !out.status.success() {
+        let err_msg = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("Impossible d'annuler : {}", err_msg.trim()));
+    }
+
+    Ok("Planification d'arrêt ou de redémarrage annulée.".into())
 }

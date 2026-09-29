@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20260929_10">
+  <link rel="stylesheet" href="/css/style.css?v=20260929_11">
 </head>
 <body>
 
@@ -29,6 +29,13 @@
         <span id="header-update-text">✨ Vérification màj...</span>
       </button>
 
+      <!-- BOUTON ALIMENTATION / REDÉMARRAGE -->
+      <button type="button" class="power-pill-btn" id="header-power-btn" onclick="openPowerModal()" title="Arrêt, redémarrage et planification">
+        <span class="power-btn-icon">⏻</span>
+        <span class="power-btn-text">Alimentation</span>
+        <span class="power-scheduled-badge" id="header-power-badge" style="display:none;" title="Arrêt ou redémarrage planifié">⏳</span>
+      </button>
+
       <div class="status-pill">
         <span class="pulse-dot"></span>
         <span id="header-uptime">Uptime: Chargement...</span>
@@ -46,9 +53,6 @@
     </button>
     <button class="tab-btn" data-tab="tab-files" onclick="switchTab('tab-files')">
       <span>📁</span> Fichiers
-    </button>
-    <button class="tab-btn" data-tab="tab-updates" onclick="switchTab('tab-updates')">
-      <span>⚡</span> Mises à jour <span class="nav-badge" id="nav-updates-badge" style="display:none;">!</span>
     </button>
     <button class="tab-btn" data-tab="tab-storage" onclick="switchTab('tab-storage')">
       <span>💾</span> Stockage & Disques
@@ -1075,7 +1079,7 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
   <!-- TOAST CONTAINER -->
   <div class="toast-container" id="toast-container"></div>
 
-  <script src="/js/app.js?v=20260929_10"></script>
+  <script src="/js/app.js?v=20260929_11"></script>
   <!-- MENU CONTEXTUEL CLIC DROIT -->
   <div class="context-menu" id="files-context-menu">
     <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">
@@ -1782,6 +1786,124 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
         <button type="button" class="btn btn-danger disabled" id="btn-submit-format" onclick="submitFormatDisk()" disabled>
           🧹 Formater Définitivement
         </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- MODALE ALIMENTATION & REDÉMARRAGE -->
+  <div class="file-modal-overlay power-modal-overlay" id="power-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'power-modal')">
+    <div class="file-modal-window power-window">
+      <div class="file-modal-header power-modal-header">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-power" style="font-size:0.75rem; font-weight:800; background:rgba(243,139,168,0.2); color:var(--red); border:1px solid rgba(243,139,168,0.3); padding:3px 8px; border-radius:6px;">ALIMENTATION</span>
+          <span class="file-modal-title">Gestion de l'Alimentation du NAS</span>
+        </div>
+        <button type="button" class="btn btn-secondary btn-xs" onclick="closePowerModal()">✕ Fermer</button>
+      </div>
+
+      <div class="power-modal-body">
+        <!-- Bandeau d'alerte si arrêt déjà planifié -->
+        <div class="power-scheduled-alert" id="power-scheduled-alert" style="display:none;">
+          <div class="power-scheduled-info">
+            <span class="power-scheduled-icon">⏳</span>
+            <div>
+              <strong id="power-scheduled-title">Arrêt planifié en cours</strong>
+              <div id="power-scheduled-detail" style="font-size:0.8rem; color:var(--subtext0); margin-top:2px;">Calcul du temps restant...</div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-warning btn-sm" onclick="cancelScheduledPower()" id="btn-cancel-power">
+            Annuler la planification
+          </button>
+        </div>
+
+        <!-- Actions Immédiates -->
+        <div class="power-section-heading">⚡ Actions Immédiates</div>
+        <div class="power-actions-grid">
+          <div class="power-action-box power-action-shutdown" onclick="confirmImmediatePower('poweroff')">
+            <div class="power-action-icon">🛑</div>
+            <div class="power-action-text">
+              <h4>Éteindre le serveur</h4>
+              <p>Arrête tous les services et met la machine hors tension.</p>
+            </div>
+          </div>
+
+          <div class="power-action-box power-action-reboot" onclick="confirmImmediatePower('reboot')">
+            <div class="power-action-icon">🔄</div>
+            <div class="power-action-text">
+              <h4>Redémarrer le serveur</h4>
+              <p>Redémarre le système NixOS et relance tous les services.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Boîte de confirmation anti-clic accidentel -->
+        <div class="power-confirm-box" id="power-confirm-box" style="display:none;">
+          <div class="power-confirm-content">
+            <span class="power-confirm-icon" id="power-confirm-icon">⚠️</span>
+            <div>
+              <strong id="power-confirm-title">Confirmer l'opération ?</strong>
+              <div id="power-confirm-desc" style="font-size:0.8rem; color:var(--subtext0); margin-top:2px;">Le NAS ne sera plus joignable.</div>
+            </div>
+          </div>
+          <div class="power-confirm-btns">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="cancelImmediateConfirm()">Annuler</button>
+            <button type="button" class="btn btn-danger btn-sm" id="btn-power-confirm-exec" onclick="executeImmediatePower()">
+              Confirmer (<span id="power-countdown">3</span>s)
+            </button>
+          </div>
+        </div>
+
+        <!-- Planification -->
+        <div class="power-section-heading" style="margin-top:24px;">⏱️ Planifier un Arrêt ou Redémarrage</div>
+        <div class="power-schedule-card">
+          <div class="power-type-selector">
+            <label class="power-radio-label">
+              <input type="radio" name="power-target-action" value="poweroff" checked onchange="updatePowerScheduleLabels()">
+              <span>🛑 Éteindre</span>
+            </label>
+            <label class="power-radio-label">
+              <input type="radio" name="power-target-action" value="reboot" onchange="updatePowerScheduleLabels()">
+              <span>🔄 Redémarrer</span>
+            </label>
+          </div>
+
+          <div class="power-presets-row">
+            <span style="font-size:0.8rem; color:var(--subtext0); align-self:center; margin-right:4px;">Préréglages :</span>
+            <button type="button" class="btn-preset-pill" onclick="applyPowerPreset(15)">+15 min</button>
+            <button type="button" class="btn-preset-pill" onclick="applyPowerPreset(30)">+30 min</button>
+            <button type="button" class="btn-preset-pill" onclick="applyPowerPreset(60)">+1 heure</button>
+            <button type="button" class="btn-preset-pill" onclick="applyPowerPreset(120)">+2 heures</button>
+          </div>
+
+          <div class="power-custom-row">
+            <div class="power-custom-col">
+              <label class="form-label">Délai en minutes :</label>
+              <div class="input-with-icon">
+                <input type="number" id="power-delay-input" class="form-control font-mono" min="1" max="1440" placeholder="Ex: 45" oninput="clearPowerTimeInput()">
+                <span class="power-unit-label">min</span>
+              </div>
+            </div>
+
+            <div class="power-or-divider">OU</div>
+
+            <div class="power-custom-col">
+              <label class="form-label">À heure précise :</label>
+              <input type="time" id="power-time-input" class="form-control font-mono" oninput="clearPowerDelayInput()">
+            </div>
+          </div>
+
+          <div style="margin-top:14px;">
+            <label class="form-label">Message d'avertissement diffusé (optionnel) :</label>
+            <input type="text" id="power-wall-msg" class="form-control" placeholder="Ex: Maintenance du NAS planifiée ce soir...">
+          </div>
+
+          <div style="margin-top:18px; display:flex; justify-content:flex-end;">
+            <button type="button" class="btn btn-primary" id="btn-schedule-power" onclick="submitPowerSchedule()">
+              <span id="btn-schedule-power-text">⏱️ Programmer l'arrêt</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

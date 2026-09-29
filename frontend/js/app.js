@@ -15,6 +15,7 @@ function initApp() {
   refreshAll(false);
   updateSftpUri();
   checkForUpdates(false);
+  fetchPowerStatus();
   initDragAndDrop();
 }
 
@@ -37,6 +38,10 @@ function setupPolling() {
   setInterval(() => {
     checkForUpdates(false);
   }, 30000);
+
+  setInterval(() => {
+    fetchPowerStatus();
+  }, 15000);
 }
 
 // --------------------------------------------------------------------------
@@ -44,6 +49,10 @@ function setupPolling() {
 // --------------------------------------------------------------------------
 function switchTab(tabId) {
   activeTab = tabId;
+  const updateHeaderBtn = document.getElementById("header-update-btn");
+  if (updateHeaderBtn) {
+    updateHeaderBtn.classList.toggle("active-view", tabId === "tab-updates");
+  }
   document.querySelectorAll(".tab-btn").forEach(btn => {
     btn.classList.toggle("active", btn.getAttribute("data-tab") === tabId);
   });
@@ -4675,4 +4684,264 @@ function closeImageModal() {
 
   if (img) img.removeAttribute("src");
   if (modal) modal.style.display = "none";
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    const powerModal = document.getElementById("power-modal");
+    if (powerModal && powerModal.style.display !== "none") {
+      closePowerModal();
+    }
+  }
+});
+
+// ==========================================================================
+// GESTION DE L'ALIMENTATION DU NAS (ARRÊT / REBOOT / PLANIFICATION)
+// ==========================================================================
+let powerStatus = null;
+let immediatePowerTarget = null;
+let immediateCountdownTimer = null;
+let immediateCountdownSec = 3;
+
+function openPowerModal() {
+  const modal = document.getElementById("power-modal");
+  if (modal) {
+    modal.style.display = "flex";
+    cancelImmediateConfirm();
+    fetchPowerStatus();
+  }
+}
+
+function closePowerModal() {
+  const modal = document.getElementById("power-modal");
+  if (modal) modal.style.display = "none";
+  cancelImmediateConfirm();
+}
+
+function handlePowerBackdropClick(e) {
+  if (e.target && e.target.id === "power-modal") {
+    closePowerModal();
+  }
+}
+
+async function fetchPowerStatus() {
+  try {
+    const res = await fetch("/api/system/power/status");
+    const json = await res.json();
+    if (json.success && json.data) {
+      powerStatus = json.data;
+      updatePowerStatusUI();
+    }
+  } catch (err) {
+    console.error("Erreur statut alimentation :", err);
+  }
+}
+
+function updatePowerStatusUI() {
+  const badge = document.getElementById("header-power-badge");
+  const alertBox = document.getElementById("power-scheduled-alert");
+  const titleEl = document.getElementById("power-scheduled-title");
+  const detailEl = document.getElementById("power-scheduled-detail");
+
+  if (!powerStatus || !powerStatus.is_scheduled) {
+    if (badge) badge.style.display = "none";
+    if (alertBox) alertBox.style.display = "none";
+    return;
+  }
+
+  if (badge) badge.style.display = "inline-flex";
+  if (alertBox) alertBox.style.display = "flex";
+
+  const mode = powerStatus.mode === "reboot" ? "Redémarrage" : "Arrêt";
+  if (titleEl) titleEl.textContent = `${mode} planifié en cours`;
+
+  let detailStr = "";
+  if (powerStatus.seconds_remaining !== null && powerStatus.seconds_remaining !== undefined) {
+    const rem = powerStatus.seconds_remaining;
+    if (rem <= 60) {
+      detailStr = `Dans moins d'une minute !`;
+    } else {
+      const min = Math.ceil(rem / 60);
+      const hours = Math.floor(min / 60);
+      const remMin = min % 60;
+      if (hours > 0) {
+        detailStr = `Dans environ ${hours}h ${remMin > 0 ? remMin + "min" : ""}`;
+      } else {
+        detailStr = `Dans environ ${min} minute${min > 1 ? "s" : ""}`;
+      }
+    }
+  }
+
+  if (powerStatus.target_timestamp) {
+    const targetDate = new Date(powerStatus.target_timestamp * 1000);
+    const targetTimeStr = targetDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    detailStr += ` (Prévu à ${targetTimeStr})`;
+  }
+
+  if (powerStatus.wall_message) {
+    detailStr += ` • « ${powerStatus.wall_message} »`;
+  }
+
+  if (detailEl) detailEl.textContent = detailStr;
+}
+
+function confirmImmediatePower(action) {
+  immediatePowerTarget = action;
+  const box = document.getElementById("power-confirm-box");
+  const title = document.getElementById("power-confirm-title");
+  const desc = document.getElementById("power-confirm-desc");
+  const execBtn = document.getElementById("btn-power-confirm-exec");
+  const countdownSpan = document.getElementById("power-countdown");
+
+  if (!box) return;
+
+  const isReboot = action === "reboot";
+  if (title) title.textContent = isReboot ? "Confirmer le redémarrage du NAS ?" : "Confirmer l'extinction du NAS ?";
+  if (desc) desc.textContent = isReboot
+    ? "Le système va redémarrer immédiatement et relancer tous les services."
+    : "Le serveur va s'éteindre complètement. Vous devrez le rallumer manuellement.";
+
+  if (execBtn) {
+    execBtn.className = isReboot ? "btn btn-info btn-sm" : "btn btn-danger btn-sm";
+  }
+
+  box.style.display = "flex";
+  immediateCountdownSec = 3;
+  if (countdownSpan) countdownSpan.textContent = immediateCountdownSec;
+
+  if (immediateCountdownTimer) clearInterval(immediateCountdownTimer);
+  immediateCountdownTimer = setInterval(() => {
+    immediateCountdownSec--;
+    if (countdownSpan) countdownSpan.textContent = immediateCountdownSec;
+    if (immediateCountdownSec <= 0) {
+      clearInterval(immediateCountdownTimer);
+      immediateCountdownTimer = null;
+      if (countdownSpan) countdownSpan.parentElement.textContent = "Confirmer maintenant";
+    }
+  }, 1000);
+}
+
+function cancelImmediateConfirm() {
+  immediatePowerTarget = null;
+  if (immediateCountdownTimer) {
+    clearInterval(immediateCountdownTimer);
+    immediateCountdownTimer = null;
+  }
+  const box = document.getElementById("power-confirm-box");
+  if (box) box.style.display = "none";
+}
+
+async function executeImmediatePower() {
+  if (!immediatePowerTarget) return;
+  const action = immediatePowerTarget;
+  cancelImmediateConfirm();
+  closePowerModal();
+
+  showToast(`Envoi de l'ordre de ${action === "reboot" ? "redémarrage" : "mise hors tension"}...`, "warning");
+
+  try {
+    const res = await fetch("/api/system/power/immediate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: action })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.message || "Ordre exécuté avec succès.", "success");
+    } else {
+      showToast(json.message || "Erreur lors de l'exécution.", "error");
+    }
+  } catch (err) {
+    showToast("Le serveur applique l'ordre d'extinction ou de redémarrage...", "info");
+  }
+}
+
+function updatePowerScheduleLabels() {
+  const action = document.querySelector('input[name="power-target-action"]:checked')?.value || "poweroff";
+  const btnText = document.getElementById("btn-schedule-power-text");
+  if (btnText) {
+    btnText.textContent = action === "reboot" ? "⏱️ Programmer le redémarrage" : "⏱️ Programmer l'arrêt";
+  }
+}
+
+function applyPowerPreset(minutes) {
+  const delayInput = document.getElementById("power-delay-input");
+  const timeInput = document.getElementById("power-time-input");
+  if (delayInput) delayInput.value = minutes;
+  if (timeInput) timeInput.value = "";
+
+  document.querySelectorAll(".btn-preset-pill").forEach(btn => {
+    btn.classList.toggle("active", btn.textContent.includes(minutes + ""));
+  });
+}
+
+function clearPowerTimeInput() {
+  const timeInput = document.getElementById("power-time-input");
+  if (timeInput) timeInput.value = "";
+}
+
+function clearPowerDelayInput() {
+  const delayInput = document.getElementById("power-delay-input");
+  if (delayInput) delayInput.value = "";
+  document.querySelectorAll(".btn-preset-pill").forEach(b => b.classList.remove("active"));
+}
+
+async function submitPowerSchedule() {
+  const action = document.querySelector('input[name="power-target-action"]:checked')?.value || "poweroff";
+  const delayVal = document.getElementById("power-delay-input")?.value?.trim();
+  const timeVal = document.getElementById("power-time-input")?.value?.trim();
+  const wallMsg = document.getElementById("power-wall-msg")?.value?.trim() || null;
+
+  let delayMinutes = null;
+  let timeHhmm = null;
+
+  if (delayVal) {
+    delayMinutes = parseInt(delayVal, 10);
+    if (isNaN(delayMinutes) || delayMinutes < 1) {
+      showToast("Veuillez saisir un délai valide en minutes.", "warning");
+      return;
+    }
+  } else if (timeVal) {
+    timeHhmm = timeVal;
+  } else {
+    showToast("Veuillez choisir un préréglage, un délai ou une heure.", "warning");
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/system/power/schedule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: action,
+        delay_minutes: delayMinutes,
+        time_hhmm: timeHhmm,
+        wall_message: wallMsg
+      })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.message || "Planification enregistrée.", "success");
+      fetchPowerStatus();
+    } else {
+      showToast(json.message || "Échec de planification.", "error");
+    }
+  } catch (err) {
+    showToast("Erreur lors de la planification : " + err, "error");
+  }
+}
+
+async function cancelScheduledPower() {
+  try {
+    const res = await fetch("/api/system/power/cancel", { method: "POST" });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.message || "Planification annulée.", "success");
+      fetchPowerStatus();
+    } else {
+      showToast(json.message || "Impossible d'annuler.", "error");
+    }
+  } catch (err) {
+    showToast("Erreur lors de l'annulation : " + err, "error");
+  }
 }
