@@ -337,15 +337,31 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
 
 fn categorize_file(name: &str) -> String {
     let lower = name.to_lowercase();
+
+    // Fichiers speciaux / dotfiles connus
+    match lower.as_str() {
+        "makefile" | "dockerfile" | "containerfile" | "justfile" | "rakefile" | "gemfile"
+        | "cmakelists.txt" | "license" | "readme" | ".gitignore" | ".gitattributes"
+        | ".bashrc" | ".bash_profile" | ".profile" | ".zshrc" | ".zshenv" | ".fishrc"
+        | ".vimrc" | ".nanorc" | ".editorconfig" | ".env" | ".flake-lock" | "flake.lock"
+        | "cargo.lock" | "package-lock.json" => return "code".into(),
+        _ => {}
+    }
+
     let ext = lower.split('.').last().unwrap_or("");
 
     match ext {
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "tiff" | "ico" => "image".into(),
         "mp4" | "mkv" | "avi" | "mov" | "webm" | "flv" | "wmv" | "m4v" => "video".into(),
         "mp3" | "flac" | "wav" | "aac" | "ogg" | "m4a" | "opus" | "wma" => "audio".into(),
-        "pdf" | "doc" | "docx" | "odt" | "txt" | "rtf" | "md" | "xls" | "xlsx" | "csv" => "document".into(),
+        "pdf" | "doc" | "docx" | "odt" | "rtf" | "xls" | "xlsx" => "document".into(),
+        "txt" | "md" | "markdown" | "rst" | "org" | "tex" | "csv" | "tsv" | "log" => "document".into(),
         "zip" | "tar" | "gz" | "xz" | "bz2" | "7z" | "rar" | "zst" | "iso" => "archive".into(),
-        "nix" | "rs" | "js" | "ts" | "html" | "css" | "json" | "toml" | "yaml" | "yml" | "sh" | "py" | "c" | "cpp" | "h" => "code".into(),
+        "fish" | "nix" | "rs" | "js" | "mjs" | "cjs" | "ts" | "tsx" | "jsx" | "html" | "htm"
+        | "css" | "scss" | "sass" | "less" | "json" | "json5" | "jsonc" | "toml" | "yaml" | "yml"
+        | "sh" | "bash" | "zsh" | "nu" | "ksh" | "csh" | "py" | "c" | "cpp" | "cc" | "cxx" | "h" | "hpp"
+        | "go" | "lua" | "vim" | "sql" | "php" | "rb" | "xml" | "conf" | "config" | "ini" | "cfg"
+        | "service" | "timer" | "target" | "socket" | "desktop" | "env" | "diff" | "patch" | "lock" => "code".into(),
         _ => "file".into(),
     }
 }

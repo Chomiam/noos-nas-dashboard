@@ -1474,6 +1474,26 @@ function handleFileClick(e, path, isDir) {
   });
 }
 
+function isNvimEditableFile(fileName, category) {
+  if (!fileName) return false;
+  if (category === "image" || category === "video" || category === "audio" || category === "archive") {
+    return false;
+  }
+  if (/\.(pdf|doc|docx|odt|xls|xlsx|ppt|pptx|epub|bin|exe|so|dll|dylib|iso|img)$/i.test(fileName)) {
+    return false;
+  }
+  if (category === "code") return true;
+
+  const codeExtRegex = /\.(fish|nix|sh|bash|zsh|nu|ksh|csh|txt|md|markdown|rst|log|conf|config|ini|cfg|json|json5|jsonc|toml|yaml|yml|xml|env|service|timer|target|socket|desktop|rs|js|mjs|cjs|ts|tsx|jsx|py|c|cpp|cc|cxx|h|hpp|go|lua|vim|sql|php|rb|html|htm|css|scss|sass|less|diff|patch|lock|csv|tsv|properties|theme|rules)$/i;
+  if (codeExtRegex.test(fileName)) return true;
+
+  const exactNamesRegex = /^(makefile|dockerfile|containerfile|justfile|rakefile|gemfile|cmakelists\.txt|license|readme|\.gitignore|\.gitattributes|\.bashrc|\.bash_profile|\.profile|\.zshrc|\.zshenv|\.fishrc|\.vimrc|\.nanorc|\.editorconfig|\.env|flake\.lock|cargo\.lock)$/i;
+  if (exactNamesRegex.test(fileName)) return true;
+
+  if (category === "document") return true;
+  return false;
+}
+
 function handleFileDblClick(path, isDir) {
   if (isDir) {
     navigateToPath(path);
@@ -1486,7 +1506,7 @@ function handleFileDblClick(path, isDir) {
       openMpvModal(path, fileName);
     } else if (cat === "audio" || /\.(mp3|flac|wav|aac|ogg|m4a|opus|wma)$/i.test(fileName)) {
       openAudioModal(path, fileName, item ? item.size_bytes : 0);
-    } else if (cat === "code" || cat === "document" || /\.(nix|txt|sh|bash|conf|json|toml|yaml|yml|md|rs|js|py|c|h|css|html|log|env|service|ini)$/i.test(fileName)) {
+    } else if (isNvimEditableFile(fileName, cat)) {
       openNvimModal(path, fileName);
     } else {
       showToast(`Fichier : ${fileName}`, "info");
@@ -1571,7 +1591,7 @@ function handleItemContextMenu(e, path) {
   const isAudio = selectedFileItem && !selectedFileItem.is_dir &&
     (selectedFileItem.category === "audio" || /\.(mp3|flac|wav|aac|ogg|m4a|opus|wma)$/i.test(selectedFileItem.name));
   const isEditable = selectedFileItem && !selectedFileItem.is_dir &&
-    (selectedFileItem.category === "code" || selectedFileItem.category === "document" || /\.(nix|txt|sh|bash|conf|json|toml|yaml|yml|md|rs|js|py|c|h|css|html|log|env|service|ini)$/i.test(selectedFileItem.name));
+    isNvimEditableFile(selectedFileItem.name, selectedFileItem.category);
 
   if (ctxEdit) ctxEdit.style.display = isEditable ? "flex" : "none";
   if (ctxPlay) ctxPlay.style.display = isVideo ? "flex" : "none";
