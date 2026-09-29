@@ -1,10 +1,14 @@
 use axum::{
     extract::{Path, Query},
     response::Json,
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use serde::{Deserialize, Serialize};
+use crate::wireguard::{
+    create_client, delete_client, get_wireguard_server_info, load_wireguard_clients,
+    CreateClientRequest, WireguardClient, WireguardServerInfo,
+};
 
 use crate::documents::{get_document_info, get_document_pdf_path, DocumentInfoResponse};
 use crate::docker_store::{
@@ -132,6 +136,9 @@ pub fn api_routes() -> Router {
         .route("/smart", get(handle_smart))
         .route("/speedtest/latest", get(handle_speedtest_latest))
         .route("/speedtest/run", post(handle_speedtest_run))
+        .route("/wireguard/server", get(handle_wireguard_server))
+        .route("/wireguard/clients", get(handle_wireguard_clients).post(handle_create_wireguard_client))
+        .route("/wireguard/clients/:id", delete(handle_delete_wireguard_client))
 }
 
 
@@ -1166,6 +1173,59 @@ async fn handle_firewall_unban(Json(payload): Json<UnbanRequest>) -> Json<ApiRes
             success: true,
             data: Some(msg.clone()),
             message: Some(msg),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+
+// ================= GESTION WIREGUARD CLIENTS & SERVEUR =================
+
+async fn handle_wireguard_server() -> Json<ApiResponse<WireguardServerInfo>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(get_wireguard_server_info()),
+        message: None,
+    })
+}
+
+async fn handle_wireguard_clients() -> Json<ApiResponse<Vec<WireguardClient>>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(load_wireguard_clients()),
+        message: None,
+    })
+}
+
+async fn handle_create_wireguard_client(
+    Json(req): Json<CreateClientRequest>,
+) -> Json<ApiResponse<WireguardClient>> {
+    match create_client(req) {
+        Ok(client) => Json(ApiResponse {
+            success: true,
+            data: Some(client),
+            message: Some("Profil client WireGuard créé avec succès.".to_string()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_delete_wireguard_client(
+    Path(id): Path<String>,
+) -> Json<ApiResponse<()>> {
+    match delete_client(&id) {
+        Ok(()) => Json(ApiResponse {
+            success: true,
+            data: None,
+            message: Some("Profil client WireGuard révoqué avec succès.".to_string()),
         }),
         Err(err) => Json(ApiResponse {
             success: false,

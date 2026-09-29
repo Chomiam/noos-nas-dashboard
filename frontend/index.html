@@ -1114,6 +1114,50 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
           </div>
         </div>
 
+                <!-- SECTION : GESTION DES PROFILS CLIENTS & UTILISATEURS WIREGUARD -->
+        <div class="section-card" style="border: 1px solid rgba(137, 180, 250, 0.25);">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <div class="section-icon-box" style="background:rgba(137, 180, 250, 0.15); color:var(--blue);">👥</div>
+              <div>
+                <div class="section-title">Profils Utilisateurs & Fichiers de Configuration WireGuard</div>
+                <div class="section-subtitle">Chaque utilisateur dispose d'une clé privée unique et d'une adresse statique avec accès sécurisé exclusif au NAS hôte</div>
+              </div>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" onclick="openCreateWgClientModal()">
+              <span>➕</span> Nouveau Profil Utilisateur / Appareil
+            </button>
+          </div>
+
+          <!-- Règle de sécurité stricte appliquée -->
+          <div style="background: rgba(166, 227, 161, 0.08); border: 1px solid rgba(166, 227, 161, 0.25); border-radius: var(--radius-md); padding: 12px 16px; margin: 14px 0; display:flex; align-items:center; gap:12px;">
+            <span style="font-size:1.4rem;">🔒</span>
+            <div style="font-size:0.85rem; color:var(--text); line-height:1.5;">
+              <strong style="color:var(--green);">Politique d'isolation stricte :</strong> Les fichiers de configuration générés autorisent exclusivement l'accès à la machine hôte (<code>AllowedIPs = 10.100.0.1/32</code>). Le reste de votre réseau local (LAN) et votre connexion Internet ne sont pas exposés ni routés via le VPN.
+            </div>
+          </div>
+
+          <!-- Tableau des utilisateurs et configurations WireGuard -->
+          <table class="custom-table" id="wg-clients-table">
+            <thead>
+              <tr>
+                <th>Utilisateur / Nom du Client</th>
+                <th>Adresse IP Statique</th>
+                <th>Clé Publique</th>
+                <th>Créé le</th>
+                <th style="text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="wg-clients-tbody">
+              <tr>
+                <td colspan="5" style="text-align:center; color:var(--subtext0); padding:24px;">
+                  Chargement des profils clients WireGuard...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
         <!-- Tableau des Pairs (Clients) WireGuard -->
         <div class="section-card">
           <div class="section-header">
@@ -1782,6 +1826,7 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
   <!-- TOAST CONTAINER -->
   <div class="toast-container" id="toast-container"></div>
 
+  <script src="/js/qrcode.min.js"></script>
   <script src="/js/app.js?v=20260929_22"></script>
   <!-- MENU CONTEXTUEL CLIC DROIT -->
   <div class="context-menu" id="files-context-menu">
@@ -2903,6 +2948,135 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
       </div>
       <div class="modal-body" style="padding: 16px; overflow: hidden; display: flex; flex-direction: column;">
         <pre class="docker-logs-pre" id="docker-logs-content" style="flex:1; margin:0;">Chargement des journaux...</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODALE CRÉATION PROFIL WIREGUARD -->
+  <div class="file-modal-overlay modal-backdrop" id="modal-create-wg-client" style="display:none;" onclick="if(event.target===this) closeCreateWgClientModal()">
+    <div class="file-modal-window modal-box" style="width: 100%; max-width: 580px;">
+      <div class="file-modal-header modal-header" style="border-bottom:1px solid rgba(203,166,247,0.2);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div class="section-icon-box" style="background:rgba(203,166,247,0.2); color:var(--mauve); width:36px; height:36px; display:flex; align-items:center; justify-content:center; border-radius:8px;">🔒</div>
+          <div>
+            <div class="file-modal-title modal-title" style="font-size:1.05rem;">Nouveau Profil Client WireGuard</div>
+            <div style="font-size:0.78rem; color:var(--subtext0);">Génération de paire de clés & configuration sur-mesure</div>
+          </div>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeCreateWgClientModal()" title="Fermer la fenêtre">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 20px;">
+        <div class="form-group" style="margin-bottom:16px;">
+          <label class="form-label" for="wg-input-username" style="display:flex; justify-content:space-between; margin-bottom:6px; font-weight:600; font-size:0.88rem;">
+            <span>Nom d'utilisateur ou d'appareil <span style="color:var(--red);">*</span></span>
+            <span style="font-size:0.75rem; color:var(--subtext0);">Unique</span>
+          </label>
+          <input type="text" id="wg-input-username" class="form-control" placeholder="Ex: steve-iphone, laptop-bureau, alice" autofocus>
+          <div style="font-size:0.75rem; color:var(--subtext0); margin-top:4px;">Utilisez uniquement des lettres, chiffres, tirets et underscores.</div>
+        </div>
+
+        <div style="background:var(--mantle); border:1px solid rgba(255,255,255,0.06); border-radius:var(--radius-md); padding:14px; margin-bottom:16px;">
+          <div style="font-weight:600; font-size:0.82rem; color:var(--mauve); margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+            <span>🛡️</span> Paramètres automatiques recommandés (Isolation stricte)
+          </div>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; font-size:0.82rem;">
+            <div>
+              <label style="color:var(--subtext0); display:block; margin-bottom:4px;">IP Statique attribuée :</label>
+              <input type="text" id="wg-input-ip" class="form-control" style="font-family:var(--font-mono); font-size:0.82rem;" placeholder="10.100.0.2">
+            </div>
+            <div>
+              <label style="color:var(--subtext0); display:block; margin-bottom:4px;">Accès autorisé (AllowedIPs) :</label>
+              <input type="text" id="wg-input-allowed-ips" class="form-control" style="font-family:var(--font-mono); font-size:0.82rem;" value="10.100.0.1/32" title="Machine hôte uniquement">
+            </div>
+            <div>
+              <label style="color:var(--subtext0); display:block; margin-bottom:4px;">Serveurs DNS :</label>
+              <input type="text" id="wg-input-dns" class="form-control" style="font-family:var(--font-mono); font-size:0.82rem;" value="1.1.1.1, 8.8.8.8">
+            </div>
+            <div>
+              <label style="color:var(--subtext0); display:block; margin-bottom:4px;">Endpoint (Serveur:Port) :</label>
+              <input type="text" id="wg-input-endpoint" class="form-control" style="font-family:var(--font-mono); font-size:0.82rem;" placeholder="IP_SERVEUR:51820">
+            </div>
+          </div>
+          <div style="font-size:0.75rem; color:var(--green); margin-top:8px;">
+            ✓ AllowedIPs restreint l'accès uniquement à <code>10.100.0.1/32</code> (NAS hôte), le reste de votre réseau local reste totalement inaccessible.
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:10px; padding:14px 20px; background:var(--mantle); border-top:1px solid rgba(255,255,255,0.08); border-radius:0 0 var(--radius-lg) var(--radius-lg);">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeCreateWgClientModal()">Annuler</button>
+        <button type="button" class="btn btn-primary btn-sm" id="btn-submit-create-wg" onclick="submitCreateWgClient()">
+          ✨ Générer le Profil Client
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODALE VISUALISATION, COPIE, TÉLÉCHARGEMENT & QR CODE WIREGUARD -->
+  <div class="file-modal-overlay modal-backdrop" id="modal-view-wg-client" style="display:none;" onclick="if(event.target===this) closeViewWgClientModal()">
+    <div class="file-modal-window modal-box" style="width: 100%; max-width: 740px;">
+      <div class="file-modal-header modal-header" style="border-bottom:1px solid rgba(166,227,161,0.2);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div class="section-icon-box" style="background:rgba(166,227,161,0.18); color:var(--green); width:36px; height:36px; display:flex; align-items:center; justify-content:center; border-radius:8px;">📱</div>
+          <div>
+            <div class="file-modal-title modal-title" style="font-size:1.05rem;">Profil WireGuard : <span id="wg-view-modal-username" style="color:var(--mauve);">Utilisateur</span></div>
+            <div style="font-size:0.78rem; color:var(--subtext0);">Prêt à être scanné ou importé sur l'appareil</div>
+          </div>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeViewWgClientModal()" title="Fermer la fenêtre">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 20px;">
+        <div style="display:grid; grid-template-columns: 260px 1fr; gap: 20px; align-items: stretch;">
+          <!-- Colonne QR Code (optimisée pour appareil photo mobile) -->
+          <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--mantle); border:1px solid rgba(255,255,255,0.08); border-radius:var(--radius-md); padding:16px; text-align:center;">
+            <div id="wg-qrcode-wrap" style="background:#ffffff; padding:12px; border-radius:10px; box-shadow:0 6px 16px rgba(0,0,0,0.35); display:inline-block; line-height:0;">
+              <div id="wg-qrcode-canvas"></div>
+            </div>
+            <div style="margin-top:12px; font-weight:600; font-size:0.84rem; color:var(--text);">Scan QR Code Mobile</div>
+            <div style="font-size:0.75rem; color:var(--subtext0); margin-top:2px;">Ouvrez WireGuard (iOS / Android) &gt; + &gt; Scanner code QR</div>
+          </div>
+
+          <!-- Colonne Détails & Fichier de configuration -->
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            <div style="display:flex; gap:10px; flex-wrap:wrap; font-size:0.8rem;">
+              <div style="background:var(--mantle); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
+                <span style="color:var(--subtext0);">IP Assignée : </span>
+                <strong id="wg-view-modal-ip" style="color:var(--teal);">10.100.0.2/32</strong>
+              </div>
+              <div style="background:var(--mantle); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);">
+                <span style="color:var(--subtext0);">Accès : </span>
+                <strong style="color:var(--green);">Hôte NAS uniquement (10.100.0.1/32)</strong>
+              </div>
+            </div>
+
+            <div style="position:relative; flex:1; display:flex; flex-direction:column;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <span style="font-size:0.78rem; font-weight:600; color:var(--subtext0);">Fichier de configuration (.conf) :</span>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="copyCurrentWgConfig()">
+                  📋 Copier le texte
+                </button>
+              </div>
+              <pre id="wg-view-modal-config" style="margin:0; flex:1; min-height:190px; max-height:220px; overflow-y:auto; background:var(--crust); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:12px; font-family:var(--font-mono); font-size:0.78rem; color:var(--text); line-height:1.4; white-space:pre-wrap; user-select:all;"></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 20px; background:var(--mantle); border-top:1px solid rgba(255,255,255,0.08); border-radius:0 0 var(--radius-lg) var(--radius-lg);">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeViewWgClientModal()">
+          Fermer
+        </button>
+        <div style="display:flex; gap:10px;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="copyCurrentWgConfig()">
+            <span>📋</span> Copier la Configuration
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" onclick="downloadCurrentWgConfig()">
+            <span>📥</span> Télécharger le fichier .conf
+          </button>
+        </div>
       </div>
     </div>
   </div>

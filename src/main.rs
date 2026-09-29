@@ -29,6 +29,7 @@ mod system;
 mod terminal;
 mod trash;
 mod updates;
+mod wireguard;
 mod documents;
 mod youtube;
 mod docker_store;

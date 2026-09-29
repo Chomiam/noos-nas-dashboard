@@ -7071,6 +7071,9 @@ function switchNetworkSubtab(subtabId) {
   document.querySelectorAll(".network-subpane").forEach(pane => {
     pane.classList.toggle("active", pane.id === subtabId);
   });
+  if (subtabId === "subtab-vpn") {
+    loadWireguardClients();
+  }
 }
 
 async function loadNetwork(showFeedback = false) {
@@ -7358,5 +7361,292 @@ function copyElementText(elementId, successMsg) {
     });
   } else {
     prompt("Copiez manuellement l'adresse :", text);
+  }
+}
+
+
+// ================= GESTION DES PROFILS CLIENTS WIREGUARD =================
+
+let cachedWgClients = [];
+let currentViewingWgClient = null;
+
+async function loadWireguardClients() {
+  const tbody = document.getElementById("wg-clients-tbody");
+  if (!tbody) return;
+
+  try {
+    const res = await fetch("/api/wireguard/clients");
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--red); padding:16px;">Impossible de charger les profils : ${escapeHtml(json.message || "Erreur serveur")}</td></tr>`;
+      return;
+    }
+
+    cachedWgClients = json.data;
+
+    if (cachedWgClients.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="5" style="text-align:center; color:var(--subtext0); padding:30px;">
+            <div style="font-size:1.8rem; margin-bottom:8px;">🔒</div>
+            <div style="font-weight:600; color:var(--text); margin-bottom:4px;">Aucun profil client WireGuard créé</div>
+            <div style="font-size:0.82rem; margin-bottom:14px;">Générez un profil pour votre smartphone, PC portable ou tablette pour accéder au NAS en toute sécurité.</div>
+            <button type="button" class="btn btn-primary btn-sm" onclick="openCreateWgClientModal()">
+              <span>➕</span> Créer le premier profil
+            </button>
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = cachedWgClients.map(c => {
+      const dateStr = c.created_at ? new Date(c.created_at * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—";
+      return `
+        <tr>
+          <td>
+            <div style="font-weight:600; color:var(--text);">${escapeHtml(c.username)}</div>
+            <div style="font-size:0.75rem; color:var(--subtext0);">ID: ${escapeHtml(c.id)}</div>
+          </td>
+          <td>
+            <span class="badge badge-info" style="font-family:var(--font-mono);">${escapeHtml(c.client_ip)}/32</span>
+          </td>
+          <td>
+            <code style="font-size:0.75rem; color:var(--teal); background:rgba(0,0,0,0.2); padding:3px 6px; border-radius:4px;" title="${escapeHtml(c.public_key)}">
+              ${escapeHtml(c.public_key.substring(0, 16))}...
+            </code>
+          </td>
+          <td style="font-size:0.82rem; color:var(--subtext1);">${dateStr}</td>
+          <td style="text-align:right;">
+            <div style="display:inline-flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
+              <button type="button" class="btn btn-secondary btn-xs" onclick="openViewWgClientModal('${c.id}')" title="Afficher le QR code et la configuration">
+                <span>📱</span> QR Code &amp; Config
+              </button>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="downloadWgClientConfig('${c.id}')" title="Télécharger le fichier .conf">
+                <span>📥</span> .conf
+              </button>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="copyWgClientConfigById('${c.id}')" title="Copier la configuration dans le presse-papiers">
+                <span>📋</span> Copier
+              </button>
+              <button type="button" class="btn btn-danger btn-xs" onclick="deleteWgClient('${c.id}', '${escapeHtml(c.username)}')" title="Révoquer l'accès de cet appareil">
+                <span>🗑️</span>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--red); padding:16px;">Erreur de connexion : ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+async function openCreateWgClientModal() {
+  const modal = document.getElementById("modal-create-wg-client");
+  if (!modal) return;
+
+  const usernameInput = document.getElementById("wg-input-username");
+  const ipInput = document.getElementById("wg-input-ip");
+  const allowedIpsInput = document.getElementById("wg-input-allowed-ips");
+  const dnsInput = document.getElementById("wg-input-dns");
+  const endpointInput = document.getElementById("wg-input-endpoint");
+
+  if (usernameInput) usernameInput.value = "";
+  if (allowedIpsInput) allowedIpsInput.value = "10.100.0.1/32"; // Règle stricte machine hôte uniquement
+  if (dnsInput) dnsInput.value = "1.1.1.1, 8.8.8.8";
+
+  try {
+    const res = await fetch("/api/wireguard/server");
+    const json = await res.json();
+    if (json.success && json.data) {
+      if (ipInput) ipInput.value = json.data.next_client_ip || "10.100.0.2";
+      if (endpointInput) endpointInput.value = json.data.endpoint || "";
+    }
+  } catch (e) {
+    if (ipInput) ipInput.value = "10.100.0.2";
+  }
+
+  modal.style.display = "flex";
+  if (usernameInput) setTimeout(() => usernameInput.focus(), 50);
+}
+
+function closeCreateWgClientModal() {
+  const modal = document.getElementById("modal-create-wg-client");
+  if (modal) modal.style.display = "none";
+}
+
+async function submitCreateWgClient() {
+  const usernameInput = document.getElementById("wg-input-username");
+  const ipInput = document.getElementById("wg-input-ip");
+  const allowedIpsInput = document.getElementById("wg-input-allowed-ips");
+  const dnsInput = document.getElementById("wg-input-dns");
+  const endpointInput = document.getElementById("wg-input-endpoint");
+  const submitBtn = document.getElementById("btn-submit-create-wg");
+
+  const username = usernameInput ? usernameInput.value.trim() : "";
+  if (!username) {
+    showToast("Veuillez saisir un nom d'utilisateur ou d'appareil.", "warning");
+    if (usernameInput) usernameInput.focus();
+    return;
+  }
+
+  const payload = {
+    username: username,
+    client_ip: ipInput && ipInput.value.trim() ? ipInput.value.trim() : null,
+    allowed_ips: allowedIpsInput && allowedIpsInput.value.trim() ? allowedIpsInput.value.trim() : "10.100.0.1/32",
+    dns: dnsInput && dnsInput.value.trim() ? dnsInput.value.trim() : null,
+    endpoint: endpointInput && endpointInput.value.trim() ? endpointInput.value.trim() : null,
+  };
+
+  try {
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Génération en cours...";
+    }
+
+    const res = await fetch("/api/wireguard/clients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      showToast("Échec : " + (json.message || "Erreur lors de la génération"), "error");
+      return;
+    }
+
+    showToast(`Profil WireGuard créé pour '${username}' !`, "success");
+    closeCreateWgClientModal();
+    await loadWireguardClients();
+
+    // Ouvrir immédiatement la modale d'affichage / QR Code pour le nouvel utilisateur !
+    openViewWgClientModal(json.data.id);
+
+  } catch (err) {
+    showToast("Erreur réseau : " + err.message, "error");
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "✨ Générer le Profil Client";
+    }
+  }
+}
+
+function openViewWgClientModal(clientId) {
+  const client = cachedWgClients.find(c => c.id === clientId);
+  if (!client) {
+    showToast("Profil client introuvable.", "error");
+    return;
+  }
+
+  currentViewingWgClient = client;
+
+  const modal = document.getElementById("modal-view-wg-client");
+  const usernameEl = document.getElementById("wg-view-modal-username");
+  const ipEl = document.getElementById("wg-view-modal-ip");
+  const configEl = document.getElementById("wg-view-modal-config");
+  const qrContainer = document.getElementById("wg-qrcode-canvas");
+
+  if (usernameEl) usernameEl.textContent = client.username;
+  if (ipEl) ipEl.textContent = client.client_ip + "/32";
+  if (configEl) configEl.textContent = client.config_text;
+
+  // Rendu du QR Code
+  if (qrContainer && typeof QRCode !== "undefined") {
+    qrContainer.innerHTML = "";
+    try {
+      new QRCode(qrContainer, {
+        text: client.config_text,
+        width: 210,
+        height: 210,
+        colorDark: "#000000",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.M
+      });
+    } catch (e) {
+      console.error("Erreur génération QR Code:", e);
+      qrContainer.innerHTML = `<span style="color:var(--red); font-size:0.75rem;">Erreur QR Code</span>`;
+    }
+  }
+
+  if (modal) modal.style.display = "flex";
+}
+
+function closeViewWgClientModal() {
+  const modal = document.getElementById("modal-view-wg-client");
+  if (modal) modal.style.display = "none";
+}
+
+function copyCurrentWgConfig() {
+  if (!currentViewingWgClient) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(currentViewingWgClient.config_text).then(() => {
+      showToast(`Configuration de '${currentViewingWgClient.username}' copiée !`, "success");
+    }).catch(() => {
+      prompt("Copiez manuellement la configuration :", currentViewingWgClient.config_text);
+    });
+  } else {
+    prompt("Copiez manuellement la configuration :", currentViewingWgClient.config_text);
+  }
+}
+
+function copyWgClientConfigById(clientId) {
+  const client = cachedWgClients.find(c => c.id === clientId);
+  if (!client) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(client.config_text).then(() => {
+      showToast(`Configuration de '${client.username}' copiée !`, "success");
+    }).catch(() => {
+      prompt("Copiez manuellement la configuration :", client.config_text);
+    });
+  } else {
+    prompt("Copiez manuellement la configuration :", client.config_text);
+  }
+}
+
+function downloadCurrentWgConfig() {
+  if (!currentViewingWgClient) return;
+  downloadConfigFile(currentViewingWgClient.username, currentViewingWgClient.config_text);
+}
+
+function downloadWgClientConfig(clientId) {
+  const client = cachedWgClients.find(c => c.id === clientId);
+  if (!client) return;
+  downloadConfigFile(client.username, client.config_text);
+}
+
+function downloadConfigFile(username, content) {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${username}-wg0.conf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast(`Fichier ${username}-wg0.conf téléchargé !`, "success");
+}
+
+async function deleteWgClient(clientId, username) {
+  if (!confirm(`Voulez-vous vraiment révoquer et supprimer l'accès WireGuard pour '${username}' ?\n\nCet appareil ne pourra plus se connecter au NAS.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/wireguard/clients/${encodeURIComponent(clientId)}`, {
+      method: "DELETE"
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(`Profil de '${username}' révoqué avec succès.`, "success");
+      await loadWireguardClients();
+    } else {
+      showToast("Échec : " + (json.message || "Erreur de suppression"), "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau : " + err.message, "error");
   }
 }
