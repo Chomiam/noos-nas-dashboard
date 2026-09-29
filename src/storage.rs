@@ -1,3 +1,8 @@
+#[link(name = "crypt")]
+extern "C" {
+    fn crypt(key: *const std::ffi::c_char, salt: *const std::ffi::c_char) -> *mut std::ffi::c_char;
+}
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Command;
@@ -24,6 +29,11 @@ pub struct StoragePool {
     pub total_human: String,
     pub used_human: String,
     pub free_human: String,
+    pub owner_user: String,
+    pub owner_group: String,
+    pub permissions_mode: String,
+    pub is_user_writable: bool,
+    pub needs_permission_repair: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +91,15 @@ pub struct RaidSyncProgress {
     pub speed_mb_s: f32,
     pub finish_minutes: f32,
     pub finish_human: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RepairPermissionsRequest {
+    pub path: String,
+    pub target_user: Option<String>,
+    pub target_group: Option<String>,
+    pub password: Option<String>,
+    pub recursive: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -161,6 +180,8 @@ fn scan_storage_pools() -> Vec<StoragePool> {
                             mountpoint.split('/').last().unwrap_or("pool").to_string()
                         };
 
+                        let (owner_user, owner_group, permissions_mode, is_user_writable, needs_permission_repair) = check_path_permissions(&mountpoint, "chomiam");
+
                         pools.push(StoragePool {
                             name: pool_name,
                             mountpoint,
@@ -173,6 +194,11 @@ fn scan_storage_pools() -> Vec<StoragePool> {
                             total_human: format_bytes(total_bytes),
                             used_human: format_bytes(used_bytes),
                             free_human: format_bytes(free_bytes),
+                            owner_user,
+                            owner_group,
+                            permissions_mode,
+                            is_user_writable,
+                            needs_permission_repair,
                         });
                     }
                 }
@@ -935,6 +961,141 @@ pub fn trigger_disk_spindown(disk_name: &str) -> Result<String, String> {
     }
 }
 
+
+pub fn check_path_permissions(path: &str, target_user: &str) -> (String, String, String, bool, bool) {
+    use std::os::unix::fs::MetadataExt;
+    if let Ok(meta) = std::fs::metadata(path) {
+        let uid = meta.uid();
+        let gid = meta.gid();
+        let mode = meta.mode() & 0o7777;
+        let mode_str = format!("{:04o}", mode);
+
+        // Récupérer le nom utilisateur et groupe
+        let user_name = if uid == 0 { "root".to_string() } else if uid == 1000 { "chomiam".to_string() } else { uid.to_string() };
+        let group_name = if gid == 0 { "root".to_string() } else if gid == 989 { "storage".to_string() } else if gid == 100 { "users".to_string() } else { gid.to_string() };
+
+        let writable = Command::new("runuser")
+            .args(["-u", target_user, "--", "test", "-w", path])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        let is_sys = path == "/" || path == "/boot" || path.starts_with("/nix");
+        let needs_repair = !writable && !is_sys;
+
+        (user_name, group_name, mode_str, writable, needs_repair)
+    } else {
+        ("N/A".into(), "N/A".into(), "0000".into(), false, false)
+    }
+}
+
+pub fn verify_user_password(username: &str, password: &str) -> Result<(), String> {
+    let shadow_content = std::fs::read_to_string("/etc/shadow")
+        .map_err(|e| format!("Impossible de lire /etc/shadow : {}", e))?;
+
+    let user_line = shadow_content
+        .lines()
+        .find(|l| l.starts_with(&format!("{}:", username)))
+        .ok_or_else(|| format!("Utilisateur '{}' introuvable dans /etc/shadow.", username))?;
+
+    let parts: Vec<&str> = user_line.split(':').collect();
+    if parts.len() < 2 {
+        return Err("Format de ligne /etc/shadow invalide.".into());
+    }
+
+    let hash = parts[1];
+    if hash == "*" || hash == "!" || hash.is_empty() {
+        return Err("Le compte utilisateur est verrouillé ou n'a pas de mot de passe.".into());
+    }
+
+    let c_key = std::ffi::CString::new(password).map_err(|e| e.to_string())?;
+    let c_salt = std::ffi::CString::new(hash).map_err(|e| e.to_string())?;
+
+    unsafe {
+        let res = crypt(c_key.as_ptr(), c_salt.as_ptr());
+        if res.is_null() {
+            return Err("Erreur interne lors de la vérification cryptographique.".into());
+        }
+        let res_str = std::ffi::CStr::from_ptr(res).to_str().map_err(|e| e.to_string())?;
+        if res_str == hash {
+            Ok(())
+        } else {
+            Err("Mot de passe administrateur incorrect.".into())
+        }
+    }
+}
+
+pub fn repair_path_permissions(req: &RepairPermissionsRequest) -> Result<String, String> {
+    let path = req.path.trim();
+    if path.is_empty() || !path.starts_with('/') {
+        return Err("Chemin de volume invalide.".into());
+    }
+
+    if path == "/" || path == "/boot" || path.starts_with("/nix") || path == "/etc" || path == "/usr" || path == "/bin" {
+        return Err("Interdiction : Impossible de modifier les permissions des répertoires système.".into());
+    }
+
+    if !std::path::Path::new(path).exists() {
+        return Err(format!("Le chemin '{}' n'existe pas ou n'est pas monté.", path));
+    }
+
+    let target_user = req.target_user.as_deref().unwrap_or("chomiam");
+    let target_group = req.target_group.as_deref().unwrap_or("storage");
+
+    // Vérification du mot de passe si fourni
+    if let Some(pwd) = &req.password {
+        if !pwd.trim().is_empty() {
+            verify_user_password(target_user, pwd.trim())?;
+        }
+    }
+
+    // 1. Chown récursif
+    let owner_str = format!("{}:{}", target_user, target_group);
+    let chown_out = Command::new("chown")
+        .args(["-R", &owner_str, path])
+        .output()
+        .map_err(|e| format!("Impossible d'exécuter chown : {}", e))?;
+
+    if !chown_out.status.success() {
+        let err = String::from_utf8_lossy(&chown_out.stderr);
+        return Err(format!("Échec de modification du propriétaire ({}) : {}", owner_str, err));
+    }
+
+    // 2. Chmod 2775 (setgid) sur la racine
+    let _ = Command::new("chmod").args(["2775", path]).output();
+
+    if req.recursive.unwrap_or(true) {
+        let _ = Command::new("find").args([path, "-type", "d", "-exec", "chmod", "2775", "{}", "+"]).output();
+        let _ = Command::new("find").args([path, "-type", "f", "-exec", "chmod", "664", "{}", "+"]).output();
+    }
+
+    // 3. Test d'écriture en conditions réelles
+    let test_file = format!("{}/.steveos_perm_test_{}", path, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs());
+    let write_test = Command::new("runuser")
+        .args(["-u", target_user, "--", "touch", &test_file])
+        .output();
+
+    match write_test {
+        Ok(out) if out.status.success() => {
+            let _ = Command::new("runuser")
+                .args(["-u", target_user, "--", "rm", "-f", &test_file])
+                .output();
+            Ok(format!(
+                "Permissions réparées avec succès ! Le volume '{}' appartient à {} (mode 2775 / rwxrwsr-x). Test d'écriture pour '{}' validé avec succès.",
+                path, owner_str, target_user
+            ))
+        }
+        Ok(out) => {
+            let err = String::from_utf8_lossy(&out.stderr);
+            Err(format!(
+                "Les permissions ont été appliquées mais le test d'écriture pour l'utilisateur '{}' a échoué : {}",
+                target_user, err
+            ))
+        }
+        Err(e) => Err(format!("Échec de validation du test d'écriture : {}", e)),
+    }
+}
+
 pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
     let _ = &req.name;
     let clean_dev = req.device.trim();
@@ -1028,6 +1189,10 @@ pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
         let err = String::from_utf8_lossy(&mount_out.stderr);
         return Err(format!("Échec du montage sur {} : {}", mount_target, err));
     }
+
+    // Application automatique des permissions pour l'utilisateur NAS et le groupe storage
+    let _ = Command::new("chown").args(["-R", "chomiam:storage", mount_target]).output();
+    let _ = Command::new("chmod").args(["2775", mount_target]).output();
 
     Ok(format!(
         "Le volume {} a été monté avec succès sur {} !",

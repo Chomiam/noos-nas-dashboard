@@ -12,7 +12,7 @@ use crate::files::{
 };
 use crate::firewall::{get_firewall_overview, FirewallOverview};
 use crate::services::{control_service, get_service_logs, get_services_overview, ServicesOverview};
-use crate::storage::{create_raid, format_disk, get_raid_sync_progress, get_storage_overview, mount_volume, trigger_disk_spindown, umount_volume, CreateRaidRequest, FormatDiskRequest, MountVolumeRequest, RaidSyncProgress, StorageOverview, UmountVolumeRequest};
+use crate::storage::{create_raid, format_disk, get_raid_sync_progress, get_storage_overview, mount_volume, repair_path_permissions, trigger_disk_spindown, umount_volume, CreateRaidRequest, FormatDiskRequest, MountVolumeRequest, RaidSyncProgress, RepairPermissionsRequest, StorageOverview, UmountVolumeRequest};
 use crate::system::{get_gpu_info, get_system_info, GpuInfo, SystemInfo};
 use crate::terminal::{autocomplete, execute_command, CompleteRequest, CompleteResponse, ExecRequest, ExecResponse};
 use crate::updates::{apply_intelligent_update, check_updates, ApplyUpdateResult, UpdateCheckStatus};
@@ -53,6 +53,7 @@ pub fn api_routes() -> Router {
         .route("/storage/raids/create", post(handle_create_raid))
         .route("/storage/mount", post(handle_mount_volume))
         .route("/storage/umount", post(handle_umount_volume))
+        .route("/storage/permissions/repair", post(handle_repair_permissions))
         .route("/services", get(handle_services))
         .route("/firewall", get(handle_firewall))
         .route("/logs", get(handle_logs))
@@ -368,6 +369,21 @@ async fn handle_raid_progress() -> Json<ApiResponse<Option<RaidSyncProgress>>> {
         data: Some(get_raid_sync_progress()),
         message: None,
     })
+}
+
+async fn handle_repair_permissions(Json(payload): Json<RepairPermissionsRequest>) -> Json<ApiResponse<String>> {
+    match repair_path_permissions(&payload) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
 }
 
 async fn handle_mount_volume(Json(payload): Json<MountVolumeRequest>) -> Json<ApiResponse<String>> {

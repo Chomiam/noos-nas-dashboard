@@ -677,7 +677,10 @@ async function loadStorage() {
                 </div>
                 <div>
                   ${r.mountpoint
-                    ? `<button type="button" class="btn btn-secondary btn-xs" onclick="umountVolume('${escapeHtml(r.mountpoint)}')"><span>⏏️</span> Démonter</button>`
+                    ? `<div style="display:inline-flex; gap:6px;">
+  <button type="button" class="btn btn-secondary btn-xs" onclick="openRepairPermissionsModal('${escapeHtml(r.mountpoint)}')"><span>🛡️</span> Permissions</button>
+  <button type="button" class="btn btn-secondary btn-xs" onclick="umountVolume('${escapeHtml(r.mountpoint)}')"><span>⏏️</span> Démonter</button>
+</div>`
                     : `<button type="button" class="btn btn-primary btn-xs" onclick="openMountVolumeModal('${escapeHtml(r.name)}', '${escapeHtml(r.device)}', '${escapeHtml(r.level)}')"><span>📁</span> Monter dans /mnt</button>`}
                 </div>
               </div>
@@ -708,7 +711,23 @@ async function loadStorage() {
           <div class="metric-progress-wrap">
             <div class="metric-progress-bar ${p.usage_percent > 85 ? 'progress-red' : 'progress-peach'}" style="width: ${Math.min(p.usage_percent, 100)}%;"></div>
           </div>
-          <div style="font-size:0.78rem; color:var(--subtext0); margin-top:8px;">${p.free_human} disponibles</div>
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.78rem; color:var(--subtext0); margin-top:8px;">
+            <span>${p.free_human} disponibles</span>
+            <span>Mode: <code>${escapeHtml(p.permissions_mode || '0755')}</code></span>
+          </div>
+
+          <!-- Barre de diagnostic des permissions -->
+          <div style="margin-top:10px; border-top:1px solid rgba(255,255,255,0.06); padding-top:8px;">
+            ${p.needs_permission_repair
+              ? `<div style="display:flex; justify-content:space-between; align-items:center; background:rgba(250,179,135,0.12); border:1px solid rgba(250,179,135,0.3); border-radius:6px; padding:6px 10px; font-size:0.76rem;">
+                   <span style="color:var(--peach); font-weight:700;">⚠️ Écriture restreinte (${escapeHtml(p.owner_user || 'root')}:${escapeHtml(p.owner_group || 'root')})</span>
+                   <button type="button" class="btn btn-warning btn-xs" onclick="openRepairPermissionsModal('${escapeHtml(p.mountpoint)}')">🔧 Réparer</button>
+                 </div>`
+              : `<div style="display:flex; justify-content:space-between; align-items:center; font-size:0.75rem;">
+                   <span style="color:var(--green); font-weight:600;">🛡️ Propriétaire : ${escapeHtml(p.owner_user || 'chomiam')}:${escapeHtml(p.owner_group || 'storage')} (Écriture OK)</span>
+                   <button type="button" class="btn btn-secondary btn-xs" onclick="openRepairPermissionsModal('${escapeHtml(p.mountpoint)}')">🔧 Permissions</button>
+                 </div>`}
+          </div>
         </div>
       `).join("");
     }
@@ -3976,5 +3995,119 @@ async function umountVolume(mountpoint) {
     }
   } catch (e) {
     showToast("Erreur : " + e, "error");
+  }
+}
+
+
+// --------------------------------------------------------------------------
+// MODALE ET GESTION DE LA RÉPARATION DES PERMISSIONS
+// --------------------------------------------------------------------------
+function openRepairPermissionsModal(path) {
+  const modal = document.getElementById("repair-permissions-modal");
+  const pathInput = document.getElementById("repair-perm-path");
+  const userInput = document.getElementById("repair-perm-user");
+  const groupInput = document.getElementById("repair-perm-group");
+  const pwdInput = document.getElementById("repair-perm-password");
+  const alertEl = document.getElementById("repair-perm-alert");
+  const btn = document.getElementById("btn-submit-repair-perm");
+
+  if (!modal) return;
+
+  if (pathInput) pathInput.value = path || "/mnt/storage";
+  if (userInput) userInput.value = "chomiam";
+  if (groupInput) groupInput.value = "storage";
+  if (pwdInput) pwdInput.value = "";
+  if (alertEl) {
+    alertEl.style.display = "none";
+    alertEl.innerHTML = "";
+  }
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = "🔧 Valider & Réparer les Permissions";
+  }
+
+  modal.style.display = "flex";
+}
+
+function closeRepairPermissionsModal() {
+  const modal = document.getElementById("repair-permissions-modal");
+  if (modal) modal.style.display = "none";
+}
+
+function togglePermPasswordVisibility() {
+  const pwdInput = document.getElementById("repair-perm-password");
+  if (pwdInput) {
+    pwdInput.type = pwdInput.type === "password" ? "text" : "password";
+  }
+}
+
+async function submitRepairPermissions() {
+  const path = document.getElementById("repair-perm-path")?.value;
+  const user = document.getElementById("repair-perm-user")?.value || "chomiam";
+  const group = document.getElementById("repair-perm-group")?.value || "storage";
+  const pwd = document.getElementById("repair-perm-password")?.value || "";
+  const recursive = document.getElementById("repair-perm-recursive")?.checked ?? true;
+  const alertEl = document.getElementById("repair-perm-alert");
+  const btn = document.getElementById("btn-submit-repair-perm");
+
+  if (!path) return;
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Application des permissions en cours...";
+  }
+  if (alertEl) alertEl.style.display = "none";
+
+  try {
+    const res = await fetch("/api/storage/permissions/repair", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path,
+        target_user: user,
+        target_group: group,
+        password: pwd ? pwd : null,
+        recursive,
+      })
+    });
+
+    const json = await res.json();
+    if (json.success) {
+      if (alertEl) {
+        alertEl.style.display = "block";
+        alertEl.style.background = "rgba(166, 227, 161, 0.15)";
+        alertEl.style.border = "1px solid rgba(166, 227, 161, 0.35)";
+        alertEl.style.color = "var(--green)";
+        alertEl.innerHTML = `<strong>✅ Réparation réussie :</strong><br>${escapeHtml(json.data || "Permissions réparées avec succès !")}`;
+      }
+      showToast(json.data || "Permissions réparées avec succès !", "success");
+      loadStorage();
+      setTimeout(() => {
+        closeRepairPermissionsModal();
+      }, 2200);
+    } else {
+      if (alertEl) {
+        alertEl.style.display = "block";
+        alertEl.style.background = "rgba(243, 139, 168, 0.15)";
+        alertEl.style.border = "1px solid rgba(243, 139, 168, 0.35)";
+        alertEl.style.color = "var(--red)";
+        alertEl.innerHTML = `<strong>❌ Échec de la réparation :</strong><br>${escapeHtml(json.message || "Erreur de permissions ou mot de passe incorrect.")}`;
+      }
+      showToast("Échec : " + (json.message || "Erreur"), "error");
+    }
+  } catch (err) {
+    if (alertEl) {
+      alertEl.style.display = "block";
+      alertEl.style.background = "rgba(243, 139, 168, 0.15)";
+      alertEl.style.border = "1px solid rgba(243, 139, 168, 0.35)";
+      alertEl.style.color = "var(--red)";
+      alertEl.innerHTML = `<strong>❌ Erreur de connexion :</strong><br>${escapeHtml(String(err))}`;
+    }
+    showToast("Erreur de connexion : " + err, "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "🔧 Valider & Réparer les Permissions";
+    }
   }
 }

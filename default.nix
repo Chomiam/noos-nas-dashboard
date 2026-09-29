@@ -6,6 +6,8 @@ pkgs.rustPlatform.buildRustPackage rec {
 
   src = ./.;
 
+  buildInputs = [ pkgs.libxcrypt ];
+
   cargoLock = {
     lockFile = ./Cargo.lock;
   };

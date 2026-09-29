@@ -1440,6 +1440,73 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
   </div>
 
 
+
+  <!-- MODALE RÉPARATION DES PERMISSIONS DE STOCKAGE -->
+  <div class="file-modal-overlay" id="repair-permissions-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'repair-permissions-modal')">
+    <div class="file-modal-window format-window">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(250, 179, 135, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-warning" style="font-size:0.75rem; font-weight:800;">PERMISSIONS</span>
+          <span class="file-modal-title">Réparer les Permissions du Volume</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeRepairPermissionsModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body">
+        <!-- Message de statut dynamique (Succès / Erreur) -->
+        <div id="repair-perm-alert" style="display:none; padding:12px 14px; border-radius:var(--radius-md); margin-bottom:16px; font-size:0.85rem; line-height:1.45;"></div>
+
+        <div class="alert alert-info" style="display:flex; gap:12px; align-items:flex-start; margin-bottom:18px; background:rgba(137,180,250,0.1); border:1px solid rgba(137,180,250,0.25); border-radius:var(--radius-md); padding:12px 14px;">
+          <span style="font-size:1.4rem;">🛡️</span>
+          <div style="font-size:0.84rem; line-height:1.45;">
+            Cette opération attribue la propriété du volume à votre compte utilisateur <strong>chomiam</strong> et au groupe <strong>storage</strong> (mode <code>2775</code> avec setgid), garantissant un accès complet en lecture et écriture pour vos partages Samba, sFTP et médias.
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:14px;">
+          <label class="form-label" style="font-weight:600;">Point de montage / Dossier cible :</label>
+          <input type="text" id="repair-perm-path" class="form-control font-mono" readonly style="background:var(--mantle); opacity:0.9;">
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600;">Utilisateur propriétaire :</label>
+            <input type="text" id="repair-perm-user" class="form-control" value="chomiam">
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600;">Groupe propriétaire :</label>
+            <input type="text" id="repair-perm-group" class="form-control" value="storage">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:14px;">
+          <label class="form-label" style="font-weight:600;">Mot de passe administrateur (chomiam / sudo) :</label>
+          <div style="position:relative; display:flex; align-items:center;">
+            <input type="password" id="repair-perm-password" class="form-control" placeholder="Mot de passe administrateur (facultatif si sans mot de passe)" style="padding-right:40px;">
+            <button type="button" onclick="togglePermPasswordVisibility()" style="position:absolute; right:10px; background:none; border:none; color:var(--subtext0); cursor:pointer; font-size:1.1rem;" title="Afficher/Masquer le mot de passe">👁️</button>
+          </div>
+          <div style="font-size:0.75rem; color:var(--subtext0); margin-top:4px;">
+            Nécessaire pour valider l'élévation des privilèges d'administration.
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:14px;">
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.86rem; color:var(--text);">
+            <input type="checkbox" id="repair-perm-recursive" checked style="accent-color:var(--blue); width:18px; height:18px;">
+            <span>Appliquer récursivement à tous les sous-dossiers et fichiers existants</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 20px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeRepairPermissionsModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-repair-perm" onclick="submitRepairPermissions()">
+          🔧 Valider &amp; Réparer les Permissions
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODALE MONTAGE ET INITIALISATION DE VOLUME -->
   <div class="file-modal-overlay" id="mount-volume-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'mount-volume-modal')">
     <div class="file-modal-window format-window">
