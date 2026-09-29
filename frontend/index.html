@@ -692,26 +692,74 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
 
     <!-- ================= ONGLET 3 : STOCKAGE & DISQUES ================= -->
     <div id="tab-storage" class="tab-pane">
+      <!-- Actions Bar Supérieure -->
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button type="button" class="btn btn-primary" onclick="openCreateRaidModal()">
+            <span>➕</span> Créer un Pool RAID
+          </button>
+          <button type="button" class="btn btn-secondary" onclick="openFormatDiskModal()">
+            <span>🧹</span> Formater un Disque
+          </button>
+        </div>
+        <button type="button" class="btn btn-secondary btn-xs" onclick="loadStorage()">
+          <span>🔄</span> Actualiser le stockage
+        </button>
+      </div>
+
+      <!-- Bannière de Progression Synchronisation / Reconstruction RAID Active -->
+      <div class="raid-sync-banner" id="raid-sync-banner" style="display:none;">
+        <div class="raid-sync-header">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div class="raid-sync-icon-pulse">🔄</div>
+            <div>
+              <div style="font-weight:700; color:var(--text); font-size:0.95rem;" id="raid-sync-title">Synchronisation de grappe RAID en cours</div>
+              <div style="font-size:0.8rem; color:var(--subtext0);" id="raid-sync-details">Array: md0 — Vitesse: 145 Mo/s — Fin estimée: 2h 15m</div>
+            </div>
+          </div>
+          <span class="badge badge-accent" id="raid-sync-percent-badge" style="font-size:0.85rem; font-weight:700;">24.5%</span>
+        </div>
+        <div class="raid-sync-progress-wrap">
+          <div class="raid-sync-progress-bar" id="raid-sync-bar" style="width: 24.5%;"></div>
+        </div>
+      </div>
+
+      <!-- SECTION 1 : VOLUMES LOGIQUES & GRAPPES RAID -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <div class="section-icon-box" style="background:rgba(203,166,247,0.15); color:var(--mauve);">🛡️</div>
+            <div>
+              <div class="section-title">Volumes Logiques & Grappes RAID</div>
+              <div class="section-subtitle">Surveillance des grappes de stockage redondantes (RAID 0, 1, 5, 6, 10, Btrfs), résilience et points de montage</div>
+            </div>
+          </div>
+        </div>
+        <div class="raids-grid" id="logical-raids-container"></div>
+      </div>
+
+      <!-- SECTION 2 : SYSTÈMES DE FICHIERS & POINTS DE MONTAGE -->
       <div class="section-card">
         <div class="section-header">
           <div class="section-title-wrap">
             <div class="section-icon-box">💾</div>
             <div>
-              <div class="section-title">Pools & Systèmes de Fichiers (ZFS / Btrfs)</div>
-              <div class="section-subtitle">Surveillance de l'intégrité, de l'espace alloué et des points de montage</div>
+              <div class="section-title">Systèmes de Fichiers & Points de Montage Actifs</div>
+              <div class="section-subtitle">Espace alloué sur le système NixOS, dossiers utilisateurs et montages actifs</div>
             </div>
           </div>
         </div>
         <div class="pools-grid" id="pools-container"></div>
       </div>
 
+      <!-- SECTION 3 : VOLUMES PHYSIQUES & DISQUES BRUTS -->
       <div class="section-card">
         <div class="section-header">
           <div class="section-title-wrap">
             <div class="section-icon-box">💿</div>
             <div>
-              <div class="section-title">Disques Physiques & Contrôle d'Énergie</div>
-              <div class="section-subtitle">Gestion de l'arrêt moteur des disques inactifs (HDD Spindown) pour économiser l'énergie</div>
+              <div class="section-title">Volumes Physiques & Contrôle d'Énergie</div>
+              <div class="section-subtitle">Inventaire détaillé des disques durs SATA et SSD NVMe, température, santé S.M.A.R.T. et gestion de la mise en veille (Spindown)</div>
             </div>
           </div>
         </div>
@@ -1233,6 +1281,184 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
         <div class="audio-footer-hints">
           Raccourcis : <b>Espace</b> (Play/Pause) | <b>← / →</b> (±5s) | <b>↑ / ↓</b> (Volume) | <b>M</b> (Muet) | <b>R</b> (Boucle) | <b>Q</b> (Fermer)
         </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- MODALE ASSISTANT CRÉATION DE POOL RAID -->
+  <div class="file-modal-overlay" id="create-raid-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'create-raid-modal')">
+    <div class="file-modal-window storage-wizard-window">
+      <div class="file-modal-header">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-accent" style="font-size:0.75rem; font-weight:800;">RAID WIZARD</span>
+          <span class="file-modal-title">Créer un nouveau Pool RAID</span>
+        </div>
+        <button type="button" class="btn btn-secondary btn-xs" onclick="closeCreateRaidModal()">✕ Fermer</button>
+      </div>
+      <div class="storage-wizard-body">
+        <!-- Champ 1 : Nom du pool -->
+        <div class="form-group">
+          <label class="form-label">Nom du Pool RAID :</label>
+          <input type="text" id="raid-input-name" class="form-control" placeholder="ex: storage-data" value="storage-data" oninput="updateRaidPreview()">
+          <small class="form-hint">Le nom sera utilisé pour identifier le volume (ex: /dev/md/storage-data et /mnt/storage-data).</small>
+        </div>
+
+        <!-- Champ 2 : Niveau de RAID -->
+        <div class="form-group" style="margin-top:14px;">
+          <label class="form-label">Type de Grappe RAID :</label>
+          <div class="raid-levels-grid" id="raid-levels-picker">
+            <div class="raid-level-card active" data-level="raid5" onclick="selectRaidLevel('raid5')">
+              <div class="raid-level-header">
+                <strong>RAID 5 (Parité simple)</strong>
+                <span class="badge badge-success">Recommandé</span>
+              </div>
+              <div class="raid-level-desc">Capacité (N-1). Tolère la panne de 1 disque sans perte de données. Idéal pour vos 4x 4 To (12 To utiles).</div>
+            </div>
+            <div class="raid-level-card" data-level="raid1" onclick="selectRaidLevel('raid1')">
+              <div class="raid-level-header">
+                <strong>RAID 1 (Miroir)</strong>
+                <span class="badge badge-primary">Haute sécurité</span>
+              </div>
+              <div class="raid-level-desc">Capacité 50%. Les données sont écrites en double sur 2 disques ou plus. Tolère 1 panne sur 2.</div>
+            </div>
+            <div class="raid-level-card" data-level="raid6" onclick="selectRaidLevel('raid6')">
+              <div class="raid-level-header">
+                <strong>RAID 6 (Double parité)</strong>
+                <span class="badge badge-warning">Sécurité maximale</span>
+              </div>
+              <div class="raid-level-desc">Capacité (N-2). Tolère la panne simultanée de 2 disques. Recommandé pour gros volumes de stockage.</div>
+            </div>
+            <div class="raid-level-card" data-level="raid10" onclick="selectRaidLevel('raid10')">
+              <div class="raid-level-header">
+                <strong>RAID 10 (1+0 Miroir rayé)</strong>
+                <span class="badge badge-accent">Performance & Sécurité</span>
+              </div>
+              <div class="raid-level-desc">Combinaison de RAID 1 et RAID 0 (min 4 disques, nombre pair). Hautes performances d'écriture aléatoire.</div>
+            </div>
+            <div class="raid-level-card" data-level="raid0" onclick="selectRaidLevel('raid0')">
+              <div class="raid-level-header">
+                <strong>RAID 0 (Agrégation / Striping)</strong>
+                <span class="badge badge-danger">0 tolérance panne</span>
+              </div>
+              <div class="raid-level-desc">Capacité 100% (Somme de tous les disques). Vitesse maximale mais perte totale si 1 seul disque lâche.</div>
+            </div>
+            <div class="raid-level-card" data-level="linear" onclick="selectRaidLevel('linear')">
+              <div class="raid-level-header">
+                <strong>JBOD / Linéaire</strong>
+                <span class="badge badge-secondary">Concaténation</span>
+              </div>
+              <div class="raid-level-desc">Concaténation simple de plusieurs disques en un seul volume sans redondance.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Champ 3 : Sélection des Disques Physiques -->
+        <div class="form-group" style="margin-top:14px;">
+          <label class="form-label">Sélectionnez les disques physiques à inclure :</label>
+          <div class="raid-disks-checklist" id="raid-disks-checklist"></div>
+          <small class="form-hint">Les disques contenant le système NixOS sont automatiquement exclus pour des raisons de sécurité.</small>
+        </div>
+
+        <!-- Champ 4 : Calculateur dynamique de capacité & parité -->
+        <div class="raid-preview-card" id="raid-preview-box">
+          <div class="raid-preview-grid">
+            <div>
+              <span class="raid-preview-label">Capacité Brute Totale :</span>
+              <strong class="raid-preview-val" id="raid-preview-raw">0 Go</strong>
+            </div>
+            <div>
+              <span class="raid-preview-label">Capacité Nette Utilisable :</span>
+              <strong class="raid-preview-val text-green" id="raid-preview-net">0 Go</strong>
+            </div>
+            <div>
+              <span class="raid-preview-label">Résilience & Parité :</span>
+              <span class="badge badge-primary" id="raid-preview-resilience">Sélectionnez des disques</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Champ 5 : Système de Fichiers & Montage -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px;">
+          <div class="form-group">
+            <label class="form-label">Système de Fichiers :</label>
+            <select id="raid-input-fstype" class="form-control">
+              <option value="btrfs" selected>Btrfs (Recommandé - Snapshots & Checksums)</option>
+              <option value="ext4">Ext4 (Standard Linux - Robustesse éprouvée)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Point de Montage Cible :</label>
+            <input type="text" id="raid-input-mount" class="form-control" placeholder="/mnt/storage-data" value="/mnt/storage-data">
+          </div>
+        </div>
+      </div>
+      <div class="file-modal-footer" style="padding:14px 20px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+        <span id="raid-submit-error" style="color:var(--red); font-size:0.82rem;"></span>
+        <div style="display:flex; gap:10px;">
+          <button type="button" class="btn btn-secondary" onclick="closeCreateRaidModal()">Annuler</button>
+          <button type="button" class="btn btn-primary" id="btn-submit-raid" onclick="submitCreateRaid()">
+            🚀 Créer et Initialiser la Grappe RAID
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODALE FORMATAGE SÉCURISÉ DE DISQUE -->
+  <div class="file-modal-overlay" id="format-disk-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'format-disk-modal')">
+    <div class="file-modal-window format-window">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(243, 139, 168, 0.2);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-danger" style="font-size:0.75rem; font-weight:800;">FORMATAGE</span>
+          <span class="file-modal-title">Formater un Disque ou une Partition</span>
+        </div>
+        <button type="button" class="btn btn-secondary btn-xs" onclick="closeFormatDiskModal()">✕ Fermer</button>
+      </div>
+      <div class="storage-wizard-body">
+        <div class="format-warning-box">
+          <span style="font-size:1.4rem;">⚠️</span>
+          <div>
+            <strong>Attention : Opération Destructive Irrémédiable</strong>
+            <div style="font-size:0.8rem; color:var(--subtext0); margin-top:2px;">
+              Le formatage supprimera définitivement toutes les données, tables de partitions et signatures présentes sur le périphérique sélectionné.
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:16px;">
+          <label class="form-label">Sélectionnez le disque / périphérique à formater :</label>
+          <select id="format-select-device" class="form-control" onchange="updateFormatWarning()"></select>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px;">
+          <div class="form-group">
+            <label class="form-label">Système de Fichiers Cible :</label>
+            <select id="format-select-fstype" class="form-control">
+              <option value="btrfs" selected>Btrfs (Recommandé NAS)</option>
+              <option value="ext4">Ext4 (Standard Linux)</option>
+              <option value="xfs">XFS (Fichiers volumineux)</option>
+              <option value="vfat">VFAT / ExFAT (Compatibilité externe)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nom d'étiquette (Label du volume) :</label>
+            <input type="text" id="format-input-label" class="form-control" placeholder="ex: STORAGE" value="STORAGE">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:16px;">
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.88rem; color:var(--text);">
+            <input type="checkbox" id="format-confirm-checkbox" onchange="toggleFormatSubmitBtn()" style="accent-color:var(--red); width:18px; height:18px;">
+            <span>Je confirme vouloir effacer définitivement le contenu de ce disque.</span>
+          </label>
+        </div>
+      </div>
+      <div class="file-modal-footer" style="padding:14px 20px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeFormatDiskModal()">Annuler</button>
+        <button type="button" class="btn btn-danger disabled" id="btn-submit-format" onclick="submitFormatDisk()" disabled>
+          🧹 Formater Définitivement
+        </button>
       </div>
     </div>
   </div>

@@ -551,8 +551,12 @@ function clearUpdateTerminal() {
 }
 
 // --------------------------------------------------------------------------
-// STOCKAGE & DISQUES
+// STOCKAGE & GESTION DES POOLS RAID
 // --------------------------------------------------------------------------
+let cachedStorageDisks = [];
+let currentSelectedRaidLevel = "raid5";
+let raidSyncPollInterval = null;
+
 async function loadStorage() {
   try {
     const res = await fetch("/api/storage");
@@ -560,6 +564,7 @@ async function loadStorage() {
     if (!json.success || !json.data) return;
 
     const data = json.data;
+    cachedStorageDisks = data.physical_disks || [];
 
     // Main Storage Metric
     if (data.pools && data.pools.length > 0) {
@@ -577,7 +582,74 @@ async function loadStorage() {
       if (storageFree) storageFree.textContent = `${mainPool.free_human} libres sur ${mainPool.mountpoint}`;
     }
 
-    // Pools Grid
+    // Bannière de synchronisation active
+    updateRaidSyncBanner(data.active_sync);
+
+    // 1. Grille des Grappes RAID Logiques
+    const raidsContainer = document.getElementById("logical-raids-container");
+    if (raidsContainer) {
+      if (!data.logical_raids || data.logical_raids.length === 0) {
+        raidsContainer.innerHTML = `
+          <div style="grid-column: 1 / -1; padding: 26px; text-align: center; background: var(--surface0); border-radius: var(--radius-md); border: 1px dashed rgba(255,255,255,0.12);">
+            <div style="font-size: 2.2rem; margin-bottom: 8px;">🛡️</div>
+            <div style="font-weight: 700; color: var(--text); font-size: 1.05rem; margin-bottom: 4px;">Aucune grappe RAID configurée</div>
+            <div style="font-size: 0.84rem; color: var(--subtext0); max-width: 480px; margin: 0 auto 16px auto;">
+              Vos disques de stockage sont disponibles. Créez un pool RAID pour sécuriser vos données contre les pannes matérielles.
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" onclick="openCreateRaidModal()">
+              <span>➕</span> Créer un Pool RAID (RAID 5 Recommandé)
+            </button>
+          </div>
+        `;
+      } else {
+        raidsContainer.innerHTML = data.logical_raids.map(r => {
+          let healthBadgeClass = "badge-success";
+          if (r.health.includes("sync") || r.health.includes("Reconstruction")) healthBadgeClass = "badge-warning";
+          if (r.health.includes("Dégradé") || r.status.includes("degraded")) healthBadgeClass = "badge-danger";
+
+          const membersPills = (r.members || []).map(m => {
+            const shortName = m.replace("/dev/", "");
+            return `<span class="member-disk-pill">💿 ${escapeHtml(shortName)}</span>`;
+          }).join("");
+
+          return `
+            <div class="raid-card">
+              <div class="raid-card-header">
+                <div>
+                  <div class="raid-card-title">
+                    <span>🛡️ ${escapeHtml(r.name)}</span>
+                    <span class="badge badge-accent" style="font-size:0.72rem;">${escapeHtml(r.level)}</span>
+                  </div>
+                  <div class="raid-card-device">${escapeHtml(r.device)} &bull; ${escapeHtml(r.filesystem)}</div>
+                </div>
+                <span class="badge ${healthBadgeClass}">${escapeHtml(r.health)}</span>
+              </div>
+
+              <div class="metric-value-row" style="margin: 8px 0 4px 0;">
+                <span class="metric-value" style="font-size:1.35rem;">${r.usage_percent}%</span>
+                <span class="metric-unit">${escapeHtml(r.used_bytes ? formatFileSize(r.used_bytes) : "0 o")} / ${escapeHtml(r.size_human)}</span>
+              </div>
+
+              <div class="metric-progress-wrap">
+                <div class="metric-progress-bar ${r.usage_percent > 85 ? 'progress-red' : 'progress-peach'}" style="width: ${Math.min(r.usage_percent, 100)}%;"></div>
+              </div>
+
+              <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.78rem; color:var(--subtext0); margin-top:2px;">
+                <span>Point de montage : <strong>${escapeHtml(r.mountpoint || 'Non monté')}</strong></span>
+                <span>${escapeHtml(r.free_bytes ? formatFileSize(r.free_bytes) : r.size_human)} libres</span>
+              </div>
+
+              <div style="margin-top:4px;">
+                <div style="font-size:0.72rem; color:var(--subtext0); margin-bottom:4px;">Disques physiques membres :</div>
+                <div class="member-disks-wrap">${membersPills}</div>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+    }
+
+    // 2. Grille des Systèmes de Fichiers & Montages
     const poolsContainer = document.getElementById("pools-container");
     if (poolsContainer) {
       poolsContainer.innerHTML = data.pools.map(p => `
@@ -603,7 +675,7 @@ async function loadStorage() {
       `).join("");
     }
 
-    // Disks Grid
+    // 3. Grille des Disques Physiques
     const disksContainer = document.getElementById("disks-container");
     if (disksContainer) {
       disksContainer.innerHTML = data.physical_disks.map(d => {
@@ -612,25 +684,44 @@ async function loadStorage() {
           ? `<span class="badge badge-warning">🌙 ${escapeHtml(d.power_state)}</span>`
           : `<span class="badge badge-success">⚡ ${escapeHtml(d.power_state)}</span>`;
 
+        let roleBadge = `<span class="badge badge-secondary">${escapeHtml(d.role)}</span>`;
+        if (d.is_system) {
+          roleBadge = `<span class="badge badge-primary">🔒 Système NixOS</span>`;
+        } else if (d.role.includes("Membre")) {
+          roleBadge = `<span class="badge badge-accent">${escapeHtml(d.role)}</span>`;
+        } else if (d.role.includes("Libre")) {
+          roleBadge = `<span class="badge badge-success">✨ Libre</span>`;
+        }
+
         const spindownBtn = d.is_rotational
           ? `<button type="button" class="btn btn-secondary btn-xs" onclick="triggerSpindown('${escapeHtml(d.name)}')">Mettre en veille</button>`
-          : `<span class="badge badge-info">SSD (Sans moteur)</span>`;
+          : `<span class="badge badge-info">Flash (Sans moteur)</span>`;
+
+        const formatBtn = !d.is_system
+          ? `<button type="button" class="btn btn-danger btn-xs" onclick="openFormatDiskModalFor('${escapeHtml(d.path)}')">🧹 Formater</button>`
+          : `<span class="badge badge-secondary" title="Disque système protégé">Verrouillé</span>`;
+
+        const icon = d.disk_type.includes("NVMe") ? "⚡" : "💿";
 
         return `
           <div class="disk-card">
             <div class="disk-header">
-              <span class="disk-name">💿 /dev/${escapeHtml(d.name)}</span>
-              ${stateBadge}
+              <span class="disk-name">${icon} ${escapeHtml(d.path)}</span>
+              <div style="display:flex; align-items:center; gap:6px;">
+                ${roleBadge}
+                ${stateBadge}
+              </div>
             </div>
-            <div class="disk-model">${escapeHtml(d.model)}</div>
+            <div class="disk-model">${escapeHtml(d.model)} <span style="font-size:0.75rem; color:var(--subtext0);">(${escapeHtml(d.serial)})</span></div>
             <div class="disk-meta-grid">
               <div>Capacité : <strong>${d.size_human}</strong></div>
-              <div>Type : <strong>${d.is_rotational ? 'HDD Mécanique' : 'SSD Flash'}</strong></div>
+              <div>Technologie : <strong>${escapeHtml(d.disk_type)}</strong></div>
               <div>Température : <strong style="color:${d.temperature_c > 45 ? 'var(--red)' : 'var(--green)'};">${d.temperature_c > 0 ? d.temperature_c + ' °C' : 'N/A'}</strong></div>
               <div>Santé S.M.A.R.T : <strong style="color:var(--green);">${escapeHtml(d.smart_status)}</strong></div>
             </div>
-            <div class="disk-actions">
-              ${spindownBtn}
+            <div class="disk-actions" style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+              <div>${spindownBtn}</div>
+              <div>${formatBtn}</div>
             </div>
           </div>
         `;
@@ -640,6 +731,388 @@ async function loadStorage() {
     console.warn("Erreur fetch /api/storage:", err);
   }
 }
+
+function updateRaidSyncBanner(syncData) {
+  const banner = document.getElementById("raid-sync-banner");
+  if (!banner) return;
+
+  if (syncData) {
+    banner.style.display = "block";
+    const title = document.getElementById("raid-sync-title");
+    const details = document.getElementById("raid-sync-details");
+    const badge = document.getElementById("raid-sync-percent-badge");
+    const bar = document.getElementById("raid-sync-bar");
+
+    if (title) title.textContent = `${syncData.action} de la grappe ${syncData.array} en cours`;
+    if (details) details.textContent = `Vitesse : ${syncData.speed_mb_s} Mo/s &bull; Fin estimée : ${syncData.finish_human}`;
+    if (badge) badge.textContent = `${syncData.percent.toFixed(1)}%`;
+    if (bar) bar.style.width = `${Math.min(syncData.percent, 100)}%`;
+
+    if (!raidSyncPollInterval) {
+      raidSyncPollInterval = setInterval(pollRaidSyncProgress, 2500);
+    }
+  } else {
+    banner.style.display = "none";
+    if (raidSyncPollInterval) {
+      clearInterval(raidSyncPollInterval);
+      raidSyncPollInterval = null;
+    }
+  }
+}
+
+async function pollRaidSyncProgress() {
+  try {
+    const res = await fetch("/api/storage/raids/progress");
+    const json = await res.json();
+    if (json.success) {
+      updateRaidSyncBanner(json.data);
+    }
+  } catch (e) {
+    console.warn("Poll raid progress error:", e);
+  }
+}
+
+// --------------------------------------------------------------------------
+// MODALE ASSISTANT CRÉATION DE POOL RAID
+// --------------------------------------------------------------------------
+function openCreateRaidModal() {
+  const modal = document.getElementById("create-raid-modal");
+  const checklist = document.getElementById("raid-disks-checklist");
+  const errEl = document.getElementById("raid-submit-error");
+  if (!modal || !checklist) return;
+
+  if (errEl) errEl.textContent = "";
+
+  // Filtrer les disques éligibles (non-système)
+  const eligibleDisks = cachedStorageDisks.filter(d => !d.is_system);
+
+  if (eligibleDisks.length === 0) {
+    checklist.innerHTML = `<div style="color:var(--subtext0); padding:10px; text-align:center;">Aucun disque de stockage disponible pour le RAID.</div>`;
+  } else {
+    checklist.innerHTML = eligibleDisks.map((d, idx) => {
+      // Par défaut pour 4 disques, tous cochés pour RAID 5
+      const checked = idx < 4 ? "checked" : "";
+      return `
+        <label class="raid-disk-check-item">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <input type="checkbox" class="raid-disk-checkbox" value="${escapeHtml(d.path)}" data-size="${escapeHtml(d.size_human)}" onchange="updateRaidPreview()" ${checked} style="accent-color:var(--mauve); width:16px; height:16px;">
+            <div>
+              <strong style="color:var(--text); font-size:0.88rem;">${escapeHtml(d.path)}</strong>
+              <span style="font-size:0.75rem; color:var(--subtext0); margin-left:6px;">${escapeHtml(d.model)}</span>
+            </div>
+          </div>
+          <span class="badge badge-secondary">${escapeHtml(d.size_human)}</span>
+        </label>
+      `;
+    }).join("");
+  }
+
+  currentSelectedRaidLevel = "raid5";
+  updateRaidLevelPickerUI();
+  updateRaidPreview();
+  modal.style.display = "flex";
+}
+
+function closeCreateRaidModal() {
+  const modal = document.getElementById("create-raid-modal");
+  if (modal) modal.style.display = "none";
+}
+
+function selectRaidLevel(level) {
+  currentSelectedRaidLevel = level;
+  updateRaidLevelPickerUI();
+  updateRaidPreview();
+}
+
+function updateRaidLevelPickerUI() {
+  const cards = document.querySelectorAll(".raid-level-card");
+  cards.forEach(c => {
+    c.classList.toggle("active", c.getAttribute("data-level") === currentSelectedRaidLevel);
+  });
+}
+
+function updateRaidPreview() {
+  const checkboxes = document.querySelectorAll(".raid-disk-checkbox:checked");
+  const count = checkboxes.length;
+
+  const rawEl = document.getElementById("raid-preview-raw");
+  const netEl = document.getElementById("raid-preview-net");
+  const resEl = document.getElementById("raid-preview-resilience");
+  const btnSubmit = document.getElementById("btn-submit-raid");
+  const errEl = document.getElementById("raid-submit-error");
+
+  // Estimation de taille moyenne par disque (ex: 3.6 To -> 3.64)
+  let unitSize = 3.64; // To
+  if (checkboxes.length > 0) {
+    const s0 = checkboxes[0].getAttribute("data-size") || "3,6T";
+    const num = parseFloat(s0.replace(",", ".").replace("T", "").replace("G", ""));
+    if (!isNaN(num) && num > 0) {
+      unitSize = s0.includes("G") ? num / 1024 : num;
+    }
+  }
+
+  const rawTotal = (count * unitSize).toFixed(1);
+  let netTotal = 0;
+  let resilienceText = "Sélectionnez des disques";
+  let resilienceBadge = "badge-secondary";
+  let isValid = false;
+  let minReq = 2;
+
+  switch (currentSelectedRaidLevel) {
+    case "raid5":
+      minReq = 3;
+      if (count >= 3) {
+        netTotal = ((count - 1) * unitSize).toFixed(1);
+        resilienceText = "Tolère la panne de 1 disque complet";
+        resilienceBadge = "badge-success";
+        isValid = true;
+      } else {
+        resilienceText = "RAID 5 requiert au moins 3 disques";
+        resilienceBadge = "badge-danger";
+      }
+      break;
+
+    case "raid1":
+      minReq = 2;
+      if (count >= 2) {
+        netTotal = unitSize.toFixed(1);
+        resilienceText = "Miroir 1:1 (Tolère la panne de 1 disque)";
+        resilienceBadge = "badge-success";
+        isValid = true;
+      } else {
+        resilienceText = "RAID 1 requiert au moins 2 disques";
+        resilienceBadge = "badge-danger";
+      }
+      break;
+
+    case "raid6":
+      minReq = 4;
+      if (count >= 4) {
+        netTotal = ((count - 2) * unitSize).toFixed(1);
+        resilienceText = "Tolère la panne simultanée de 2 disques";
+        resilienceBadge = "badge-success";
+        isValid = true;
+      } else {
+        resilienceText = "RAID 6 requiert au moins 4 disques";
+        resilienceBadge = "badge-danger";
+      }
+      break;
+
+    case "raid10":
+      minReq = 4;
+      if (count >= 4 && count % 2 === 0) {
+        netTotal = ((count / 2) * unitSize).toFixed(1);
+        resilienceText = "Performance maximale + Tolérance aux pannes";
+        resilienceBadge = "badge-accent";
+        isValid = true;
+      } else {
+        resilienceText = "RAID 10 requiert un nombre pair de disques (min 4)";
+        resilienceBadge = "badge-danger";
+      }
+      break;
+
+    case "raid0":
+      minReq = 2;
+      if (count >= 2) {
+        netTotal = (count * unitSize).toFixed(1);
+        resilienceText = "0 parité (Perte totale si 1 disque lâche)";
+        resilienceBadge = "badge-danger";
+        isValid = true;
+      } else {
+        resilienceText = "RAID 0 requiert au moins 2 disques";
+        resilienceBadge = "badge-danger";
+      }
+      break;
+
+    case "linear":
+      minReq = 1;
+      if (count >= 1) {
+        netTotal = (count * unitSize).toFixed(1);
+        resilienceText = "Concaténation simple (JBOD)";
+        resilienceBadge = "badge-warning";
+        isValid = true;
+      }
+      break;
+  }
+
+  if (rawEl) rawEl.textContent = `${rawTotal} To`;
+  if (netEl) netEl.textContent = `${netTotal} To`;
+  if (resEl) {
+    resEl.textContent = resilienceText;
+    resEl.className = `badge ${resilienceBadge}`;
+  }
+
+  if (btnSubmit) {
+    btnSubmit.disabled = !isValid;
+    btnSubmit.classList.toggle("disabled", !isValid);
+  }
+
+  if (errEl) {
+    errEl.textContent = isValid ? "" : `Sélection insuffisante (${count}/${minReq} disques requis pour ${currentSelectedRaidLevel.toUpperCase()}).`;
+  }
+}
+
+async function submitCreateRaid() {
+  const nameInput = document.getElementById("raid-input-name");
+  const fstypeSelect = document.getElementById("raid-input-fstype");
+  const mountInput = document.getElementById("raid-input-mount");
+  const errEl = document.getElementById("raid-submit-error");
+  const btnSubmit = document.getElementById("btn-submit-raid");
+
+  const name = (nameInput?.value || "").trim();
+  if (!name) {
+    if (errEl) errEl.textContent = "Veuillez renseigner un nom pour le pool.";
+    return;
+  }
+
+  const checkedDisks = Array.from(document.querySelectorAll(".raid-disk-checkbox:checked")).map(cb => cb.value);
+  if (checkedDisks.length < 2 && currentSelectedRaidLevel !== "linear") {
+    if (errEl) errEl.textContent = "Sélectionnez au moins 2 disques.";
+    return;
+  }
+
+  const confirmMsg = `ATTENTION : Vous êtes sur le point de créer un pool ${currentSelectedRaidLevel.toUpperCase()} avec ${checkedDisks.length} disques :\n${checkedDisks.join(", ")}.\n\nToutes les données existantes sur ces disques seront définitivement effacées.\n\nVoulez-vous continuer ?`;
+  if (!confirm(confirmMsg)) return;
+
+  if (btnSubmit) {
+    btnSubmit.disabled = true;
+    btnSubmit.textContent = "Initialisation en cours...";
+  }
+
+  try {
+    const res = await fetch("/api/storage/raids/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        level: currentSelectedRaidLevel,
+        devices: checkedDisks,
+        fs_type: fstypeSelect?.value || "btrfs",
+        mountpoint: mountInput?.value || `/mnt/${name}`,
+      })
+    });
+
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || "Pool RAID créé avec succès !", "success");
+      closeCreateRaidModal();
+      loadStorage();
+    } else {
+      if (errEl) errEl.textContent = json.message || "Échec de création du RAID";
+      showToast("Erreur : " + (json.message || "Échec"), "error");
+    }
+  } catch (err) {
+    if (errEl) errEl.textContent = "Erreur de connexion : " + err;
+    showToast("Erreur lors de la création : " + err, "error");
+  } finally {
+    if (btnSubmit) {
+      btnSubmit.disabled = false;
+      btnSubmit.textContent = "🚀 Créer et Initialiser la Grappe RAID";
+    }
+  }
+}
+
+// --------------------------------------------------------------------------
+// MODALE FORMATAGE SÉCURISÉ DE DISQUE
+// --------------------------------------------------------------------------
+function openFormatDiskModal() {
+  openFormatDiskModalFor(null);
+}
+
+function openFormatDiskModalFor(preselectPath) {
+  const modal = document.getElementById("format-disk-modal");
+  const select = document.getElementById("format-select-device");
+  const chk = document.getElementById("format-confirm-checkbox");
+  const btn = document.getElementById("btn-submit-format");
+
+  if (!modal || !select) return;
+
+  const eligibleDisks = cachedStorageDisks.filter(d => !d.is_system);
+
+  if (eligibleDisks.length === 0) {
+    select.innerHTML = `<option value="">Aucun disque disponible pour formatage</option>`;
+  } else {
+    select.innerHTML = eligibleDisks.map(d => {
+      const selected = (preselectPath && d.path === preselectPath) ? "selected" : "";
+      return `<option value="${escapeHtml(d.path)}" ${selected}>${escapeHtml(d.path)} (${escapeHtml(d.size_human)}) &mdash; ${escapeHtml(d.model)}</option>`;
+    }).join("");
+  }
+
+  if (chk) chk.checked = false;
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add("disabled");
+  }
+
+  modal.style.display = "flex";
+}
+
+function closeFormatDiskModal() {
+  const modal = document.getElementById("format-disk-modal");
+  if (modal) modal.style.display = "none";
+}
+
+function toggleFormatSubmitBtn() {
+  const chk = document.getElementById("format-confirm-checkbox");
+  const btn = document.getElementById("btn-submit-format");
+  if (chk && btn) {
+    btn.disabled = !chk.checked;
+    btn.classList.toggle("disabled", !chk.checked);
+  }
+}
+
+function updateFormatWarning() {
+  const chk = document.getElementById("format-confirm-checkbox");
+  if (chk) chk.checked = false;
+  toggleFormatSubmitBtn();
+}
+
+async function submitFormatDisk() {
+  const select = document.getElementById("format-select-device");
+  const fstypeSelect = document.getElementById("format-select-fstype");
+  const labelInput = document.getElementById("format-input-label");
+  const btn = document.getElementById("btn-submit-format");
+
+  const device = select?.value;
+  if (!device) return;
+
+  const confirmMsg = `DANGER : Confirmez-vous le formatage COMPLET du disque ${device} en ${fstypeSelect?.value.toUpperCase()} ?\nToutes les données existantes seront perdues.`;
+  if (!confirm(confirmMsg)) return;
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Formatage en cours...";
+  }
+
+  try {
+    const res = await fetch("/api/storage/disks/format", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        device,
+        fs_type: fstypeSelect?.value || "btrfs",
+        label: labelInput?.value || "STORAGE",
+      })
+    });
+
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || "Disque formaté avec succès !", "success");
+      closeFormatDiskModal();
+      loadStorage();
+    } else {
+      showToast("Échec du formatage : " + (json.message || "Erreur"), "error");
+    }
+  } catch (err) {
+    showToast("Erreur lors du formatage : " + err, "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "🧹 Formater Définitivement";
+    }
+  }
+}
+
 
 // --------------------------------------------------------------------------
 // SERVICES & DOCKER
@@ -2924,6 +3397,8 @@ function handleModalOverlayClick(e, modalId) {
     if (modalId === "nvim-modal") closeNvimModal();
     if (modalId === "mpv-modal") closeMpvModal();
     if (modalId === "audio-modal") closeAudioModal();
+    if (modalId === "create-raid-modal") closeCreateRaidModal();
+    if (modalId === "format-disk-modal") closeFormatDiskModal();
   }
 }
 

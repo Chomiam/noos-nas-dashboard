@@ -83,6 +83,13 @@
                 util-linux
                 procps
                 which
+                mdadm
+                btrfs-progs
+                e2fsprogs
+                xfsprogs
+                dosfstools
+                parted
+                lvm2
               ];
               environment = {
                 STEVEOS_PORT = toString cfg.port;

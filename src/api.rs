@@ -12,7 +12,7 @@ use crate::files::{
 };
 use crate::firewall::{get_firewall_overview, FirewallOverview};
 use crate::services::{control_service, get_service_logs, get_services_overview, ServicesOverview};
-use crate::storage::{get_storage_overview, trigger_disk_spindown, StorageOverview};
+use crate::storage::{create_raid, format_disk, get_raid_sync_progress, get_storage_overview, trigger_disk_spindown, CreateRaidRequest, FormatDiskRequest, RaidSyncProgress, StorageOverview};
 use crate::system::{get_gpu_info, get_system_info, GpuInfo, SystemInfo};
 use crate::terminal::{autocomplete, execute_command, CompleteRequest, CompleteResponse, ExecRequest, ExecResponse};
 use crate::updates::{apply_intelligent_update, check_updates, ApplyUpdateResult, UpdateCheckStatus};
@@ -48,6 +48,9 @@ pub fn api_routes() -> Router {
         .route("/system", get(handle_system))
         .route("/gpu", get(handle_gpu))
         .route("/storage", get(handle_storage))
+        .route("/storage/raids/progress", get(handle_raid_progress))
+        .route("/storage/disks/format", post(handle_format_disk))
+        .route("/storage/raids/create", post(handle_create_raid))
         .route("/services", get(handle_services))
         .route("/firewall", get(handle_firewall))
         .route("/logs", get(handle_logs))
@@ -348,6 +351,44 @@ async fn handle_service_action(Path((unit, action)): Path<(String, String)>) -> 
             success: true,
             data: Some(msg.clone()),
             message: Some(msg),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_raid_progress() -> Json<ApiResponse<Option<RaidSyncProgress>>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(get_raid_sync_progress()),
+        message: None,
+    })
+}
+
+async fn handle_format_disk(Json(payload): Json<FormatDiskRequest>) -> Json<ApiResponse<String>> {
+    match format_disk(&payload) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_create_raid(Json(payload): Json<CreateRaidRequest>) -> Json<ApiResponse<String>> {
+    match create_raid(&payload) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
         }),
         Err(err) => Json(ApiResponse {
             success: false,
