@@ -12,7 +12,7 @@ use crate::files::{
 };
 use crate::firewall::{get_firewall_overview, FirewallOverview};
 use crate::services::{control_service, get_service_logs, get_services_overview, ServicesOverview};
-use crate::storage::{create_raid, format_disk, get_raid_sync_progress, get_storage_overview, trigger_disk_spindown, CreateRaidRequest, FormatDiskRequest, RaidSyncProgress, StorageOverview};
+use crate::storage::{create_raid, format_disk, get_raid_sync_progress, get_storage_overview, mount_volume, trigger_disk_spindown, umount_volume, CreateRaidRequest, FormatDiskRequest, MountVolumeRequest, RaidSyncProgress, StorageOverview, UmountVolumeRequest};
 use crate::system::{get_gpu_info, get_system_info, GpuInfo, SystemInfo};
 use crate::terminal::{autocomplete, execute_command, CompleteRequest, CompleteResponse, ExecRequest, ExecResponse};
 use crate::updates::{apply_intelligent_update, check_updates, ApplyUpdateResult, UpdateCheckStatus};
@@ -51,6 +51,8 @@ pub fn api_routes() -> Router {
         .route("/storage/raids/progress", get(handle_raid_progress))
         .route("/storage/disks/format", post(handle_format_disk))
         .route("/storage/raids/create", post(handle_create_raid))
+        .route("/storage/mount", post(handle_mount_volume))
+        .route("/storage/umount", post(handle_umount_volume))
         .route("/services", get(handle_services))
         .route("/firewall", get(handle_firewall))
         .route("/logs", get(handle_logs))
@@ -366,6 +368,36 @@ async fn handle_raid_progress() -> Json<ApiResponse<Option<RaidSyncProgress>>> {
         data: Some(get_raid_sync_progress()),
         message: None,
     })
+}
+
+async fn handle_mount_volume(Json(payload): Json<MountVolumeRequest>) -> Json<ApiResponse<String>> {
+    match mount_volume(&payload) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_umount_volume(Json(payload): Json<UmountVolumeRequest>) -> Json<ApiResponse<String>> {
+    match umount_volume(&payload) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
 }
 
 async fn handle_format_disk(Json(payload): Json<FormatDiskRequest>) -> Json<ApiResponse<String>> {

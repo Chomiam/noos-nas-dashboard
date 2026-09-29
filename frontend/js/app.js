@@ -668,6 +668,19 @@ async function loadStorage() {
                 <div style="font-size:0.72rem; color:var(--subtext0); margin-bottom:4px;">Disques physiques membres :</div>
                 <div class="member-disks-wrap">${membersPills}</div>
               </div>
+
+              <div class="raid-card-actions" style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px; margin-top:8px;">
+                <div>
+                  ${r.mountpoint 
+                    ? `<span style="font-size:0.8rem; color:var(--green); font-weight:600;">📁 Monté sur ${escapeHtml(r.mountpoint)}</span>`
+                    : `<span style="font-size:0.8rem; color:var(--peach); font-weight:600;">⚠️ Volume non monté</span>`}
+                </div>
+                <div>
+                  ${r.mountpoint
+                    ? `<button type="button" class="btn btn-secondary btn-xs" onclick="umountVolume('${escapeHtml(r.mountpoint)}')"><span>⏏️</span> Démonter</button>`
+                    : `<button type="button" class="btn btn-primary btn-xs" onclick="openMountVolumeModal('${escapeHtml(r.name)}', '${escapeHtml(r.device)}', '${escapeHtml(r.level)}')"><span>📁</span> Monter dans /mnt</button>`}
+                </div>
+              </div>
             </div>
           `;
         }).join("");
@@ -3851,4 +3864,117 @@ function closeAudioModal() {
 
   if (modal) modal.style.display = "none";
   currentAudioPath = null;
+}
+
+
+// --------------------------------------------------------------------------
+// MODALE MONTAGE ET INITIALISATION DE VOLUME RAID
+// --------------------------------------------------------------------------
+function openMountVolumeModal(name, device, level) {
+  const modal = document.getElementById("mount-volume-modal");
+  const title = document.getElementById("mount-modal-title");
+  const targetName = document.getElementById("mount-target-name");
+  const targetDevice = document.getElementById("mount-target-device");
+  const targetLevel = document.getElementById("mount-target-level");
+  const infoText = document.getElementById("mount-modal-info-text");
+  const vgOptions = document.getElementById("mount-vg-options-wrap");
+  const btn = document.getElementById("btn-submit-mount");
+
+  if (!modal) return;
+
+  if (targetName) targetName.value = name || "";
+  if (targetDevice) targetDevice.value = device || "";
+  if (targetLevel) targetLevel.value = level || "";
+
+  if (title) title.textContent = `Monter le volume : ${name}`;
+
+  const isVg = (level || "").toLowerCase().includes("grappe") || (level || "").toLowerCase().includes("pool");
+  if (vgOptions) vgOptions.style.display = isVg ? "block" : "none";
+
+  if (infoText) {
+    if (isVg) {
+      infoText.innerHTML = `Ce groupe de stockage <strong>${escapeHtml(name)}</strong> (14.6 To bruts sur 4 disques) va être initialisé avec un volume logique <strong>RAID 5</strong> (10.9 To utiles protégés avec parité) et monté directement dans <code>/mnt/storage</code>.`;
+    } else {
+      infoText.innerHTML = `Le volume <strong>${escapeHtml(device)}</strong> (${escapeHtml(level)}) sera monté et accessible pour vos partages et fichiers dans <code>/mnt/storage</code>.`;
+    }
+  }
+
+  if (btn) btn.textContent = isVg ? "🚀 Initialiser & Monter dans /mnt/storage" : "📁 Monter le volume";
+
+  modal.style.display = "flex";
+}
+
+function closeMountVolumeModal() {
+  const modal = document.getElementById("mount-volume-modal");
+  if (modal) modal.style.display = "none";
+}
+
+async function submitMountVolume() {
+  const name = document.getElementById("mount-target-name")?.value;
+  const device = document.getElementById("mount-target-device")?.value;
+  const raidSelect = document.getElementById("mount-select-raid");
+  const lvInput = document.getElementById("mount-input-lvname");
+  const fstypeSelect = document.getElementById("mount-select-fstype");
+  const pathInput = document.getElementById("mount-input-path");
+  const btn = document.getElementById("btn-submit-mount");
+
+  if (!device) return;
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Montage et initialisation en cours...";
+  }
+
+  try {
+    const res = await fetch("/api/storage/mount", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: name || "storage",
+        device: device,
+        mountpoint: pathInput?.value || "/mnt/storage",
+        fs_type: fstypeSelect?.value || "btrfs",
+        raid_type: raidSelect?.value || "raid5",
+        lv_name: lvInput?.value || "storage",
+      })
+    });
+
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || "Volume monté avec succès !", "success");
+      closeMountVolumeModal();
+      loadStorage();
+    } else {
+      showToast("Échec du montage : " + (json.message || "Erreur"), "error");
+    }
+  } catch (e) {
+    showToast("Erreur de connexion : " + e, "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "🚀 Initialiser & Monter";
+    }
+  }
+}
+
+async function umountVolume(mountpoint) {
+  if (!confirm(`Confirmez-vous le démontage de ${mountpoint} ?`)) return;
+
+  try {
+    const res = await fetch("/api/storage/umount", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mountpoint })
+    });
+
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || "Volume démonté avec succès", "success");
+      loadStorage();
+    } else {
+      showToast(json.message || "Erreur de démontage", "error");
+    }
+  } catch (e) {
+    showToast("Erreur : " + e, "error");
+  }
 }

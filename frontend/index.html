@@ -1439,6 +1439,70 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
     </div>
   </div>
 
+
+  <!-- MODALE MONTAGE ET INITIALISATION DE VOLUME -->
+  <div class="file-modal-overlay" id="mount-volume-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'mount-volume-modal')">
+    <div class="file-modal-window format-window">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(137, 180, 250, 0.2);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-primary" style="font-size:0.75rem; font-weight:800;">MONTAGE</span>
+          <span class="file-modal-title" id="mount-modal-title">Monter le volume de stockage</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeMountVolumeModal()">&times;</button>
+      </div>
+      <div class="storage-wizard-body">
+        <input type="hidden" id="mount-target-name">
+        <input type="hidden" id="mount-target-device">
+        <input type="hidden" id="mount-target-level">
+
+        <div class="alert alert-info" id="mount-modal-info" style="display:flex; gap:12px; align-items:flex-start; margin-bottom:18px; background:rgba(137,180,250,0.1); border:1px solid rgba(137,180,250,0.25); border-radius:var(--radius-md); padding:12px 14px;">
+          <span style="font-size:1.4rem;">ℹ️</span>
+          <div style="font-size:0.84rem; line-height:1.45;" id="mount-modal-info-text">
+            Ce volume va être initialisé et monté pour le stockage de vos fichiers, partages Samba et médias.
+          </div>
+        </div>
+
+        <div id="mount-vg-options-wrap">
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="form-label" style="font-weight:600;">Configuration RAID du volume :</label>
+            <select id="mount-select-raid" class="form-control">
+              <option value="raid5" selected>RAID 5 (Recommandé : 10.9 To utiles protégés avec parité sur 4 disques)</option>
+              <option value="linear">Linéaire / JBOD (14.6 To utiles sans tolérance de panne)</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="form-label" style="font-weight:600;">Nom du volume logique :</label>
+            <input type="text" id="mount-input-lvname" class="form-control" value="storage" placeholder="ex: storage">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:14px;">
+          <label class="form-label" style="font-weight:600;">Système de fichiers :</label>
+          <select id="mount-select-fstype" class="form-control">
+            <option value="btrfs" selected>Btrfs (Recommandé NAS : snapshots, compression Zstd, auto-guérison)</option>
+            <option value="ext4">Ext4 (Standard Linux ultra-éprouvé)</option>
+            <option value="xfs">XFS (Hautes performances gros fichiers)</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom:14px;">
+          <label class="form-label" style="font-weight:600;">Point de montage :</label>
+          <input type="text" id="mount-input-path" class="form-control" value="/mnt/storage" placeholder="/mnt/storage">
+          <div style="font-size:0.75rem; color:var(--subtext0); margin-top:4px;">
+            Les partages Samba, sFTP et médias seront immédiatement disponibles dans ce dossier.
+          </div>
+        </div>
+      </div>
+      <div class="file-modal-footer" style="padding:14px 20px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeMountVolumeModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-mount" onclick="submitMountVolume()">
+          🚀 Initialiser &amp; Monter dans /mnt/storage
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODALE FORMATAGE SÉCURISÉ DE DISQUE -->
   <div class="file-modal-overlay" id="format-disk-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'format-disk-modal')">
     <div class="file-modal-window format-window">

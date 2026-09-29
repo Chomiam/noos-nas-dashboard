@@ -12,6 +12,7 @@ pub struct StorageOverview {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoragePool {
+    #[allow(dead_code)]
     pub name: String,
     pub mountpoint: String,
     pub filesystem: String,
@@ -80,6 +81,21 @@ pub struct RaidSyncProgress {
     pub speed_mb_s: f32,
     pub finish_minutes: f32,
     pub finish_human: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MountVolumeRequest {
+    pub name: String,
+    pub device: String,
+    pub mountpoint: Option<String>,
+    pub fs_type: Option<String>,
+    pub raid_type: Option<String>,
+    pub lv_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UmountVolumeRequest {
+    pub mountpoint: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -916,6 +932,125 @@ pub fn trigger_disk_spindown(disk_name: &str) -> Result<String, String> {
     } else {
         let err = String::from_utf8_lossy(&output.stderr);
         Err(format!("Erreur lors de la mise en veille : {}", err))
+    }
+}
+
+pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
+    let _ = &req.name;
+    let clean_dev = req.device.trim();
+    let mount_target = req.mountpoint.as_deref().unwrap_or("/mnt/storage").trim();
+    if mount_target.is_empty() || !mount_target.starts_with('/') {
+        return Err("Point de montage invalide.".into());
+    }
+
+    if mount_target == "/" || mount_target == "/boot" || mount_target.starts_with("/nix") {
+        return Err("Interdiction : Impossible de monter sur un répertoire système.".into());
+    }
+
+    let vg_name = clean_dev.trim_start_matches("/dev/");
+    let is_vg = Command::new("vgs")
+        .args([vg_name])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    let final_block_device = if is_vg {
+        let lv_out = Command::new("lvs")
+            .args(["-o", "lv_name", "--noheadings", vg_name])
+            .output()
+            .map_err(|e| format!("Erreur lvs : {}", e))?;
+        let lvs_str = String::from_utf8_lossy(&lv_out.stdout);
+        let first_lv = lvs_str.lines().map(|l| l.trim()).find(|l| !l.is_empty());
+
+        if let Some(lv) = first_lv {
+            format!("/dev/{}/{}", vg_name, lv)
+        } else {
+            let chosen_lv_name = req.lv_name.as_deref().unwrap_or("storage");
+            let raid_type = req.raid_type.as_deref().unwrap_or("raid5");
+
+            let _ = Command::new("modprobe").args(["dm-raid", "raid456"]).output();
+
+            let create_args = if raid_type == "raid5" {
+                vec!["--type", "raid5", "-l", "100%FREE", "-n", chosen_lv_name, vg_name]
+            } else if raid_type == "linear" {
+                vec!["-l", "100%FREE", "-n", chosen_lv_name, vg_name]
+            } else {
+                vec!["--type", raid_type, "-l", "100%FREE", "-n", chosen_lv_name, vg_name]
+            };
+
+            let lv_create_out = Command::new("lvcreate")
+                .args(&create_args)
+                .output()
+                .map_err(|e| format!("Impossible d'exécuter lvcreate : {}", e))?;
+
+            if !lv_create_out.status.success() {
+                let err = String::from_utf8_lossy(&lv_create_out.stderr);
+                return Err(format!("Échec de création du volume logique : {}", err));
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+            format!("/dev/{}/{}", vg_name, chosen_lv_name)
+        }
+    } else {
+        clean_dev.to_string()
+    };
+
+    let blkid_out = Command::new("blkid").args(["-o", "value", "-s", "TYPE", &final_block_device]).output();
+    let has_fs = blkid_out.as_ref().map(|o| !o.stdout.is_empty()).unwrap_or(false);
+
+    let fs_type = req.fs_type.as_deref().unwrap_or("btrfs");
+
+    if !has_fs {
+        let fmt_status = if fs_type == "btrfs" {
+            Command::new("mkfs.btrfs").args(["-f", "-L", "STORAGE", &final_block_device]).output()
+        } else if fs_type == "ext4" {
+            Command::new("mkfs.ext4").args(["-F", "-L", "STORAGE", &final_block_device]).output()
+        } else {
+            Command::new("mkfs.xfs").args(["-f", "-L", "STORAGE", &final_block_device]).output()
+        };
+
+        if let Ok(out) = fmt_status {
+            if !out.status.success() {
+                let err = String::from_utf8_lossy(&out.stderr);
+                return Err(format!("Échec du formatage en {} : {}", fs_type, err));
+            }
+        }
+    }
+
+    let _ = Command::new("mkdir").args(["-p", mount_target]).output();
+
+    let mount_out = Command::new("mount")
+        .args(["-o", "defaults,noatime", &final_block_device, mount_target])
+        .output()
+        .map_err(|e| format!("Impossible d'exécuter mount : {}", e))?;
+
+    if !mount_out.status.success() {
+        let err = String::from_utf8_lossy(&mount_out.stderr);
+        return Err(format!("Échec du montage sur {} : {}", mount_target, err));
+    }
+
+    Ok(format!(
+        "Le volume {} a été monté avec succès sur {} !",
+        final_block_device, mount_target
+    ))
+}
+
+pub fn umount_volume(req: &UmountVolumeRequest) -> Result<String, String> {
+    let target = req.mountpoint.trim();
+    if target == "/" || target == "/boot" || target.starts_with("/nix") {
+        return Err("Interdiction : Impossible de démonter un répertoire système.".into());
+    }
+
+    let out = Command::new("umount")
+        .args(["-l", target])
+        .output()
+        .map_err(|e| format!("Impossible d'exécuter umount : {}", e))?;
+
+    if out.status.success() {
+        Ok(format!("Le point de montage {} a été démonté avec succès.", target))
+    } else {
+        let err = String::from_utf8_lossy(&out.stderr);
+        Err(format!("Échec du démontage : {}", err))
     }
 }
 
