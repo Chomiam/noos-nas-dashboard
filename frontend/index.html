@@ -1217,78 +1217,18 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
             </div>
           </div>
         </div>
-      </div>
-
-            <div style="display:flex; gap:10px; margin-top:16px;">
-              <button type="button" class="btn btn-secondary btn-sm" style="flex:1;" onclick="restartServiceAction('wireguard-wg0')">
-                🔄 Redémarrer
-              </button>
-              <button type="button" class="btn btn-secondary btn-sm" id="wg-toggle-btn" onclick="toggleServiceAction('wireguard-wg0')">
-                ⚡ Gérer
-              </button>
-            </div>
-          </div>
-
-          <!-- Carte Tailscale -->
-          <div class="vpn-card vpn-card-tailscale">
-            <div>
-              <div class="vpn-card-header">
-                <div class="vpn-icon-title">
-                  <div class="vpn-icon" style="background:rgba(166,227,161,0.15); color:var(--green);">🪢</div>
-                  <div>
-                    <div class="vpn-title">Tailscale Mesh VPN</div>
-                    <div class="vpn-desc">Accès distant Zero-Config chiffré de bout en bout</div>
-                  </div>
-                </div>
-                <span class="badge" id="ts-status-badge">Vérification...</span>
-              </div>
-
-              <div class="vpn-details-list">
-                <div class="vpn-detail-row">
-                  <span class="vpn-detail-label">Nom du nœud :</span>
-                  <span class="vpn-detail-value" id="ts-node-name">steveos-nas</span>
-                </div>
-                <div class="vpn-detail-row">
-                  <span class="vpn-detail-label">Adresse IP Tailscale (100.x) :</span>
-                  <div style="display:flex; gap:6px; align-items:center;">
-                    <span class="vpn-detail-value" id="ts-ip" style="color:var(--green);">Non assignée</span>
-                    <button type="button" class="btn btn-secondary btn-xs" id="ts-copy-btn" onclick="copyElementText('ts-ip', 'IP Tailscale copiée !')">📋</button>
-                  </div>
-                </div>
-                <div class="vpn-detail-row">
-                  <span class="vpn-detail-label">Statut Tailnet :</span>
-                  <span class="vpn-detail-value" id="ts-status-text">Inactif</span>
-                </div>
-                <div class="vpn-detail-row">
-                  <span class="vpn-detail-label">MagicDNS :</span>
-                  <span class="vpn-detail-value">steveos-nas.ts.net</span>
-                </div>
-              </div>
-            </div>
-
-            <div style="display:flex; gap:10px; margin-top:16px;">
-              <button type="button" class="btn btn-secondary btn-sm" style="flex:1;" onclick="restartServiceAction('tailscaled')">
-                🔄 Redémarrer
-              </button>
-              <a href="https://login.tailscale.com/admin/machines" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
-                ↗ Console Web
-              </a>
-            </div>
-          </div>
-        </div>
-
         <div class="section-card" style="border: 1px solid rgba(203, 166, 247, 0.2); background: rgba(203, 166, 247, 0.03);">
           <div class="section-header">
             <div class="section-title-wrap">
               <div class="section-icon-box" style="background:rgba(203,166,247,0.15); color:var(--mauve);">💡</div>
               <div>
-                <div class="section-title">Pourquoi utiliser un VPN sur votre STEvE_OS NAS ?</div>
+                <div class="section-title">Pourquoi utiliser WireGuard sur votre STEvE_OS NAS ?</div>
                 <div class="section-subtitle">Sécurisez l'accès à vos données sans exposer vos ports sur Internet</div>
               </div>
             </div>
           </div>
           <div style="font-size:0.88rem; color:var(--subtext1); line-height:1.6;">
-            En activant <strong>WireGuard</strong> ou <strong>Tailscale</strong>, vous pouvez accéder à vos fichiers Samba, vos téléchargements sFTP et au tableau de bord STEvE_OS depuis n'importe où dans le monde (PC portable, smartphone) comme si vous étiez chez vous, sans avoir besoin d'ouvrir de port sensible sur votre box Internet.
+            En activant <strong>WireGuard</strong>, vous accédez à vos partages Samba, vos sauvegardes sFTP et à votre tableau de bord STEvE_OS depuis n'importe où dans le monde (PC portable, smartphone) avec un chiffrement moderne haute performance, tout en conservant l'isolation stricte de votre réseau local.
           </div>
         </div>
       </div>
@@ -1557,17 +1497,6 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
             </tbody>
           </table>
         </div>
-      </div>
-    </div>
-          <button type="button" class="btn btn-secondary btn-xs" onclick="copySftpUri()">
-            <span id="sftp-copy-icon">📋</span> Copier l'URI
-          </button>
-        </div>
-        <div style="background:var(--mantle); padding:14px 18px; border-radius:var(--radius-md); font-family:var(--font-mono); font-size:0.95rem; color:var(--teal); display:flex; align-items:center; justify-content:space-between; border:1px solid rgba(255,255,255,0.06);">
-          <span id="sftp-connection-uri">sftp://chomiam@192.168.1.139:22</span>
-          <span class="badge badge-success">Port SSH 22 Ouvert</span>
-        </div>
-      </div>
 
       <div class="section-card">
         <div class="section-header">
@@ -1610,6 +1539,7 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
         </div>
       </div>
     </div>
+  </div>
 
     <!-- ================= ONGLET 6 : CONTENEURS DOCKER & BOUTIQUE ================= -->
     <div id="tab-containers" class="tab-pane">
@@ -1668,40 +1598,6 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
       </div>
     </div>
 
-    
-          <span class="badge badge-success" id="firewall-status-badge">🟢 Pare-feu Actif</span>
-        </div>
-
-        <table class="custom-table">
-          <thead>
-            <tr>
-              <th>Port</th>
-              <th>Protocole</th>
-              <th>Service Associé</th>
-              <th>Statut</th>
-            </tr>
-          </thead>
-          <tbody id="firewall-tbody"></tbody>
-        </table>
-      </div>
-
-      <!-- Fail2ban Security -->
-      <div class="section-card">
-        <div class="section-header">
-          <div class="section-title-wrap">
-            <div class="section-icon-box">🔒</div>
-            <div>
-              <div class="section-title">Sécurité Anti-Bruteforce (Fail2ban)</div>
-              <div class="section-subtitle">Surveillance et blocage automatique des attaques SSH</div>
-            </div>
-          </div>
-        </div>
-        <div id="fail2ban-wrap">
-          <p style="font-size:0.88rem; color:var(--subtext1); margin-bottom:10px;">Adresses IP actuellement bannies par la prison SSH :</p>
-          <div id="banned-ips-list" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
-        </div>
-      </div>
-    </div>
 
     <!-- ================= ONGLET 8 : LOGS & CONSOLE ================= -->
     <div id="tab-logs" class="tab-pane">
