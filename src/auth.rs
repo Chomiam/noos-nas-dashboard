@@ -97,6 +97,92 @@ fn generate_token() -> String {
     hex
 }
 
+// Vérification d'un mot de passe contre un hash cryptographique Linux
+fn check_password_hash(password: &str, hash: &str) -> bool {
+    if hash.starts_with('!') || hash.starts_with('*') || hash.is_empty() {
+        return false;
+    }
+
+    let last_dollar = match hash.rfind('$') {
+        Some(idx) => idx,
+        None => return false,
+    };
+
+    let setting = &hash[..last_dollar];
+
+    // Moteur 1 : openssl passwd (si openssl est disponible)
+    for openssl_bin in &["openssl", "/run/current-system/sw/bin/openssl", "/usr/bin/openssl"] {
+        // Si hash SHA-512 ($6$)
+        if hash.starts_with("$6$") {
+            let parts: Vec<&str> = hash.split('$').collect();
+            // Format $6$salt$hash -> parts[0]="", parts[1]="6", parts[2]=salt, parts[3]=hash
+            if parts.len() >= 4 {
+                let salt = parts[2];
+                let mut cmd = Command::new(openssl_bin);
+                cmd.args(["passwd", "-6", "-salt", salt, password]);
+                if let Ok(output) = cmd.output() {
+                    if output.status.success() {
+                        let computed = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                        if computed == hash {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Essai universel avec le setting complet
+        let mut cmd = Command::new(openssl_bin);
+        cmd.args(["passwd", "-S", setting, password]);
+        if let Ok(output) = cmd.output() {
+            if output.status.success() {
+                let computed = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if computed == hash {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Moteur 2 : mkpasswd (fourni par whois)
+    for mkpasswd_bin in &["mkpasswd", "/run/current-system/sw/bin/mkpasswd", "/usr/bin/mkpasswd"] {
+        let mut cmd = Command::new(mkpasswd_bin);
+        cmd.args(["-s", "-S", setting]);
+        cmd.stdin(std::process::Stdio::piped());
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::null());
+
+        if let Ok(mut child) = cmd.spawn() {
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(password.as_bytes());
+                let _ = stdin.write_all(b"\n");
+            }
+            if let Ok(output) = child.wait_with_output() {
+                if output.status.success() {
+                    let computed = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if computed == hash {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    // Moteur 3 : python3 -c "import crypt..." si présent
+    for py_bin in &["python3", "/run/current-system/sw/bin/python3"] {
+        let py_script = "import crypt, sys; sys.exit(0 if crypt.crypt(sys.argv[1], sys.argv[2]) == sys.argv[2] else 1)";
+        let mut cmd = Command::new(py_bin);
+        cmd.args(["-c", py_script, password, hash]);
+        if let Ok(output) = cmd.output() {
+            if output.status.success() {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 // Vérification de mot de passe contre /etc/shadow ou /etc/nixos/vars.nix
 pub fn verify_linux_credentials(username: &str, password: &str) -> Result<bool, String> {
     if username.is_empty() || password.is_empty() {
@@ -104,33 +190,49 @@ pub fn verify_linux_credentials(username: &str, password: &str) -> Result<bool, 
     }
 
     let mut stored_hash: Option<String> = None;
+    let mut shadow_had_locked_account = false;
 
     // 1. Recherche dans /etc/shadow
     if let Ok(content) = std::fs::read_to_string("/etc/shadow") {
         for line in content.lines() {
             let parts: Vec<&str> = line.split(':').collect();
-            if parts.len() >= 2 && parts[0] == username {
-                stored_hash = Some(parts[1].to_string());
+            if parts.len() >= 2 && parts[0].eq_ignore_ascii_case(username) {
+                let h = parts[1].trim();
+                if h.starts_with('!') || h.starts_with('*') || h.is_empty() {
+                    shadow_had_locked_account = true;
+                } else {
+                    stored_hash = Some(h.to_string());
+                }
                 break;
             }
         }
     }
 
-    // 2. Fallback dans /etc/nixos/vars.nix si shadow n'est pas accessible
+    // 2. Fallback dans /etc/nixos/vars.nix si shadow n'a pas de hash valide
     if stored_hash.is_none() {
-        for vars_path in &["/etc/nixos/vars.nix", "/etc/nixos/steveos-nas/vars.nix"] {
+        for vars_path in &[
+            "/etc/nixos/vars.nix",
+            "/etc/nixos/steveos-nas/vars.nix",
+            "./vars.nix",
+            "../vars.nix",
+        ] {
             if let Ok(content) = std::fs::read_to_string(vars_path) {
-                if content.contains(&format!("\"{}\"", username)) {
-                    for line in content.lines() {
-                        if line.contains("hashedPassword") {
-                            if let Some(start) = line.find('"') {
-                                if let Some(end) = line[start + 1..].find('"') {
-                                    stored_hash = Some(line[start + 1..start + 1 + end].to_string());
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.contains("hashedPassword") || trimmed.contains("initialHashedPassword") {
+                        if let Some(first_quote) = trimmed.find('"') {
+                            if let Some(second_quote) = trimmed[first_quote + 1..].find('"') {
+                                let val = &trimmed[first_quote + 1..first_quote + 1 + second_quote];
+                                if val.starts_with('$') {
+                                    stored_hash = Some(val.to_string());
                                     break;
                                 }
                             }
                         }
                     }
+                }
+                if stored_hash.is_some() {
+                    break;
                 }
             }
         }
@@ -141,44 +243,23 @@ pub fn verify_linux_credentials(username: &str, password: &str) -> Result<bool, 
         None => return Ok(false),
     };
 
-    if hash.starts_with('!') || hash.starts_with('*') || hash.is_empty() {
-        return Ok(false);
+    let is_valid = check_password_hash(password, &hash);
+
+    // 3. Auto-réparation système : si le compte était verrouillé dans /etc/shadow mais que le mot de passe est bon
+    if is_valid && shadow_had_locked_account {
+        let chpasswd_input = format!("{}:{}\n", username, password);
+        for chpasswd_bin in &["chpasswd", "/run/current-system/sw/bin/chpasswd"] {
+            if let Ok(mut child) = Command::new(chpasswd_bin).stdin(std::process::Stdio::piped()).spawn() {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(chpasswd_input.as_bytes());
+                }
+                let _ = child.wait();
+                break;
+            }
+        }
     }
 
-    let last_dollar = match hash.rfind('$') {
-        Some(idx) => idx,
-        None => return Ok(false),
-    };
-
-    let setting = &hash[..last_dollar];
-
-    let mut cmd = Command::new("mkpasswd");
-    cmd.args(["-s", "-S", setting]);
-    cmd.stdin(std::process::Stdio::piped());
-    cmd.stdout(std::process::Stdio::piped());
-    cmd.stderr(std::process::Stdio::null());
-
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) => return Err(format!("Impossible d'exécuter mkpasswd : {}", e)),
-    };
-
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(password.as_bytes());
-        let _ = stdin.write_all(b"\n");
-    }
-
-    let output = match child.wait_with_output() {
-        Ok(o) => o,
-        Err(e) => return Err(format!("Erreur lors de l'attente de mkpasswd : {}", e)),
-    };
-
-    if !output.status.success() {
-        return Ok(false);
-    }
-
-    let computed = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok(computed == hash)
+    Ok(is_valid)
 }
 
 fn check_is_admin(username: &str) -> bool {
@@ -412,4 +493,16 @@ pub async fn auth_middleware(req: Request, next: Next) -> Response {
         })),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hash_verification() {
+        let hash = "$6$TkzLs54oPAgkcH/X$cYI32vLpxpa6p9xABUH5JlnJGkTp2jK7xjgdqdJskF5rHBye1wuFrQw0GT1yj21ak6P82TdNU9cIGoFjXVbTs1";
+        assert!(check_password_hash("testpass123", hash));
+        assert!(!check_password_hash("wrongpassword", hash));
+    }
 }

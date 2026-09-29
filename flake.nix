@@ -74,7 +74,7 @@
                 usbutils
                 iproute2
                 coreutils
-                whois
+                whois openssl
                 bash
                 systemd
                 diffutils
