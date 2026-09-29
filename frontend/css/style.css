@@ -30,7 +30,7 @@
   --rosewater: #f5e0dc;
 
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
@@ -476,16 +476,38 @@ body {
 }
 
 .terminal-body {
-  padding: 16px;
+  padding: 18px;
   font-family: var(--font-mono);
-  font-size: 0.82rem;
-  color: #a6adc8;
-  line-height: 1.55;
-  max-height: 480px;
+  font-size: 0.84rem;
+  color: #cdd6f4;
+  line-height: 1.65;
+  max-height: 520px;
   overflow-y: auto;
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: break-word;
+  background: #11111b;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
 }
+
+/* Catppuccin ANSI Terminal Color Themes */
+.ansi-bold { font-weight: 700; color: #ffffff; }
+.ansi-dim { opacity: 0.65; }
+.ansi-black { color: #45475a; }
+.ansi-red { color: #f38ba8; }
+.ansi-green { color: #a6e3a1; }
+.ansi-yellow { color: #f9e2af; }
+.ansi-blue { color: #89b4fa; }
+.ansi-magenta { color: #cba6f7; }
+.ansi-cyan { color: #94e2d5; }
+.ansi-white { color: #cdd6f4; }
+.ansi-bright-black { color: #585b70; }
+.ansi-bright-red { color: #f38ba8; font-weight: 700; text-shadow: 0 0 8px rgba(243, 139, 168, 0.4); }
+.ansi-bright-green { color: #a6e3a1; font-weight: 700; text-shadow: 0 0 8px rgba(166, 227, 161, 0.4); }
+.ansi-bright-yellow { color: #f9e2af; font-weight: 700; }
+.ansi-bright-blue { color: #89b4fa; font-weight: 700; }
+.ansi-bright-magenta { color: #cba6f7; font-weight: 700; text-shadow: 0 0 8px rgba(203, 166, 247, 0.4); }
+.ansi-bright-cyan { color: #94e2d5; font-weight: 700; text-shadow: 0 0 8px rgba(148, 226, 213, 0.4); }
+.ansi-bright-white { color: #ffffff; font-weight: 700; }
 
 /* ================= TOAST NOTIFICATIONS ================= */
 .toast-container {

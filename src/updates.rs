@@ -149,6 +149,7 @@ pub fn create_user_command(bin: &str, args: &[&str]) -> Command {
         cmd.env("USER", &user);
         cmd.env("HOME", format!("/home/{}", user));
         cmd.env("NH_FLAKE", "/etc/nixos");
+        cmd.env("NH_ELEVATION_STRATEGY", "sudo");
         cmd
     } else {
         let mut cmd = Command::new(bin);
@@ -811,7 +812,7 @@ fn run_switch_command(config_dir: &Path, update_inputs: bool) -> (bool, String) 
 
     let nh_bin = nh_binary();
     let (bin, args) = if Path::new(&nh_bin).exists() {
-        let mut a = vec!["os", "switch"];
+        let mut a = vec!["os", "switch", "-e", "sudo"];
         if update_inputs {
             a.push("-u");
         }

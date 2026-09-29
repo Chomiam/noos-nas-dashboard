@@ -459,7 +459,7 @@ async function triggerIntelligentUpdate() {
     const result = json.data || {};
 
     if (termBody) {
-      termBody.textContent = result.output_log || "Aucun log retourné.";
+      termBody.innerHTML = parseAnsiToHtml(result.output_log || "Aucun log retourné.");
     }
 
     if (json.success && result.success) {
@@ -476,7 +476,7 @@ async function triggerIntelligentUpdate() {
       showToast("Échec de la mise à jour : " + (result.error || json.message || "Erreur inconnue"), "error");
     }
   } catch (err) {
-    if (termBody) termBody.textContent += "\nErreur réseau lors de l'appel API : " + err;
+    if (termBody) termBody.innerHTML += parseAnsiToHtml("\nErreur réseau lors de l'appel API : " + err);
     if (termStatus) {
       termStatus.className = "badge badge-danger";
       termStatus.textContent = "❌ Erreur réseau";
@@ -517,7 +517,7 @@ async function triggerForcePackagesUpdate() {
     const result = json.data || {};
 
     if (termBody) {
-      termBody.textContent = result.output_log || "Aucun log retourné.";
+      termBody.innerHTML = parseAnsiToHtml(result.output_log || "Aucun log retourné.");
     }
 
     if (json.success && result.success) {
@@ -534,7 +534,7 @@ async function triggerForcePackagesUpdate() {
       showToast("Erreur lors de la mise à jour : " + (result.error || json.message), "error");
     }
   } catch (err) {
-    if (termBody) termBody.textContent += "\nErreur réseau : " + err;
+    if (termBody) termBody.innerHTML += parseAnsiToHtml("\nErreur réseau : " + err);
     showToast("Erreur réseau : " + err, "error");
   } finally {
     isUpdatingNow = false;
@@ -545,7 +545,7 @@ async function triggerForcePackagesUpdate() {
 function clearUpdateTerminal() {
   const termBody = document.getElementById("update-terminal-body");
   const termStatus = document.getElementById("terminal-update-status");
-  if (termBody) termBody.textContent = "Console prête.";
+  if (termBody) termBody.innerHTML = "Console prête.";
   if (termStatus) termStatus.style.display = "none";
 }
 
@@ -906,6 +906,75 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
+function parseAnsiToHtml(raw) {
+  if (!raw) return "";
+
+  // Nettoyer les sequences privees de terminal
+  let s = String(raw)
+    .replace(/\x1b\[\?[0-9;]*[a-zA-Z]/g, "")
+    .replace(/\x1b\[[0-9;]*[A-GJKST]/g, "");
+
+  // Nettoyer les retours chariot multiples (spinners nh / nix)
+  const lines = s.split("\n");
+  const cleanedLines = lines.map(line => {
+    const parts = line.split("\r");
+    return parts[parts.length - 1];
+  });
+  s = cleanedLines.join("\n");
+
+  // Echapper HTML pour la securite
+  s = escapeHtml(s);
+
+  // Mapper les codes ANSI vers les classes CSS Catppuccin Mocha
+  const colorMap = {
+    "1": "ansi-bold",
+    "2": "ansi-dim",
+    "30": "ansi-black",
+    "31": "ansi-red",
+    "32": "ansi-green",
+    "33": "ansi-yellow",
+    "34": "ansi-blue",
+    "35": "ansi-magenta",
+    "36": "ansi-cyan",
+    "37": "ansi-white",
+    "90": "ansi-bright-black",
+    "91": "ansi-bright-red",
+    "92": "ansi-bright-green",
+    "93": "ansi-bright-yellow",
+    "94": "ansi-bright-blue",
+    "95": "ansi-bright-magenta",
+    "96": "ansi-bright-cyan",
+    "97": "ansi-bright-white"
+  };
+
+  let openTagsCount = 0;
+  s = s.replace(/\x1b\[([0-9;]*)m/g, (match, p1) => {
+    const codes = p1 ? p1.split(";") : ["0"];
+    let out = "";
+    for (const code of codes) {
+      const c = code.trim();
+      if (c === "0" || c === "") {
+        while (openTagsCount > 0) {
+          out += "</span>";
+          openTagsCount--;
+        }
+      } else if (colorMap[c]) {
+        out += `<span class="${colorMap[c]}">`;
+        openTagsCount++;
+      }
+    }
+    return out;
+  });
+
+  while (openTagsCount > 0) {
+    s += "</span>";
+    openTagsCount--;
+  }
+
+  return s;
+}
+
+
 // --------------------------------------------------------------------------
 // CONSOLE & TERMINAL BASH INTERACTIF
 // --------------------------------------------------------------------------
@@ -1023,10 +1092,10 @@ function appendResultToTerminal(res) {
   if (outputPlaceholder) {
     let outHtml = "";
     if (res.stdout) {
-      outHtml += `<div class="term-stdout">${escapeHtml(res.stdout)}</div>`;
+      outHtml += `<div class="term-stdout">${parseAnsiToHtml(res.stdout)}</div>`;
     }
     if (res.stderr) {
-      outHtml += `<div class="term-stderr">${escapeHtml(res.stderr)}</div>`;
+      outHtml += `<div class="term-stderr">${parseAnsiToHtml(res.stderr)}</div>`;
     }
     outputPlaceholder.innerHTML = outHtml;
   }
