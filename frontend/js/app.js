@@ -2281,11 +2281,298 @@ function closeUploadTray() {
 }
 
 // --------------------------------------------------------------------------
-// MODALE ÉDITEUR CONTEXTUEL STYLE NEOVIM
+// MODALE ÉDITEUR CONTEXTUEL STYLE NEOVIM & COLORATION SYNTAXIQUE
 // --------------------------------------------------------------------------
 let nvimCurrentPath = null;
 let nvimOriginalContent = "";
 let nvimIsDirty = false;
+let nvimCurrentLang = "text";
+let nvimSyntaxEnabled = true;
+
+const NVIM_LANG_META = {
+  fish: { name: "Fish Shell", icon: "🐟", tag: "fish", ext: [".fish"] },
+  nix: { name: "NixOS", icon: "❄️", tag: "nix", ext: [".nix"] },
+  bash: { name: "Shell / Bash", icon: "🐚", tag: "sh", ext: [".sh", ".bash", ".zsh", ".ksh", ".csh"] },
+  python: { name: "Python", icon: "🐍", tag: "python", ext: [".py", ".pyw"] },
+  rust: { name: "Rust", icon: "🦀", tag: "rust", ext: [".rs"] },
+  javascript: { name: "JavaScript", icon: "⚡", tag: "javascript", ext: [".js", ".mjs", ".cjs"] },
+  typescript: { name: "TypeScript", icon: "🔷", tag: "typescript", ext: [".ts", ".tsx", ".jsx"] },
+  json: { name: "JSON", icon: "📋", tag: "json", ext: [".json", ".json5", ".jsonc"] },
+  toml: { name: "TOML", icon: "⚙️", tag: "toml", ext: [".toml"] },
+  yaml: { name: "YAML", icon: "📑", tag: "yaml", ext: [".yaml", ".yml"] },
+  ini: { name: "INI / Config", icon: "🔧", tag: "ini", ext: [".ini", ".conf", ".cfg", ".service", ".timer", ".target", ".socket", ".desktop", ".env"] },
+  markdown: { name: "Markdown", icon: "📜", tag: "markdown", ext: [".md", ".markdown"] },
+  html: { name: "HTML / XML", icon: "🌐", tag: "html", ext: [".html", ".htm", ".xml", ".svg"] },
+  css: { name: "CSS", icon: "🎨", tag: "css", ext: [".css", ".scss", ".sass", ".less"] },
+  c: { name: "C / C++", icon: "🔣", tag: "c", ext: [".c", ".cpp", ".cc", ".cxx", ".h", ".hpp"] },
+  text: { name: "Texte Brut", icon: "📄", tag: "text", ext: [".txt", ".log"] },
+};
+
+const NVIM_LANG_RULES = {
+  fish: [
+    { type: "comment", regex: /#.*/ },
+    { type: "string", regex: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/ },
+    { type: "variable", regex: /\$[\w_]+|\$\{[^}]+\}/ },
+    { type: "keyword", regex: /\b(?:function|end|if|else|switch|case|for|in|while|return|exit|break|continue|begin|and|or|not)\b/ },
+    { type: "builtin", regex: /\b(?:set|echo|read|test|contains|count|string|path|status|math|command|builtin|source|alias|bind|complete|functions|history|jobs|random|abbr|argparse)\b/ },
+    { type: "number", regex: /\b\d+\b/ },
+    { type: "option", regex: /(?<=\s)-{1,2}[a-zA-Z0-9_\-]+/ },
+    { type: "operator", regex: /[=><!|;&]/ }
+  ],
+  nix: [
+    { type: "comment", regex: /#.*|\/\*[\s\S]*?\*\// },
+    { type: "string", regex: /''[\s\S]*?''|"(?:\\.|[^"\\])*"/ },
+    { type: "variable", regex: /\$\{[^}]+\}/ },
+    { type: "keyword", regex: /\b(?:let|in|inherit|import|with|rec|if|then|else|assert)\b/ },
+    { type: "builtin", regex: /\b(?:builtins|true|false|null)\b/ },
+    { type: "property", regex: /\b[a-zA-Z_][a-zA-Z0-9_\-\.]*(?=\s*=)/ },
+    { type: "number", regex: /\b\d+\b/ }
+  ],
+  bash: [
+    { type: "comment", regex: /#.*/ },
+    { type: "string", regex: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/ },
+    { type: "variable", regex: /\$[\w_]+|\$\{[^}]+\}/ },
+    { type: "keyword", regex: /\b(?:if|then|elif|else|fi|for|while|until|do|done|case|esac|function|return|exit|break|continue|local|export|readonly|declare|select|time)\b/ },
+    { type: "builtin", regex: /\b(?:echo|read|cd|pwd|set|unset|shift|source|alias|trap|test|eval|exec|true|false)\b/ },
+    { type: "number", regex: /\b\d+\b/ },
+    { type: "option", regex: /(?<=\s)-{1,2}[a-zA-Z0-9_\-]+/ }
+  ],
+  python: [
+    { type: "comment", regex: /#.*/ },
+    { type: "string", regex: /"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/ },
+    { type: "decorator", regex: /@[\w_]+/ },
+    { type: "keyword", regex: /\b(?:def|class|import|from|return|if|elif|else|for|while|try|except|finally|with|as|yield|async|await|lambda|pass|break|continue|raise|global|nonlocal|assert|del)\b/ },
+    { type: "builtin", regex: /\b(?:True|False|None|self|cls|print|len|range|enumerate|zip|map|filter|int|str|float|bool|list|dict|set|tuple|open|super)\b/ },
+    { type: "number", regex: /\b\d+(?:\.\d+)?\b/ }
+  ],
+  rust: [
+    { type: "comment", regex: /\/\/.*|\/\*[\s\S]*?\*\// },
+    { type: "string", regex: /r#"[^"]*"#|"(?:\\.|[^"\\])*"|'\\?.'(?=[^\w])/ },
+    { type: "keyword", regex: /\b(?:fn|let|mut|pub|struct|enum|trait|impl|type|const|static|use|mod|crate|super|self|Self|match|if|else|for|while|loop|return|break|continue|async|await|unsafe|where|move|ref|as)\b/ },
+    { type: "type", regex: /\b(?:i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|f32|f64|bool|char|str|String|Option|Result|Some|None|Ok|Err|Vec|Box|Rc|Arc|HashMap|HashSet)\b/ },
+    { type: "macro", regex: /\b[\w_]+!(?=[(\[{])/ },
+    { type: "number", regex: /\b\d+(?:_\d+)*(?:\.\d+)?(?:[eE][+-]?\d+)?(?:u8|u16|u32|u64|u128|usize|i8|i16|i32|i64|i128|isize|f32|f64)?\b/ }
+  ],
+  javascript: [
+    { type: "comment", regex: /\/\/.*|\/\*[\s\S]*?\*\// },
+    { type: "string", regex: /`[\s\S]*?`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/ },
+    { type: "keyword", regex: /\b(?:const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|default|new|this|typeof|instanceof|void|delete|throw|try|catch|finally|class|extends|super|import|export|from|as|default|async|await|yield)\b/ },
+    { type: "builtin", regex: /\b(?:true|false|null|undefined|NaN|Infinity|console|window|document|Math|JSON|Promise|Array|Object|String|Number|Boolean|Date|RegExp)\b/ },
+    { type: "number", regex: /\b\d+(?:\.\d+)?\b/ }
+  ],
+  typescript: [
+    { type: "comment", regex: /\/\/.*|\/\*[\s\S]*?\*\// },
+    { type: "string", regex: /`[\s\S]*?`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/ },
+    { type: "keyword", regex: /\b(?:const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|default|new|this|typeof|instanceof|void|delete|throw|try|catch|finally|class|extends|super|import|export|from|as|default|async|await|yield|type|interface|enum|implements|declare|readonly|abstract|keyof)\b/ },
+    { type: "type", regex: /\b(?:string|number|boolean|any|unknown|never|void)\b/ },
+    { type: "builtin", regex: /\b(?:true|false|null|undefined|console|Promise|Array|Object)\b/ },
+    { type: "number", regex: /\b\d+(?:\.\d+)?\b/ }
+  ],
+  json: [
+    { type: "property", regex: /"(?:\\.|[^"\\])*"(?=\s*:)/ },
+    { type: "string", regex: /"(?:\\.|[^"\\])*"/ },
+    { type: "number", regex: /-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/ },
+    { type: "builtin", regex: /\b(?:true|false|null)\b/ }
+  ],
+  toml: [
+    { type: "comment", regex: /#.*/ },
+    { type: "section", regex: /^\s*\[\[?[^\]]+\]\]?/m },
+    { type: "string", regex: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/ },
+    { type: "property", regex: /^[ \t]*[\w\.\-]+(?=\s*=)/m },
+    { type: "builtin", regex: /\b(?:true|false)\b/ },
+    { type: "number", regex: /\b\d+(?:\.\d+)?\b/ }
+  ],
+  yaml: [
+    { type: "comment", regex: /#.*/ },
+    { type: "property", regex: /^[ \t]*[\w\.\-]+(?=\s*:)/m },
+    { type: "string", regex: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/ },
+    { type: "builtin", regex: /\b(?:true|false|null|yes|no)\b/ },
+    { type: "number", regex: /\b\d+(?:\.\d+)?\b/ }
+  ],
+  ini: [
+    { type: "comment", regex: /[#;].*/ },
+    { type: "section", regex: /^\s*\[[^\]]+\]/m },
+    { type: "property", regex: /^[ \t]*[\w\.\-]+(?=\s*=)/m },
+    { type: "string", regex: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/ }
+  ],
+  markdown: [
+    { type: "header", regex: /^#{1,6}\s+.*$/m },
+    { type: "code", regex: /`[^`\n]+`/ },
+    { type: "bold", regex: /\*\*[^*]+\*\*|__[^_]+__/ },
+    { type: "italic", regex: /\*[^*]+\*|_[^_]+_/ },
+    { type: "link", regex: /\[[^\]]+\]\([^)]+\)/ },
+    { type: "list", regex: /^\s*(?:[-*+]|\d+\.)\s+/m }
+  ],
+  html: [
+    { type: "comment", regex: /<!--[\s\S]*?-->/ },
+    { type: "tag", regex: /<\/?[\w\-]+/ },
+    { type: "attribute", regex: /\b[\w\-]+(?=\s*=)/ },
+    { type: "string", regex: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/ }
+  ],
+  css: [
+    { type: "comment", regex: /\/\*[\s\S]*?\*\// },
+    { type: "property", regex: /[\w\-]+(?=\s*:)/ },
+    { type: "string", regex: /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/ },
+    { type: "number", regex: /\b\d+(?:\.\d+)?(?:px|rem|em|%|vh|vw|s|ms|deg)?\b/ }
+  ],
+  c: [
+    { type: "comment", regex: /\/\/.*|\/\*[\s\S]*?\*\// },
+    { type: "string", regex: /"(?:\\.|[^"\\])*"|'\\?.'(?=[^\w])/ },
+    { type: "preproc", regex: /^\s*#\s*[a-zA-Z_]+/m },
+    { type: "keyword", regex: /\b(?:auto|break|case|char|const|continue|default|do|double|else|enum|extern|float|for|goto|if|int|long|register|return|short|signed|sizeof|static|struct|switch|typedef|union|unsigned|void|volatile|while|class|namespace|template|typename|public|private|protected|virtual|override|new|delete|inline|constexpr)\b/ },
+    { type: "number", regex: /\b\d+(?:\.\d+)?\b/ }
+  ]
+};
+
+let nvimCombinedRegexCache = {};
+
+function getNvimCombinedRegex(lang) {
+  if (nvimCombinedRegexCache[lang]) return nvimCombinedRegexCache[lang];
+  const rules = NVIM_LANG_RULES[lang];
+  if (!rules) return null;
+  const source = rules.map(r => `(${r.regex.source})`).join("|");
+  const regex = new RegExp(source, "gm");
+  nvimCombinedRegexCache[lang] = regex;
+  return regex;
+}
+
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function highlightNvimCode(code, lang) {
+  if (!lang || lang === "text" || !NVIM_LANG_RULES[lang]) {
+    return escapeHtml(code);
+  }
+
+  const rules = NVIM_LANG_RULES[lang];
+  const combined = getNvimCombinedRegex(lang);
+  combined.lastIndex = 0;
+
+  let lastIndex = 0;
+  let html = "";
+  let match;
+
+  while ((match = combined.exec(code)) !== null) {
+    if (match.index > lastIndex) {
+      html += escapeHtml(code.slice(lastIndex, match.index));
+    }
+
+    let tokenType = "text";
+    for (let i = 0; i < rules.length; i++) {
+      if (match[i + 1] !== undefined) {
+        tokenType = rules[i].type;
+        break;
+      }
+    }
+
+    html += `<span class="tok-${tokenType}">${escapeHtml(match[0])}</span>`;
+    lastIndex = combined.lastIndex;
+  }
+
+  if (lastIndex < code.length) {
+    html += escapeHtml(code.slice(lastIndex));
+  }
+
+  return html;
+}
+
+function detectNvimLanguage(fileName, content = "") {
+  if (!fileName) return "text";
+  const lower = fileName.toLowerCase();
+
+  if (lower === "flake.lock") return "json";
+  if (lower === "cargo.lock") return "toml";
+  if (lower === "makefile" || lower === "justfile" || lower === "dockerfile" || lower === "containerfile") return "bash";
+  if (lower === ".gitignore" || lower === ".env") return "ini";
+  if (lower.endsWith("rc") && (lower.includes("bash") || lower.includes("zsh"))) return "bash";
+  if (lower === ".fishrc" || lower.endsWith(".fish")) return "fish";
+
+  for (const [lang, meta] of Object.entries(NVIM_LANG_META)) {
+    if (meta.ext.some(ext => lower.endsWith(ext))) {
+      return lang;
+    }
+  }
+
+  if (content) {
+    const firstLine = content.split("\n")[0] || "";
+    if (firstLine.startsWith("#!")) {
+      if (firstLine.includes("fish")) return "fish";
+      if (firstLine.includes("bash") || firstLine.includes("sh") || firstLine.includes("zsh")) return "bash";
+      if (firstLine.includes("python")) return "python";
+      if (firstLine.includes("node")) return "javascript";
+    }
+  }
+
+  return "text";
+}
+
+function updateNvimLanguageUI(lang) {
+  const meta = NVIM_LANG_META[lang] || { name: "Texte Brut", icon: "📄", tag: "text" };
+  const badge = document.getElementById("nvim-lang-badge");
+  const select = document.getElementById("nvim-lang-select");
+  const statusLang = document.getElementById("nvim-status-lang");
+
+  if (badge) badge.textContent = `${meta.icon} ${meta.name}`;
+  if (select) select.value = lang;
+  if (statusLang) statusLang.textContent = `ft=${meta.tag}`;
+}
+
+function updateNvimHighlighting() {
+  const textarea = document.getElementById("nvim-textarea");
+  const codeEl = document.getElementById("nvim-highlight-code");
+  if (!textarea || !codeEl) return;
+
+  if (!nvimSyntaxEnabled) {
+    codeEl.innerHTML = "";
+    return;
+  }
+
+  const text = textarea.value;
+  let html = highlightNvimCode(text, nvimCurrentLang);
+  if (text.endsWith("\n")) {
+    html += " ";
+  }
+  codeEl.innerHTML = html;
+}
+
+function toggleNvimSyntax() {
+  nvimSyntaxEnabled = !nvimSyntaxEnabled;
+  const btn = document.getElementById("nvim-btn-syntax");
+  const textarea = document.getElementById("nvim-textarea");
+  const highlightLayer = document.getElementById("nvim-highlight-layer");
+
+  if (btn) {
+    btn.classList.toggle("active", nvimSyntaxEnabled);
+    btn.textContent = nvimSyntaxEnabled ? "🎨 Coloration : ON" : "🎨 Coloration : OFF";
+  }
+
+  if (textarea && highlightLayer) {
+    if (nvimSyntaxEnabled) {
+      textarea.classList.remove("syntax-disabled");
+      highlightLayer.style.display = "block";
+      updateNvimHighlighting();
+      syncNvimEditorScroll();
+    } else {
+      textarea.classList.add("syntax-disabled");
+      highlightLayer.style.display = "none";
+    }
+  }
+
+  showToast(nvimSyntaxEnabled ? "Coloration syntaxique activée" : "Coloration syntaxique désactivée", "info");
+}
+
+function onNvimLangChange(lang) {
+  nvimCurrentLang = lang;
+  updateNvimLanguageUI(lang);
+  updateNvimHighlighting();
+  syncNvimEditorScroll();
+}
 
 async function openNvimModal(path, fileName) {
   nvimCurrentPath = path;
@@ -2301,7 +2588,8 @@ async function openNvimModal(path, fileName) {
 
   if (!modal || !textarea) return;
 
-  if (title) title.textContent = fileName || path.split("/").pop();
+  const baseName = fileName || path.split("/").pop();
+  if (title) title.textContent = baseName;
   if (pathLabel) pathLabel.textContent = path;
   if (badge) badge.style.display = "none";
   if (modeLabel) {
@@ -2309,7 +2597,11 @@ async function openNvimModal(path, fileName) {
     modeLabel.className = "nvim-status-mode";
   }
 
+  nvimCurrentLang = detectNvimLanguage(baseName);
+  updateNvimLanguageUI(nvimCurrentLang);
+
   textarea.value = "Chargement en cours...";
+  updateNvimHighlighting();
   modal.style.display = "flex";
 
   try {
@@ -2326,8 +2618,14 @@ async function openNvimModal(path, fileName) {
     textarea.value = data.content;
     if (sizeLabel) sizeLabel.textContent = formatFileSize(data.size_bytes) + (data.is_truncated ? " (tronqué)" : "");
 
+    // Détection affinée avec le contenu du fichier (Shebang, etc.)
+    nvimCurrentLang = detectNvimLanguage(baseName, data.content);
+    updateNvimLanguageUI(nvimCurrentLang);
+
     updateNvimLineNumbers();
     updateNvimCursorPos();
+    updateNvimHighlighting();
+    syncNvimEditorScroll();
     textarea.focus();
   } catch (err) {
     showToast("Erreur lors de l'ouverture du fichier : " + err, "error");
@@ -2351,6 +2649,7 @@ function onNvimContentChange() {
 
   updateNvimLineNumbers();
   updateNvimCursorPos();
+  updateNvimHighlighting();
 }
 
 function updateNvimLineNumbers() {
@@ -2366,10 +2665,17 @@ function updateNvimLineNumbers() {
   lineNumbers.innerHTML = linesHtml;
 }
 
-function syncNvimLineNumbers() {
+function syncNvimEditorScroll() {
   const textarea = document.getElementById("nvim-textarea");
+  const highlight = document.getElementById("nvim-highlight-layer");
   const lineNumbers = document.getElementById("nvim-line-numbers");
-  if (textarea && lineNumbers) {
+  if (!textarea) return;
+
+  if (highlight) {
+    highlight.scrollTop = textarea.scrollTop;
+    highlight.scrollLeft = textarea.scrollLeft;
+  }
+  if (lineNumbers) {
     lineNumbers.scrollTop = textarea.scrollTop;
   }
 }

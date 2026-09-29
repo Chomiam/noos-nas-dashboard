@@ -1723,9 +1723,9 @@ kbd {
 
 /* 4. MODALE NEOVIM */
 .nvim-window {
-  width: 960px;
-  max-width: 95vw;
-  height: 78vh;
+  width: 980px;
+  max-width: 96vw;
+  height: 80vh;
 }
 
 .nvim-logo-tag {
@@ -1739,6 +1739,39 @@ kbd {
   font-family: var(--font-mono);
 }
 
+.nvim-lang-tag {
+  background: rgba(137, 180, 250, 0.15);
+  color: var(--blue);
+  border: 1px solid rgba(137, 180, 250, 0.3);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.nvim-lang-select {
+  background: #181825;
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.nvim-lang-select:hover,
+.nvim-lang-select:focus {
+  border-color: var(--mauve);
+  background: #1e1e2e;
+}
+
 .nvim-body {
   flex: 1;
   display: flex;
@@ -1748,35 +1781,108 @@ kbd {
 }
 
 .nvim-line-numbers {
-  width: 44px;
+  width: 48px;
+  min-width: 48px;
   padding: 12px 8px;
   background: #181825;
   color: #585b70;
   font-family: var(--font-mono);
-  font-size: 0.82rem;
+  font-size: 0.84rem;
   line-height: 1.5;
   text-align: right;
   user-select: none;
   overflow: hidden;
   border-right: 1px solid rgba(255, 255, 255, 0.05);
+  box-sizing: border-box;
 }
 
-.nvim-textarea {
+.nvim-editor-wrapper {
   flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #11111b;
+}
+
+.nvim-highlight-layer,
+.nvim-textarea {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   padding: 12px 14px;
-  background: transparent;
-  color: #cdd6f4;
+  margin: 0;
   border: none;
-  outline: none;
-  resize: none;
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, "JetBrains Mono", "Fira Code", "Courier New", monospace);
   font-size: 0.84rem;
   line-height: 1.5;
   tab-size: 2;
+  box-sizing: border-box;
   white-space: pre;
+  word-wrap: normal;
   overflow-wrap: normal;
-  overflow-x: auto;
 }
+
+.nvim-highlight-layer {
+  pointer-events: none;
+  background: transparent;
+  color: #cdd6f4;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.nvim-highlight-layer code {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  display: block;
+}
+
+.nvim-textarea {
+  z-index: 2;
+  background: transparent;
+  outline: none;
+  resize: none;
+  overflow: auto;
+  color: transparent;
+  caret-color: #f5e0dc;
+}
+
+.nvim-textarea::selection {
+  background: rgba(137, 180, 250, 0.35);
+  color: transparent;
+}
+
+.nvim-textarea.syntax-disabled {
+  color: #cdd6f4;
+}
+
+.nvim-textarea.syntax-disabled::selection {
+  background: rgba(137, 180, 250, 0.35);
+  color: #ffffff;
+}
+
+/* Tokens de coloration syntaxique Catppuccin Mocha */
+.tok-comment    { color: #6c7086; font-style: italic; }
+.tok-string     { color: #a6e3a1; }
+.tok-keyword    { color: #cba6f7; font-weight: 600; }
+.tok-builtin    { color: #f38ba8; }
+.tok-variable   { color: #f5c2e7; }
+.tok-property   { color: #89b4fa; }
+.tok-number     { color: #fab387; }
+.tok-type       { color: #94e2d5; }
+.tok-operator   { color: #89dceb; }
+.tok-section    { color: #f9e2af; font-weight: 700; }
+.tok-option     { color: #fab387; }
+.tok-tag        { color: #cba6f7; font-weight: 600; }
+.tok-attribute  { color: #89b4fa; }
+.tok-header     { color: #f9e2af; font-weight: 700; }
+.tok-bold       { font-weight: bold; color: #f5e0dc; }
+.tok-italic     { font-style: italic; color: #f5e0dc; }
+.tok-code       { color: #f5c2e7; background: rgba(245, 194, 231, 0.1); border-radius: 3px; padding: 0 2px; }
+.tok-link       { color: #89b4fa; text-decoration: underline; }
+.tok-decorator  { color: #f9e2af; }
+.tok-preproc    { color: #eba0ac; }
 
 .nvim-statusline {
   display: flex;
@@ -1802,8 +1908,24 @@ kbd {
   color: #11111b;
 }
 
+.nvim-status-lang-badge {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--teal);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
 .nvim-status-file {
   color: var(--subtext0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 45%;
+}
+
+.nvim-status-encoding {
+  color: var(--overlay1);
 }
 
 .nvim-status-pos {

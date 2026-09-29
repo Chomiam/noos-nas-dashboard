@@ -1057,12 +1057,34 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
   <div class="file-modal-overlay" id="nvim-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'nvim-modal')">
     <div class="file-modal-window nvim-window">
       <div class="file-modal-header nvim-header">
-        <div style="display:flex; align-items:center; gap:10px;">
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
           <span class="nvim-logo-tag">NVIM</span>
           <span class="file-modal-title" id="nvim-file-title">fichier</span>
           <span class="badge badge-warning" id="nvim-dirty-badge" style="display:none;">Modifié</span>
+          <span class="nvim-lang-tag" id="nvim-lang-badge">📄 Texte Brut</span>
         </div>
-        <div style="display:flex; align-items:center; gap:8px;">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <select class="nvim-lang-select" id="nvim-lang-select" onchange="onNvimLangChange(this.value)" title="Changer le langage pour la coloration">
+            <option value="fish">🐟 Fish</option>
+            <option value="nix">❄️ Nix</option>
+            <option value="bash">🐚 Shell / Bash</option>
+            <option value="python">🐍 Python</option>
+            <option value="rust">🦀 Rust</option>
+            <option value="javascript">⚡ JavaScript</option>
+            <option value="typescript">🔷 TypeScript</option>
+            <option value="json">📋 JSON</option>
+            <option value="toml">⚙️ TOML</option>
+            <option value="yaml">📑 YAML</option>
+            <option value="ini">🔧 INI / Conf / Service</option>
+            <option value="markdown">📜 Markdown</option>
+            <option value="html">🌐 HTML / XML</option>
+            <option value="css">🎨 CSS</option>
+            <option value="c">🔣 C / C++</option>
+            <option value="text">📄 Texte Brut</option>
+          </select>
+          <button type="button" class="btn btn-secondary btn-xs active" id="nvim-btn-syntax" onclick="toggleNvimSyntax()" title="Activer / Désactiver la coloration syntaxique">
+            🎨 Coloration : ON
+          </button>
           <span id="nvim-file-size" style="font-size:0.75rem; color:var(--subtext0);"></span>
           <button type="button" class="btn btn-primary btn-xs" onclick="saveNvimFile()" title="Sauvegarder (:w)">
             💾 Enregistrer (:w)
@@ -1074,12 +1096,24 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
       </div>
       <div class="nvim-body">
         <div class="nvim-line-numbers" id="nvim-line-numbers">1</div>
-        <textarea class="nvim-textarea" id="nvim-textarea" spellcheck="false" oninput="onNvimContentChange()" onkeydown="handleNvimKeydown(event)" onscroll="syncNvimLineNumbers()"></textarea>
+        <div class="nvim-editor-wrapper">
+          <pre class="nvim-highlight-layer" id="nvim-highlight-layer" aria-hidden="true"><code id="nvim-highlight-code"></code></pre>
+          <textarea class="nvim-textarea" id="nvim-textarea" spellcheck="false"
+                    oninput="onNvimContentChange()"
+                    onkeydown="handleNvimKeydown(event)"
+                    onscroll="syncNvimEditorScroll()"></textarea>
+        </div>
       </div>
       <div class="nvim-statusline">
-        <div class="nvim-status-mode" id="nvim-status-mode">NORMAL</div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div class="nvim-status-mode" id="nvim-status-mode">NORMAL</div>
+          <div class="nvim-status-lang-badge" id="nvim-status-lang">ft=text</div>
+        </div>
         <div class="nvim-status-file" id="nvim-status-path">/chemin/fichier</div>
-        <div class="nvim-status-pos" id="nvim-status-pos">L: 1 | C: 1</div>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span class="nvim-status-encoding" id="nvim-status-enc">utf-8 [unix]</span>
+          <div class="nvim-status-pos" id="nvim-status-pos">L: 1 | C: 1</div>
+        </div>
       </div>
     </div>
   </div>
