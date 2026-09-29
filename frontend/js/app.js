@@ -1324,6 +1324,7 @@ async function navigateToPath(targetPath) {
 }
 
 function updateSidebarNavActive(path) {
+  const normPath = path ? path.replace(/\/+$/, '') : '';
   const mapping = {
     "/home/chomiam": "fnav-home",
     "/home/chomiam/documents": "fnav-docs",
@@ -1331,11 +1332,12 @@ function updateSidebarNavActive(path) {
     "/home/chomiam/videos": "fnav-vids",
     "/home/chomiam/musique": "fnav-music",
     "/home/chomiam/telechargements": "fnav-dl",
-    "/home/chomiam/downloads": "fnav-dl",
+    "/home/chomiam/downloads": "fnav-downloads",
     "/home/chomiam/pictures": "fnav-pics",
     "/home/chomiam/music": "fnav-music",
     "/": "fnav-root",
     "/mnt/storage/shares": "fnav-shares",
+    "/mnt/storage/media": "fnav-media",
     "/etc/nixos": "fnav-nixos"
   };
 

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20260929_3">
+  <link rel="stylesheet" href="/css/style.css?v=20260929_5">
 </head>
 <body>
 
@@ -420,33 +420,39 @@
         <aside class="files-sidebar">
           <div class="files-category-title">Dossiers Personnels</div>
           <button type="button" class="files-nav-item active" id="fnav-home" onclick="navigateToPath('/home/chomiam')">
-            <span>🏠</span> Personnel (/home)
+            <span>🏠</span> personnel (/home)
           </button>
           <button type="button" class="files-nav-item" id="fnav-docs" onclick="navigateToPath('/home/chomiam/documents')">
-            <span>📄</span> Documents
+            <span>📄</span> documents
           </button>
           <button type="button" class="files-nav-item" id="fnav-pics" onclick="navigateToPath('/home/chomiam/images')">
-            <span>🖼️</span> Images
+            <span>🖼️</span> images
           </button>
           <button type="button" class="files-nav-item" id="fnav-vids" onclick="navigateToPath('/home/chomiam/videos')">
-            <span>🎬</span> Vidéos
+            <span>🎬</span> videos
           </button>
           <button type="button" class="files-nav-item" id="fnav-music" onclick="navigateToPath('/home/chomiam/musique')">
-            <span>🎵</span> Musique
+            <span>🎵</span> musique
           </button>
           <button type="button" class="files-nav-item" id="fnav-dl" onclick="navigateToPath('/home/chomiam/telechargements')">
-            <span>📥</span> Téléchargements
+            <span>📥</span> telechargements
+          </button>
+          <button type="button" class="files-nav-item" id="fnav-downloads" onclick="navigateToPath('/home/chomiam/downloads')">
+            <span>⬇️</span> downloads
           </button>
 
           <div class="files-category-title">Système & Stockage</div>
           <button type="button" class="files-nav-item" id="fnav-root" onclick="navigateToPath('/')">
-            <span>🗄️</span> Racine du NAS (/)
+            <span>🗄️</span> racine (/)
           </button>
           <button type="button" class="files-nav-item" id="fnav-shares" onclick="navigateToPath('/mnt/storage/shares')">
-            <span>💾</span> Partages (/storage)
+            <span>📂</span> /mnt/storage/shares
+          </button>
+          <button type="button" class="files-nav-item" id="fnav-media" onclick="navigateToPath('/mnt/storage/media')">
+            <span>🎬</span> /mnt/storage/media
           </button>
           <button type="button" class="files-nav-item" id="fnav-nixos" onclick="navigateToPath('/etc/nixos')">
-            <span>⚙️</span> Configuration NixOS
+            <span>❄️</span> /etc/nixos
           </button>
         </aside>
 
@@ -978,7 +984,7 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
   <!-- TOAST CONTAINER -->
   <div class="toast-container" id="toast-container"></div>
 
-  <script src="/js/app.js?v=20260929_4"></script>
+  <script src="/js/app.js?v=20260929_5"></script>
   <!-- MENU CONTEXTUEL CLIC DROIT -->
   <div class="context-menu" id="files-context-menu">
     <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">

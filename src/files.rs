@@ -53,17 +53,70 @@ pub struct ActionRequest {
     pub dest_dir: String,
 }
 
+
+fn normalize_user_path(target: PathBuf) -> PathBuf {
+    if target.exists() {
+        return target;
+    }
+
+    let path_str = target.to_string_lossy().to_string();
+
+    // 1. Remplacement direct des anciens noms avec majuscules et accents
+    let lower_variant = path_str
+        .replace("/Documents", "/documents")
+        .replace("/Images", "/images")
+        .replace("/Vidéos", "/videos")
+        .replace("/Videos", "/videos")
+        .replace("/Musique", "/musique")
+        .replace("/Music", "/musique")
+        .replace("/Téléchargements", "/telechargements")
+        .replace("/Telechargements", "/telechargements")
+        .replace("/Downloads", "/downloads")
+        .replace("/Pictures", "/images");
+
+    let p_lower = PathBuf::from(&lower_variant);
+    if p_lower.exists() {
+        return p_lower;
+    }
+
+    // 2. Recherche insensible à la casse et sans accents dans le dossier parent
+    if let (Some(parent), Some(file_name)) = (target.parent(), target.file_name()) {
+        if parent.is_dir() {
+            let target_str = file_name.to_string_lossy().to_lowercase();
+            let target_clean: String = target_str
+                .replace('é', "e")
+                .replace('è', "e")
+                .replace('ê', "e")
+                .replace('à', "a");
+
+            if let Ok(entries) = fs::read_dir(parent) {
+                for entry in entries.flatten() {
+                    let entry_name = entry.file_name().to_string_lossy().to_lowercase();
+                    let entry_clean: String = entry_name
+                        .replace('é', "e")
+                        .replace('è', "e")
+                        .replace('ê', "e")
+                        .replace('à', "a");
+                    if entry_name == target_str || entry_clean == target_clean {
+                        return entry.path();
+                    }
+                }
+            }
+        }
+    }
+
+    target
+}
+
 pub fn list_directory(req_path: Option<&str>) -> Result<DirectoryListing, String> {
     let home = env::var("HOME").unwrap_or_else(|_| "/home/chomiam".to_string());
-    let target = req_path
+    let raw_target = req_path
         .map(|p| p.trim())
         .filter(|p| !p.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(&home));
 
-    if !target.exists() && target.starts_with(&home) {
-        let _ = fs::create_dir_all(&target);
-    }
+    let target = normalize_user_path(raw_target);
 
     let canonical = target.canonicalize()
         .map_err(|e| format!("Impossible d'accéder au dossier {} : {}", target.display(), e))?;
@@ -150,7 +203,8 @@ pub fn create_directory(base_dir: &str, dir_name: &str) -> Result<String, String
         return Err("Nom de dossier invalide.".into());
     }
 
-    let p = Path::new(base_dir).join(name);
+    let norm_base = normalize_user_path(PathBuf::from(base_dir));
+    let p = norm_base.join(name);
     if p.exists() {
         return Err("Un fichier ou dossier porte déjà ce nom.".into());
     }
@@ -162,7 +216,7 @@ pub fn create_directory(base_dir: &str, dir_name: &str) -> Result<String, String
 }
 
 pub fn delete_item(item_path: &str) -> Result<String, String> {
-    let p = Path::new(item_path);
+    let p = normalize_user_path(PathBuf::from(item_path));
     if !p.exists() {
         return Err("Fichier ou dossier introuvable.".into());
     }
@@ -191,7 +245,7 @@ pub fn rename_item(item_path: &str, new_name: &str) -> Result<String, String> {
         return Err("Nouveau nom invalide.".into());
     }
 
-    let p = Path::new(item_path);
+    let p = normalize_user_path(PathBuf::from(item_path));
     if !p.exists() {
         return Err("Élément introuvable.".into());
     }
@@ -210,8 +264,8 @@ pub fn rename_item(item_path: &str, new_name: &str) -> Result<String, String> {
 }
 
 pub fn copy_item(src: &str, dest_dir: &str) -> Result<String, String> {
-    let src_path = Path::new(src);
-    let dest_folder = Path::new(dest_dir);
+    let src_path = normalize_user_path(PathBuf::from(src));
+    let dest_folder = normalize_user_path(PathBuf::from(dest_dir));
 
     if !src_path.exists() {
         return Err("Source introuvable.".into());
@@ -225,10 +279,10 @@ pub fn copy_item(src: &str, dest_dir: &str) -> Result<String, String> {
 
     // Éviter de copier un dossier dans lui-même
     if src_path.is_dir() {
-        if target.starts_with(src_path) {
+        if target.starts_with(&src_path) {
             return Err("Impossible de copier un dossier à l'intérieur de lui-même.".into());
         }
-        copy_dir_recursive(src_path, &target)
+        copy_dir_recursive(&src_path, &target)
             .map_err(|e| format!("Erreur lors de la copie du dossier : {}", e))?;
     } else {
         fs::copy(src_path, &target)
@@ -239,8 +293,8 @@ pub fn copy_item(src: &str, dest_dir: &str) -> Result<String, String> {
 }
 
 pub fn move_item(src: &str, dest_dir: &str) -> Result<String, String> {
-    let src_path = Path::new(src);
-    let dest_folder = Path::new(dest_dir);
+    let src_path = normalize_user_path(PathBuf::from(src));
+    let dest_folder = normalize_user_path(PathBuf::from(dest_dir));
 
     if !src_path.exists() {
         return Err("Source introuvable.".into());
