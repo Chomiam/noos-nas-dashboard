@@ -42,6 +42,21 @@ pub struct WireguardServerInfo {
     pub next_client_ip: String,
 }
 
+pub fn get_wg_bin() -> String {
+    for candidate in &[
+        "/run/wrappers/bin/wg",
+        "/run/current-system/sw/bin/wg",
+        "/nix/var/nix/profiles/default/bin/wg",
+        "/usr/bin/wg",
+        "/bin/wg",
+    ] {
+        if Path::new(candidate).exists() {
+            return candidate.to_string();
+        }
+    }
+    "wg".to_string()
+}
+
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -126,7 +141,7 @@ fn get_primary_lan_ip() -> String {
 
 pub fn get_server_public_key() -> String {
     // 1. Tenter via `wg show wg0 public-key`
-    if let Ok(output) = Command::new("wg").args(["show", "wg0", "public-key"]).output() {
+    if let Ok(output) = Command::new(get_wg_bin()).args(["show", "wg0", "public-key"]).output() {
         if output.status.success() {
             let key = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !key.is_empty() {
@@ -147,7 +162,7 @@ pub fn get_server_public_key() -> String {
     // 3. Tenter d'extraire la clé publique depuis une clé privée serveur existante
     let priv_path = Path::new("/var/lib/steveos/server_private.key");
     if let Ok(priv_k) = fs::read_to_string(priv_path) {
-        if let Ok(mut child) = Command::new("wg").arg("pubkey").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn() {
+        if let Ok(mut child) = Command::new(get_wg_bin()).arg("pubkey").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn() {
             if let Some(mut stdin) = child.stdin.take() {
                 let _ = stdin.write_all(priv_k.trim().as_bytes());
             }
@@ -162,10 +177,10 @@ pub fn get_server_public_key() -> String {
     }
 
     // 4. Générer automatiquement une paire de clés serveur persistante si nécessaire
-    if let Ok(output) = Command::new("wg").arg("genkey").output() {
+    if let Ok(output) = Command::new(get_wg_bin()).arg("genkey").output() {
         if output.status.success() {
             let priv_k = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if let Ok(mut child) = Command::new("wg").arg("pubkey").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn() {
+            if let Ok(mut child) = Command::new(get_wg_bin()).arg("pubkey").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn() {
                 if let Some(mut stdin) = child.stdin.take() {
                     let _ = stdin.write_all(priv_k.as_bytes());
                 }
@@ -186,7 +201,7 @@ pub fn get_server_public_key() -> String {
 pub fn sync_clients_to_kernel() {
     let clients = load_wireguard_clients();
     for c in &clients {
-        let _ = Command::new("wg")
+        let _ = Command::new(get_wg_bin())
             .args(["set", "wg0", "peer", &c.public_key, "allowed-ips", &format!("{}/32", c.client_ip)])
             .output();
     }
@@ -223,7 +238,7 @@ pub fn get_wireguard_server_info() -> WireguardServerInfo {
 }
 
 fn generate_keypair() -> Result<(String, String), String> {
-    let gen_out = Command::new("wg")
+    let gen_out = Command::new(get_wg_bin())
         .arg("genkey")
         .output()
         .map_err(|e| format!("Impossible d'exécuter wg genkey : {}", e))?;
@@ -234,7 +249,7 @@ fn generate_keypair() -> Result<(String, String), String> {
 
     let priv_key = String::from_utf8_lossy(&gen_out.stdout).trim().to_string();
 
-    let mut pub_child = Command::new("wg")
+    let mut pub_child = Command::new(get_wg_bin())
         .arg("pubkey")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -373,7 +388,7 @@ pub fn create_client(req: CreateClientRequest) -> Result<WireguardClient, String
     save_wireguard_clients(&clients)?;
 
     // Enregistrer le pair immédiatement dans l'interface WireGuard du noyau Linux si elle est active
-    let _ = Command::new("wg")
+    let _ = Command::new(get_wg_bin())
         .args(["set", "wg0", "peer", &pub_key, "allowed-ips", &format!("{}/32", client_ip)])
         .output();
 
@@ -402,7 +417,7 @@ pub fn delete_client(id: &str) -> Result<(), String> {
 
     // Retirer le pair du noyau Linux
     if let Some(pub_key) = removed_pub_key {
-        let _ = Command::new("wg")
+        let _ = Command::new(get_wg_bin())
             .args(["set", "wg0", "peer", &pub_key, "remove"])
             .output();
     }

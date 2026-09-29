@@ -13,7 +13,7 @@ function getAuthToken() {
 function setAuthToken(token, remember) {
   if (remember) {
     localStorage.setItem(AUTH_TOKEN_KEY, token);
-    sessionStorage.removeItem(AUTH_TOKEN_KEY);
+    sessionStorage.setItem(AUTH_TOKEN_KEY, token);
   } else {
     sessionStorage.setItem(AUTH_TOKEN_KEY, token);
     localStorage.removeItem(AUTH_TOKEN_KEY);
@@ -58,7 +58,8 @@ window.fetch = async function(...args) {
     typeof resource === "string" &&
     resource.startsWith("/api/") &&
     !resource.startsWith("/api/auth/login") &&
-    !resource.startsWith("/api/auth/status")
+    !resource.startsWith("/api/auth/status") &&
+    !resource.startsWith("/api/auth/me")
   ) {
     // Si une mise à jour système est en cours, le service peut être en train de redémarrer
     if (isUpdatingNow) {
@@ -6876,19 +6877,17 @@ function closeDockerLogsModal() {
 
 async function checkAuthSession() {
   const token = getAuthToken();
-  if (!token) {
-    updateUserSessionUI(null);
-    showLoginModal();
-    return;
-  }
 
   try {
-    const res = await originalFetch("/api/auth/me", {
-      headers: { "Authorization": `Bearer ${token}` }
-    });
+    const headers = {};
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    const res = await originalFetch("/api/auth/me", { headers });
     if (res.ok) {
       const data = await res.json();
-      if (data.authenticated) {
+      if (data.success || data.authenticated) {
         currentUserSession = data;
         updateUserSessionUI(data);
         hideLoginModal();
@@ -6981,6 +6980,7 @@ async function handleLoginSubmit(event) {
       body: JSON.stringify({
         username: username,
         password: password,
+        remember: remember,
         remember_me: remember
       })
     });

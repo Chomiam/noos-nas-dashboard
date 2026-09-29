@@ -96,6 +96,7 @@ fn get_sessions() -> &'static Arc<RwLock<HashMap<String, Session>>> {
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
+    #[serde(alias = "remember_me")]
     pub remember: Option<bool>,
 }
 
@@ -118,6 +119,7 @@ pub struct StatusResponse {
 #[derive(Debug, Serialize)]
 pub struct MeResponse {
     pub success: bool,
+    pub authenticated: bool,
     pub username: String,
     pub is_admin: bool,
     pub expires_at: u64,
@@ -377,18 +379,28 @@ async fn handle_login(Json(req): Json<LoginRequest>) -> Response {
                 save_sessions_to_disk(&sessions);
             }
 
-            (
+            let mut response = (
                 StatusCode::OK,
                 Json(LoginResponse {
                     success: true,
-                    token: Some(token),
+                    token: Some(token.clone()),
                     username: Some(username.to_string()),
                     is_admin: Some(is_admin),
                     expires_at: Some(expires_at),
                     message: Some("Connexion réussie".into()),
                 }),
             )
-                .into_response()
+                .into_response();
+
+            let cookie_val = format!(
+                "steveos_token={}; Path=/; Max-Age={}; SameSite=Lax",
+                token, duration
+            );
+            if let Ok(hv) = header::HeaderValue::from_str(&cookie_val) {
+                response.headers_mut().insert(header::SET_COOKIE, hv);
+            }
+
+            response
         }
         Ok(false) => (
             StatusCode::UNAUTHORIZED,
@@ -472,14 +484,20 @@ async fn handle_logout(req: Request) -> Response {
         save_sessions_to_disk(&sessions);
     }
 
-    (
+    let mut response = (
         StatusCode::OK,
         Json(serde_json::json!({
             "success": true,
             "message": "Déconnexion effectuée avec succès."
         })),
     )
-        .into_response()
+        .into_response();
+
+    if let Ok(hv) = header::HeaderValue::from_str("steveos_token=; Path=/; Max-Age=0; SameSite=Lax") {
+        response.headers_mut().insert(header::SET_COOKIE, hv);
+    }
+
+    response
 }
 
 async fn handle_me(req: Request) -> Response {
@@ -490,6 +508,7 @@ async fn handle_me(req: Request) -> Response {
                 StatusCode::UNAUTHORIZED,
                 Json(serde_json::json!({
                     "success": false,
+                    "authenticated": false,
                     "message": "Jeton d'authentification manquant."
                 })),
             )
@@ -499,14 +518,38 @@ async fn handle_me(req: Request) -> Response {
 
     let now = now_secs();
     let sessions_lock = get_sessions();
-    let sessions = sessions_lock.read().await;
 
-    if let Some(session) = sessions.get(&token) {
+    // 1. Vérification en mémoire (rapide)
+    {
+        let sessions = sessions_lock.read().await;
+        if let Some(session) = sessions.get(&token) {
+            if session.expires_at > now {
+                return (
+                    StatusCode::OK,
+                    Json(MeResponse {
+                        success: true,
+                        authenticated: true,
+                        username: session.username.clone(),
+                        is_admin: session.is_admin,
+                        expires_at: session.expires_at,
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    // 2. Vérification sur disque si absent de la mémoire (ex: redémarrage service)
+    let disk_sessions = load_sessions_from_disk();
+    if let Some(session) = disk_sessions.get(&token) {
         if session.expires_at > now {
+            let mut sessions = sessions_lock.write().await;
+            sessions.insert(token.clone(), session.clone());
             return (
                 StatusCode::OK,
                 Json(MeResponse {
                     success: true,
+                    authenticated: true,
                     username: session.username.clone(),
                     is_admin: session.is_admin,
                     expires_at: session.expires_at,
@@ -520,18 +563,18 @@ async fn handle_me(req: Request) -> Response {
         StatusCode::UNAUTHORIZED,
         Json(serde_json::json!({
             "success": false,
+            "authenticated": false,
             "message": "Session expirée ou invalide."
         })),
     )
         .into_response()
 }
 
-// Middleware de protection globale des routes /api
 pub async fn auth_middleware(req: Request, next: Next) -> Response {
     let path = req.uri().path();
 
     // Endpoints publics exemptés d'authentification
-    if path.ends_with("/auth/login") || path.ends_with("/auth/status") {
+    if path.ends_with("/auth/login") || path.ends_with("/auth/status") || path.ends_with("/auth/me") {
         return next.run(req).await;
     }
 

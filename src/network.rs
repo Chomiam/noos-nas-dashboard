@@ -136,7 +136,7 @@ fn get_wireguard_status() -> WireguardStatus {
     let mut peers: Vec<WireguardPeerItem> = Vec::new();
     let mut current_peer: Option<WireguardPeerItem> = None;
 
-    if let Ok(output) = Command::new("wg").arg("show").output() {
+    if let Ok(output) = Command::new(crate::wireguard::get_wg_bin()).arg("show").output() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
             let trimmed = line.trim();

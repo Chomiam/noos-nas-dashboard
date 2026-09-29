@@ -73,6 +73,8 @@
                 pciutils
                 usbutils
                 iproute2
+                wireguard-tools
+                qrencode
                 coreutils
                 whois openssl
                 bash
