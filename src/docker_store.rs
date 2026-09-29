@@ -1,0 +1,779 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoreVolume {
+    pub host: String,
+    pub container: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoreApp {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub category: String,
+    pub tagline: String,
+    pub description: String,
+    pub website: String,
+    pub icon: String,
+    pub default_port: u16,
+    #[serde(default)]
+    pub recommended: bool,
+    #[serde(default)]
+    pub volumes: Vec<StoreVolume>,
+    #[serde(default)]
+    pub nix_file: String,
+
+    // Champs calculés dynamiquement
+    #[serde(default)]
+    pub is_installed: bool,
+    #[serde(default)]
+    pub is_running: bool,
+    #[serde(default)]
+    pub container_id: Option<String>,
+    #[serde(default)]
+    pub container_status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoreCatalog {
+    pub version: String,
+    pub updated_at: String,
+    pub repository: String,
+    pub categories: Vec<String>,
+    pub apps: Vec<StoreApp>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InstallAppRequest {
+    pub app_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UninstallAppRequest {
+    pub app_id: String,
+    #[serde(default)]
+    pub delete_data: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ContainerActionRequest {
+    pub action: String,
+}
+
+#[derive(Debug, Serialize)]
+#[allow(dead_code)]
+pub struct DockerActionResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+fn get_config_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("STEVEOS_CONFIG_DIR") {
+        let p = PathBuf::from(dir);
+        if p.exists() {
+            return p;
+        }
+    }
+    if Path::new("/etc/nixos").exists() {
+        PathBuf::from("/etc/nixos")
+    } else {
+        PathBuf::from("/home/chomiam/Projects/steveos-nas")
+    }
+}
+
+fn get_target_user() -> String {
+    std::env::var("STEVEOS_USER").unwrap_or_else(|_| "chomiam".to_string())
+}
+
+pub fn get_running_containers_map() -> HashMap<String, (String, String, bool)> {
+    let mut map = HashMap::new();
+    if let Ok(output) = Command::new("docker")
+        .args(["ps", "-a", "--format", "{{.ID}}	{{.Names}}	{{.Status}}	{{.State}}"])
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() >= 4 {
+                let id = parts[0].to_string();
+                let name = parts[1].trim_start_matches('/').to_string();
+                let status = parts[2].to_string();
+                let is_running = parts[3].to_lowercase() == "running";
+
+                // Le nom peut être direct "arcane" ou "docker-arcane"
+                let clean_name = name.strip_prefix("docker-").unwrap_or(&name).to_string();
+                map.insert(clean_name.clone(), (id.clone(), status.clone(), is_running));
+                map.insert(name, (id, status, is_running));
+            }
+        }
+    }
+    map
+}
+
+pub fn get_store_catalog() -> StoreCatalog {
+    let cache_dir = Path::new("/var/cache/steveos-nas-dashboard");
+    let cache_file = cache_dir.join("store_cache.json");
+
+    // 1. Tenter la récupération depuis GitHub (store.json)
+    let fetched = Command::new("curl")
+        .args([
+            "-s",
+            "--connect-timeout",
+            "4",
+            "--max-time",
+            "8",
+            "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/store.json",
+        ])
+        .output();
+
+    let json_text = if let Ok(out) = fetched {
+        let text = String::from_utf8_lossy(&out.stdout).to_string();
+        if text.trim().starts_with('{') {
+            let _ = std::fs::create_dir_all(cache_dir);
+            let _ = std::fs::write(&cache_file, &text);
+            Some(text)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // 2. Repli sur le cache local
+    let json_text = json_text.or_else(|| std::fs::read_to_string(&cache_file).ok());
+
+    // 3. Repli sur catalogue intégré par défaut
+    let mut catalog: StoreCatalog = if let Some(txt) = json_text {
+        serde_json::from_str(&txt).unwrap_or_else(|_| get_embedded_catalog())
+    } else {
+        get_embedded_catalog()
+    };
+
+    // 4. Enrichir avec l'état du système NixOS et de Docker
+    let config_dir = get_config_dir();
+    let docker_dir = config_dir.join("docker");
+    let containers_map = get_running_containers_map();
+
+    for app in &mut catalog.apps {
+        let nix_path = docker_dir.join(format!("{}.nix", app.id));
+        app.is_installed = nix_path.exists();
+
+        if let Some((cid, status, is_running)) = containers_map.get(&app.id) {
+            app.is_running = *is_running;
+            app.container_id = Some(cid.clone());
+            app.container_status = Some(status.clone());
+        } else {
+            app.is_running = false;
+            app.container_id = None;
+            app.container_status = None;
+        }
+    }
+
+    catalog
+}
+
+pub async fn install_store_app(app_id: &str) -> Result<String, String> {
+    let clean_id = app_id.trim().to_lowercase();
+    if clean_id.is_empty() || !clean_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        return Err("Identifiant d'application invalide".to_string());
+    }
+
+    let config_dir = get_config_dir();
+    let docker_dir = config_dir.join("docker");
+    let target_nix_file = docker_dir.join(format!("{}.nix", clean_id));
+
+    // Récupérer le contenu du .nix :
+    // 1. Depuis GitHub raw
+    let url = format!(
+        "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/{}/{}.nix",
+        clean_id, clean_id
+    );
+    let curl_res = Command::new("curl")
+        .args(["-s", "--connect-timeout", "5", "--max-time", "15", &url])
+        .output();
+
+    let nix_content = match curl_res {
+        Ok(out) => {
+            let s = String::from_utf8_lossy(&out.stdout).to_string();
+            if s.contains("virtualisation.oci-containers") {
+                s
+            } else {
+                get_embedded_app_nix(&clean_id)?
+            }
+        }
+        Err(_) => get_embedded_app_nix(&clean_id)?,
+    };
+
+    // Assurer le dossier docker/ dans NixOS
+    if let Err(e) = std::fs::create_dir_all(&docker_dir) {
+        return Err(format!("Impossible de créer le dossier docker dans NixOS : {}", e));
+    }
+
+    // Assurer le dossier persistant dans /home/<user>/docker/<app_id>
+    let user = get_target_user();
+    let user_home = format!("/home/{}", user);
+    let app_data_dir = format!("{}/docker/{}", user_home, clean_id);
+    let _ = std::fs::create_dir_all(&app_data_dir);
+    let _ = Command::new("chown").args(["-R", &format!("{}:users", user), &format!("{}/docker", user_home)]).status();
+    let _ = Command::new("chmod").args(["-R", "0775", &format!("{}/docker", user_home)]).status();
+
+    // Écrire le fichier .nix
+    if let Err(e) = std::fs::write(&target_nix_file, nix_content) {
+        return Err(format!("Impossible d'écrire le module Nix : {}", e));
+    }
+
+    // Indexer le fichier dans git pour que Nix flake le reconnaisse
+    let _ = Command::new("git")
+        .args(["-C", &config_dir.display().to_string(), "add", &format!("docker/{}.nix", clean_id)])
+        .status();
+
+    // Lancer le déploiement en arrière-plan
+    let cfg_clone = config_dir.clone();
+    tokio::spawn(async move {
+        let _ = Command::new("nh")
+            .args(["os", "switch", "--no-nom", &cfg_clone.display().to_string()])
+            .status();
+    });
+
+    Ok(format!(
+        "Application '{}' configurée avec succès ! Le déploiement NixOS a été lancé.",
+        clean_id
+    ))
+}
+
+pub async fn uninstall_store_app(app_id: &str, delete_data: bool) -> Result<String, String> {
+    let clean_id = app_id.trim().to_lowercase();
+    let config_dir = get_config_dir();
+    let docker_dir = config_dir.join("docker");
+    let target_nix_file = docker_dir.join(format!("{}.nix", clean_id));
+
+    if !target_nix_file.exists() {
+        return Err(format!("L'application '{}' n'est pas installée.", clean_id));
+    }
+
+    // Arrêter le conteneur Docker immédiatement
+    let _ = Command::new("docker").args(["stop", &clean_id]).status();
+    let _ = Command::new("docker").args(["rm", "-f", &clean_id]).status();
+
+    // Supprimer le fichier .nix
+    let _ = std::fs::remove_file(&target_nix_file);
+
+    // Mettre à jour git
+    let _ = Command::new("git")
+        .args(["-C", &config_dir.display().to_string(), "rm", "-f", &format!("docker/{}.nix", clean_id)])
+        .status();
+    let _ = Command::new("git")
+        .args(["-C", &config_dir.display().to_string(), "add", "-u"])
+        .status();
+
+    // Supprimer les données si demandé
+    if delete_data {
+        let user = get_target_user();
+        let app_data_dir = format!("/home/{}/docker/{}", user, clean_id);
+        let _ = std::fs::remove_dir_all(&app_data_dir);
+    }
+
+    // Déclencher le switch NixOS pour mettre à jour les unités systemd et le pare-feu
+    let cfg_clone = config_dir.clone();
+    tokio::spawn(async move {
+        let _ = Command::new("nh")
+            .args(["os", "switch", "--no-nom", &cfg_clone.display().to_string()])
+            .status();
+    });
+
+    Ok(format!(
+        "Application '{}' désinstallée avec succès. Le système NixOS est mis à jour.",
+        clean_id
+    ))
+}
+
+pub fn control_docker_container(name_or_id: &str, action: &str) -> Result<String, String> {
+    let allowed = ["start", "stop", "restart", "pause", "unpause"];
+    if !allowed.contains(&action) {
+        return Err(format!("Action non autorisée : {}", action));
+    }
+
+    let status = Command::new("docker")
+        .args([action, name_or_id])
+        .status()
+        .map_err(|e| format!("Échec d'exécution docker : {}", e))?;
+
+    if status.success() {
+        Ok(format!("Action '{}' exécutée avec succès sur '{}'", action, name_or_id))
+    } else {
+        Err(format!("Docker a retourné une erreur lors de l'action '{}'", action))
+    }
+}
+
+pub fn get_docker_logs(name_or_id: &str, lines: usize) -> Result<String, String> {
+    let max_lines = lines.min(500).to_string();
+    let output = Command::new("docker")
+        .args(["logs", "--tail", &max_lines, name_or_id])
+        .output()
+        .map_err(|e| format!("Impossible de lire les logs docker : {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let mut combined = String::new();
+    if !stdout.is_empty() {
+        combined.push_str(&stdout);
+    }
+    if !stderr.is_empty() {
+        if !combined.is_empty() { combined.push('\n'); }
+        combined.push_str(&stderr);
+    }
+
+    Ok(combined)
+}
+
+fn get_embedded_catalog() -> StoreCatalog {
+    StoreCatalog {
+        version: "1.0.0".to_string(),
+        updated_at: "2026-09-29T19:00:00Z".to_string(),
+        repository: "https://github.com/Chomiam/steveos_nas_store".to_string(),
+        categories: vec![
+            "Tous".into(),
+            "Administration".into(),
+            "Multimédia".into(),
+            "Téléchargement".into(),
+            "Sécurité".into(),
+            "Monitoring".into(),
+            "Outils".into(),
+        ],
+        apps: vec![
+            StoreApp {
+                id: "arcane".into(),
+                name: "Arcane".into(),
+                version: "latest".into(),
+                category: "Administration".into(),
+                tagline: "Gestionnaire moderne et léger de conteneurs Docker".into(),
+                description: "Arcane propose une interface utilisateur épurée et moderne pour superviser, déployer et administrer facilement vos conteneurs Docker et stacks Compose.".into(),
+                website: "https://getarcane.app/".into(),
+                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/arcane/icon.svg".into(),
+                default_port: 3552,
+                recommended: true,
+                volumes: vec![
+                    StoreVolume {
+                        host: "/home/{USER}/docker/arcane/data".into(),
+                        container: "/app/data".into(),
+                        description: "Base de données et configuration".into(),
+                    },
+                    StoreVolume {
+                        host: "/var/run/docker.sock".into(),
+                        container: "/var/run/docker.sock".into(),
+                        description: "Socket Docker".into(),
+                    },
+                ],
+                nix_file: "arcane.nix".into(),
+                is_installed: false,
+                is_running: false,
+                container_id: None,
+                container_status: None,
+            },
+            StoreApp {
+                id: "immich".into(),
+                name: "Immich".into(),
+                version: "latest".into(),
+                category: "Multimédia".into(),
+                tagline: "Solution d'hébergement de photos et vidéos type Google Photos".into(),
+                description: "Sauvegarde automatique, détection des visages par IA, géolocalisation, albums partagés et lecture haute définition.".into(),
+                website: "https://immich.app/".into(),
+                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/immich/icon.svg".into(),
+                default_port: 2283,
+                recommended: true,
+                volumes: vec![
+                    StoreVolume {
+                        host: "/home/{USER}/docker/immich/upload".into(),
+                        container: "/usr/src/app/upload".into(),
+                        description: "Stockage photos et vidéos".into(),
+                    },
+                ],
+                nix_file: "immich.nix".into(),
+                is_installed: false,
+                is_running: false,
+                container_id: None,
+                container_status: None,
+            },
+            StoreApp {
+                id: "jellyseerr".into(),
+                name: "Jellyseerr".into(),
+                version: "latest".into(),
+                category: "Multimédia".into(),
+                tagline: "Gestionnaire de demandes de films et séries pour Jellyfin".into(),
+                description: "Permet aux utilisateurs de votre NAS de demander de nouveaux contenus vidéo avec découverte interactive et intégration Jellyfin.".into(),
+                website: "https://github.com/Fallenbagel/jellyseerr".into(),
+                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/jellyseerr/icon.svg".into(),
+                default_port: 5055,
+                recommended: true,
+                volumes: vec![
+                    StoreVolume {
+                        host: "/home/{USER}/docker/jellyseerr/config".into(),
+                        container: "/app/config".into(),
+                        description: "Configuration et base SQLite".into(),
+                    },
+                ],
+                nix_file: "jellyseerr.nix".into(),
+                is_installed: false,
+                is_running: false,
+                container_id: None,
+                container_status: None,
+            },
+            StoreApp {
+                id: "qbittorrent".into(),
+                name: "qBittorrent".into(),
+                version: "latest".into(),
+                category: "Téléchargement".into(),
+                tagline: "Client BitTorrent rapide avec interface web complète".into(),
+                description: "Client BitTorrent open-source complet doté d'une interface Web pour gérer vos téléchargements à distance.".into(),
+                website: "https://www.qbittorrent.org/".into(),
+                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/qbittorrent/icon.svg".into(),
+                default_port: 8085,
+                recommended: false,
+                volumes: vec![
+                    StoreVolume {
+                        host: "/home/{USER}/docker/qbittorrent/config".into(),
+                        container: "/config".into(),
+                        description: "Configuration torrents".into(),
+                    },
+                    StoreVolume {
+                        host: "/home/{USER}/docker/qbittorrent/downloads".into(),
+                        container: "/downloads".into(),
+                        description: "Fichiers téléchargés".into(),
+                    },
+                ],
+                nix_file: "qbittorrent.nix".into(),
+                is_installed: false,
+                is_running: false,
+                container_id: None,
+                container_status: None,
+            },
+            StoreApp {
+                id: "vaultwarden".into(),
+                name: "Vaultwarden".into(),
+                version: "latest".into(),
+                category: "Sécurité".into(),
+                tagline: "Serveur Bitwarden léger et ultra-rapide en Rust".into(),
+                description: "Coffre-fort de mots de passe auto-hébergé, 100% compatible avec les applications mobiles et extensions officielles Bitwarden.".into(),
+                website: "https://github.com/dani-garcia/vaultwarden".into(),
+                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/vaultwarden/icon.svg".into(),
+                default_port: 8222,
+                recommended: true,
+                volumes: vec![
+                    StoreVolume {
+                        host: "/home/{USER}/docker/vaultwarden/data".into(),
+                        container: "/data".into(),
+                        description: "Coffre chiffré".into(),
+                    },
+                ],
+                nix_file: "vaultwarden.nix".into(),
+                is_installed: false,
+                is_running: false,
+                container_id: None,
+                container_status: None,
+            },
+            StoreApp {
+                id: "uptime-kuma".into(),
+                name: "Uptime Kuma".into(),
+                version: "latest".into(),
+                category: "Monitoring".into(),
+                tagline: "Surveillance de disponibilité de vos services et sites web".into(),
+                description: "Tableau de bord auto-hébergé surveillant le temps de disponibilité avec alertes instantanées (Discord, Telegram, Mail).".into(),
+                website: "https://uptime.kuma.pet/".into(),
+                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/uptime-kuma/icon.svg".into(),
+                default_port: 3001,
+                recommended: false,
+                volumes: vec![
+                    StoreVolume {
+                        host: "/home/{USER}/docker/uptime-kuma/data".into(),
+                        container: "/app/data".into(),
+                        description: "Historiques et alertes".into(),
+                    },
+                ],
+                nix_file: "uptime-kuma.nix".into(),
+                is_installed: false,
+                is_running: false,
+                container_id: None,
+                container_status: None,
+            },
+            StoreApp {
+                id: "homepage".into(),
+                name: "Homepage".into(),
+                version: "latest".into(),
+                category: "Administration".into(),
+                tagline: "Tableau de bord moderne et personnalisable pour homelab".into(),
+                description: "Page d'accueil élégante regroupant vos services NAS, métriques d'état et liens rapides.".into(),
+                website: "https://gethomepage.dev/".into(),
+                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/homepage/icon.svg".into(),
+                default_port: 3000,
+                recommended: false,
+                volumes: vec![
+                    StoreVolume {
+                        host: "/home/{USER}/docker/homepage/config".into(),
+                        container: "/app/config".into(),
+                        description: "Configuration YAML".into(),
+                    },
+                ],
+                nix_file: "homepage.nix".into(),
+                is_installed: false,
+                is_running: false,
+                container_id: None,
+                container_status: None,
+            },
+            StoreApp {
+                id: "filebrowser".into(),
+                name: "FileBrowser".into(),
+                version: "latest".into(),
+                category: "Outils".into(),
+                tagline: "Explorateur de fichiers Web simple et rapide".into(),
+                description: "Interface web pour téléverser, télécharger et gérer facilement vos fichiers depuis n'importe quel navigateur.".into(),
+                website: "https://filebrowser.org/".into(),
+                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/filebrowser/icon.svg".into(),
+                default_port: 8082,
+                recommended: false,
+                volumes: vec![
+                    StoreVolume {
+                        host: "/home/{USER}/docker/filebrowser/data".into(),
+                        container: "/srv".into(),
+                        description: "Dossier fichiers".into(),
+                    },
+                ],
+                nix_file: "filebrowser.nix".into(),
+                is_installed: false,
+                is_running: false,
+                container_id: None,
+                container_status: None,
+            },
+        ],
+    }
+}
+
+fn get_embedded_app_nix(app_id: &str) -> Result<String, String> {
+    match app_id {
+        "immich" => Ok(r#"{ config, lib, pkgs, ... }:
+
+let
+  user = config.steveos.user.username;
+  dataDir = "/home/${user}/docker/immich";
+in
+{
+  systemd.tmpfiles.rules = [
+    "d /home/${user}/docker 0775 ${user} users -"
+    "d ${dataDir} 0775 ${user} users -"
+    "d ${dataDir}/upload 0775 ${user} users -"
+    "d ${dataDir}/profile 0775 ${user} users -"
+  ];
+
+  virtualisation.oci-containers.backend = "docker";
+  virtualisation.oci-containers.containers.immich = {
+    image = "ghcr.io/immich-app/immich-server:release";
+    autoStart = true;
+    ports = [ "2283:2283" ];
+    volumes = [
+      "${dataDir}/upload:/usr/src/app/upload"
+      "${dataDir}/profile:/usr/src/app/profile"
+    ];
+    environment = {
+      IMMICH_ENV = "production";
+      TZ = config.steveos.timeZone or "Europe/Paris";
+    };
+  };
+
+  networking.firewall.allowedTCPPorts = [ 2283 ];
+}
+"#.to_string()),
+        "jellyseerr" => Ok(r#"{ config, lib, pkgs, ... }:
+
+let
+  user = config.steveos.user.username;
+  dataDir = "/home/${user}/docker/jellyseerr";
+in
+{
+  systemd.tmpfiles.rules = [
+    "d /home/${user}/docker 0775 ${user} users -"
+    "d ${dataDir} 0775 ${user} users -"
+    "d ${dataDir}/config 0775 ${user} users -"
+  ];
+
+  virtualisation.oci-containers.backend = "docker";
+  virtualisation.oci-containers.containers.jellyseerr = {
+    image = "fallenbagel/jellyseerr:latest";
+    autoStart = true;
+    ports = [ "5055:5055" ];
+    volumes = [
+      "${dataDir}/config:/app/config"
+    ];
+    environment = {
+      PORT = "5055";
+      TZ = config.steveos.timeZone or "Europe/Paris";
+    };
+  };
+
+  networking.firewall.allowedTCPPorts = [ 5055 ];
+}
+"#.to_string()),
+        "qbittorrent" => Ok(r#"{ config, lib, pkgs, ... }:
+
+let
+  user = config.steveos.user.username;
+  dataDir = "/home/${user}/docker/qbittorrent";
+in
+{
+  systemd.tmpfiles.rules = [
+    "d /home/${user}/docker 0775 ${user} users -"
+    "d ${dataDir} 0775 ${user} users -"
+    "d ${dataDir}/config 0775 ${user} users -"
+    "d ${dataDir}/downloads 0775 ${user} users -"
+  ];
+
+  virtualisation.oci-containers.backend = "docker";
+  virtualisation.oci-containers.containers.qbittorrent = {
+    image = "lscr.io/linuxserver/qbittorrent:latest";
+    autoStart = true;
+    ports = [
+      "8085:8085"
+      "6881:6881"
+      "6881:6881/udp"
+    ];
+    volumes = [
+      "${dataDir}/config:/config"
+      "${dataDir}/downloads:/downloads"
+    ];
+    environment = {
+      PUID = "1000";
+      PGID = "100";
+      TZ = config.steveos.timeZone or "Europe/Paris";
+      WEBUI_PORT = "8085";
+    };
+  };
+
+  networking.firewall.allowedTCPPorts = [ 8085 6881 ];
+  networking.firewall.allowedUDPPorts = [ 6881 ];
+}
+"#.to_string()),
+        "vaultwarden" => Ok(r#"{ config, lib, pkgs, ... }:
+
+let
+  user = config.steveos.user.username;
+  dataDir = "/home/${user}/docker/vaultwarden";
+in
+{
+  systemd.tmpfiles.rules = [
+    "d /home/${user}/docker 0775 ${user} users -"
+    "d ${dataDir} 0775 ${user} users -"
+    "d ${dataDir}/data 0775 ${user} users -"
+  ];
+
+  virtualisation.oci-containers.backend = "docker";
+  virtualisation.oci-containers.containers.vaultwarden = {
+    image = "vaultwarden/server:latest";
+    autoStart = true;
+    ports = [ "8222:80" ];
+    volumes = [
+      "${dataDir}/data:/data"
+    ];
+    environment = {
+      ROCKET_PORT = "80";
+      TZ = config.steveos.timeZone or "Europe/Paris";
+    };
+  };
+
+  networking.firewall.allowedTCPPorts = [ 8222 ];
+}
+"#.to_string()),
+        "uptime-kuma" => Ok(r#"{ config, lib, pkgs, ... }:
+
+let
+  user = config.steveos.user.username;
+  dataDir = "/home/${user}/docker/uptime-kuma";
+in
+{
+  systemd.tmpfiles.rules = [
+    "d /home/${user}/docker 0775 ${user} users -"
+    "d ${dataDir} 0775 ${user} users -"
+    "d ${dataDir}/data 0775 ${user} users -"
+  ];
+
+  virtualisation.oci-containers.backend = "docker";
+  virtualisation.oci-containers.containers.uptime-kuma = {
+    image = "louislam/uptime-kuma:latest";
+    autoStart = true;
+    ports = [ "3001:3001" ];
+    volumes = [
+      "${dataDir}/data:/app/data"
+    ];
+    environment = {
+      TZ = config.steveos.timeZone or "Europe/Paris";
+    };
+  };
+
+  networking.firewall.allowedTCPPorts = [ 3001 ];
+}
+"#.to_string()),
+        "homepage" => Ok(r#"{ config, lib, pkgs, ... }:
+
+let
+  user = config.steveos.user.username;
+  dataDir = "/home/${user}/docker/homepage";
+in
+{
+  systemd.tmpfiles.rules = [
+    "d /home/${user}/docker 0775 ${user} users -"
+    "d ${dataDir} 0775 ${user} users -"
+    "d ${dataDir}/config 0775 ${user} users -"
+  ];
+
+  virtualisation.oci-containers.backend = "docker";
+  virtualisation.oci-containers.containers.homepage = {
+    image = "ghcr.io/gethomepage/homepage:latest";
+    autoStart = true;
+    ports = [ "3000:3000" ];
+    volumes = [
+      "${dataDir}/config:/app/config"
+      "/var/run/docker.sock:/var/run/docker.sock:ro"
+    ];
+    environment = {
+      TZ = config.steveos.timeZone or "Europe/Paris";
+    };
+  };
+
+  networking.firewall.allowedTCPPorts = [ 3000 ];
+}
+"#.to_string()),
+        "filebrowser" => Ok(r#"{ config, lib, pkgs, ... }:
+
+let
+  user = config.steveos.user.username;
+  dataDir = "/home/${user}/docker/filebrowser";
+in
+{
+  systemd.tmpfiles.rules = [
+    "d /home/${user}/docker 0775 ${user} users -"
+    "d ${dataDir} 0775 ${user} users -"
+    "d ${dataDir}/data 0775 ${user} users -"
+  ];
+
+  virtualisation.oci-containers.backend = "docker";
+  virtualisation.oci-containers.containers.filebrowser = {
+    image = "filebrowser/filebrowser:latest";
+    autoStart = true;
+    ports = [ "8082:80" ];
+    volumes = [
+      "${dataDir}/data:/srv"
+    ];
+    environment = {
+      TZ = config.steveos.timeZone or "Europe/Paris";
+    };
+  };
+
+  networking.firewall.allowedTCPPorts = [ 8082 ];
+}
+"#.to_string()),
+        _ => Err(format!("Module pour l'application '{}' non trouvé", app_id)),
+    }
+}

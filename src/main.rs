@@ -29,6 +29,7 @@ mod trash;
 mod updates;
 mod documents;
 mod youtube;
+mod docker_store;
 
 use axum::Router;
 use std::env;

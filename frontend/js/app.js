@@ -71,7 +71,7 @@ function switchTab(tabId) {
   if (tabId === "tab-updates") checkForUpdates(false);
   if (tabId === "tab-storage") loadStorage();
   if (tabId === "tab-shares") loadServices();
-  if (tabId === "tab-containers") loadServices();
+  if (tabId === "tab-containers") refreshContainersAndStore();
   if (tabId === "tab-firewall") loadFirewall();
   if (tabId === "tab-logs") loadLogs();
 }
@@ -5841,4 +5841,392 @@ function closeDocModal() {
     iframe.src = "about:blank";
     iframe.style.display = "none";
   }
+}
+
+
+// ==========================================================================
+// SECTION CONTENEURS DOCKER & BOUTIQUE D'APPLICATIONS (APP STORE)
+// ==========================================================================
+
+let activeDockerSubTab = "containers";
+let activeStoreCategory = "Tous";
+let currentStoreCatalog = null;
+let currentViewingContainerName = null;
+
+function switchDockerSubTab(subTab) {
+  activeDockerSubTab = subTab;
+  const btnContainers = document.getElementById("btn-subtab-containers");
+  const btnStore = document.getElementById("btn-subtab-store");
+  const paneContainers = document.getElementById("docker-pane-containers");
+  const paneStore = document.getElementById("docker-pane-store");
+
+  if (btnContainers && btnStore && paneContainers && paneStore) {
+    btnContainers.classList.toggle("active", subTab === "containers");
+    btnStore.classList.toggle("active", subTab === "store");
+    paneContainers.style.display = subTab === "containers" ? "block" : "none";
+    paneStore.style.display = subTab === "store" ? "block" : "none";
+  }
+
+  if (subTab === "store" && !currentStoreCatalog) {
+    loadDockerStore();
+  }
+}
+
+async function refreshContainersAndStore(showFeedback = false) {
+  try {
+    await Promise.all([loadDockerContainers(), loadDockerStore()]);
+    if (showFeedback) {
+      showToast("Conteneurs et boutique actualisés !", "success");
+    }
+  } catch (err) {
+    console.error("Erreur actualisation conteneurs/store:", err);
+  }
+}
+
+async function loadDockerContainers() {
+  const container = document.getElementById("containers-container");
+  const countBadge = document.getElementById("running-containers-count");
+  if (!container) return;
+
+  try {
+    const res = await fetch("/api/docker/containers");
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      container.innerHTML = `<p style="color:var(--red); font-size:0.9rem;">Erreur lors de la récupération des conteneurs.</p>`;
+      return;
+    }
+
+    const containers = json.data;
+    const runningCount = containers.filter(c => c.is_running).length;
+    if (countBadge) countBadge.textContent = runningCount;
+
+    if (containers.length === 0) {
+      container.innerHTML = `
+        <div style="grid-column: 1/-1; background: var(--surface0); border: 1px dashed var(--surface1); border-radius: 14px; padding: 30px; text-align: center;">
+          <div style="font-size: 2.2rem; margin-bottom: 8px;">🐳</div>
+          <div style="font-weight: 700; color: var(--text); font-size: 1.05rem;">Aucun conteneur Docker en cours d'exécution</div>
+          <div style="font-size: 0.85rem; color: var(--subtext0); margin: 6px 0 16px 0;">Découvrez et installez vos premières applications en 1-clic depuis le Store.</div>
+          <button type="button" class="btn btn-primary btn-sm" onclick="switchDockerSubTab('store')">🛍️ Découvrir la Boutique d'Applications</button>
+        </div>
+      `;
+      return;
+    }
+
+    const host = window.location.hostname;
+    container.innerHTML = containers.map(c => {
+      const portLink = c.web_port
+        ? `<a href="http://${host}:${c.web_port}" target="_blank" class="btn btn-primary btn-xs" style="text-decoration:none;">🚀 Ouvrir (Port ${c.web_port}) ↗</a>`
+        : "";
+
+      return `
+        <div class="container-card">
+          <div class="container-header">
+            <span class="container-name">🐳 ${escapeHtml(c.name)}</span>
+            <span class="badge ${c.is_running ? 'badge-success' : 'badge-warning'}">
+              ${c.is_running ? '🟢 En cours' : '🟡 Arrêté'}
+            </span>
+          </div>
+
+          <div class="container-image">
+            <div style="color:var(--subtext1); font-size:0.75rem; margin-bottom:2px;">Image :</div>
+            ${escapeHtml(c.image)}
+          </div>
+
+          ${c.ports ? `
+            <div class="container-ports-badge">
+              <span>🔌</span> <span>${escapeHtml(c.ports)}</span>
+            </div>
+          ` : ""}
+
+          <div style="font-size:0.75rem; color:var(--subtext0);">
+            Statut : <strong>${escapeHtml(c.status)}</strong>
+          </div>
+
+          <div class="container-actions-row">
+            ${portLink}
+            ${c.is_running ? `
+              <button type="button" class="btn btn-secondary btn-xs" onclick="dockerContainerAction('${escapeHtml(c.name)}', 'restart')">🔄 Redémarrer</button>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="dockerContainerAction('${escapeHtml(c.name)}', 'stop')">⏹ Arrêter</button>
+            ` : `
+              <button type="button" class="btn btn-success btn-xs" onclick="dockerContainerAction('${escapeHtml(c.name)}', 'start')">▶ Démarrer</button>
+            `}
+            <button type="button" class="btn btn-secondary btn-xs" onclick="openDockerLogsModal('${escapeHtml(c.name)}')">📜 Logs</button>
+          </div>
+        </div>
+      `;
+    }).join("");
+  } catch (err) {
+    console.error("Erreur fetch /api/docker/containers:", err);
+    container.innerHTML = `<p style="color:var(--red); font-size:0.9rem;">Erreur de communication avec le démon Docker.</p>`;
+  }
+}
+
+async function loadDockerStore() {
+  const grid = document.getElementById("store-apps-grid");
+  const catContainer = document.getElementById("store-categories-container");
+  if (!grid) return;
+
+  try {
+    const res = await fetch("/api/docker/store");
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      grid.innerHTML = `<p style="color:var(--red); font-size:0.9rem;">Impossible de charger la boutique d'applications.</p>`;
+      return;
+    }
+
+    currentStoreCatalog = json.data;
+
+    // Rendu des catégories
+    if (catContainer && currentStoreCatalog.categories) {
+      catContainer.innerHTML = currentStoreCatalog.categories.map(cat => `
+        <button type="button" class="store-cat-pill ${cat === activeStoreCategory ? 'active' : ''}" onclick="selectStoreCategory('${escapeHtml(cat)}')">
+          ${escapeHtml(cat)}
+        </button>
+      `).join("");
+    }
+
+    filterStoreApps();
+  } catch (err) {
+    console.error("Erreur fetch /api/docker/store:", err);
+    grid.innerHTML = `<p style="color:var(--red); font-size:0.9rem;">Erreur de chargement du catalogue store.</p>`;
+  }
+}
+
+function selectStoreCategory(cat) {
+  activeStoreCategory = cat;
+  document.querySelectorAll(".store-cat-pill").forEach(pill => {
+    pill.classList.toggle("active", pill.textContent.trim() === cat);
+  });
+  filterStoreApps();
+}
+
+function filterStoreApps() {
+  const grid = document.getElementById("store-apps-grid");
+  const searchInput = document.getElementById("store-search-input");
+  if (!grid || !currentStoreCatalog) return;
+
+  const query = (searchInput ? searchInput.value.trim().toLowerCase() : "");
+  const filtered = currentStoreCatalog.apps.filter(app => {
+    const matchCat = (activeStoreCategory === "Tous" || app.category === activeStoreCategory);
+    const matchQuery = !query || app.name.toLowerCase().includes(query) ||
+                       app.tagline.toLowerCase().includes(query) ||
+                       app.description.toLowerCase().includes(query) ||
+                       app.category.toLowerCase().includes(query);
+    return matchCat && matchQuery;
+  });
+
+  if (filtered.length === 0) {
+    grid.innerHTML = `<p style="grid-column:1/-1; color:var(--subtext0); text-align:center; padding:30px;">Aucune application ne correspond à votre recherche.</p>`;
+    return;
+  }
+
+  const host = window.location.hostname;
+  grid.innerHTML = filtered.map(app => {
+    const isInstalled = app.is_installed;
+    const isRunning = app.is_running;
+    const openLink = (isInstalled && isRunning && app.default_port)
+      ? `<a href="http://${host}:${app.default_port}" target="_blank" class="btn btn-primary btn-xs" style="text-decoration:none;">🚀 Ouvrir ↗</a>`
+      : "";
+
+    return `
+      <div class="store-app-card">
+        <div class="store-app-top">
+          <img src="${escapeHtml(app.icon)}" alt="${escapeHtml(app.name)}" class="store-app-icon-img" onerror="this.src='/favicon.ico';">
+          <div class="store-app-title-wrap">
+            <div class="store-app-name">
+              ${escapeHtml(app.name)}
+              ${app.recommended ? `<span class="badge badge-warning" style="font-size:0.68rem; padding:2px 6px;">⭐ Recommandé</span>` : ""}
+            </div>
+            <span class="store-app-cat-badge">${escapeHtml(app.category)}</span>
+          </div>
+        </div>
+
+        <div class="store-app-desc">${escapeHtml(app.tagline || app.description)}</div>
+
+        <div class="store-app-meta-row">
+          <span>Port : <strong class="store-port-tag">${app.default_port || 'N/A'}</strong></span>
+          <span>•</span>
+          <span>Données : <code style="color:var(--mauve); font-size:0.75rem;">/home/chomiam/docker/${escapeHtml(app.id)}</code></span>
+        </div>
+
+        <div class="store-app-bottom">
+          <div>
+            ${isInstalled ? `
+              <span class="store-installed-pill">
+                ✔ Installée ${isRunning ? '(🟢 Active)' : '(🟡 Arrêtée)'}
+              </span>
+            ` : `
+              <span style="font-size:0.78rem; color:var(--subtext0);">Non installée</span>
+            `}
+          </div>
+
+          <div style="display:flex; gap:6px; align-items:center;">
+            ${openLink}
+            <button type="button" class="btn btn-secondary btn-xs" onclick="openStoreAppModal('${escapeHtml(app.id)}')">Détails</button>
+            ${isInstalled ? `
+              <button type="button" class="btn btn-danger btn-xs" onclick="uninstallStoreApp('${escapeHtml(app.id)}', '${escapeHtml(app.name)}')">Désinstaller</button>
+            ` : `
+              <button type="button" class="btn btn-success btn-xs" onclick="installStoreApp('${escapeHtml(app.id)}', '${escapeHtml(app.name)}')">📥 Installer</button>
+            `}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function openStoreAppModal(appId) {
+  if (!currentStoreCatalog) return;
+  const app = currentStoreCatalog.apps.find(a => a.id === appId);
+  if (!app) return;
+
+  const modal = document.getElementById("store-app-modal");
+  const nameEl = document.getElementById("modal-app-name");
+  const catEl = document.getElementById("modal-app-category");
+  const iconEl = document.getElementById("modal-app-icon");
+  const descEl = document.getElementById("modal-app-desc");
+  const portEl = document.getElementById("modal-app-port");
+  const dataPathEl = document.getElementById("modal-app-data-path");
+  const nixPathEl = document.getElementById("modal-app-nix-path");
+  const websiteEl = document.getElementById("modal-app-website");
+  const actionsEl = document.getElementById("modal-app-actions");
+
+  if (nameEl) nameEl.textContent = app.name;
+  if (catEl) catEl.textContent = `${app.category} • Version ${app.version}`;
+  if (iconEl) iconEl.src = app.icon;
+  if (descEl) descEl.textContent = app.description;
+  if (portEl) portEl.textContent = app.default_port ? `TCP ${app.default_port}` : "Aucun";
+  if (dataPathEl) dataPathEl.textContent = `/home/chomiam/docker/${app.id}`;
+  if (nixPathEl) nixPathEl.textContent = `/etc/nixos/docker/${app.id}.nix`;
+  if (websiteEl) {
+    websiteEl.href = app.website || "#";
+    websiteEl.style.display = app.website ? "inline-flex" : "none";
+  }
+
+  if (actionsEl) {
+    const isInstalled = app.is_installed;
+    actionsEl.innerHTML = isInstalled ? `
+      <button type="button" class="btn btn-danger btn-sm" onclick="uninstallStoreApp('${app.id}', '${escapeHtml(app.name)}'); closeStoreAppModal();">
+        🗑️ Désinstaller du NAS
+      </button>
+    ` : `
+      <button type="button" class="btn btn-success btn-sm" onclick="installStoreApp('${app.id}', '${escapeHtml(app.name)}'); closeStoreAppModal();">
+        📥 Installer en 1-clic
+      </button>
+    `;
+  }
+
+  if (modal) modal.style.display = "flex";
+}
+
+function closeStoreAppModal() {
+  const modal = document.getElementById("store-app-modal");
+  if (modal) modal.style.display = "none";
+}
+
+async function installStoreApp(appId, appName) {
+  if (!confirm(`Souhaitez-vous installer et activer l'application '${appName}' sur votre NAS ?\n\nLe module déclaratif sera ajouté à votre configuration NixOS et les données créées dans /home/chomiam/docker/${appId}.`)) {
+    return;
+  }
+
+  showToast(`Préparation de l'application ${appName}...`, "info");
+  try {
+    const res = await fetch("/api/docker/store/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ app_id: appId })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || `Installation de ${appName} en cours de déploiement !`, "success");
+      setTimeout(() => refreshContainersAndStore(), 2000);
+    } else {
+      showToast(`Erreur d'installation : ${json.message}`, "error");
+    }
+  } catch (err) {
+    showToast(`Erreur de requête : ${err}`, "error");
+  }
+}
+
+async function uninstallStoreApp(appId, appName) {
+  const deleteData = confirm(`Désinstaller l'application '${appName}' ?\n\nCliquez sur OK pour désinstaller.\n(Vous pourrez choisir à l'étape suivante si vous souhaitez conserver ou effacer les données dans /home/chomiam/docker/${appId}).`);
+  if (!deleteData) return;
+
+  const purge = confirm(`Voulez-vous également SUPPRIMER définitivement les données de /home/chomiam/docker/${appId} ?\n\n- Cliquez sur OK pour SUPPRIMER les fichiers.\n- Cliquez sur Annuler pour CONSERVER les données de configuration.`);
+
+  showToast(`Désinstallation de ${appName}...`, "info");
+  try {
+    const res = await fetch("/api/docker/store/uninstall", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ app_id: appId, delete_data: purge })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || `${appName} a été désinstallée avec succès.`, "success");
+      setTimeout(() => refreshContainersAndStore(), 2000);
+    } else {
+      showToast(`Erreur lors de la désinstallation : ${json.message}`, "error");
+    }
+  } catch (err) {
+    showToast(`Erreur de requête : ${err}`, "error");
+  }
+}
+
+async function dockerContainerAction(name, action) {
+  showToast(`Exécution de '${action}' sur '${name}'...`, "info");
+  try {
+    const res = await fetch(`/api/docker/containers/${encodeURIComponent(name)}/action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || `Action appliquée sur ${name}`, "success");
+      setTimeout(() => loadDockerContainers(), 1000);
+    } else {
+      showToast(`Erreur : ${json.message}`, "error");
+    }
+  } catch (err) {
+    showToast(`Erreur requête : ${err}`, "error");
+  }
+}
+
+async function openDockerLogsModal(name) {
+  currentViewingContainerName = name;
+  const modal = document.getElementById("docker-logs-modal");
+  const titleEl = document.getElementById("modal-logs-title");
+  const contentEl = document.getElementById("docker-logs-content");
+
+  if (titleEl) titleEl.textContent = `Journaux : ${name}`;
+  if (contentEl) contentEl.textContent = "Chargement des journaux...";
+  if (modal) modal.style.display = "flex";
+
+  await refreshCurrentDockerLogs();
+}
+
+async function refreshCurrentDockerLogs() {
+  if (!currentViewingContainerName) return;
+  const contentEl = document.getElementById("docker-logs-content");
+  try {
+    const res = await fetch(`/api/docker/containers/${encodeURIComponent(currentViewingContainerName)}/logs`);
+    const json = await res.json();
+    if (json.success && json.data) {
+      if (contentEl) {
+        contentEl.textContent = json.data;
+        contentEl.scrollTop = contentEl.scrollHeight;
+      }
+    } else {
+      if (contentEl) contentEl.textContent = json.message || "Aucun journal disponible.";
+    }
+  } catch (err) {
+    if (contentEl) contentEl.textContent = `Erreur de chargement des journaux : ${err}`;
+  }
+}
+
+function closeDockerLogsModal() {
+  const modal = document.getElementById("docker-logs-modal");
+  if (modal) modal.style.display = "none";
+  currentViewingContainerName = null;
 }

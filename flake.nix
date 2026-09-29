@@ -97,6 +97,8 @@
                 ffmpeg
                 yt-dlp
                 libreoffice-still
+                curl
+                docker
               ];
               environment = {
                 STEVEOS_PORT = toString cfg.port;

@@ -4376,3 +4376,300 @@ select.form-control option,
   color: #f5a97f;
   border: 1px solid rgba(245, 169, 127, 0.4);
 }
+
+/* ==========================================================================
+   DOCKER & APP STORE STYLES
+   ========================================================================== */
+
+.docker-subtabs-nav {
+  display: flex;
+  gap: 10px;
+  margin: 18px 0 20px 0;
+  border-bottom: 1px solid var(--surface1);
+  padding-bottom: 12px;
+}
+
+.docker-subtab-btn {
+  background: var(--surface0);
+  border: 1px solid var(--surface1);
+  color: var(--subtext1);
+  padding: 8px 18px;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.docker-subtab-btn:hover {
+  background: var(--surface1);
+  color: var(--text);
+  border-color: var(--mauve);
+}
+
+.docker-subtab-btn.active {
+  background: rgba(203, 166, 247, 0.15);
+  color: var(--mauve);
+  border-color: var(--mauve);
+}
+
+.docker-subpane {
+  display: block;
+}
+
+/* Grille et cartes des conteneurs actifs */
+.containers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.container-card {
+  background: var(--surface0);
+  border: 1px solid var(--surface1);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.container-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  border-color: var(--blue);
+}
+
+.container-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.container-name {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.container-image {
+  font-size: 0.8rem;
+  color: var(--subtext0);
+  word-break: break-all;
+  font-family: var(--font-mono, monospace);
+  background: var(--mantle);
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.container-ports-badge {
+  font-size: 0.78rem;
+  color: var(--blue);
+  background: rgba(138, 173, 244, 0.1);
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(138, 173, 244, 0.25);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.container-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+  align-items: center;
+}
+
+/* Barre d outils du Store */
+.store-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.store-search-box {
+  position: relative;
+  width: 100%;
+}
+
+.store-search-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--subtext0);
+  pointer-events: none;
+}
+
+.store-search-box input {
+  padding-left: 40px !important;
+  height: 44px;
+  font-size: 0.95rem;
+  background: var(--surface0);
+  border-radius: 12px;
+}
+
+.store-categories-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.store-cat-pill {
+  background: var(--surface0);
+  border: 1px solid var(--surface1);
+  color: var(--subtext1);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.store-cat-pill:hover {
+  background: var(--surface1);
+  color: var(--text);
+  border-color: var(--peach);
+}
+
+.store-cat-pill.active {
+  background: rgba(245, 169, 127, 0.15);
+  color: var(--peach);
+  border-color: var(--peach);
+}
+
+/* Grille des applications du store */
+.store-apps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 18px;
+}
+
+.store-app-card {
+  background: var(--surface0);
+  border: 1px solid var(--surface1);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  position: relative;
+}
+
+.store-app-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  border-color: var(--mauve);
+}
+
+.store-app-top {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.store-app-icon-img {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.store-app-title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.store-app-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.store-app-cat-badge {
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--subtext1);
+  font-weight: 600;
+}
+
+.store-app-desc {
+  font-size: 0.85rem;
+  color: var(--subtext0);
+  line-height: 1.45;
+  flex: 1;
+}
+
+.store-app-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--subtext1);
+  flex-wrap: wrap;
+}
+
+.store-port-tag {
+  background: rgba(166, 227, 161, 0.12);
+  color: var(--green);
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+}
+
+.store-app-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding-top: 14px;
+}
+
+.store-installed-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--green);
+  background: rgba(166, 227, 161, 0.12);
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(166, 227, 161, 0.3);
+}
+
+.docker-logs-pre {
+  background: #11111b;
+  color: #a6adc8;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.82rem;
+  padding: 14px;
+  border-radius: 10px;
+  max-height: 480px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}

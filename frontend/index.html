@@ -1023,19 +1023,60 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
       </div>
     </div>
 
-    <!-- ================= ONGLET 6 : CONTENEURS DOCKER ================= -->
+    <!-- ================= ONGLET 6 : CONTENEURS DOCKER & BOUTIQUE ================= -->
     <div id="tab-containers" class="tab-pane">
       <div class="section-card">
         <div class="section-header">
           <div class="section-title-wrap">
             <div class="section-icon-box">🐳</div>
             <div>
-              <div class="section-title">Conteneurs & Applications Docker</div>
-              <div class="section-subtitle">Gérés nativement par le démon Docker de STEvE_OS</div>
+              <div class="section-title">Docker & Boutique d'Applications (App Store)</div>
+              <div class="section-subtitle">Déploiements déclaratifs NixOS avec données unifiées dans /home/chomiam/docker</div>
             </div>
           </div>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <a href="http://192.168.1.139:3552" target="_blank" class="btn btn-primary btn-sm" id="btn-open-arcane" style="text-decoration:none;">
+              <span>⚡</span> Ouvrir Arcane (Port 3552) ↗
+            </a>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="refreshContainersAndStore(true)">
+              <span>🔄</span> Actualiser
+            </button>
+          </div>
         </div>
-        <div class="containers-grid" id="containers-container"></div>
+
+        <!-- SOUS-NAVIGATION CONTENEURS / BOUTIQUE -->
+        <div class="docker-subtabs-nav">
+          <button type="button" class="docker-subtab-btn active" id="btn-subtab-containers" onclick="switchDockerSubTab('containers')">
+            <span>📦</span> Mes Conteneurs (<span id="running-containers-count">0</span>)
+          </button>
+          <button type="button" class="docker-subtab-btn" id="btn-subtab-store" onclick="switchDockerSubTab('store')">
+            <span>🛍️</span> Boutique d'Applications (Store)
+          </button>
+        </div>
+
+        <!-- SOUS-ONGLET 1 : MES CONTENEURS -->
+        <div id="docker-pane-containers" class="docker-subpane">
+          <div class="containers-grid" id="containers-container">
+            <p style="color:var(--subtext0); font-size:0.9rem;">Chargement des conteneurs...</p>
+          </div>
+        </div>
+
+        <!-- SOUS-ONGLET 2 : BOUTIQUE D'APPLICATIONS -->
+        <div id="docker-pane-store" class="docker-subpane" style="display:none;">
+          <!-- BARRE D'OUTILS DU STORE -->
+          <div class="store-toolbar">
+            <div class="store-search-box">
+              <span class="store-search-icon">🔍</span>
+              <input type="text" id="store-search-input" class="form-control" placeholder="Rechercher une application (nom, catégorie, description)..." oninput="filterStoreApps()">
+            </div>
+            <div class="store-categories-pills" id="store-categories-container"></div>
+          </div>
+
+          <!-- GRILLE DES APPLICATIONS -->
+          <div class="store-apps-grid" id="store-apps-grid">
+            <p style="color:var(--subtext0); font-size:0.9rem;">Chargement de la boutique...</p>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1207,7 +1248,7 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
   <!-- TOAST CONTAINER -->
   <div class="toast-container" id="toast-container"></div>
 
-  <script src="/js/app.js?v=20260929_18"></script>
+  <script src="/js/app.js?v=20260929_19"></script>
   <!-- MENU CONTEXTUEL CLIC DROIT -->
   <div class="context-menu" id="files-context-menu">
     <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">
@@ -2103,6 +2144,71 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- MODAL DÉTAILS APPLICATION DU STORE -->
+  <div class="modal-backdrop" id="store-app-modal" style="display:none;" onclick="if(event.target===this) closeStoreAppModal()">
+    <div class="modal-box" style="max-width: 640px;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <img id="modal-app-icon" src="" class="store-app-icon-img" style="width:44px; height:44px;">
+          <div>
+            <div class="modal-title" id="modal-app-name">Application</div>
+            <div style="font-size:0.8rem; color:var(--subtext0);" id="modal-app-category">Catégorie</div>
+          </div>
+        </div>
+        <button type="button" class="btn-icon" onclick="closeStoreAppModal()">✕</button>
+      </div>
+      <div class="modal-body" style="display:flex; flex-direction:column; gap:16px;">
+        <p id="modal-app-desc" style="color:var(--text); font-size:0.92rem; line-height:1.5; margin:0;"></p>
+
+        <div style="background:var(--mantle); padding:14px; border-radius:12px; border:1px solid rgba(255,255,255,0.06); display:flex; flex-direction:column; gap:8px;">
+          <div style="font-size:0.82rem; font-weight:700; color:var(--text);">Configuration & Emplacements :</div>
+          <div style="font-size:0.82rem; color:var(--subtext1); display:flex; justify-content:space-between;">
+            <span>Port réseau exposé :</span>
+            <strong id="modal-app-port" class="store-port-tag">-</strong>
+          </div>
+          <div style="font-size:0.82rem; color:var(--subtext1); display:flex; justify-content:space-between;">
+            <span>Dossier persistant hôte :</span>
+            <code id="modal-app-data-path" style="color:var(--mauve); font-size:0.8rem;">/home/chomiam/docker/...</code>
+          </div>
+          <div style="font-size:0.82rem; color:var(--subtext1); display:flex; justify-content:space-between;">
+            <span>Module déclaratif NixOS :</span>
+            <code id="modal-app-nix-path" style="color:var(--blue); font-size:0.8rem;">/etc/nixos/docker/...</code>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:10px; align-items:center; justify-content:space-between;">
+          <a href="#" target="_blank" id="modal-app-website" class="btn btn-secondary btn-sm" style="text-decoration:none;">
+            <span>🌐</span> Site Officiel ↗
+          </a>
+          <div id="modal-app-actions" style="display:flex; gap:8px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL LOGS DU CONTENEUR -->
+  <div class="modal-backdrop" id="docker-logs-modal" style="display:none;" onclick="if(event.target===this) closeDockerLogsModal()">
+    <div class="modal-box" style="max-width: 820px;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:1.4rem;">📜</span>
+          <div>
+            <div class="modal-title" id="modal-logs-title">Journaux du conteneur</div>
+            <div style="font-size:0.78rem; color:var(--subtext0);">100 dernières lignes de docker logs</div>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="btn btn-secondary btn-xs" onclick="refreshCurrentDockerLogs()">🔄 Actualiser</button>
+          <button type="button" class="btn-icon" onclick="closeDockerLogsModal()">✕</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <pre class="docker-logs-pre" id="docker-logs-content">Chargement des journaux...</pre>
       </div>
     </div>
   </div>

@@ -7,6 +7,12 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::documents::{get_document_info, get_document_pdf_path, DocumentInfoResponse};
+use crate::docker_store::{
+    control_docker_container, get_docker_logs, get_store_catalog, install_store_app,
+    uninstall_store_app, ContainerActionRequest, InstallAppRequest, StoreCatalog,
+    UninstallAppRequest,
+};
+use crate::services::{get_docker_containers, DockerContainer};
 use crate::youtube::{cancel_youtube_job, clear_youtube_jobs, get_job_status, get_youtube_info, list_jobs, start_youtube_download, YoutubeDownloadRequest, YoutubeInfoRequest, YoutubeJobStatus, YoutubeVideoInfo};
 use crate::trash::{delete_trash_item, empty_trash, get_trash_overview, restore_trash_item, TrashActionRequest, TrashOverview};
 use crate::files::{
@@ -79,6 +85,12 @@ pub fn api_routes() -> Router {
         .route("/storage/umount", post(handle_umount_volume))
         .route("/storage/permissions/repair", post(handle_repair_permissions))
         .route("/services", get(handle_services))
+        .route("/docker/containers", get(handle_docker_containers))
+        .route("/docker/containers/:name/action", post(handle_docker_container_action))
+        .route("/docker/containers/:name/logs", get(handle_docker_container_logs))
+        .route("/docker/store", get(handle_docker_store))
+        .route("/docker/store/install", post(handle_docker_store_install))
+        .route("/docker/store/uninstall", post(handle_docker_store_uninstall))
         .route("/firewall", get(handle_firewall))
         .route("/logs", get(handle_logs))
         .route("/updates/status", get(handle_updates_status))
@@ -1034,6 +1046,93 @@ async fn handle_document_info(
         Ok(info) => Json(ApiResponse {
             success: true,
             data: Some(info),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+
+async fn handle_docker_containers() -> Json<ApiResponse<Vec<DockerContainer>>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(get_docker_containers()),
+        message: None,
+    })
+}
+
+async fn handle_docker_container_action(
+    Path(name): Path<String>,
+    Json(payload): Json<ContainerActionRequest>,
+) -> Json<ApiResponse<String>> {
+    match control_docker_container(&name, &payload.action) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_docker_container_logs(
+    Path(name): Path<String>,
+) -> Json<ApiResponse<String>> {
+    match get_docker_logs(&name, 100) {
+        Ok(logs) => Json(ApiResponse {
+            success: true,
+            data: Some(logs),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_docker_store() -> Json<ApiResponse<StoreCatalog>> {
+    let catalog = get_store_catalog();
+    Json(ApiResponse {
+        success: true,
+        data: Some(catalog),
+        message: None,
+    })
+}
+
+async fn handle_docker_store_install(
+    Json(payload): Json<InstallAppRequest>,
+) -> Json<ApiResponse<String>> {
+    match install_store_app(&payload.app_id).await {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_docker_store_uninstall(
+    Json(payload): Json<UninstallAppRequest>,
+) -> Json<ApiResponse<String>> {
+    match uninstall_store_app(&payload.app_id, payload.delete_data).await {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
             message: None,
         }),
         Err(err) => Json(ApiResponse {

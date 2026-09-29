@@ -41,6 +41,12 @@ pub struct DockerContainer {
     pub image: String,
     pub status: String,
     pub is_running: bool,
+    #[serde(default)]
+    pub ports: String,
+    #[serde(default)]
+    pub created: String,
+    #[serde(default)]
+    pub web_port: Option<u16>,
 }
 
 pub fn get_services_overview() -> ServicesOverview {
@@ -136,10 +142,10 @@ fn get_smb_sessions() -> Vec<ActiveSession> {
     sessions
 }
 
-fn get_docker_containers() -> Vec<DockerContainer> {
+pub fn get_docker_containers() -> Vec<DockerContainer> {
     let mut containers = Vec::new();
     if let Ok(output) = Command::new("docker")
-        .args(["ps", "-a", "--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.State}}"])
+        .args(["ps", "-a", "--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.State}}\t{{.Ports}}\t{{.CreatedAt}}"])
         .output()
     {
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -147,17 +153,37 @@ fn get_docker_containers() -> Vec<DockerContainer> {
             let parts: Vec<&str> = line.split('\t').collect();
             if parts.len() >= 5 {
                 let state = parts[4].to_lowercase();
+                let ports = if parts.len() > 5 { parts[5].to_string() } else { String::new() };
+                let created = if parts.len() > 6 { parts[6].to_string() } else { String::new() };
+                let web_port = extract_web_port(&ports);
                 containers.push(DockerContainer {
                     id: parts[0].to_string(),
-                    name: parts[1].to_string(),
+                    name: parts[1].trim_start_matches('/').to_string(),
                     image: parts[2].to_string(),
                     status: parts[3].to_string(),
                     is_running: state == "running",
+                    ports,
+                    created,
+                    web_port,
                 });
             }
         }
     }
     containers
+}
+
+fn extract_web_port(ports: &str) -> Option<u16> {
+    for part in ports.split(',') {
+        if let Some(arrow_idx) = part.find("->") {
+            let host_part = part[..arrow_idx].trim();
+            if let Some(colon_idx) = host_part.rfind(':') {
+                if let Ok(p) = host_part[colon_idx + 1..].parse::<u16>() {
+                    return Some(p);
+                }
+            }
+        }
+    }
+    None
 }
 
 pub fn control_service(unit: &str, action: &str) -> Result<String, String> {
