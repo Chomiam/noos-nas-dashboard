@@ -4220,3 +4220,153 @@ select.form-control option,
   color: #ed8796;
   border: 1px solid rgba(237, 135, 150, 0.4);
 }
+
+/* ==========================================================================
+   VISUALISEUR UNIVERSEL DE DOCUMENTS BUREAUTIQUES & PDF
+   ========================================================================== */
+.doc-window {
+  width: 1250px;
+  max-width: 96vw;
+  height: 92vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--mantle);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.doc-header {
+  padding: 10px 16px;
+  background: var(--crust);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.doc-logo-tag {
+  background: rgba(138, 173, 244, 0.15);
+  color: #8aadf4;
+  border: 1px solid rgba(138, 173, 244, 0.3);
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+}
+
+.doc-body {
+  flex: 1;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #232530;
+}
+
+.doc-iframe {
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  border: none;
+  background: #3e4451;
+}
+
+.doc-loading-container,
+.doc-error-container {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--mantle);
+  padding: 30px;
+  z-index: 10;
+  text-align: center;
+}
+
+.doc-spinner-wrap {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.doc-spinner {
+  position: absolute;
+  inset: 0;
+  border: 3px solid rgba(138, 173, 244, 0.15);
+  border-top-color: var(--mauve);
+  border-right-color: #8aadf4;
+  border-radius: 50%;
+  animation: spin 1s cubic-bezier(0.55, 0.25, 0.25, 0.7) infinite;
+}
+
+.doc-loading-icon {
+  font-size: 2rem;
+}
+
+.doc-loading-title {
+  margin: 0 0 8px 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.doc-loading-desc {
+  margin: 0 0 20px 0;
+  font-size: 0.85rem;
+  color: var(--subtext0);
+  max-width: 440px;
+}
+
+.doc-loading-bar-wrap {
+  width: 260px;
+  height: 4px;
+  background: var(--surface0);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+
+.doc-loading-bar-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  background: linear-gradient(90deg, #8aadf4, var(--mauve));
+  border-radius: 2px;
+  animation: docLoadingIndeterminate 1.5s ease-in-out infinite;
+}
+
+@keyframes docLoadingIndeterminate {
+  0% { left: -40%; width: 30%; }
+  50% { left: 40%; width: 50%; }
+  100% { left: 110%; width: 30%; }
+}
+
+.doc-error-icon {
+  font-size: 3rem;
+  margin-bottom: 14px;
+}
+
+.doc-error-title {
+  margin: 0 0 8px 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--red);
+}
+
+.doc-error-desc {
+  margin: 0 0 16px 0;
+  font-size: 0.85rem;
+  color: var(--subtext0);
+  max-width: 480px;
+  line-height: 1.5;
+}

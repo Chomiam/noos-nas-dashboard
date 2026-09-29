@@ -362,8 +362,8 @@ pub fn categorize_file(name: &str) -> String {
         | "pcx" | "tga" | "targa" | "dds" => "image".into(),
         "mp4" | "mkv" | "avi" | "mov" | "webm" | "flv" | "wmv" | "m4v" => "video".into(),
         "mp3" | "flac" | "wav" | "aac" | "ogg" | "m4a" | "opus" | "wma" => "audio".into(),
-        "pdf" | "doc" | "docx" | "odt" | "rtf" | "xls" | "xlsx" => "document".into(),
-        "txt" | "md" | "markdown" | "rst" | "org" | "tex" | "csv" | "tsv" | "log" => "document".into(),
+        "pdf" | "doc" | "docx" | "odt" | "rtf" | "xls" | "xlsx" | "ods" | "csv" | "pptx" | "ppt" | "odp" => "document".into(),
+        "txt" | "md" | "markdown" | "rst" | "org" | "tex" | "tsv" | "log" => "document".into(),
         "zip" | "tar" | "gz" | "xz" | "bz2" | "7z" | "rar" | "zst" | "iso" => "archive".into(),
         "fish" | "nix" | "rs" | "js" | "mjs" | "cjs" | "ts" | "tsx" | "jsx" | "html" | "htm"
         | "css" | "scss" | "sass" | "less" | "json" | "json5" | "jsonc" | "toml" | "yaml" | "yml"

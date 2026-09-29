@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20260929_14">
+  <link rel="stylesheet" href="/css/style.css?v=20260929_15">
 </head>
 <body>
 
@@ -1233,11 +1233,14 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
   <!-- TOAST CONTAINER -->
   <div class="toast-container" id="toast-container"></div>
 
-  <script src="/js/app.js?v=20260929_14"></script>
+  <script src="/js/app.js?v=20260929_15"></script>
   <!-- MENU CONTEXTUEL CLIC DROIT -->
   <div class="context-menu" id="files-context-menu">
     <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">
       <span>📂</span> Ouvrir
+    </div>
+        <div class="context-menu-item" onclick="triggerFileAction('view-doc')" id="ctx-view-doc" style="display:none;">
+      <span>📑</span> Visualiser le document (Bureautique & PDF)
     </div>
     <div class="context-menu-item" onclick="triggerFileAction('view-image')" id="ctx-view-image" style="display:none;">
       <span>🖼️</span> Visualiser l'image (Haute Définition)
@@ -1585,6 +1588,65 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
         <div class="image-shortcuts-hint">
           <b>Molette</b> (Zoom fluide) | <b>Glisser-déposer</b> (Déplacer) | <b>Double-clic</b> (100% / Fit) | <b>← / →</b> (Naviguer) | <b>R</b> (Rotation) | <b>I</b> (Infos EXIF) | <b>F</b> (Plein écran) | <b>Échap</b> (Fermer)
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODALE VISUALISEUR UNIVERSEL DE DOCUMENTS BUREAUTIQUES & PDF -->
+  <div class="file-modal-overlay" id="doc-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'doc-modal')">
+    <div class="file-modal-window doc-window">
+      <div class="file-modal-header doc-header">
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-width:0;">
+          <span class="doc-logo-tag">OFFICE</span>
+          <span class="file-modal-title" id="doc-file-title" title="Nom du document">document.pdf</span>
+          <span class="badge" id="doc-format-badge">PDF</span>
+          <span class="badge badge-accent" id="doc-conversion-badge" style="display:none;">⚡ Converti par LibreOffice</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <span id="doc-file-size" style="font-size:0.75rem; color:var(--subtext0); font-family:var(--font-mono);"></span>
+          <a id="doc-open-tab-btn" class="btn btn-secondary btn-xs" target="_blank" title="Ouvrir dans un nouvel onglet plein écran">
+            ↗ Plein écran
+          </a>
+          <a id="doc-download-orig-btn" class="btn btn-secondary btn-xs" download title="Télécharger le fichier original">
+            💾 Télécharger
+          </a>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="closeDocModal()" title="Fermer (Échap)">
+            ✕ Fermer
+          </button>
+        </div>
+      </div>
+      
+      <div class="doc-body" id="doc-body">
+        <!-- Indicateur de chargement & conversion -->
+        <div class="doc-loading-container" id="doc-loading-container">
+          <div class="doc-spinner-wrap">
+            <div class="doc-spinner"></div>
+            <span class="doc-loading-icon" id="doc-loading-icon">📑</span>
+          </div>
+          <h4 class="doc-loading-title" id="doc-loading-title">Chargement du document...</h4>
+          <p class="doc-loading-desc" id="doc-loading-desc">Préparation de la vue PDF haute fidélité...</p>
+          <div class="doc-loading-bar-wrap">
+            <div class="doc-loading-bar-fill"></div>
+          </div>
+        </div>
+
+        <!-- Erreur si conversion impossible -->
+        <div class="doc-error-container" id="doc-error-container" style="display:none;">
+          <div class="doc-error-icon">⚠️</div>
+          <h4 class="doc-error-title">Impossible de visualiser ce document</h4>
+          <p class="doc-error-desc" id="doc-error-message">Une erreur est survenue lors de la conversion ou de la lecture du fichier.</p>
+          <div style="display:flex; gap:10px; margin-top:14px;">
+            <a id="doc-error-download-btn" class="btn btn-primary btn-sm" download>
+              💾 Télécharger le fichier original
+            </a>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="closeDocModal()">
+              Fermer
+            </button>
+          </div>
+        </div>
+
+        <!-- Cadre PDF Viewer -->
+        <iframe id="doc-iframe" class="doc-iframe" src="" style="display:none;"></iframe>
       </div>
     </div>
   </div>

@@ -27,6 +27,7 @@ mod system;
 mod terminal;
 mod trash;
 mod updates;
+mod documents;
 mod youtube;
 
 use axum::Router;

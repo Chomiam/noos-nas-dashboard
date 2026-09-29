@@ -2146,12 +2146,24 @@ function renderFilesList(entries) {
   }
 }
 
+function isDocumentFile(fileName, category) {
+  if (!fileName) return false;
+  // Documents texte : .pdf, .docx, .doc, .odt, .rtf
+  // Tableurs : .xlsx, .xls, .ods, .csv
+  // Présentations : .pptx, .ppt, .odp
+  return /\.(pdf|docx|doc|odt|rtf|xlsx|xls|ods|csv|pptx|ppt|odp)$/i.test(fileName);
+}
+
 function getFileIcon(item) {
   if (item.is_dir) return "📁";
   const name = item.name.toLowerCase();
   if (/\.(nef|nrw|cr2|cr3|crw|arw|srf|sr2|dng|raf|rw2|orf|pef|3fr|raw)$/i.test(name)) return "📷";
   if (/\.(heic|heif|hif)$/i.test(name)) return "📱";
   if (/\.(pcx|tga|targa|dds)$/i.test(name)) return "🎨";
+  if (/\.pdf$/i.test(name)) return "📕";
+  if (/\.(docx|doc|odt|rtf)$/i.test(name)) return "📘";
+  if (/\.(xlsx|xls|ods|csv)$/i.test(name)) return "📊";
+  if (/\.(pptx|ppt|odp)$/i.test(name)) return "📽️";
   switch (item.category) {
     case "image": return "🖼️";
     case "video": return "🎬";
@@ -2202,6 +2214,8 @@ function handleFileDblClick(path, isDir) {
 
     if (isImageFile(fileName, cat)) {
       openImageModal(path, fileName, item);
+    } else if (isDocumentFile(fileName, cat)) {
+      openDocModal(path, fileName, item);
     } else if (cat === "video" || /\.(mp4|mkv|webm|avi|mov|m4v|flv)$/i.test(fileName)) {
       openMpvModal(path, fileName);
     } else if (cat === "audio" || /\.(mp3|flac|wav|aac|ogg|m4a|opus|wma)$/i.test(fileName)) {
@@ -2299,6 +2313,10 @@ function handleItemContextMenu(e, path) {
   const isEditable = selectedFileItem && !selectedFileItem.is_dir &&
     isNvimEditableFile(selectedFileItem.name, selectedFileItem.category);
 
+  const isDoc = selectedFileItem && !selectedFileItem.is_dir && isDocumentFile(selectedFileItem.name, selectedFileItem.category);
+  const ctxViewDoc = document.getElementById("ctx-view-doc");
+  if (ctxViewDoc) ctxViewDoc.style.display = isDoc ? "flex" : "none";
+
   const isImage = selectedFileItem && !selectedFileItem.is_dir && isImageFile(selectedFileItem.name, selectedFileItem.category);
   if (ctxViewImage) ctxViewImage.style.display = isImage ? "flex" : "none";
   if (ctxEdit) ctxEdit.style.display = isEditable ? "flex" : "none";
@@ -2391,6 +2409,12 @@ async function triggerFileAction(action) {
     case "edit-nvim":
       if (selectedFileItem && !selectedFileItem.is_dir) {
         openNvimModal(selectedFileItem.path, selectedFileItem.name);
+      }
+      break;
+
+    case "view-doc":
+      if (selectedFileItem && !selectedFileItem.is_dir) {
+        openDocModal(selectedFileItem.path, selectedFileItem.name, selectedFileItem);
       }
       break;
 
@@ -3665,6 +3689,7 @@ function handleModalOverlayClick(e, modalId) {
     if (modalId === "audio-modal") closeAudioModal();
     if (modalId === "create-raid-modal") closeCreateRaidModal();
     if (modalId === "format-disk-modal") closeFormatDiskModal();
+    if (modalId === "doc-modal") closeDocModal();
   }
 }
 
@@ -4742,6 +4767,10 @@ document.addEventListener("keydown", (e) => {
     if (powerModal && powerModal.style.display !== "none") {
       closePowerModal();
     }
+    const docModal = document.getElementById("doc-modal");
+    if (docModal && docModal.style.display !== "none") {
+      closeDocModal();
+    }
   }
 });
 
@@ -5626,3 +5655,171 @@ document.addEventListener("DOMContentLoaded", () => {
   pollYoutubeJobs();
 });
 
+
+
+// ==========================================================================
+// VISUALISEUR UNIVERSEL DE DOCUMENTS BUREAUTIQUES & PDF
+// ==========================================================================
+let currentDocBlobUrl = null;
+let currentDocAbortController = null;
+
+function getDocumentFormatBadge(fileName) {
+  const ext = fileName.split(".").pop().toLowerCase();
+  switch (ext) {
+    case "pdf": return { label: "PDF", icon: "📕", color: "var(--red)" };
+    case "docx":
+    case "doc": return { label: "WORD", icon: "📘", color: "var(--blue)" };
+    case "odt": return { label: "ODT", icon: "📘", color: "var(--blue)" };
+    case "rtf": return { label: "RTF", icon: "📄", color: "var(--subtext0)" };
+    case "xlsx":
+    case "xls": return { label: "EXCEL", icon: "📊", color: "var(--green)" };
+    case "ods": return { label: "ODS", icon: "📊", color: "var(--green)" };
+    case "csv": return { label: "CSV", icon: "📊", color: "var(--green)" };
+    case "pptx":
+    case "ppt": return { label: "POWERPOINT", icon: "📽️", color: "var(--peach)" };
+    case "odp": return { label: "ODP", icon: "📽️", color: "var(--peach)" };
+    default: return { label: ext.toUpperCase(), icon: "📄", color: "var(--mauve)" };
+  }
+}
+
+async function openDocModal(path, fileName, item) {
+  const modal = document.getElementById("doc-modal");
+  const titleEl = document.getElementById("doc-file-title");
+  const formatBadge = document.getElementById("doc-format-badge");
+  const convBadge = document.getElementById("doc-conversion-badge");
+  const sizeEl = document.getElementById("doc-file-size");
+  const openTabBtn = document.getElementById("doc-open-tab-btn");
+  const downloadOrigBtn = document.getElementById("doc-download-orig-btn");
+  const loadingContainer = document.getElementById("doc-loading-container");
+  const loadingTitle = document.getElementById("doc-loading-title");
+  const loadingDesc = document.getElementById("doc-loading-desc");
+  const loadingIcon = document.getElementById("doc-loading-icon");
+  const errorContainer = document.getElementById("doc-error-container");
+  const errorMessage = document.getElementById("doc-error-message");
+  const errorDownloadBtn = document.getElementById("doc-error-download-btn");
+  const iframe = document.getElementById("doc-iframe");
+
+  if (!modal) return;
+
+  const fName = fileName || path.split("/").pop();
+  const formatInfo = getDocumentFormatBadge(fName);
+  const isNativePdf = /\.pdf$/i.test(fName);
+
+  if (titleEl) {
+    titleEl.textContent = fName;
+    titleEl.title = path;
+  }
+
+  if (formatBadge) {
+    formatBadge.textContent = `${formatInfo.icon} ${formatInfo.label}`;
+    formatBadge.style.color = formatInfo.color;
+    formatBadge.style.border = `1px solid ${formatInfo.color}`;
+    formatBadge.style.background = `rgba(255,255,255,0.05)`;
+  }
+
+  if (convBadge) {
+    convBadge.style.display = isNativePdf ? "none" : "inline-block";
+  }
+
+  if (sizeEl) {
+    sizeEl.textContent = item && item.size_human ? item.size_human : "";
+  }
+
+  const directPreviewUrl = `/api/documents/preview?path=${encodeURIComponent(path)}`;
+  const directDownloadUrl = `/api/files/download?path=${encodeURIComponent(path)}`;
+
+  if (openTabBtn) openTabBtn.href = directPreviewUrl;
+  if (downloadOrigBtn) downloadOrigBtn.href = directDownloadUrl;
+  if (errorDownloadBtn) errorDownloadBtn.href = directDownloadUrl;
+
+  // Clean previous state
+  if (currentDocBlobUrl) {
+    URL.revokeObjectURL(currentDocBlobUrl);
+    currentDocBlobUrl = null;
+  }
+  if (currentDocAbortController) {
+    currentDocAbortController.abort();
+    currentDocAbortController = null;
+  }
+
+  if (iframe) {
+    iframe.style.display = "none";
+    iframe.src = "about:blank";
+  }
+
+  if (errorContainer) errorContainer.style.display = "none";
+  if (loadingContainer) loadingContainer.style.display = "flex";
+
+  if (loadingIcon) loadingIcon.textContent = formatInfo.icon;
+  if (loadingTitle) {
+    loadingTitle.textContent = isNativePdf
+      ? "Chargement du document PDF..."
+      : `Conversion de ${formatInfo.label} en cours...`;
+  }
+  if (loadingDesc) {
+    loadingDesc.textContent = isNativePdf
+      ? "Préparation de la vue haute fidélité..."
+      : "LibreOffice génère le rendu PDF avec mise en cache instantanée...";
+  }
+
+  modal.style.display = "flex";
+
+  // Fetch document with AbortController
+  currentDocAbortController = new AbortController();
+  try {
+    const res = await fetch(directPreviewUrl, {
+      signal: currentDocAbortController.signal
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(errText || `Erreur serveur HTTP ${res.status}`);
+    }
+
+    const blob = await res.blob();
+    const pdfBlob = new Blob([blob], { type: "application/pdf" });
+    currentDocBlobUrl = URL.createObjectURL(pdfBlob);
+
+    if (iframe) {
+      iframe.src = currentDocBlobUrl;
+      iframe.onload = () => {
+        if (loadingContainer) loadingContainer.style.display = "none";
+        iframe.style.display = "block";
+      };
+      setTimeout(() => {
+        if (loadingContainer) loadingContainer.style.display = "none";
+        iframe.style.display = "block";
+      }, 500);
+    }
+  } catch (err) {
+    if (err.name === "AbortError") return;
+    if (loadingContainer) loadingContainer.style.display = "none";
+    if (errorContainer) {
+      errorContainer.style.display = "flex";
+      if (errorMessage) {
+        errorMessage.textContent = err.message || "Erreur de conversion ou de lecture du fichier.";
+      }
+    }
+  }
+}
+
+function closeDocModal() {
+  const modal = document.getElementById("doc-modal");
+  if (modal) modal.style.display = "none";
+
+  if (currentDocAbortController) {
+    currentDocAbortController.abort();
+    currentDocAbortController = null;
+  }
+
+  if (currentDocBlobUrl) {
+    URL.revokeObjectURL(currentDocBlobUrl);
+    currentDocBlobUrl = null;
+  }
+
+  const iframe = document.getElementById("doc-iframe");
+  if (iframe) {
+    iframe.src = "about:blank";
+    iframe.style.display = "none";
+  }
+}

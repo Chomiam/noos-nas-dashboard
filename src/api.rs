@@ -6,6 +6,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::documents::{get_document_info, get_document_pdf_path, DocumentInfoResponse};
 use crate::youtube::{get_job_status, get_youtube_info, list_jobs, start_youtube_download, YoutubeDownloadRequest, YoutubeInfoRequest, YoutubeJobStatus, YoutubeVideoInfo};
 use crate::trash::{delete_trash_item, empty_trash, get_trash_overview, restore_trash_item, TrashActionRequest, TrashOverview};
 use crate::files::{
@@ -104,7 +105,10 @@ pub fn api_routes() -> Router {
         .route("/youtube/info", post(handle_youtube_info))
         .route("/youtube/download", post(handle_youtube_download))
         .route("/youtube/status/:job_id", get(handle_youtube_status))
-        .route("/youtube/jobs", get(handle_youtube_jobs))
+                .route("/youtube/jobs", get(handle_youtube_jobs))
+        .route("/documents/preview", get(handle_document_preview))
+        .route("/documents/:id/preview", get(handle_document_preview_by_id))
+        .route("/documents/info", get(handle_document_info))
         .route("/service/:unit/:action", post(handle_service_action))
         .route("/storage/:disk/spindown", post(handle_disk_spindown))
         .route("/hardware", get(handle_hardware))
@@ -930,6 +934,84 @@ async fn handle_files_image_info(
             success: false,
             data: None,
             message: Some(e.to_string()),
+        }),
+    }
+}
+
+
+#[derive(Debug, Deserialize)]
+pub struct DocumentPreviewQuery {
+    pub path: String,
+}
+
+async fn handle_document_preview(
+    Query(query): Query<DocumentPreviewQuery>,
+    req: axum::extract::Request,
+) -> impl axum::response::IntoResponse {
+    use tower_http::services::fs::ServeFile;
+    use tower::ServiceExt;
+    use axum::response::IntoResponse;
+
+    let res = get_document_pdf_path(&query.path).await;
+    match res {
+        Ok(pdf_path) => {
+            let service = ServeFile::new(pdf_path);
+            match service.oneshot(req).await {
+                Ok(resp) => resp.into_response(),
+                Err(err) => (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Erreur lors de la lecture du PDF : {}", err),
+                ).into_response(),
+            }
+        }
+        Err(err) => (
+            axum::http::StatusCode::BAD_REQUEST,
+            err,
+        ).into_response(),
+    }
+}
+
+async fn handle_document_preview_by_id(
+    Path(id): Path<String>,
+    req: axum::extract::Request,
+) -> impl axum::response::IntoResponse {
+    use tower_http::services::fs::ServeFile;
+    use tower::ServiceExt;
+    use axum::response::IntoResponse;
+
+    let raw_path = id;
+    let res = get_document_pdf_path(&raw_path).await;
+    match res {
+        Ok(pdf_path) => {
+            let service = ServeFile::new(pdf_path);
+            match service.oneshot(req).await {
+                Ok(resp) => resp.into_response(),
+                Err(err) => (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Erreur lors de la lecture du PDF : {}", err),
+                ).into_response(),
+            }
+        }
+        Err(err) => (
+            axum::http::StatusCode::BAD_REQUEST,
+            err,
+        ).into_response(),
+    }
+}
+
+async fn handle_document_info(
+    Query(query): Query<DocumentPreviewQuery>,
+) -> Json<ApiResponse<DocumentInfoResponse>> {
+    match get_document_info(&query.path) {
+        Ok(info) => Json(ApiResponse {
+            success: true,
+            data: Some(info),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
         }),
     }
 }

@@ -96,6 +96,7 @@
                 libraw
                 ffmpeg
                 yt-dlp
+                libreoffice-still
               ];
               environment = {
                 STEVEOS_PORT = toString cfg.port;
