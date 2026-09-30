@@ -102,6 +102,15 @@ pub fn api_routes() -> Router {
         .route("/docker/store", get(handle_docker_store))
         .route("/docker/store/install", post(handle_docker_store_install))
         .route("/docker/store/uninstall", post(handle_docker_store_uninstall))
+        // Game Servers & Egg Engine
+        .route("/games/servers", get(handle_games_servers))
+        .route("/games/catalog", get(handle_games_catalog))
+        .route("/games/create", post(handle_games_create))
+        .route("/games/:id/action", post(handle_games_action))
+        .route("/games/:id/delete", post(handle_games_delete))
+        .route("/games/:id/logs", get(handle_games_logs))
+        .route("/games/:id/command", post(handle_games_command))
+        .route("/games/eggs/import", post(handle_games_import_egg))
         .route("/network", get(handle_network))
         .route("/firewall", get(handle_firewall))
         .route("/firewall/unban", post(handle_firewall_unban))
@@ -1569,6 +1578,180 @@ async fn handle_generations_cleanup(Json(req): Json<generations::CleanupRequest>
             success: false,
             data: None,
             message: Some(format!("Erreur d'exécution : {}", e)),
+        }),
+    }
+}
+
+
+// ==========================================================================
+// SERVEURS DE JEUX & MOTEUR D'EGGS PTERODACTYL
+// ==========================================================================
+async fn handle_games_servers() -> Json<ApiResponse<Vec<crate::games::GameServer>>> {
+    let servers = tokio::task::spawn_blocking(crate::games::list_game_servers).await.unwrap_or_default();
+    Json(ApiResponse {
+        success: true,
+        data: Some(servers),
+        message: None,
+    })
+}
+
+async fn handle_games_catalog() -> Json<ApiResponse<Vec<crate::games::Egg>>> {
+    let eggs = tokio::task::spawn_blocking(crate::games::load_all_eggs).await.unwrap_or_default();
+    Json(ApiResponse {
+        success: true,
+        data: Some(eggs),
+        message: None,
+    })
+}
+
+async fn handle_games_create(Json(req): Json<crate::games::CreateGameServerRequest>) -> Json<ApiResponse<crate::games::GameServer>> {
+    let res = tokio::task::spawn_blocking(move || crate::games::create_game_server(req)).await;
+    match res {
+        Ok(Ok(server)) => Json(ApiResponse {
+            success: true,
+            data: Some(server),
+            message: Some("Serveur de jeu déployé avec succès !".into()),
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
+        }),
+    }
+}
+
+async fn handle_games_action(
+    Path(id): Path<String>,
+    Json(payload): Json<crate::games::GameServerActionRequest>,
+) -> Json<ApiResponse<String>> {
+    let res = tokio::task::spawn_blocking(move || crate::games::control_game_server(&id, &payload.action)).await;
+    match res {
+        Ok(Ok(msg)) => Json(ApiResponse {
+            success: true,
+            data: Some(msg.clone()),
+            message: Some(msg),
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
+        }),
+    }
+}
+
+#[derive(Deserialize)]
+struct DeleteGameQuery {
+    delete_data: Option<bool>,
+}
+
+async fn handle_games_delete(
+    Path(id): Path<String>,
+    Query(query): Query<DeleteGameQuery>,
+) -> Json<ApiResponse<String>> {
+    let del_data = query.delete_data.unwrap_or(false);
+    let res = tokio::task::spawn_blocking(move || crate::games::delete_game_server(&id, del_data)).await;
+    match res {
+        Ok(Ok(msg)) => Json(ApiResponse {
+            success: true,
+            data: Some(msg.clone()),
+            message: Some(msg),
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
+        }),
+    }
+}
+
+#[derive(Deserialize)]
+struct GameLogsQuery {
+    lines: Option<usize>,
+}
+
+async fn handle_games_logs(
+    Path(id): Path<String>,
+    Query(query): Query<GameLogsQuery>,
+) -> Json<ApiResponse<String>> {
+    let lines = query.lines.unwrap_or(150);
+    let res = tokio::task::spawn_blocking(move || crate::games::get_game_server_logs(&id, lines)).await;
+    match res {
+        Ok(Ok(logs)) => Json(ApiResponse {
+            success: true,
+            data: Some(logs),
+            message: None,
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
+        }),
+    }
+}
+
+async fn handle_games_command(
+    Path(id): Path<String>,
+    Json(payload): Json<crate::games::GameServerCommandRequest>,
+) -> Json<ApiResponse<String>> {
+    let res = tokio::task::spawn_blocking(move || crate::games::send_game_server_command(&id, &payload.command)).await;
+    match res {
+        Ok(Ok(resp)) => Json(ApiResponse {
+            success: true,
+            data: Some(resp),
+            message: None,
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
+        }),
+    }
+}
+
+async fn handle_games_import_egg(
+    Json(payload): Json<crate::games::ImportEggRequest>,
+) -> Json<ApiResponse<crate::games::Egg>> {
+    let res = tokio::task::spawn_blocking(move || crate::games::import_egg_file(payload)).await;
+    match res {
+        Ok(Ok(egg)) => Json(ApiResponse {
+            success: true,
+            data: Some(egg),
+            message: Some("Egg importé avec succès !".into()),
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
         }),
     }
 }

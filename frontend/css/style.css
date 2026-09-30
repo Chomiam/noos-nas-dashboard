@@ -6536,3 +6536,270 @@ select.form-control option,
   white-space: nowrap;
   max-width: 240px;
 }
+
+/* ==========================================================================
+   SERVEURS DE JEUX & MOTEUR D'EGGS (CATPPUCCIN MOCHA)
+   ========================================================================== */
+.game-servers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 20px;
+}
+
+.game-server-card {
+  background: var(--surface0);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.25);
+}
+
+.game-server-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(137, 180, 250, 0.35);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+}
+
+.game-server-banner {
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.game-server-title-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.game-server-icon {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.game-server-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.game-server-type {
+  font-size: 0.76rem;
+  color: var(--subtext0);
+  margin-top: 1px;
+}
+
+.game-server-body {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+}
+
+.game-server-address-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.game-server-ip {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--blue);
+}
+
+.game-server-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+}
+
+.game-server-stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.game-server-stat-label {
+  font-size: 0.72rem;
+  color: var(--subtext0);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.game-server-stat-val {
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.game-server-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 14px 20px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+/* Grille du catalogue d'Eggs */
+.egg-catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+.egg-card {
+  background: var(--surface0);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.egg-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(203, 166, 247, 0.35);
+}
+
+.egg-card-banner {
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.egg-card-icon {
+  font-size: 2.2rem;
+  line-height: 1;
+}
+
+.egg-card-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.egg-card-category {
+  font-size: 0.74rem;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.egg-card-body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+}
+
+.egg-card-desc {
+  font-size: 0.82rem;
+  color: var(--subtext0);
+  line-height: 1.45;
+  flex: 1;
+}
+
+.egg-card-specs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.egg-spec-pill {
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--subtext1);
+}
+
+.egg-card-footer {
+  padding: 14px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.15);
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Console terminale interactive */
+.game-terminal-header {
+  background: #181825;
+  padding: 10px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.game-term-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dot-red { background: #f38ba8; }
+.dot-yellow { background: #f9e2af; }
+.dot-green { background: #a6e3a1; }
+
+.game-terminal-body {
+  background: #11111b;
+  color: #cdd6f4;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  padding: 16px;
+  height: 480px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.game-terminal-footer {
+  background: #181825;
+  padding: 10px 16px;
+  display: flex;
+  gap: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.game-terminal-input-box {
+  flex: 1;
+  background: #11111b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  padding: 8px 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.game-terminal-input-box:focus {
+  border-color: var(--mauve);
+}

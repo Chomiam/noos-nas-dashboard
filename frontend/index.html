@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20260930_17">
+  <link rel="stylesheet" href="/css/style.css?v=20260930_18">
 </head>
 <body>
 
@@ -1968,7 +1968,7 @@
   <div class="toast-container" id="toast-container"></div>
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20260930_17"></script>
+  <script src="/js/app.js?v=20260930_18"></script>
   <!-- MENU CONTEXTUEL CLIC DROIT -->
   <div class="context-menu" id="files-context-menu">
     <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">
@@ -3915,6 +3915,114 @@
           <span>⚙️</span> Détails
         </button>
         <button type="button" class="btn-toast-close" id="btn-close-update-toast" onclick="dismissUpdateToast()" style="display:none;" title="Fermer la notification">&times;</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- MODAL : CRÉATION DE SERVEUR DE JEU -->
+  <div class="file-modal-overlay" id="modal-create-game" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-create-game')">
+    <div class="file-modal-window" style="max-width: 650px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(137, 180, 250, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-primary" style="font-size:0.75rem; font-weight:800;" id="create-game-egg-badge">EGG</span>
+          <span class="file-modal-title" id="create-game-modal-title">Déployer un Serveur</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeCreateGameModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:22px; max-height:75vh; overflow-y:auto;">
+        <!-- En-tête résumé du jeu -->
+        <div style="display:flex; align-items:center; gap:16px; margin-bottom:20px; padding:14px; background:rgba(255,255,255,0.03); border-radius:var(--radius-sm); border:1px solid rgba(255,255,255,0.06);">
+          <div id="create-game-icon" style="font-size:2.4rem; line-height:1;">🎮</div>
+          <div>
+            <div id="create-game-name" style="font-weight:700; font-size:1.05rem; color:var(--text);">Nom du Jeu</div>
+            <div id="create-game-desc" style="font-size:0.8rem; color:var(--subtext0); margin-top:2px;">Description</div>
+          </div>
+        </div>
+
+        <!-- Paramètres fondamentaux -->
+        <div class="form-group" style="margin-bottom:16px;">
+          <label class="form-label" style="font-weight:600;">Nom de votre serveur :</label>
+          <input type="text" id="create-game-input-name" class="form-input" placeholder="ex: Mon Monde Survie">
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:16px;">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label" style="font-weight:600;">Port de connexion :</label>
+            <input type="number" id="create-game-input-port" class="form-input" placeholder="ex: 25565">
+            <span style="font-size:0.72rem; color:var(--subtext0);">Port sur lequel vos amis se connecteront</span>
+          </div>
+
+          <div class="form-group" style="margin:0;">
+            <label class="form-label" style="font-weight:600;">Mémoire RAM allouée :</label>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <input type="range" id="create-game-slider-ram" min="1024" max="32768" step="512" value="4096" style="flex:1;" oninput="updateRamDisplay(this.value)">
+              <span id="create-game-ram-val" style="font-weight:700; font-family:var(--font-mono); font-size:0.9rem; min-width:70px; text-align:right; color:var(--mauve);">4 Go</span>
+            </div>
+            <span style="font-size:0.72rem; color:var(--subtext0);" id="create-game-ram-hint">Recommandé : 4 Go</span>
+          </div>
+        </div>
+
+        <!-- Variables dynamiques de l'Egg -->
+        <div id="create-game-dynamic-vars-wrap" style="margin-top:16px; border-top:1px solid rgba(255,255,255,0.06); padding-top:16px;">
+          <label class="form-label" style="font-weight:700; margin-bottom:12px; color:var(--text); display:flex; align-items:center; gap:6px;">
+            <span>⚙️</span> Paramètres spécifiques du jeu
+          </label>
+          <div id="create-game-dynamic-vars-container" style="display:flex; flex-direction:column; gap:12px;">
+            <!-- Champs dynamiques générés selon l'Egg -->
+          </div>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 22px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:0.78rem; color:var(--subtext0);">💾 Données stockées dans <code>/mnt/storage/games</code></span>
+        <div style="display:flex; gap:10px;">
+          <button type="button" class="btn btn-secondary" onclick="closeCreateGameModal()">Annuler</button>
+          <button type="button" class="btn btn-primary" id="btn-submit-create-game" onclick="submitCreateGameServer()">
+            <span>🚀</span> Déployer le Serveur
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL : IMPORTER UN EGG PTERODACTYL -->
+  <div class="file-modal-overlay" id="modal-import-egg" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-import-egg')">
+    <div class="file-modal-window" style="max-width: 580px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(203, 166, 247, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-purple" style="font-size:0.75rem; font-weight:800;">COMMUNAUTÉ</span>
+          <span class="file-modal-title">Importer un Egg Pterodactyl / Pelican</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeImportEggModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:22px;">
+        <p style="font-size:0.85rem; color:var(--subtext0); margin-top:0; margin-bottom:16px;">
+          Vous pouvez coller l'URL d'un fichier <code>egg-*.json</code> hébergé sur GitHub (dépôt <em>parkervcp/eggs</em> ou <em>pelican-eggs</em>) ou coller directement son contenu JSON ci-dessous.
+        </p>
+
+        <div class="form-group" style="margin-bottom:16px;">
+          <label class="form-label" style="font-weight:600;">URL directe de l'Egg (Optionnel) :</label>
+          <input type="url" id="import-egg-url" class="form-input" placeholder="https://raw.githubusercontent.com/parkervcp/eggs/master/...">
+        </div>
+
+        <div class="form-group" style="margin-bottom:10px;">
+          <label class="form-label" style="font-weight:600;">Ou coller le JSON de l'Egg :</label>
+          <textarea id="import-egg-json" class="form-input" style="height:140px; font-family:var(--font-mono); font-size:0.78rem;" placeholder='{
+  "meta": { "version": "PTDL_v2" },
+  "name": "Mon Jeu",
+  "image": "..."
+}'></textarea>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 22px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeImportEggModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-import-egg" onclick="submitImportEgg()">
+          <span>📥</span> Importer l'Egg
+        </button>
       </div>
     </div>
   </div>

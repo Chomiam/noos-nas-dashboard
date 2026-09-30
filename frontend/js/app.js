@@ -9790,3 +9790,579 @@ async function rebootNasFromGenModal() {
     showToast("error", `Erreur réseau : ${e.message}`);
   }
 }
+
+// ==========================================================================
+// SERVEURS DE JEUX & MOTEUR D'EGGS PTERODACTYL / PELICAN
+// ==========================================================================
+let gameServersData = [];
+let gameCatalogData = [];
+let activeConsoleServerId = null;
+let gameConsoleRefreshInterval = null;
+let selectedEggForCreate = null;
+
+function switchGamesSubtab(subtab) {
+  const subtabs = ["servers", "catalog", "console"];
+  subtabs.forEach(s => {
+    const btn = document.getElementById(`subtab-btn-games-${s}`);
+    const content = document.getElementById(`games-subtab-${s}`);
+    if (btn) btn.classList.toggle("active", s === subtab);
+    if (content) content.style.display = s === subtab ? "block" : "none";
+  });
+
+  if (subtab === "servers") {
+    loadGameServers();
+    stopGameConsoleStream();
+  } else if (subtab === "catalog") {
+    loadEggCatalog();
+    stopGameConsoleStream();
+  } else if (subtab === "console") {
+    startGameConsoleStream();
+  }
+}
+
+async function loadGameServers(forceToast = false) {
+  try {
+    const res = await fetch("/api/games/servers");
+    const json = await res.json();
+    if (json.success && json.data) {
+      gameServersData = json.data;
+      renderGameServers();
+      updateGameConsoleSelectOptions();
+      const countEl = document.getElementById("count-game-servers");
+      if (countEl) countEl.textContent = gameServersData.length;
+      if (forceToast) showToast("Serveurs de jeu actualisés", "info");
+    }
+  } catch (e) {
+    console.error("Échec du chargement des serveurs de jeu :", e);
+  }
+}
+
+function renderGameServers() {
+  const grid = document.getElementById("game-servers-grid");
+  if (!grid) return;
+
+  if (gameServersData.length === 0) {
+    grid.innerHTML = `
+      <div class="card" style="grid-column: 1 / -1; text-align:center; padding: 60px 20px;">
+        <span style="font-size:3.5rem; display:block; margin-bottom:14px;">🎮</span>
+        <div style="font-weight:700; font-size:1.2rem; color:var(--text); margin-bottom:6px;">Aucun serveur de jeu actif</div>
+        <p style="color:var(--subtext0); font-size:0.9rem; max-width:500px; margin:0 auto 20px auto;">
+          Déployez votre premier serveur Minecraft, Palworld ou Valheim en 1-clic depuis le catalogue d'Eggs.
+        </p>
+        <button type="button" class="btn btn-primary" onclick="switchGamesSubtab('catalog')">
+          <span>📦</span> Parcourir le catalogue d'Eggs
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  grid.innerHTML = gameServersData.map(s => {
+    const isOnline = s.status === "online";
+    const statusBadge = isOnline
+      ? `<span class="badge badge-success">🟢 En ligne</span>`
+      : `<span class="badge badge-secondary">🔴 Arrêté</span>`;
+
+    const ramUsageStr = isOnline ? `${s.memory_used_mb} Mo / ${s.memory_mb} Mo` : `0 / ${s.memory_mb} Mo`;
+    const cpuUsageStr = isOnline ? `${s.cpu_percent.toFixed(1)}%` : `0%`;
+    const fullAddress = `${s.ip_address}:${s.port}`;
+
+    return `
+      <div class="game-server-card">
+        <div class="game-server-banner">
+          <div class="game-server-title-box">
+            <span class="game-server-icon">${s.icon || '🎮'}</span>
+            <div>
+              <div class="game-server-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</div>
+              <div class="game-server-type">${escapeHtml(s.game_name)}</div>
+            </div>
+          </div>
+          <div>${statusBadge}</div>
+        </div>
+
+        <div class="game-server-body">
+          <div class="game-server-address-box">
+            <div>
+              <span style="font-size:0.7rem; color:var(--subtext0); display:block;">ADRESSE DE CONNEXION</span>
+              <span class="game-server-ip">${fullAddress}</span>
+            </div>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="copyGameServerAddress('${fullAddress}')" title="Copier l'adresse de connexion">
+              📋 Copier
+            </button>
+          </div>
+
+          <div class="game-server-stats-grid">
+            <div class="game-server-stat-item">
+              <span class="game-server-stat-label">RAM Allouée</span>
+              <span class="game-server-stat-val">${ramUsageStr}</span>
+            </div>
+            <div class="game-server-stat-item">
+              <span class="game-server-stat-label">CPU Utilisé</span>
+              <span class="game-server-stat-val">${cpuUsageStr}</span>
+            </div>
+          </div>
+
+          <div style="font-size:0.75rem; color:var(--subtext0); display:flex; justify-content:space-between;">
+            <span>Créé le ${s.created_at || '--'}</span>
+            <a href="#" onclick="openServerFolderInFiles('${escapeHtml(s.data_dir)}'); return false;" style="color:var(--mauve); text-decoration:none;">📁 Ouvrir les fichiers</a>
+          </div>
+        </div>
+
+        <div class="game-server-actions">
+          ${isOnline ? `
+            <button type="button" class="btn btn-warning btn-xs" onclick="controlGameServerAction('${s.id}', 'restart')" title="Redémarrer le serveur">
+              <span>🔄</span>
+            </button>
+            <button type="button" class="btn btn-danger btn-xs" onclick="controlGameServerAction('${s.id}', 'stop')" title="Arrêter le serveur">
+              <span>⏹️</span>
+            </button>
+          ` : `
+            <button type="button" class="btn btn-success btn-xs" onclick="controlGameServerAction('${s.id}', 'start')" title="Démarrer le serveur">
+              <span>▶️</span> Démarrer
+            </button>
+          `}
+          <button type="button" class="btn btn-primary btn-xs" style="flex:1;" onclick="openServerConsoleView('${s.id}')">
+            <span>🖥️</span> Console
+          </button>
+          <button type="button" class="btn btn-danger btn-xs" onclick="confirmDeleteGameServer('${s.id}', '${escapeHtml(s.name)}')" title="Supprimer le serveur">
+            <span>🗑️</span>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function copyGameServerAddress(addr) {
+  navigator.clipboard.writeText(addr).then(() => {
+    showToast(`Adresse ${addr} copiée dans le presse-papiers !`, "success");
+  }).catch(() => {
+    showToast(`Adresse : ${addr}`, "info");
+  });
+}
+
+function openServerFolderInFiles(dir) {
+  if (typeof navigateToPath === "function") {
+    switchTab("tab-files");
+    navigateToPath(dir);
+  }
+}
+
+async function loadEggCatalog() {
+  try {
+    const res = await fetch("/api/games/catalog");
+    const json = await res.json();
+    if (json.success && json.data) {
+      gameCatalogData = json.data;
+      renderEggCatalog();
+    }
+  } catch (e) {
+    console.error("Échec du chargement du catalogue :", e);
+  }
+}
+
+function renderEggCatalog() {
+  const grid = document.getElementById("egg-catalog-grid");
+  if (!grid) return;
+
+  grid.innerHTML = gameCatalogData.map(egg => {
+    return `
+      <div class="egg-card">
+        <div class="egg-card-banner" style="background:${egg.banner_color || 'var(--surface1)'};">
+          <span class="egg-card-icon">${egg.icon || '🎮'}</span>
+          <div>
+            <div class="egg-card-title">${escapeHtml(egg.name)}</div>
+            <div class="egg-card-category">${escapeHtml(egg.category)}</div>
+          </div>
+        </div>
+
+        <div class="egg-card-body">
+          <div class="egg-card-desc">${escapeHtml(egg.description)}</div>
+
+          <div class="egg-card-specs">
+            <span class="egg-spec-pill">Port : ${egg.default_port} (${egg.port_protocol.toUpperCase()})</span>
+            <span class="egg-spec-pill">RAM min : ${egg.min_memory_mb / 1024} Go</span>
+            <span class="egg-spec-pill">${egg.docker_image.split('/').pop().split(':')[0]}</span>
+          </div>
+        </div>
+
+        <div class="egg-card-footer">
+          <button type="button" class="btn btn-primary btn-sm" onclick="openCreateGameModal('${egg.id}')">
+            <span>🚀</span> Déployer en 1-clic
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function openCreateGameModal(eggId) {
+  const egg = gameCatalogData.find(e => e.id === eggId);
+  if (!egg) return;
+
+  selectedEggForCreate = egg;
+
+  document.getElementById("create-game-modal-title").textContent = `Déployer un Serveur : ${egg.name}`;
+  document.getElementById("create-game-egg-badge").textContent = egg.category.toUpperCase();
+  document.getElementById("create-game-icon").textContent = egg.icon || '🎮';
+  document.getElementById("create-game-name").textContent = egg.name;
+  document.getElementById("create-game-desc").textContent = egg.description;
+
+  document.getElementById("create-game-input-name").value = `Mon Serveur ${egg.name.split(':')[0]}`;
+  document.getElementById("create-game-input-port").value = egg.default_port;
+
+  const ramSlider = document.getElementById("create-game-slider-ram");
+  ramSlider.min = egg.min_memory_mb;
+  ramSlider.value = egg.default_memory_mb;
+  updateRamDisplay(egg.default_memory_mb);
+  document.getElementById("create-game-ram-hint").textContent = `Recommandé : ${egg.default_memory_mb / 1024} Go (Min : ${egg.min_memory_mb / 1024} Go)`;
+
+  // Génération des variables dynamiques
+  const varsContainer = document.getElementById("create-game-dynamic-vars-container");
+  if (varsContainer) {
+    if (egg.variables && egg.variables.length > 0) {
+      document.getElementById("create-game-dynamic-vars-wrap").style.display = "block";
+      varsContainer.innerHTML = egg.variables.map(v => {
+        let inputHtml = '';
+        if (v.input_type === "select" && v.options) {
+          inputHtml = `
+            <select class="form-select dynamic-egg-var" data-var="${v.env_variable}">
+              ${v.options.map(opt => `<option value="${opt}" ${opt === v.default_value ? 'selected' : ''}>${opt}</option>`).join('')}
+            </select>
+          `;
+        } else if (v.input_type === "boolean") {
+          inputHtml = `
+            <select class="form-select dynamic-egg-var" data-var="${v.env_variable}">
+              <option value="true" ${v.default_value === 'true' ? 'selected' : ''}>Activé (true)</option>
+              <option value="false" ${v.default_value === 'false' ? 'selected' : ''}>Désactivé (false)</option>
+            </select>
+          `;
+        } else if (v.input_type === "password") {
+          inputHtml = `<input type="password" class="form-input dynamic-egg-var" data-var="${v.env_variable}" value="${escapeHtml(v.default_value)}">`;
+        } else if (v.input_type === "number") {
+          inputHtml = `<input type="number" class="form-input dynamic-egg-var" data-var="${v.env_variable}" value="${escapeHtml(v.default_value)}">`;
+        } else {
+          inputHtml = `<input type="text" class="form-input dynamic-egg-var" data-var="${v.env_variable}" value="${escapeHtml(v.default_value)}">`;
+        }
+
+        return `
+          <div class="form-group" style="margin:0;">
+            <label class="form-label" style="font-weight:600; font-size:0.85rem;">${escapeHtml(v.name)} :</label>
+            ${inputHtml}
+            <span style="font-size:0.72rem; color:var(--subtext0);">${escapeHtml(v.description)}</span>
+          </div>
+        `;
+      }).join('');
+    } else {
+      document.getElementById("create-game-dynamic-vars-wrap").style.display = "none";
+    }
+  }
+
+  document.getElementById("modal-create-game").style.display = "flex";
+}
+
+function updateRamDisplay(mb) {
+  const gb = (mb / 1024).toFixed(mb % 1024 === 0 ? 0 : 1);
+  const el = document.getElementById("create-game-ram-val");
+  if (el) el.textContent = `${gb} Go`;
+}
+
+function closeCreateGameModal() {
+  const modal = document.getElementById("modal-create-game");
+  if (modal) modal.style.display = "none";
+  selectedEggForCreate = null;
+}
+
+async function submitCreateGameServer() {
+  if (!selectedEggForCreate) return;
+
+  const nameInput = document.getElementById("create-game-input-name");
+  const portInput = document.getElementById("create-game-input-port");
+  const ramSlider = document.getElementById("create-game-slider-ram");
+  const submitBtn = document.getElementById("btn-submit-create-game");
+
+  const name = nameInput ? nameInput.value.trim() : "";
+  if (!name) {
+    showToast("Veuillez saisir un nom pour le serveur.", "warning");
+    return;
+  }
+
+  const port = portInput ? parseInt(portInput.value, 10) : selectedEggForCreate.default_port;
+  const memory_mb = ramSlider ? parseInt(ramSlider.value, 10) : selectedEggForCreate.default_memory_mb;
+
+  // Récupérer les variables dynamiques
+  const variables = {};
+  document.querySelectorAll(".dynamic-egg-var").forEach(el => {
+    const varName = el.getAttribute("data-var");
+    if (varName) {
+      variables[varName] = el.value;
+    }
+  });
+
+  const origBtn = submitBtn ? submitBtn.innerHTML : "";
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = `<span>⏳</span> Déploiement en cours...`;
+  }
+
+  showToast(`Déploiement du serveur ${name}... Cela peut prendre un instant`, "info");
+
+  try {
+    const res = await fetch("/api/games/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        egg_id: selectedEggForCreate.id,
+        memory_mb,
+        port,
+        variables
+      })
+    });
+    const json = await res.json();
+    if (json.success && json.data) {
+      showToast(`🎉 Serveur '${json.data.name}' déployé avec succès !`, "success");
+      closeCreateGameModal();
+      switchGamesSubtab("servers");
+      await loadGameServers();
+    } else {
+      showToast(`Échec du déploiement : ${json.message || "Erreur serveur"}`, "error");
+    }
+  } catch (e) {
+    showToast(`Erreur réseau : ${e.message}`, "error");
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = origBtn;
+    }
+  }
+}
+
+async function controlGameServerAction(id, action) {
+  showToast(`Action '${action}' envoyée au serveur...`, "info");
+  try {
+    const res = await fetch(`/api/games/${id}/action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.message || "Action effectuée avec succès", "success");
+      await loadGameServers();
+    } else {
+      showToast(`Erreur : ${json.message || "Impossible d'effectuer l'action"}`, "error");
+    }
+  } catch (e) {
+    showToast(`Erreur réseau : ${e.message}`, "error");
+  }
+}
+
+async function confirmDeleteGameServer(id, name) {
+  const deleteData = confirm(`Êtes-vous sûr de vouloir supprimer définitivement le serveur '${name}' ?\n\nCliquez sur OK pour supprimer le conteneur.\nUne seconde confirmation vous demandera si vous souhaitez aussi supprimer les fichiers de sauvegarde.`);
+  if (!deleteData) return;
+
+  const purgeFiles = confirm(`Voulez-vous aussi EFFACER le dossier des mondes et sauvegardes (/mnt/storage/games/${id}) ?\n\n- Annuler = Conserver les fichiers\n- OK = Tout supprimer définitivement`);
+
+  try {
+    const res = await fetch(`/api/games/${id}/delete?delete_data=${purgeFiles}`, {
+      method: "POST"
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(`Serveur '${name}' supprimé.`, "success");
+      await loadGameServers();
+    } else {
+      showToast(`Erreur : ${json.message}`, "error");
+    }
+  } catch (e) {
+    showToast(`Erreur réseau : ${e.message}`, "error");
+  }
+}
+
+// --------------------------------------------------------------------------
+// CONSOLE TERMINALE EN DIRECT
+// --------------------------------------------------------------------------
+function updateGameConsoleSelectOptions() {
+  const sel = document.getElementById("game-console-server-select");
+  if (!sel) return;
+
+  sel.innerHTML = gameServersData.map(s => `
+    <option value="${s.id}" ${s.id === activeConsoleServerId ? 'selected' : ''}>
+      ${escapeHtml(s.name)} (${s.status === 'online' ? '🟢 En ligne' : '🔴 Arrêté'})
+    </option>
+  `).join('');
+
+  if (!activeConsoleServerId && gameServersData.length > 0) {
+    activeConsoleServerId = gameServersData[0].id;
+  }
+}
+
+function openServerConsoleView(id) {
+  activeConsoleServerId = id;
+  switchGamesSubtab("console");
+}
+
+function onGameConsoleServerChange() {
+  const sel = document.getElementById("game-console-server-select");
+  if (sel) {
+    activeConsoleServerId = sel.value;
+    fetchGameConsoleLogs();
+  }
+}
+
+function startGameConsoleStream() {
+  stopGameConsoleStream();
+  fetchGameConsoleLogs();
+  gameConsoleRefreshInterval = setInterval(() => {
+    fetchGameConsoleLogs();
+  }, 3000);
+}
+
+function stopGameConsoleStream() {
+  if (gameConsoleRefreshInterval) {
+    clearInterval(gameConsoleRefreshInterval);
+    gameConsoleRefreshInterval = null;
+  }
+}
+
+async function fetchGameConsoleLogs() {
+  if (!activeConsoleServerId) return;
+
+  const server = gameServersData.find(s => s.id === activeConsoleServerId);
+  const statusPill = document.getElementById("game-console-status-pill");
+  const statsPill = document.getElementById("game-console-stats-pill");
+  const titleEl = document.getElementById("game-term-title");
+
+  if (server) {
+    if (statusPill) {
+      statusPill.className = `badge ${server.status === 'online' ? 'badge-success' : 'badge-secondary'}`;
+      statusPill.textContent = server.status === 'online' ? '🟢 En ligne' : '🔴 Arrêté';
+    }
+    if (statsPill) {
+      statsPill.textContent = `CPU: ${server.cpu_percent.toFixed(1)}% • RAM: ${server.memory_used_mb} Mo / ${server.memory_mb} Mo`;
+    }
+    if (titleEl) {
+      titleEl.textContent = `Console : ${server.name} (${server.container_name})`;
+    }
+  }
+
+  try {
+    const res = await fetch(`/api/games/${activeConsoleServerId}/logs?lines=200`);
+    const json = await res.json();
+    if (json.success && json.data !== undefined) {
+      const outputEl = document.getElementById("game-terminal-output");
+      if (outputEl) {
+        outputEl.textContent = json.data || "Aucun log pour le moment.";
+        const autoscroll = document.getElementById("game-term-autoscroll");
+        if (autoscroll && autoscroll.checked) {
+          outputEl.scrollTop = outputEl.scrollHeight;
+        }
+      }
+    }
+  } catch (e) {
+    console.error("Échec de la récupération des logs console :", e);
+  }
+}
+
+function clearGameTerminal() {
+  const outputEl = document.getElementById("game-terminal-output");
+  if (outputEl) outputEl.textContent = "";
+}
+
+function handleGameConsoleInputKey(e) {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    sendGameTerminalCommand();
+  }
+}
+
+async function sendGameTerminalCommand() {
+  if (!activeConsoleServerId) return;
+  const input = document.getElementById("game-terminal-input");
+  if (!input) return;
+
+  const cmd = input.value.trim();
+  if (!cmd) return;
+
+  input.value = "";
+  try {
+    const res = await fetch(`/api/games/${activeConsoleServerId}/command`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command: cmd })
+    });
+    const json = await res.json();
+    if (!json.success) {
+      showToast(`Erreur : ${json.message}`, "error");
+    }
+    setTimeout(fetchGameConsoleLogs, 400);
+  } catch (e) {
+    showToast(`Erreur réseau : ${e.message}`, "error");
+  }
+}
+
+function actionCurrentConsoleServer(action) {
+  if (activeConsoleServerId) {
+    controlGameServerAction(activeConsoleServerId, action);
+  }
+}
+
+// --------------------------------------------------------------------------
+// IMPORT D'EGG
+// --------------------------------------------------------------------------
+function openImportEggModal() {
+  document.getElementById("import-egg-url").value = "";
+  document.getElementById("import-egg-json").value = "";
+  document.getElementById("modal-import-egg").style.display = "flex";
+}
+
+function closeImportEggModal() {
+  document.getElementById("modal-import-egg").style.display = "none";
+}
+
+async function submitImportEgg() {
+  const urlInput = document.getElementById("import-egg-url");
+  const jsonInput = document.getElementById("import-egg-json");
+  const submitBtn = document.getElementById("btn-submit-import-egg");
+
+  const url = urlInput ? urlInput.value.trim() : "";
+  const content = jsonInput ? jsonInput.value.trim() : "";
+
+  if (!url && !content) {
+    showToast("Veuillez saisir une URL GitHub ou coller le contenu JSON d'un Egg.", "warning");
+    return;
+  }
+
+  const origBtn = submitBtn ? submitBtn.innerHTML : "";
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = `<span>⏳</span> Import en cours...`;
+  }
+
+  try {
+    const res = await fetch("/api/games/eggs/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: url ? url : null,
+        content: content ? content : null
+      })
+    });
+    const json = await res.json();
+    if (json.success && json.data) {
+      showToast(`✨ Egg '${json.data.name}' importé avec succès dans le catalogue !`, "success");
+      closeImportEggModal();
+      await loadEggCatalog();
+    } else {
+      showToast(`Échec de l'import : ${json.message || "Fichier invalide"}`, "error");
+    }
+  } catch (e) {
+    showToast(`Erreur réseau : ${e.message}`, "error");
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = origBtn;
+    }
+  }
+}
