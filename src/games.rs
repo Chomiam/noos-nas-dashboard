@@ -1269,6 +1269,53 @@ pub fn get_default_eggs() -> Vec<Egg> {
             ],
             is_custom: false,
         },
+        Egg {
+            id: "terraria".into(),
+            name: "Terraria Dedicated Server".into(),
+            author: "Re-Logic & STEvE_OS".into(),
+            category: "Aventure / Sandbox 2D".into(),
+            icon: "🌳".into(),
+            icon_url: Some("https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/eggs/terraria/icon.png".into()),
+            banner_url: Some("https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/eggs/terraria/banner.jpg".into()),
+            tagline: Some("Exploration, construction et combats de boss en 2D multijoueur".into()),
+            banner_color: "linear-gradient(135deg, #2e7d32, #1565c0)".into(),
+            docker_image: "ghcr.io/parkervcp/yolks:debian".into(),
+            extra_ports: vec![],
+            steam_app_id: None,
+            default_port: 7777,
+            port_protocol: "both".into(),
+            default_memory_mb: 2048,
+            min_memory_mb: 1024,
+            startup_cmd: "./TerrariaServer.bin.x86_64 -port {{SERVER_PORT}} -players {{MAX_PLAYERS}} -worldname \"{{WORLD_NAME}}\" -autocreate 2".into(),
+            description: "Serveur dédié Terraria multijoueur persistant avec génération de mondes (Petit, Moyen, Grand), sélection de difficulté classique/expert/master et persistance complète des cartes.".into(),
+            variables: vec![
+                EggVariable {
+                    name: "Nom du monde".into(),
+                    env_variable: "WORLD_NAME".into(),
+                    description: "Nom du fichier de monde Terraria".into(),
+                    default_value: "SteveWorld".into(),
+                    input_type: "text".into(),
+                    options: None,
+                },
+                EggVariable {
+                    name: "Mot de passe du serveur".into(),
+                    env_variable: "SERVER_PASSWORD".into(),
+                    description: "Mot de passe requis pour se connecter (laisser vide si public)".into(),
+                    default_value: "".into(),
+                    input_type: "password".into(),
+                    options: None,
+                },
+                EggVariable {
+                    name: "Joueurs Maximum".into(),
+                    env_variable: "MAX_PLAYERS".into(),
+                    description: "Slots simultanés autorisés".into(),
+                    default_value: "16".into(),
+                    input_type: "number".into(),
+                    options: None,
+                },
+            ],
+            is_custom: false,
+        },
     ]
 }
 
@@ -1634,6 +1681,11 @@ pub fn create_game_server(req: CreateGameServerRequest) -> Result<GameServer, St
 
     let mut final_docker_image = egg.docker_image.clone();
 
+    // Remplacement défensif : yolks:mono est déprécié/inexistant sur GHCR
+    if egg.id == "terraria" || final_docker_image.contains("yolks:mono") {
+        final_docker_image = "ghcr.io/parkervcp/yolks:debian".to_string();
+    }
+
     // Scripts de configuration initiaux personnalisés par jeu
     if egg.id == "minecraft-java" {
         let loader = env_map.get("LOADER").cloned().unwrap_or_else(|| "paper".to_string());
@@ -1825,24 +1877,34 @@ exec ./valheim_server.x86_64 -name "${SERVER_NAME}" -port ${SERVER_PORT} -world 
 "#;
         let _ = fs::write(data_dir.join("entrypoint.sh"), entrypoint);
     } else if egg.id == "terraria" {
+        let mut final_cmd = if egg.startup_cmd.contains("mono") {
+            "./TerrariaServer.bin.x86_64 -port {{SERVER_PORT}} -players {{MAX_PLAYERS}} -worldname \"{{WORLD_NAME}}\" -autocreate 2".to_string()
+        } else {
+            egg.startup_cmd.clone()
+        };
+
+        for (k, v) in &env_map {
+            final_cmd = final_cmd.replace(&format!("{{{{{}}}}}", k), v);
+        }
+
         let entrypoint = format!(r#"#!/bin/bash
 set -e
 cd /home/container
 
-if [ ! -f TerrariaServer.exe ] && [ ! -f TerrariaServer.bin.x86_64 ]; then
+if [ ! -f TerrariaServer.bin.x86_64 ]; then
   echo "⚡ Téléchargement officiel du serveur Terraria..."
   curl -s -L -A "Mozilla/5.0" -o terraria.zip https://terraria.org/api/download/pc-dedicated-server/terraria-server-1449.zip || true
   if [ -f terraria.zip ]; then
     unzip -q -o terraria.zip
     cp -rf 1449/Linux/* . 2>/dev/null || true
     rm -rf 1449 terraria.zip
-    chmod +x TerrariaServer.bin.x86_64 TerrariaServer.exe 2>/dev/null || true
+    chmod +x TerrariaServer.bin.x86_64 2>/dev/null || true
   fi
 fi
 
 echo "🚀 Démarrage du serveur Terraria..."
 exec {}
-"#, egg.startup_cmd);
+"#, final_cmd);
         let _ = fs::write(data_dir.join("entrypoint.sh"), entrypoint);
     } else if egg.id == "7daystodie" || egg.startup_cmd.contains("7DaysToDieServer") || egg.id.contains("7day") {
         let is_custom_egg = egg.id != "7daystodie" && !egg.startup_cmd.is_empty();
