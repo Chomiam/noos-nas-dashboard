@@ -33,6 +33,15 @@ static DEPLOY_TRACKER: LazyLock<Mutex<HashMap<String, GameDeployProgress>>> =
 static STARTING_SERVERS: LazyLock<Mutex<HashMap<String, Instant>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+static EGGS_CACHE: LazyLock<Mutex<Option<(Instant, Vec<Egg>)>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+pub fn invalidate_eggs_cache() {
+    if let Ok(mut lock) = EGGS_CACHE.lock() {
+        *lock = None;
+    }
+}
+
 pub fn is_deployment_active(server_id: &str) -> bool {
     let tracker = DEPLOY_TRACKER.lock().unwrap();
     if let Some(entry) = tracker.get(server_id) {
@@ -1364,11 +1373,19 @@ pub fn sync_remote_eggs() -> Option<Vec<Egg>> {
 }
 
 pub fn sync_and_load_all_eggs() -> Vec<Egg> {
+    invalidate_eggs_cache();
     let _ = sync_remote_eggs();
     load_all_eggs()
 }
 
 pub fn load_all_eggs() -> Vec<Egg> {
+    if let Ok(lock) = EGGS_CACHE.lock() {
+        if let Some((instant, ref cached_eggs)) = *lock {
+            if instant.elapsed() < Duration::from_secs(120) {
+                return cached_eggs.clone();
+            }
+        }
+    }
     let cache_file = get_games_base_dir().join("catalog_cache.json");
     let base_eggs = if cache_file.exists() {
         fs::read_to_string(&cache_file)
@@ -1422,6 +1439,9 @@ pub fn load_all_eggs() -> Vec<Egg> {
         }
     }
 
+    if let Ok(mut lock) = EGGS_CACHE.lock() {
+        *lock = Some((Instant::now(), eggs.clone()));
+    }
     eggs
 }
 
@@ -1476,7 +1496,7 @@ fn detect_online_players(container_name: &str, data_dir: &str) -> (u32, Option<u
 
     let mut active_players: HashSet<String> = HashSet::new();
     if let Ok(output) = Command::new("docker")
-        .args(["logs", "--tail", "150", container_name])
+        .args(["logs", "--tail", "40", container_name])
         .output()
     {
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1537,6 +1557,10 @@ fn get_host_cpu_count() -> usize {
 
 pub fn list_game_servers() -> Vec<GameServer> {
     let mut servers = load_saved_servers();
+    if servers.is_empty() {
+        return vec![];
+    }
+
     let lan_ip = get_lan_ip();
     let host_cpus = get_host_cpu_count() as f32;
 
@@ -1555,7 +1579,6 @@ pub fn list_game_servers() -> Vec<GameServer> {
                 let raw_cpu: f32 = raw_cpu_str.parse().unwrap_or(0.0);
 
                 // Normalisation : docker stats rapporte CPUPerc cumulé (100% = 1 cœur).
-                // Exemple : 509.6% sur un hôte à 16 cœurs -> 5.1 cœurs -> 31.85% de la machine hôte.
                 let normalized_cpu = (raw_cpu / host_cpus).clamp(0.0, 100.0);
                 let cores_used = (raw_cpu / 100.0).max(0.0);
 
@@ -1577,13 +1600,46 @@ pub fn list_game_servers() -> Vec<GameServer> {
     let wg_ip = get_wireguard_ip();
     let pub_ip = get_public_ip();
 
-    let eggs_map: HashMap<String, (Option<String>, Option<String>)> = load_all_eggs()
-        .into_iter()
-        .map(|e| (e.id, (e.icon_url, e.banner_url)))
-        .collect();
+    let need_icons = servers.iter().any(|s| s.icon_url.is_none() || s.banner_url.is_none());
+    let eggs_map: HashMap<String, (Option<String>, Option<String>)> = if need_icons {
+        load_all_eggs()
+            .into_iter()
+            .map(|e| (e.id, (e.icon_url, e.banner_url)))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+
+    // Inspection par lot de tous les conteneurs en 1 seule commande Docker groupée
+    let container_names: Vec<String> = servers.iter().map(|s| s.container_name.clone()).collect();
+    let mut inspect_map: HashMap<String, (String, bool, bool, i64, bool, String)> = HashMap::new();
+    if let Ok(output) = Command::new("docker")
+        .args([
+            "inspect",
+            "--format",
+            "{{.Name}}|{{.State.Status}}|{{.State.Running}}|{{.State.Restarting}}|{{.State.ExitCode}}|{{.State.OOMKilled}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}",
+        ])
+        .args(&container_names)
+        .output()
+    {
+        let text = String::from_utf8_lossy(&output.stdout);
+        for line in text.lines() {
+            let parts: Vec<&str> = line.split('|').collect();
+            if parts.len() >= 6 {
+                let name = parts[0].trim().trim_start_matches('/');
+                let status = parts[1].trim().to_string();
+                let running = parts[2].trim() == "true";
+                let restarting = parts[3].trim() == "true";
+                let exit_code: i64 = parts[4].trim().parse().unwrap_or(0);
+                let oom_killed = parts[5].trim() == "true";
+                let health = parts.get(6).map(|v| v.trim().to_string()).unwrap_or_default();
+                inspect_map.insert(name.to_string(), (status, running, restarting, exit_code, oom_killed, health));
+            }
+        }
+    }
 
     for s in &mut servers {
-        if s.icon_url.is_none() || s.banner_url.is_none() {
+        if need_icons && (s.icon_url.is_none() || s.banner_url.is_none()) {
             if let Some((icon, banner)) = eggs_map.get(&s.egg_id) {
                 if s.icon_url.is_none() {
                     s.icon_url = icon.clone();
@@ -1604,137 +1660,107 @@ pub fn list_game_servers() -> Vec<GameServer> {
         };
         if is_deploying {
             s.status = "deploying".into();
+            s.status_detail = Some("Déploiement en cours...".into());
+            s.exit_code = None;
             continue;
         }
 
-        // Vérifier l'état détaillé du conteneur via docker inspect
-        if let Ok(output) = Command::new("docker")
-            .args([
-                "inspect",
-                "--format",
-                "{{.State.Status}}|{{.State.Running}}|{{.State.Restarting}}|{{.State.ExitCode}}|{{.State.OOMKilled}}|{{.State.Error}}|{{.State.StartedAt}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}",
-                &s.container_name,
-            ])
-            .output()
-        {
-            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let parts: Vec<&str> = text.split('|').collect();
+        if let Some((container_status, is_running, is_restarting, exit_code, oom_killed, health_status)) = inspect_map.get(&s.container_name).cloned() {
+            if is_running {
+                let mut is_starting = is_restarting || health_status == "starting";
 
-            if parts.len() >= 4 {
-                let container_status = parts[0].trim();
-                let is_running = parts[1].trim() == "true";
-                let is_restarting = parts[2].trim() == "true";
-                let exit_code: i64 = parts[3].trim().parse().unwrap_or(0);
-                let oom_killed = parts.get(4).map(|v| v.trim() == "true").unwrap_or(false);
-                let _docker_err = parts.get(5).map(|v| v.trim()).unwrap_or("");
-                let health_status = parts.get(7).map(|v| v.trim()).unwrap_or("");
+                let starting_elapsed = {
+                    let tracker = STARTING_SERVERS.lock().unwrap();
+                    tracker.get(&s.id).map(|inst| inst.elapsed().as_secs())
+                };
 
-                if is_running {
-                    let mut is_starting = is_restarting || health_status == "starting";
-
-                    let starting_elapsed = {
-                        let tracker = STARTING_SERVERS.lock().unwrap();
-                        tracker.get(&s.id).map(|inst| inst.elapsed().as_secs())
-                    };
-
-                    if let Some(elapsed) = starting_elapsed {
-                        if elapsed < 45 {
-                            if s.port > 0 && s.port_protocol.to_lowercase() == "tcp" {
-                                let addr = std::net::SocketAddr::from(([127, 0, 0, 1], s.port));
-                                if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(25)).is_ok() {
-                                    STARTING_SERVERS.lock().unwrap().remove(&s.id);
-                                    is_starting = false;
-                                } else {
-                                    is_starting = true;
-                                }
-                            } else if elapsed < 20 {
-                                is_starting = true;
-                            } else {
+                if let Some(elapsed) = starting_elapsed {
+                    if elapsed < 45 {
+                        if s.port > 0 && s.port_protocol.to_lowercase() == "tcp" {
+                            let addr = std::net::SocketAddr::from(([127, 0, 0, 1], s.port));
+                            if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(25)).is_ok() {
                                 STARTING_SERVERS.lock().unwrap().remove(&s.id);
+                                is_starting = false;
+                            } else {
+                                is_starting = true;
                             }
+                        } else if elapsed < 20 {
+                            is_starting = true;
                         } else {
                             STARTING_SERVERS.lock().unwrap().remove(&s.id);
                         }
-                    }
-
-                    if is_starting {
-                        s.status = "starting".into();
-                        s.status_detail = Some(if is_restarting {
-                            "Redémarrage automatique du conteneur...".into()
-                        } else {
-                            "Démarrage en cours (initialisation du serveur)...".into()
-                        });
-                        s.exit_code = None;
                     } else {
-                        s.status = "online".into();
-                        s.status_detail = Some("Serveur opérationnel".into());
-                        s.exit_code = None;
+                        STARTING_SERVERS.lock().unwrap().remove(&s.id);
                     }
+                }
 
-                    if let Some(&(cpu, cores, mem)) = stats_map.get(&s.container_name) {
-                        s.cpu_percent = cpu;
-                        s.cpu_cores_used = cores;
-                        s.memory_used_mb = mem;
-                    }
-
-                    if s.status == "online" {
-                        let (online, max, players) = detect_online_players(&s.container_name, &s.data_dir);
-                        s.online_players = online;
-                        s.max_players = max;
-                        s.player_list = players;
+                if is_starting {
+                    s.status = "starting".into();
+                    s.status_detail = Some(if is_restarting {
+                        "Redémarrage automatique du conteneur...".into()
                     } else {
-                        s.online_players = 0;
-                        s.max_players = None;
-                        s.player_list = vec![];
-                    }
+                        "Démarrage en cours (initialisation du serveur)...".into()
+                    });
+                    s.exit_code = None;
                 } else {
-                    STARTING_SERVERS.lock().unwrap().remove(&s.id);
-                    s.cpu_percent = 0.0;
-                    s.cpu_cores_used = 0.0;
+                    s.status = "online".into();
+                    s.status_detail = Some("Serveur opérationnel".into());
+                    s.exit_code = None;
+                }
+
+                if let Some(&(cpu, cores, mem)) = stats_map.get(&s.container_name) {
+                    s.cpu_percent = cpu;
+                    s.cpu_cores_used = cores;
+                    s.memory_used_mb = mem;
+                }
+
+                if s.status == "online" {
+                    let (online, max, players) = detect_online_players(&s.container_name, &s.data_dir);
+                    s.online_players = online;
+                    s.max_players = max;
+                    s.player_list = players;
+                } else {
                     s.online_players = 0;
                     s.max_players = None;
                     s.player_list = vec![];
-                    s.memory_used_mb = 0;
-
-                    if oom_killed {
-                        s.status = "error".into();
-                        s.exit_code = Some(137);
-                        s.status_detail = Some("Mémoire saturée (OOMKilled - RAM insuffisante)".into());
-                    } else if container_status == "dead" {
-                        s.status = "error".into();
-                        s.exit_code = Some(exit_code);
-                        s.status_detail = Some("Conteneur défaillant (Dead)".into());
-                    } else if exit_code != 0 {
-                        s.status = "error".into();
-                        s.exit_code = Some(exit_code);
-                        let detail = match exit_code {
-                            137 => "Arrêté de force (SIGKILL / 137)".to_string(),
-                            139 => "Crash critique (Segmentation Fault / 139)".to_string(),
-                            143 => "Arrêté par signal SIGTERM (143)".to_string(),
-                            1 => "Erreur applicative (Code 1 - Vérifier les logs)".to_string(),
-                            code => format!("Arrêt anormal (Code {})", code),
-                        };
-                        s.status_detail = Some(detail);
-                    } else {
-                        s.status = "stopped".into();
-                        s.exit_code = Some(0);
-                        s.status_detail = Some("Arrêté proprement".into());
-                    }
                 }
             } else {
-                s.status = "stopped".into();
-                s.status_detail = Some("Conteneur arrêté".into());
-                s.exit_code = None;
+                STARTING_SERVERS.lock().unwrap().remove(&s.id);
                 s.cpu_percent = 0.0;
                 s.cpu_cores_used = 0.0;
                 s.online_players = 0;
                 s.max_players = None;
                 s.player_list = vec![];
                 s.memory_used_mb = 0;
+
+                if oom_killed {
+                    s.status = "error".into();
+                    s.exit_code = Some(137);
+                    s.status_detail = Some("Mémoire saturée (OOMKilled - RAM insuffisante)".into());
+                } else if container_status == "dead" {
+                    s.status = "error".into();
+                    s.exit_code = Some(exit_code);
+                    s.status_detail = Some("Conteneur défaillant (Dead)".into());
+                } else if exit_code != 0 {
+                    s.status = "error".into();
+                    s.exit_code = Some(exit_code);
+                    let detail = match exit_code {
+                        137 => "Arrêté de force (SIGKILL / 137)".to_string(),
+                        139 => "Crash critique (Segmentation Fault / 139)".to_string(),
+                        143 => "Arrêté par signal SIGTERM (143)".to_string(),
+                        1 => "Erreur applicative (Code 1 - Vérifier les logs)".to_string(),
+                        code => format!("Arrêt anormal (Code {})", code),
+                    };
+                    s.status_detail = Some(detail);
+                } else {
+                    s.status = "stopped".into();
+                    s.exit_code = Some(0);
+                    s.status_detail = Some("Arrêté proprement".into());
+                }
             }
         } else {
             s.status = "stopped".into();
-            s.status_detail = Some("Conteneur introuvable".into());
+            s.status_detail = Some("Conteneur non initialisé".into());
             s.exit_code = None;
             s.cpu_percent = 0.0;
             s.cpu_cores_used = 0.0;
@@ -2483,7 +2509,7 @@ pub fn import_egg_file(req: ImportEggRequest) -> Result<Egg, String> {
     let target_file = get_custom_eggs_dir().join(format!("{}.json", egg_id));
     let egg_json = serde_json::to_string_pretty(&egg).map_err(|e| e.to_string())?;
     fs::write(&target_file, egg_json).map_err(|e| format!("Impossible d'enregistrer l'Egg : {}", e))?;
-
+    invalidate_eggs_cache();
     Ok(egg)
 }
 
@@ -2505,6 +2531,7 @@ pub fn delete_custom_egg(id: &str) -> Result<(), String> {
     }
 
     if deleted {
+        invalidate_eggs_cache();
         Ok(())
     } else {
         Err(format!("Egg personnalisé '{}' introuvable", id))

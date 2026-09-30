@@ -10099,3 +10099,27 @@ select.form-control option,
 .security-matrix-table tr:hover {
   background: rgba(255, 255, 255, 0.02);
 }
+
+/* SKELETON LOADER SERVEURS DE JEU */
+@keyframes shimmerPulse {
+  0% { opacity: 0.35; }
+  50% { opacity: 0.75; }
+  100% { opacity: 0.35; }
+}
+
+.game-skeleton-card {
+  min-height: 240px;
+  background: rgba(30, 30, 46, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  animation: shimmerPulse 1.5s infinite ease-in-out;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skeleton-line {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+}

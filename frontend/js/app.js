@@ -216,6 +216,7 @@ function switchTab(tabId) {
   }
   if (tabId === "tab-containers") refreshContainersAndStore();
   if (tabId === "tab-games") {
+    renderGameServers();
     loadGameServers();
     loadEggCatalog();
   }
@@ -238,7 +239,8 @@ async function refreshAll(showFeedback = false) {
       loadGenerations(),
       loadHardwareInfo(),
       loadSmartInfo(),
-      loadLatestSpeedtest()
+      loadLatestSpeedtest(),
+      loadGameServers()
     ]);
     if (showFeedback) {
       showToast("Données du NAS actualisées !", "success");
@@ -10506,6 +10508,16 @@ async function rebootNasFromGenModal() {
 // SERVEURS DE JEUX & MOTEUR D'EGGS PTERODACTYL / PELICAN
 // ==========================================================================
 let gameServersData = [];
+let hasFetchedGameServersOnce = false;
+try {
+  const cachedServers = localStorage.getItem("steveos_cached_game_servers");
+  if (cachedServers) {
+    const parsed = JSON.parse(cachedServers);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      gameServersData = parsed;
+    }
+  }
+} catch (_) {}
 let gameCatalogData = [];
 let activeConsoleServerId = null;
 let gameConsoleRefreshInterval = null;
@@ -10521,6 +10533,7 @@ function switchGamesSubtab(subtab) {
   });
 
   if (subtab === "servers") {
+    renderGameServers();
     loadGameServers();
     stopGameConsoleStream();
   } else if (subtab === "catalog") {
@@ -10536,8 +10549,12 @@ async function loadGameServers(forceToast = false) {
   try {
     const res = await fetch("/api/games/servers");
     const json = await res.json();
+    hasFetchedGameServersOnce = true;
     if (json.success && json.data) {
       gameServersData = json.data;
+      try {
+        localStorage.setItem("steveos_cached_game_servers", JSON.stringify(gameServersData));
+      } catch (_) {}
       renderGameServers();
       updateGameConsoleSelectOptions();
       const countEl = document.getElementById("count-game-servers") || document.getElementById("games-count-badge");
@@ -10548,6 +10565,7 @@ async function loadGameServers(forceToast = false) {
       if (forceToast) showToast("Serveurs de jeu actualisés", "info");
     }
   } catch (e) {
+    hasFetchedGameServersOnce = true;
     console.error("Échec du chargement des serveurs de jeu :", e);
   }
 }
@@ -10576,6 +10594,33 @@ function renderGameServers() {
   grid.className = currentGamesViewMode === "list" ? "games-grid mode-list" : "games-grid mode-grid";
 
   if (gameServersData.length === 0) {
+    if (!hasFetchedGameServersOnce) {
+      grid.innerHTML = `
+        <div class="game-skeleton-card">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div class="skeleton-line" style="width:48px; height:48px; border-radius:12px;"></div>
+            <div style="flex:1;">
+              <div class="skeleton-line" style="width:50%; height:18px; margin-bottom:8px;"></div>
+              <div class="skeleton-line" style="width:30%; height:12px;"></div>
+            </div>
+          </div>
+          <div class="skeleton-line" style="width:100%; height:75px; margin-top:14px; border-radius:8px;"></div>
+          <div class="skeleton-line" style="width:100%; height:40px; margin-top:auto; border-radius:8px;"></div>
+        </div>
+        <div class="game-skeleton-card">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div class="skeleton-line" style="width:48px; height:48px; border-radius:12px;"></div>
+            <div style="flex:1;">
+              <div class="skeleton-line" style="width:60%; height:18px; margin-bottom:8px;"></div>
+              <div class="skeleton-line" style="width:35%; height:12px;"></div>
+            </div>
+          </div>
+          <div class="skeleton-line" style="width:100%; height:75px; margin-top:14px; border-radius:8px;"></div>
+          <div class="skeleton-line" style="width:100%; height:40px; margin-top:auto; border-radius:8px;"></div>
+        </div>
+      `;
+      return;
+    }
     grid.innerHTML = `
       <div class="card" style="grid-column: 1 / -1; text-align:center; padding: 60px 20px;">
         <span style="font-size:3.5rem; display:block; margin-bottom:14px;">🎮</span>
