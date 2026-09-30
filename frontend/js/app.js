@@ -222,7 +222,7 @@ function switchTab(tabId) {
 // --------------------------------------------------------------------------
 async function refreshAll(showFeedback = false) {
   try {
-    await Promise.all([
+    await Promise.allSettled([
       loadSystem(),
       loadStorage(),
       loadServices(),
@@ -335,6 +335,9 @@ async function checkForUpdates(force = false) {
   if (force && refreshBtn) {
     refreshBtn.disabled = true;
     refreshBtn.innerHTML = `<span>⏳</span> Recherche...`;
+  }
+  if (lastUpdateStatus) {
+    renderUpdatesUI(lastUpdateStatus);
   }
   try {
     const res = await fetch(`/api/updates/status${force ? '?force=true' : ''}`);
@@ -494,8 +497,17 @@ function renderUpdatesUI(status) {
       if (btnSingleUpdateBadge) btnSingleUpdateBadge.style.display = "none";
     } else if (hasAnyUpdate) {
       if (btnSingleUpdateIcon) btnSingleUpdateIcon.textContent = "🚀";
-      const targetSha = status.config_remote_commit ? `vers ${status.config_remote_commit}` : (hasDashboardUpdate ? `(Dashboard)` : "");
-      if (btnSingleUpdateText) btnSingleUpdateText.textContent = `Mettre à jour STEvE_OS ${targetSha}`.trim();
+      let targetLabel = "";
+      if (hasConfigUpdate && status.config_remote_commit && status.config_remote_commit !== status.config_local_commit) {
+        targetLabel = `vers ${status.config_remote_commit}`;
+      } else if (hasDashboardUpdate) {
+        const tgtV = (status.dashboard_telemetry && status.dashboard_telemetry.target_version) || "nouvelle version";
+        targetLabel = `(Dashboard v${tgtV})`;
+      } else if (hasPkgUpdate) {
+        const count = status.package_updates_count || 1;
+        targetLabel = `(${count} paquet${count > 1 ? 's' : ''})`;
+      }
+      if (btnSingleUpdateText) btnSingleUpdateText.textContent = `Mettre à jour STEvE_OS ${targetLabel}`.trim();
       if (btnSingleUpdateBadge) {
         btnSingleUpdateBadge.style.display = "inline-block";
         btnSingleUpdateBadge.textContent = totalCount > 0 ? `${totalCount} màj` : "Prêt";
@@ -1634,10 +1646,11 @@ async function loadServices() {
     // Docker containers
     const contContainer = document.getElementById("containers-container");
     if (contContainer) {
-      if (data.containers.length === 0) {
+      const containers = Array.isArray(data.containers) ? data.containers : [];
+      if (containers.length === 0) {
         contContainer.innerHTML = `<p style="color:var(--subtext0); font-size:0.9rem;">Aucun conteneur Docker en cours d'exécution.</p>`;
       } else {
-        contContainer.innerHTML = data.containers.map(c => `
+        contContainer.innerHTML = containers.map(c => `
           <div class="container-card">
             <div class="container-header">
               <span class="container-name">🐳 ${escapeHtml(c.name)}</span>
@@ -8091,7 +8104,7 @@ async function loadNetwork(showFeedback = false) {
 
     // --- 1. Adresses IP & Hôte ---
     const lanIp = net.primary_lan_ip || "127.0.0.1";
-    const user = currentUser || "chomiam";
+    const user = (currentUserSession && currentUserSession.username) || "chomiam";
 
     // Mettre à jour les URI directes
     const sftpUri = `sftp://${user}@${lanIp}:22`;

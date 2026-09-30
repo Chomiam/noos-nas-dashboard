@@ -678,6 +678,18 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
                     if node_name == "steveos-nas-dashboard" {
                         dashboard_target_commit_full = Some(locked_rev.to_string());
                         dashboard_target_commit = Some(locked_rev[..7.min(locked_rev.len())].to_string());
+                        continue;
+                    }
+
+                    if node_name == "nixpkgs" {
+                        flake_inputs_status.push(FlakeInputStatus {
+                            name: node_name.clone(),
+                            locked_rev: locked_rev[..7.min(locked_rev.len())].to_string(),
+                            remote_rev: None,
+                            has_update: false,
+                            channel_or_ref: "nixos-26.05".to_string(),
+                        });
+                        continue;
                     }
 
                     let owner = original.and_then(|o| o.get("owner")).and_then(|o| o.as_str()).unwrap_or("");
