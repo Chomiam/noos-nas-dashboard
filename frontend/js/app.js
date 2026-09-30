@@ -10779,6 +10779,36 @@ function closeGameDeployProgressModal() {
   loadGameServers();
 }
 
+let isGameDeployModalExpanded = false;
+
+function toggleExpandGameDeployModal() {
+  const win = document.getElementById("game-deploy-modal-window");
+  const icon = document.getElementById("expand-deploy-icon");
+  const text = document.getElementById("expand-deploy-text");
+  const btn = document.getElementById("btn-toggle-expand-deploy");
+
+  isGameDeployModalExpanded = !isGameDeployModalExpanded;
+
+  if (win) {
+    if (isGameDeployModalExpanded) {
+      win.classList.add("deploy-expanded");
+    } else {
+      win.classList.remove("deploy-expanded");
+    }
+  }
+
+  if (icon) icon.textContent = isGameDeployModalExpanded ? "🗗" : "⛶";
+  if (text) text.textContent = isGameDeployModalExpanded ? "Réduire" : "Agrandir";
+  if (btn) btn.title = isGameDeployModalExpanded ? "Rétablir la taille normale" : "Agrandir la fenêtre";
+
+  const box = document.getElementById("game-deploy-logs-box");
+  if (box && deployAutoScrollEnabled) {
+    setTimeout(() => {
+      box.scrollTop = box.scrollHeight;
+    }, 120);
+  }
+}
+
 function minimizeGameDeployModal() {
   const modal = document.getElementById("modal-game-deploy-progress");
   const toast = document.getElementById("game-deploy-floating-toast");

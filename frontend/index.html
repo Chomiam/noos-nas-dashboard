@@ -4285,7 +4285,7 @@
 
   <!-- MODAL : PROGRESSION DU DÉPLOIEMENT DU SERVEUR DE JEU -->
   <div class="file-modal-overlay" id="modal-game-deploy-progress" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-game-deploy-progress')">
-    <div class="file-modal-window" style="max-width: 660px; border-color: rgba(203, 166, 247, 0.4); box-shadow: 0 16px 40px rgba(0,0,0,0.6);">
+    <div class="file-modal-window" id="game-deploy-modal-window" style="max-width: 680px; border-color: rgba(203, 166, 247, 0.4); box-shadow: 0 16px 40px rgba(0,0,0,0.6); transition: max-width 0.3s cubic-bezier(0.16, 1, 0.3, 1), width 0.3s ease;">
       <div class="file-modal-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: space-between; align-items: center;">
         <div style="display:flex; align-items:center; gap:10px;">
           <span class="badge badge-primary" id="game-deploy-modal-badge" style="font-weight:800; font-size:0.75rem;">SERVEUR DE JEU</span>
@@ -4293,6 +4293,9 @@
         </div>
         <div style="display:flex; align-items:center; gap:6px;">
           <button type="button" class="btn-minimize-modal" onclick="minimizeGameDeployModal()" title="Réduire en bas à droite" style="background:rgba(255,255,255,0.06); border:none; color:var(--text); border-radius:6px; cursor:pointer; font-size:0.85rem; padding:4px 9px;">🗕 Réduire</button>
+          <button type="button" class="btn-expand-modal" id="btn-toggle-expand-deploy" onclick="toggleExpandGameDeployModal()" title="Agrandir / Réduire la taille de la fenêtre" style="background:rgba(255,255,255,0.06); border:none; color:var(--text); border-radius:6px; cursor:pointer; font-size:0.85rem; padding:4px 9px; display:inline-flex; align-items:center; gap:5px;">
+            <span id="expand-deploy-icon">⛶</span> <span id="expand-deploy-text">Agrandir</span>
+          </button>
           <button type="button" class="btn-close-modal" onclick="closeGameDeployProgressModal()">&times;</button>
         </div>
       </div>
@@ -4344,9 +4347,9 @@
         <div class="deploy-terminal-wrapper">
           <div class="deploy-terminal-header">
             <div class="deploy-terminal-dots">
-              <span class="terminal-dot dot-red"></span>
-              <span class="terminal-dot dot-yellow"></span>
-              <span class="terminal-dot dot-green"></span>
+              <span class="terminal-dot dot-red" onclick="closeGameDeployProgressModal()" title="Fermer la fenêtre" style="cursor:pointer;"></span>
+              <span class="terminal-dot dot-yellow" onclick="minimizeGameDeployModal()" title="Réduire en bas à droite" style="cursor:pointer;"></span>
+              <span class="terminal-dot dot-green" onclick="toggleExpandGameDeployModal()" title="Agrandir / Rétablir la taille" style="cursor:pointer;"></span>
             </div>
             <div class="deploy-terminal-title" id="game-deploy-terminal-title">
               <span>⚡</span> steamcmd@container:~/games

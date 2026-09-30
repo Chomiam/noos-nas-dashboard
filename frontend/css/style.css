@@ -7126,3 +7126,28 @@ select.form-control option,
 .deploy-terminal-body::-webkit-scrollbar-thumb:hover {
   background: rgba(203, 166, 247, 0.6);
 }
+
+/* ================= DEPLOY MODAL EXPANDED / LARGE VIEW ================= */
+.file-modal-window.deploy-expanded {
+  max-width: min(1180px, 94vw) !important;
+  width: 94vw !important;
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.file-modal-window.deploy-expanded .deploy-terminal-body {
+  height: 460px !important;
+  transition: height 0.35s ease;
+}
+
+.file-modal-window.deploy-expanded .game-deploy-steps {
+  gap: 14px !important;
+}
+
+.file-modal-window.deploy-expanded .game-deploy-step-card {
+  padding: 14px 10px !important;
+  font-size: 0.82rem !important;
+}
+
+.file-modal-window.deploy-expanded .game-deploy-step-card .step-icon {
+  font-size: 1.55rem !important;
+}
