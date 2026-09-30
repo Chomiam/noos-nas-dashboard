@@ -346,15 +346,59 @@ pub fn sudo_binary() -> String {
     ])
 }
 
+pub fn user_exists(username: &str) -> bool {
+    if let Ok(content) = fs::read_to_string("/etc/passwd") {
+        for line in content.lines() {
+            if let Some(user) = line.split(':').next() {
+                if user.trim() == username {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+pub fn find_first_human_user() -> Option<String> {
+    if let Ok(content) = fs::read_to_string("/etc/passwd") {
+        for line in content.lines() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() >= 4 {
+                let username = parts[0].trim();
+                let uid: u32 = parts[2].trim().parse().unwrap_or(0);
+                if uid >= 1000 && uid < 60000 && username != "nobody" && !username.starts_with("nixbld") {
+                    return Some(username.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn get_user_home(username: &str) -> PathBuf {
+    if let Ok(content) = fs::read_to_string("/etc/passwd") {
+        for line in content.lines() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() >= 6 && parts[0].trim() == username {
+                let home = parts[5].trim();
+                if !home.is_empty() {
+                    return PathBuf::from(home);
+                }
+            }
+        }
+    }
+    PathBuf::from(format!("/home/{}", username))
+}
+
 pub fn target_user() -> String {
     if let Ok(u) = env::var("STEVEOS_USER") {
         let trimmed = u.trim();
-        if !trimmed.is_empty() {
+        if !trimmed.is_empty() && user_exists(trimmed) {
             return trimmed.to_string();
         }
     }
-    if Path::new("/home/chomiam").exists() {
-        return "chomiam".to_string();
+    if let Some(human) = find_first_human_user() {
+        return human;
     }
     "root".to_string()
 }
@@ -369,6 +413,8 @@ pub fn is_root_process() -> bool {
 
 pub fn create_user_command(bin: &str, args: &[&str]) -> Command {
     let user = target_user();
+    let home_path = get_user_home(&user);
+    let home_str = home_path.to_string_lossy().to_string();
     let is_root = is_root_process();
     let runuser_bin = "/run/current-system/sw/bin/runuser";
     let sudo_b = sudo_binary();
@@ -378,10 +424,10 @@ pub fn create_user_command(bin: &str, args: &[&str]) -> Command {
     if is_root && user != "root" && (Path::new(runuser_bin).exists() || Command::new("runuser").arg("--version").output().is_ok()) {
         let prog = if Path::new(runuser_bin).exists() { runuser_bin } else { "runuser" };
         let mut cmd = Command::new(prog);
-        cmd.args(["-u", &user, "--", "env", &format!("PATH={}", complete_path), &format!("HOME=/home/{}", user), &format!("USER={}", user), &format!("NH_FLAKE=/etc/nixos"), &format!("NH_ELEVATION_STRATEGY={}", sudo_b), bin]);
+        cmd.args(["-u", &user, "--", "env", &format!("PATH={}", complete_path), &format!("HOME={}", home_str), &format!("USER={}", user), &format!("NH_FLAKE=/etc/nixos"), &format!("NH_ELEVATION_STRATEGY={}", sudo_b), bin]);
         cmd.args(args);
         cmd.env("USER", &user);
-        cmd.env("HOME", format!("/home/{}", user));
+        cmd.env("HOME", &home_str);
         cmd.env("NH_FLAKE", "/etc/nixos");
         cmd.env("NH_ELEVATION_STRATEGY", &sudo_b);
         cmd.env("PATH", &complete_path);
@@ -390,7 +436,7 @@ pub fn create_user_command(bin: &str, args: &[&str]) -> Command {
         let mut cmd = Command::new(bin);
         cmd.args(args);
         cmd.env("USER", &user);
-        cmd.env("HOME", format!("/home/{}", user));
+        cmd.env("HOME", &home_str);
         cmd.env("NH_FLAKE", "/etc/nixos");
         cmd.env("NH_ELEVATION_STRATEGY", &sudo_b);
         cmd.env("PATH", &complete_path);
@@ -416,7 +462,8 @@ pub fn resolve_config_dir() -> PathBuf {
         return candidate1;
     }
 
-    let candidate2 = PathBuf::from("/home/chomiam/Projects/steveos-nas");
+    let user = target_user();
+    let candidate2 = get_user_home(&user).join("Projects/steveos-nas");
     if candidate2.exists() {
         return candidate2;
     }

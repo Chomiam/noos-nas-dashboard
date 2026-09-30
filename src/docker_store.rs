@@ -81,21 +81,11 @@ pub struct DockerActionResponse {
 }
 
 fn get_config_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("STEVEOS_CONFIG_DIR") {
-        let p = PathBuf::from(dir);
-        if p.exists() {
-            return p;
-        }
-    }
-    if Path::new("/etc/nixos").exists() {
-        PathBuf::from("/etc/nixos")
-    } else {
-        PathBuf::from("/home/chomiam/Projects/steveos-nas")
-    }
+    crate::updates::resolve_config_dir()
 }
 
 fn get_target_user() -> String {
-    std::env::var("STEVEOS_USER").unwrap_or_else(|_| "chomiam".to_string())
+    crate::updates::target_user()
 }
 
 pub fn get_running_containers_map() -> HashMap<String, (String, String, bool)> {

@@ -122,6 +122,7 @@ pub struct MeResponse {
     pub authenticated: bool,
     pub username: String,
     pub is_admin: bool,
+    pub home_dir: String,
     pub expires_at: u64,
 }
 
@@ -534,6 +535,7 @@ async fn handle_me(req: Request) -> Response {
                         authenticated: true,
                         username: session.username.clone(),
                         is_admin: session.is_admin,
+                        home_dir: crate::updates::get_user_home(&session.username).to_string_lossy().to_string(),
                         expires_at: session.expires_at,
                     }),
                 )
@@ -555,6 +557,7 @@ async fn handle_me(req: Request) -> Response {
                     authenticated: true,
                     username: session.username.clone(),
                     is_admin: session.is_admin,
+                    home_dir: crate::updates::get_user_home(&session.username).to_string_lossy().to_string(),
                     expires_at: session.expires_at,
                 }),
             )

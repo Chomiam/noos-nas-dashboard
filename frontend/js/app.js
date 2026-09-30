@@ -5,6 +5,25 @@
 const AUTH_TOKEN_KEY = "steveos_auth_token";
 let currentUserSession = null;
 let isAppInitialized = false;
+let currentUserHome = "";
+
+function getUserHome() {
+  if (currentUserHome && currentUserHome !== "/root") {
+    return currentUserHome;
+  }
+  if (currentUserSession && currentUserSession.home_dir && currentUserSession.home_dir !== "/root") {
+    currentUserHome = currentUserSession.home_dir;
+    return currentUserHome;
+  }
+  const u = (currentUserSession && currentUserSession.username) || "steveos";
+  return `/home/${u}`;
+}
+
+function navigateToUserFolder(sub) {
+  const base = getUserHome();
+  const target = sub ? `${base}/${sub}` : base;
+  navigateToPath(target);
+}
 
 function getAuthToken() {
   try {
@@ -6583,10 +6602,10 @@ function setYoutubeFormat(fmt) {
   // Auto-switch destination directory if default
   const destInput = document.getElementById("yt-dest-dir-input");
   if (destInput) {
-    if (fmt === "mp3" && destInput.value === "/home/chomiam/videos") {
-      destInput.value = "/home/chomiam/musique";
-    } else if (fmt === "mp4" && destInput.value === "/home/chomiam/musique") {
-      destInput.value = "/home/chomiam/videos";
+    if (fmt === "mp3" && destInput.value === (getUserHome() + "/videos")) {
+      destInput.value = getUserHome() + "/musique";
+    } else if (fmt === "mp4" && destInput.value === (getUserHome() + "/musique")) {
+      destInput.value = getUserHome() + "/videos";
     }
   }
 }
@@ -6716,8 +6735,8 @@ async function fetchYoutubePreview() {
 
     // Default dest dir according to format
     const destInput = document.getElementById("yt-dest-dir-input");
-    if (destInput && (!destInput.value || destInput.value === "/home/chomiam/videos" || destInput.value === "/home/chomiam/musique")) {
-      destInput.value = currentYoutubeFormat === "mp3" ? "/home/chomiam/musique" : "/home/chomiam/videos";
+    if (destInput && (!destInput.value || destInput.value === (getUserHome() + "/videos") || destInput.value === (getUserHome() + "/musique"))) {
+      destInput.value = currentYoutubeFormat === "mp3" ? (getUserHome() + "/musique") : (getUserHome() + "/videos");
     }
 
     if (previewBox) {
@@ -6749,7 +6768,7 @@ async function startYoutubeDownload() {
     return;
   }
 
-  const dest_dir = destInput ? destInput.value.trim() : (currentYoutubeFormat === "mp3" ? "/home/chomiam/musique" : "/home/chomiam/videos");
+  const dest_dir = destInput ? destInput.value.trim() : (currentYoutubeFormat === "mp3" ? (getUserHome() + "/musique") : (getUserHome() + "/videos"));
   const custom_name = filenameInput ? filenameInput.value.trim() : "";
 
   if (downloadBtn) downloadBtn.disabled = true;
@@ -6868,7 +6887,7 @@ function renderYoutubeJobs(jobs) {
       statusBadge = `<span class="youtube-job-badge completed">✅ Terminé</span>`;
     } else if (job.status === "cancelled") {
       statusBadge = `<span class="youtube-job-badge cancelled">⚠️ Annulé</span>`;
-      const targetDir = job.output_dir || "/home/chomiam";
+      const targetDir = job.output_dir || getUserHome();
       actionBtn = `
         <button type="button" class="btn btn-secondary btn-xs" onclick="navigateToPath('${targetDir.replace(/'/g, "\'")}')" title="Ouvrir le dossier dans le gestionnaire">
           📂 Voir dossier
@@ -6880,7 +6899,7 @@ function renderYoutubeJobs(jobs) {
     }
 
     const fmtIcon = job.format === "mp3" ? "🎵 MP3" : "🎬 MP4";
-    const displayDir = job.output_dir || job.output_file || "/home/chomiam";
+    const displayDir = job.output_dir || job.output_file || getUserHome();
     const errMsg = job.error_message || job.error;
 
     return `
@@ -7333,7 +7352,7 @@ function filterStoreApps() {
         <div class="store-app-meta-row">
           <span>Port : <strong class="store-port-tag">${app.default_port || 'N/A'}</strong></span>
           <span>•</span>
-          <span>Données : <code style="color:var(--mauve); font-size:0.75rem;">/home/chomiam/docker/${escapeHtml(app.id)}</code></span>
+          <span>Données : <code style="color:var(--mauve); font-size:0.75rem;">${getUserHome()}/docker/${escapeHtml(app.id)}</code></span>
         </div>
 
         <div class="store-app-bottom">
@@ -7391,7 +7410,7 @@ function openStoreAppModal(appId) {
   if (iconEl) iconEl.src = app.icon;
   if (descEl) descEl.textContent = app.description;
   if (portEl) portEl.textContent = app.default_port ? `TCP ${app.default_port}` : "Aucun";
-  if (dataPathEl) dataPathEl.textContent = `/home/chomiam/docker/${app.id}`;
+  if (dataPathEl) dataPathEl.textContent = `${getUserHome()}/docker/${app.id}`;
   if (nixPathEl) nixPathEl.textContent = `/etc/nixos/docker/${app.id}.nix`;
   if (websiteEl) {
     websiteEl.href = app.website || "#";
@@ -7481,7 +7500,7 @@ function openDockerConfigModal(appId, customData = null) {
   const title = app ? app.name : appId;
   const icon = app && app.icon ? app.icon : "/favicon.ico";
   const defaultPort = app && app.default_port ? app.default_port : "";
-  const dataDir = `/home/chomiam/docker/${appId}`;
+  const dataDir = `${getUserHome()}/docker/${appId}`;
 
   document.getElementById("config-app-id").value = appId;
   document.getElementById("config-app-title").textContent = `Configuration : ${title}`;
@@ -7515,10 +7534,10 @@ function openDockerConfigModal(appId, customData = null) {
       mediaSection.style.display = "flex";
       const mediaInput = document.getElementById("config-app-media-dir");
       if (mediaInput && (!mediaInput.value || mediaInput.dataset.app !== appId)) {
-        mediaInput.value = "/home/chomiam/videos";
+        mediaInput.value = getUserHome() + "/videos";
         mediaInput.dataset.app = appId;
       }
-      selectMediaPreset(mediaInput ? mediaInput.value : "/home/chomiam/videos", false);
+      selectMediaPreset(mediaInput ? mediaInput.value : (getUserHome() + "/videos"), false);
     } else {
       mediaSection.style.display = "none";
     }
@@ -7586,7 +7605,7 @@ function selectMediaPreset(path, updateInput = true) {
 
 function updateMediaFolderPreviews() {
   const mediaInput = document.getElementById("config-app-media-dir");
-  const base = (mediaInput && mediaInput.value.trim()) ? mediaInput.value.trim().replace(/\/+$/, "") : "/home/chomiam/videos";
+  const base = (mediaInput && mediaInput.value.trim()) ? mediaInput.value.trim().replace(/\/+$/, "") : (getUserHome() + "/videos");
 
   const pMovies = document.getElementById("preview-folder-movies");
   const pTv = document.getElementById("preview-folder-tv");
@@ -7662,7 +7681,7 @@ function openDockerComposeNvimPreview() {
   const appId = document.getElementById("config-app-id").value.trim() || "service";
   const title = document.getElementById("config-app-title").textContent.replace("Configuration : ", "").trim() || appId;
   const port = document.getElementById("config-app-port").value.trim() || "8080";
-  const dataDir = document.getElementById("config-app-data-dir").value.trim() || `/home/chomiam/docker/${appId}`;
+  const dataDir = document.getElementById("config-app-data-dir").value.trim() || `${getUserHome()}/docker/${appId}`;
 
   const mediaSection = document.getElementById("config-media-section");
   const isMedia = mediaSection && mediaSection.style.display !== "none";
@@ -7763,7 +7782,7 @@ function openDockerComposeNvimPreview() {
     `docker-compose.yml (${title})`,
     composeYaml,
     "yaml",
-    `/home/chomiam/docker/${appId}/docker-compose.yml`
+    `${getUserHome()}/docker/${appId}/docker-compose.yml`
   );
 }
 
@@ -7871,10 +7890,10 @@ async function submitDockerDeploy() {
 }
 
 async function uninstallStoreApp(appId, appName) {
-  const deleteData = confirm(`Désinstaller l'application '${appName}' ?\n\nCliquez sur OK pour désinstaller.\n(Vous pourrez choisir à l'étape suivante si vous souhaitez conserver ou effacer les données dans /home/chomiam/docker/${appId}).`);
+  const deleteData = confirm(`Désinstaller l'application '${appName}' ?\n\nCliquez sur OK pour désinstaller.\n(Vous pourrez choisir à l'étape suivante si vous souhaitez conserver ou effacer les données dans ${getUserHome()}/docker/${appId}).`);
   if (!deleteData) return;
 
-  const purge = confirm(`Voulez-vous également SUPPRIMER définitivement les données de /home/chomiam/docker/${appId} ?\n\n- Cliquez sur OK pour SUPPRIMER les fichiers.\n- Cliquez sur Annuler pour CONSERVER les données de configuration.`);
+  const purge = confirm(`Voulez-vous également SUPPRIMER définitivement les données de ${getUserHome()}/docker/${appId} ?\n\n- Cliquez sur OK pour SUPPRIMER les fichiers.\n- Cliquez sur Annuler pour CONSERVER les données de configuration.`);
 
   showToast(`Désinstallation de ${appName}...`, "info");
   try {
@@ -7972,6 +7991,7 @@ async function checkAuthSession() {
       const data = await res.json();
       if (data.success || data.authenticated) {
         currentUserSession = data;
+        if (data.home_dir) currentUserHome = data.home_dir;
         updateUserSessionUI(data);
         hideLoginModal();
         if (!isAppInitialized) {
@@ -8186,7 +8206,7 @@ async function loadNetwork(showFeedback = false) {
 
     // --- 1. Adresses IP & Hôte ---
     const lanIp = net.primary_lan_ip || "127.0.0.1";
-    const user = (currentUserSession && currentUserSession.username) || "chomiam";
+    const user = (currentUserSession && currentUserSession.username) || "steveos";
 
     // Mettre à jour les URI directes
     const sftpUri = `sftp://${user}@${lanIp}:22`;

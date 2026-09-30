@@ -671,7 +671,8 @@ pub fn get_games_base_dir() -> PathBuf {
     if p.exists() || fs::create_dir_all(&p).is_ok() {
         return p;
     }
-    let fallback = PathBuf::from("/home/chomiam/docker/games");
+    let user = crate::updates::target_user();
+    let fallback = crate::updates::get_user_home(&user).join("docker/games");
     let _ = fs::create_dir_all(&fallback);
     fallback
 }

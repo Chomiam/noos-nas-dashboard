@@ -981,7 +981,7 @@ pub fn target_user() -> String {
             }
         }
     }
-    "chomiam".to_string()
+    crate::updates::target_user()
 }
 
 fn resolve_uid_name(uid: u32) -> String {

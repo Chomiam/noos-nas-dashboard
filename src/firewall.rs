@@ -91,10 +91,15 @@ pub fn get_firewall_state_paths() -> Vec<PathBuf> {
     }
 
     // 3. Emplacements connus classiques
+    let u = crate::updates::target_user();
+    let user_dev_state = crate::updates::get_user_home(&u).join("Projects/steveos-nas/firewall-state.json");
+    if !paths.contains(&user_dev_state) {
+        paths.push(user_dev_state);
+    }
+
     for p in &[
         "/etc/nixos/firewall-state.json",
         "/etc/nixos/steveos-nas/firewall-state.json",
-        "/home/chomiam/Projects/steveos-nas/firewall-state.json",
         "./firewall-state.json",
     ] {
         let pb = PathBuf::from(p);
@@ -118,10 +123,15 @@ pub fn get_firewall_rules_paths() -> Vec<PathBuf> {
     }
 
     // 3. Emplacements connus
+    let u = crate::updates::target_user();
+    let user_dev_rules = crate::updates::get_user_home(&u).join("Projects/steveos-nas/firewall-rules.json");
+    if !paths.contains(&user_dev_rules) {
+        paths.push(user_dev_rules);
+    }
+
     for p in &[
         "/etc/nixos/firewall-rules.json",
         "/etc/nixos/steveos-nas/firewall-rules.json",
-        "/home/chomiam/Projects/steveos-nas/firewall-rules.json",
         "./firewall-rules.json",
     ] {
         let pb = PathBuf::from(p);

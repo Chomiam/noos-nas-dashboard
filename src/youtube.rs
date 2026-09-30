@@ -45,7 +45,9 @@ fn default_format() -> Option<String> {
 }
 
 fn default_output_dir() -> Option<String> {
-    Some("/home/chomiam/videos".to_string())
+    let u = crate::updates::target_user();
+    let home = crate::updates::get_user_home(&u);
+    Some(home.join("videos").to_string_lossy().to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -205,7 +207,9 @@ pub fn start_youtube_download(req: YoutubeDownloadRequest) -> Result<String, Str
     let is_mp3 = format_str == "mp3";
     let ext = if is_mp3 { "mp3" } else { "mp4" };
 
-    let default_dir = if is_mp3 { "/home/chomiam/musique".to_string() } else { "/home/chomiam/videos".to_string() };
+    let u = crate::updates::target_user();
+    let home = crate::updates::get_user_home(&u);
+    let default_dir = if is_mp3 { home.join("musique").to_string_lossy().to_string() } else { home.join("videos").to_string_lossy().to_string() };
     let out_dir_raw = req.output_dir.unwrap_or(default_dir);
     let norm_dir = crate::files::normalize_user_path(PathBuf::from(out_dir_raw.trim()));
     if !norm_dir.exists() {
@@ -397,9 +401,10 @@ pub fn start_youtube_download(req: YoutubeDownloadRequest) -> Result<String, Str
                         });
                     }
 
-                    // Fix permissions pour l'utilisateur chomiam (1000:100)
+                    // Fix permissions pour l'utilisateur principal
+                    let u = crate::updates::target_user();
                     let _ = std::process::Command::new("chown")
-                        .arg("1000:100")
+                        .arg(format!("{}:users", u))
                         .arg(&target_file_path_clone)
                         .status();
                 }

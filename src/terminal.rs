@@ -49,8 +49,11 @@ pub fn execute_command(req: ExecRequest) -> ExecResponse {
     }
 
     // Gestion du cd interactif
+    let target_u = crate::updates::target_user();
+    let default_home = crate::updates::get_user_home(&target_u).to_string_lossy().to_string();
     if cmd == "cd" || cmd == "cd ~" {
-        let home = env::var("HOME").unwrap_or_else(|_| "/home/chomiam".to_string());
+        let raw_home = env::var("HOME").unwrap_or_else(|_| default_home.clone());
+        let home = if raw_home == "/root" { default_home.clone() } else { raw_home };
         current_cwd = PathBuf::from(home);
         return ExecResponse {
             success: true,
@@ -67,7 +70,8 @@ pub fn execute_command(req: ExecRequest) -> ExecResponse {
         let target_path = if target.starts_with('/') {
             PathBuf::from(target)
         } else if let Some(stripped) = target.strip_prefix("~/") {
-            let home = env::var("HOME").unwrap_or_else(|_| "/home/chomiam".to_string());
+            let raw_home = env::var("HOME").unwrap_or_else(|_| default_home.clone());
+            let home = if raw_home == "/root" { default_home.clone() } else { raw_home };
             PathBuf::from(home).join(stripped)
         } else {
             current_cwd.join(target)
@@ -263,10 +267,12 @@ fn resolve_cwd(cwd_opt: Option<&str>) -> PathBuf {
         return p1;
     }
 
-    let p2 = PathBuf::from("/home/chomiam/Projects/steveos-nas");
+    let target_u = crate::updates::target_user();
+    let user_home = crate::updates::get_user_home(&target_u);
+    let p2 = user_home.join("Projects/steveos-nas");
     if p2.is_dir() {
         return p2;
     }
 
-    PathBuf::from("/home/chomiam")
+    user_home
 }

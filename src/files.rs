@@ -110,7 +110,10 @@ pub fn normalize_user_path(target: PathBuf) -> PathBuf {
 }
 
 pub fn list_directory(req_path: Option<&str>) -> Result<DirectoryListing, String> {
-    let home = env::var("HOME").unwrap_or_else(|_| "/home/chomiam".to_string());
+    let target_u = crate::updates::target_user();
+    let user_home = crate::updates::get_user_home(&target_u).to_string_lossy().to_string();
+    let raw_home = env::var("HOME").unwrap_or_else(|_| user_home.clone());
+    let home = if raw_home == "/root" { user_home } else { raw_home };
     let raw_target = req_path
         .map(|p| p.trim())
         .filter(|p| !p.is_empty())
@@ -1098,7 +1101,7 @@ pub fn compress_items(req: CompressRequest) -> Result<String, String> {
 
     match status {
         Ok(s) if s.success() => {
-            let user = std::env::var("STEVEOS_USER").unwrap_or_else(|_| "chomiam".to_string());
+            let user = crate::updates::target_user();
             let _ = std::process::Command::new("chown").args([&format!("{}:users", user), archive_path.to_str().unwrap_or_default()]).output();
             Ok(format!("Archive créée avec succès : {}", clean_name))
         }
@@ -1162,7 +1165,7 @@ pub fn extract_archive(req: ExtractRequest) -> Result<String, String> {
         return Err(format!("Échec de l'extraction : {}", stderr.trim()));
     }
 
-    let user = std::env::var("STEVEOS_USER").unwrap_or_else(|_| "chomiam".to_string());
+    let user = crate::updates::target_user();
     let _ = std::process::Command::new("chown").args(["-R", &format!("{}:users", user), dest_dir.to_str().unwrap_or_default()]).output();
 
     Ok(format!("Archive extraite avec succès dans {}", dest_dir.display()))

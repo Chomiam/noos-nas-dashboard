@@ -44,15 +44,15 @@ pub fn start_background_pruner() {
 }
 
 fn get_configured_user() -> String {
-    std::env::var("STEVEOS_USER").unwrap_or_else(|_| "chomiam".to_string())
+    crate::updates::target_user()
 }
 
 pub fn get_all_trash_dirs() -> Vec<PathBuf> {
     let mut list = Vec::new();
     let user = get_configured_user();
 
-    // 1. Corbeille principale utilisateur (/home/{user}/.local/share/Trash)
-    let home_trash = PathBuf::from("/home").join(&user).join(".local/share/Trash");
+    // 1. Corbeille principale utilisateur ({user_home}/.local/share/Trash)
+    let home_trash = crate::updates::get_user_home(&user).join(".local/share/Trash");
     list.push(home_trash);
 
     // 2. Corbeille du volume de stockage dédié (/mnt/storage/.Trash-1000)

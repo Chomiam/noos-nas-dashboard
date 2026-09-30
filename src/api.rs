@@ -423,7 +423,7 @@ async fn handle_terminal_exec(Json(req): Json<ExecRequest>) -> Json<ApiResponse<
         stdout: String::new(),
         stderr: format!("Erreur serveur interne : {}", e),
         exit_code: -1,
-        cwd: "/home/chomiam".to_string(),
+        cwd: crate::updates::get_user_home(&crate::updates::target_user()).to_string_lossy().to_string(),
         duration_ms: 0,
     });
 
@@ -938,7 +938,7 @@ async fn handle_files_upload(
     use tokio::io::AsyncWriteExt;
 
     let target_dir = crate::files::normalize_user_path(PathBuf::from(
-        params.dir.unwrap_or_else(|| "/home/chomiam".to_string())
+        params.dir.unwrap_or_else(|| crate::updates::get_user_home(&crate::updates::target_user()).to_string_lossy().to_string())
     ));
     if !target_dir.is_dir() {
         return Json(ApiResponse {
