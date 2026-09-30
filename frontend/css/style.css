@@ -7151,3 +7151,525 @@ select.form-control option,
 .file-modal-window.deploy-expanded .game-deploy-step-card .step-icon {
   font-size: 1.55rem !important;
 }
+
+
+/* ================= GAME SERVERS SUBTABS (SEGMENTED NAV PILLS) ================= */
+.games-nav-pills-container {
+  display: flex;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.games-nav-pills {
+  display: inline-flex;
+  background: rgba(17, 17, 27, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 5px;
+  gap: 6px;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), inset 0 1px 2px rgba(255, 255, 255, 0.05);
+}
+
+.games-subtab-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--subtext0);
+  padding: 8px 18px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.games-subtab-btn .subtab-icon {
+  font-size: 1.05rem;
+  line-height: 1;
+  transition: transform 0.2s ease;
+}
+
+.games-subtab-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.08);
+  transform: translateY(-1px);
+}
+
+.games-subtab-btn:hover .subtab-icon {
+  transform: scale(1.1);
+}
+
+.games-subtab-btn.active {
+  background: linear-gradient(135deg, rgba(203, 166, 247, 0.22), rgba(137, 180, 250, 0.15));
+  color: #ffffff;
+  border: 1px solid rgba(203, 166, 247, 0.45);
+  box-shadow: 0 4px 16px rgba(203, 166, 247, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  font-weight: 700;
+}
+
+.games-subtab-btn .badge {
+  margin-left: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(137, 180, 250, 0.2);
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+.games-subtab-btn.active .badge {
+  background: var(--mauve) !important;
+  color: #11111b !important;
+  font-weight: 800;
+}
+
+/* ================= GAME CONSOLE & CONTROL RELOOKING ================= */
+.game-console-card {
+  background: rgba(24, 24, 37, 0.65);
+  border: 1px solid rgba(203, 166, 247, 0.22);
+  border-radius: 18px;
+  padding: 20px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(14px);
+  transition: all 0.3s ease;
+}
+
+.game-console-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  margin-bottom: 18px;
+}
+
+.game-console-selector-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.game-console-label {
+  font-weight: 700;
+  color: var(--text);
+  font-size: 0.92rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.game-console-select-wrapper {
+  position: relative;
+  min-width: 250px;
+}
+
+.game-console-select {
+  width: 100%;
+  appearance: none;
+  background: #11111b url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23cdd6f4' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E") no-repeat right 12px center;
+  border: 1px solid rgba(203, 166, 247, 0.35);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 8px 34px 8px 14px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+  transition: all 0.2s ease;
+}
+
+.game-console-select:focus {
+  border-color: var(--mauve);
+  box-shadow: 0 0 0 3px rgba(203, 166, 247, 0.2), inset 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.game-console-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.game-console-status.badge-online {
+  background: rgba(166, 227, 161, 0.15);
+  color: var(--green);
+  border: 1px solid rgba(166, 227, 161, 0.35);
+}
+
+.game-console-status.badge-stopped {
+  background: rgba(243, 139, 168, 0.12);
+  color: var(--red);
+  border: 1px solid rgba(243, 139, 168, 0.3);
+}
+
+.status-pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.game-console-status.badge-online .status-pulse-dot {
+  box-shadow: 0 0 8px var(--green);
+  animation: pulse-dot 1.8s infinite;
+}
+
+.game-console-stats-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.game-stat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(17, 17, 27, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+  padding: 5px 11px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.game-stat-chip .chip-label {
+  color: var(--subtext0);
+  font-weight: 600;
+}
+
+.game-stat-chip .chip-value {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.chip-cpu { border-color: rgba(137, 180, 250, 0.25); }
+.chip-cpu .chip-value { color: var(--blue); }
+
+.chip-ram { border-color: rgba(203, 166, 247, 0.25); }
+.chip-ram .chip-value { color: var(--mauve); }
+
+/* Boutons d'alimentation stylises */
+.game-console-power-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-game-power {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border-radius: 9px;
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.btn-game-power .power-icon {
+  font-size: 0.85rem;
+}
+
+.btn-power-start {
+  background: linear-gradient(135deg, rgba(166, 227, 161, 0.2), rgba(166, 227, 161, 0.08));
+  color: #a6e3a1;
+  border-color: rgba(166, 227, 161, 0.4);
+}
+.btn-power-start:hover {
+  background: linear-gradient(135deg, rgba(166, 227, 161, 0.35), rgba(166, 227, 161, 0.18));
+  box-shadow: 0 4px 14px rgba(166, 227, 161, 0.25);
+  transform: translateY(-1px);
+}
+
+.btn-power-restart {
+  background: linear-gradient(135deg, rgba(137, 180, 250, 0.2), rgba(137, 180, 250, 0.08));
+  color: #89b4fa;
+  border-color: rgba(137, 180, 250, 0.4);
+}
+.btn-power-restart:hover {
+  background: linear-gradient(135deg, rgba(137, 180, 250, 0.35), rgba(137, 180, 250, 0.18));
+  box-shadow: 0 4px 14px rgba(137, 180, 250, 0.25);
+  transform: translateY(-1px);
+}
+
+.btn-power-stop {
+  background: linear-gradient(135deg, rgba(243, 139, 168, 0.2), rgba(243, 139, 168, 0.08));
+  color: #f38ba8;
+  border-color: rgba(243, 139, 168, 0.4);
+}
+.btn-power-stop:hover {
+  background: linear-gradient(135deg, rgba(243, 139, 168, 0.35), rgba(243, 139, 168, 0.18));
+  box-shadow: 0 4px 14px rgba(243, 139, 168, 0.25);
+  transform: translateY(-1px);
+}
+
+/* ================= GAME TERMINAL HIGH-FIDELITY ================= */
+.game-terminal-container {
+  background: #0d0e17;
+  border: 1px solid rgba(203, 166, 247, 0.3);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", "SF Mono", Consolas, monospace;
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Mode etendu / Plein ecran de la console */
+.game-terminal-container.expanded {
+  position: fixed;
+  top: 15px;
+  left: 15px;
+  right: 15px;
+  bottom: 15px;
+  z-index: 1000;
+  border-radius: 16px;
+  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.85);
+  border: 1px solid rgba(203, 166, 247, 0.6);
+  display: flex;
+  flex-direction: column;
+}
+
+.game-terminal-container.expanded .game-terminal-body {
+  height: calc(100vh - 170px) !important;
+  max-height: none !important;
+  flex: 1;
+}
+
+.game-terminal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #141524;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.game-terminal-dots {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+
+.game-terminal-title {
+  font-size: 0.78rem;
+  color: var(--subtext0);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-terminal-title .term-title-icon {
+  color: var(--mauve);
+}
+
+.game-terminal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.game-term-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: var(--subtext0);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.2s ease;
+}
+
+.game-term-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.game-term-select {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: var(--subtext0);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+}
+
+.game-terminal-body {
+  height: 480px;
+  overflow-y: auto;
+  padding: 14px 16px;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  background: #0d0e17;
+  color: #cdd6f4;
+  scroll-behavior: smooth;
+}
+
+.game-terminal-welcome {
+  text-align: center;
+  padding: 80px 20px;
+}
+
+/* Lignes et coloration syntaxique */
+.game-term-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 1.5em;
+  font-family: inherit;
+}
+
+.game-term-line:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.game-term-num {
+  width: 44px;
+  text-align: right;
+  color: #45475a;
+  user-select: none;
+  font-size: 0.72rem;
+  flex-shrink: 0;
+  padding-top: 1px;
+}
+
+.game-term-text {
+  flex: 1;
+  word-break: break-all;
+  white-space: pre-wrap;
+  color: #cdd6f4;
+}
+
+.game-term-text.log-term-warn {
+  color: #f9e2af;
+  font-weight: 600;
+}
+
+.game-term-text.log-term-error {
+  color: #f38ba8;
+  font-weight: 700;
+}
+
+.game-term-text.log-term-info {
+  color: #89b4fa;
+}
+
+.game-term-text.log-term-success {
+  color: #a6e3a1;
+  font-weight: 600;
+}
+
+.game-term-text.log-term-progress {
+  color: #cba6f7;
+  font-weight: 600;
+}
+
+.game-term-text.log-term-debug {
+  color: #6c7086;
+}
+
+/* Custom Scrollbar */
+.game-terminal-body::-webkit-scrollbar {
+  width: 7px;
+}
+.game-terminal-body::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+}
+.game-terminal-body::-webkit-scrollbar-thumb {
+  background: rgba(203, 166, 247, 0.3);
+  border-radius: 999px;
+}
+.game-terminal-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(203, 166, 247, 0.6);
+}
+
+/* Ligne de commande interactive */
+.game-terminal-prompt-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #141524;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.prompt-symbol {
+  color: var(--mauve);
+  font-weight: 800;
+  font-size: 1rem;
+  user-select: none;
+}
+
+.game-terminal-input {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.game-terminal-input:focus {
+  border-color: var(--mauve);
+  box-shadow: 0 0 0 2px rgba(203, 166, 247, 0.2);
+}
+
+.game-terminal-send-btn {
+  background: linear-gradient(135deg, var(--mauve), var(--blue));
+  border: none;
+  color: #11111b;
+  font-weight: 800;
+  font-size: 0.82rem;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 3px 10px rgba(203, 166, 247, 0.25);
+}
+
+.game-terminal-send-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 16px rgba(203, 166, 247, 0.4);
+}
+
+.send-shortcut {
+  font-size: 0.72rem;
+  opacity: 0.7;
+}

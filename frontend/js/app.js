@@ -10350,11 +10350,21 @@ async function confirmDeleteGameServer(id, name) {
 }
 
 // --------------------------------------------------------------------------
-// CONSOLE TERMINALE EN DIRECT
+// CONSOLE TERMINALE HAUTE FIDÉLITÉ EN DIRECT
 // --------------------------------------------------------------------------
+let gameConsoleAutoScrollEnabled = true;
+let isGameConsoleExpanded = false;
+
 function updateGameConsoleSelectOptions() {
   const sel = document.getElementById("game-console-server-select");
   if (!sel) return;
+
+  if (gameServersData.length === 0) {
+    sel.innerHTML = '<option value="">Aucun serveur déployé</option>';
+    activeConsoleServerId = null;
+    updateConsoleHeaderStats(null);
+    return;
+  }
 
   sel.innerHTML = gameServersData.map(s => `
     <option value="${s.id}" ${s.id === activeConsoleServerId ? 'selected' : ''}>
@@ -10365,10 +10375,48 @@ function updateGameConsoleSelectOptions() {
   if (!activeConsoleServerId && gameServersData.length > 0) {
     activeConsoleServerId = gameServersData[0].id;
   }
+  const current = gameServersData.find(s => s.id === activeConsoleServerId) || gameServersData[0];
+  updateConsoleHeaderStats(current);
+}
+
+function updateConsoleHeaderStats(server) {
+  const statusPill = document.getElementById("game-console-status-pill");
+  const statusText = document.getElementById("game-console-status-text");
+  const cpuVal = document.getElementById("game-console-cpu-val");
+  const ramVal = document.getElementById("game-console-ram-val");
+  const titleEl = document.getElementById("game-term-title");
+
+  if (!server) {
+    if (statusPill) statusPill.className = "game-console-status badge-stopped";
+    if (statusText) statusText.textContent = "AUCUN SERVEUR";
+    if (cpuVal) cpuVal.textContent = "0.0%";
+    if (ramVal) ramVal.textContent = "0 Mo / 0 Mo";
+    if (titleEl) titleEl.textContent = "Console : Aucun serveur sélectionné";
+    return;
+  }
+
+  const isOnline = server.status === 'online';
+  if (statusPill) {
+    statusPill.className = `game-console-status ${isOnline ? 'badge-online' : 'badge-stopped'}`;
+  }
+  if (statusText) {
+    statusText.textContent = isOnline ? 'EN LIGNE' : 'ARRÊTÉ';
+  }
+  if (cpuVal) {
+    cpuVal.textContent = `${(server.cpu_percent || 0).toFixed(1)}%`;
+  }
+  if (ramVal) {
+    ramVal.textContent = `${server.memory_used_mb || 0} Mo / ${server.memory_mb || 0} Mo`;
+  }
+  if (titleEl) {
+    titleEl.textContent = `container@steveos-nas:~/games/${server.id} (${server.name} • ${server.container_name})`;
+  }
 }
 
 function openServerConsoleView(id) {
   activeConsoleServerId = id;
+  const sel = document.getElementById("game-console-server-select");
+  if (sel) sel.value = id;
   switchGamesSubtab("console");
 }
 
@@ -10376,8 +10424,106 @@ function onGameConsoleServerChange() {
   const sel = document.getElementById("game-console-server-select");
   if (sel) {
     activeConsoleServerId = sel.value;
+    const current = gameServersData.find(s => s.id === activeConsoleServerId);
+    updateConsoleHeaderStats(current);
     fetchGameConsoleLogs();
   }
+}
+
+function toggleGameConsoleAutoScroll() {
+  gameConsoleAutoScrollEnabled = !gameConsoleAutoScrollEnabled;
+  const dot = document.getElementById("game-console-autoscroll-dot");
+  if (dot) dot.className = `terminal-status-dot ${gameConsoleAutoScrollEnabled ? 'active' : ''}`;
+  if (gameConsoleAutoScrollEnabled) {
+    const box = document.getElementById("game-terminal-output");
+    if (box) box.scrollTop = box.scrollHeight;
+  }
+}
+
+function handleGameConsoleTerminalScroll() {
+  const box = document.getElementById("game-terminal-output");
+  if (!box) return;
+  const isNearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  if (!isNearBottom && gameConsoleAutoScrollEnabled) {
+    gameConsoleAutoScrollEnabled = false;
+    const dot = document.getElementById("game-console-autoscroll-dot");
+    if (dot) dot.className = "terminal-status-dot";
+  }
+}
+
+function copyGameConsoleLogs() {
+  const box = document.getElementById("game-terminal-output");
+  if (!box) return;
+  const text = box.innerText || box.textContent;
+  if (!text || text.includes("Sélectionnez un serveur")) {
+    showToast("Aucun log à copier.", "warning");
+    return;
+  }
+  navigator.clipboard.writeText(text).then(() => {
+    showToast("Logs de la console copiés dans le presse-papiers !", "success");
+  }).catch(() => {
+    showToast("Impossible d'accéder au presse-papiers.", "error");
+  });
+}
+
+function clearGameTerminal() {
+  const box = document.getElementById("game-terminal-output");
+  if (box) {
+    box.innerHTML = `<div class="game-term-line"><span class="game-term-num">1</span><span class="game-term-text" style="color:var(--subtext0);">Console effacée. En attente de nouveaux logs...</span></div><div class="game-term-line"><span class="game-term-num"></span><span class="game-term-text"><span class="terminal-cursor"></span></span></div>`;
+  }
+}
+
+function toggleExpandGameConsoleTerminal() {
+  const container = document.getElementById("game-terminal-container");
+  const icon = document.getElementById("icon-expand-console");
+  const btn = document.getElementById("btn-toggle-expand-console");
+
+  isGameConsoleExpanded = !isGameConsoleExpanded;
+
+  if (container) {
+    if (isGameConsoleExpanded) {
+      container.classList.add("expanded");
+    } else {
+      container.classList.remove("expanded");
+    }
+  }
+
+  if (icon) icon.textContent = isGameConsoleExpanded ? "🗗" : "⛶";
+  if (btn) btn.title = isGameConsoleExpanded ? "Rétablir la taille normale" : "Mode plein écran";
+
+  const box = document.getElementById("game-terminal-output");
+  if (box && gameConsoleAutoScrollEnabled) {
+    setTimeout(() => { box.scrollTop = box.scrollHeight; }, 100);
+  }
+}
+
+function formatGameConsoleLogLine(line) {
+  if (!line && line !== "") return null;
+  let clean = line.replace(/\[[0-9;]*[a-zA-Z]/g, "")
+                  .replace(/\[\]/g, "")
+                  .replace(/\[[0-9;]+m/g, "")
+                  .replace(/\[0m/g, "")
+                  .replace(/\[m/g, "")
+                  .trimEnd();
+  if (!clean) return null;
+
+  let cls = "";
+  const lower = clean.toLowerCase();
+  if (lower.includes("warn") || lower.includes("warning") || clean.includes("⚠️")) {
+    cls = "log-term-warn";
+  } else if (lower.includes("error") || lower.includes("severe") || lower.includes("fatal") || lower.includes("exception") || clean.includes("❌")) {
+    cls = "log-term-error";
+  } else if (lower.includes("info") || clean.includes("⚡") || clean.includes("🚀")) {
+    cls = "log-term-info";
+  } else if (lower.includes("debug") || lower.includes("trace")) {
+    cls = "log-term-debug";
+  } else if (lower.includes("done (") || lower.includes("started") || lower.includes("listening on") || clean.includes("✓") || clean.includes("🎉") || lower.includes("success")) {
+    cls = "log-term-success";
+  } else if (lower.includes("downloading, progress:") || lower.includes("preallocating")) {
+    cls = "log-term-progress";
+  }
+
+  return { text: clean, cls };
 }
 
 function startGameConsoleStream() {
@@ -10385,7 +10531,7 @@ function startGameConsoleStream() {
   fetchGameConsoleLogs();
   gameConsoleRefreshInterval = setInterval(() => {
     fetchGameConsoleLogs();
-  }, 3000);
+  }, 2500);
 }
 
 function stopGameConsoleStream() {
@@ -10396,35 +10542,54 @@ function stopGameConsoleStream() {
 }
 
 async function fetchGameConsoleLogs() {
-  if (!activeConsoleServerId) return;
-
-  const server = gameServersData.find(s => s.id === activeConsoleServerId);
-  const statusPill = document.getElementById("game-console-status-pill");
-  const statsPill = document.getElementById("game-console-stats-pill");
-  const titleEl = document.getElementById("game-term-title");
-
-  if (server) {
-    if (statusPill) {
-      statusPill.className = `badge ${server.status === 'online' ? 'badge-success' : 'badge-secondary'}`;
-      statusPill.textContent = server.status === 'online' ? '🟢 En ligne' : '🔴 Arrêté';
-    }
-    if (statsPill) {
-      statsPill.textContent = `CPU: ${server.cpu_percent.toFixed(1)}% • RAM: ${server.memory_used_mb} Mo / ${server.memory_mb} Mo`;
-    }
-    if (titleEl) {
-      titleEl.textContent = `Console : ${server.name} (${server.container_name})`;
+  if (!activeConsoleServerId) {
+    const sel = document.getElementById("game-console-server-select");
+    if (sel && sel.value) {
+      activeConsoleServerId = sel.value;
+    } else if (gameServersData.length > 0) {
+      activeConsoleServerId = gameServersData[0].id;
     }
   }
 
+  const server = gameServersData.find(s => s.id === activeConsoleServerId);
+  updateConsoleHeaderStats(server);
+
+  if (!activeConsoleServerId) return;
+
+  const linesSelect = document.getElementById("game-console-lines-select");
+  const linesCount = linesSelect ? linesSelect.value : "200";
+
   try {
-    const res = await fetch(`/api/games/${activeConsoleServerId}/logs?lines=200`);
+    const res = await fetch(`/api/games/${encodeURIComponent(activeConsoleServerId)}/logs?lines=${linesCount}`);
     const json = await res.json();
     if (json.success && json.data !== undefined) {
       const outputEl = document.getElementById("game-terminal-output");
       if (outputEl) {
-        outputEl.textContent = json.data || "Aucun log pour le moment.";
-        const autoscroll = document.getElementById("game-term-autoscroll");
-        if (autoscroll && autoscroll.checked) {
+        const rawText = json.data || "";
+        const rawLines = rawText.split("\n");
+        let html = "";
+        let lineIdx = 1;
+        for (const rawLine of rawLines) {
+          const parsed = formatGameConsoleLogLine(rawLine);
+          if (parsed) {
+            html += `<div class="game-term-line">` +
+              `<span class="game-term-num">${lineIdx}</span>` +
+              `<span class="game-term-text ${parsed.cls}">${escapeHtml(parsed.text)}</span>` +
+            `</div>`;
+            lineIdx++;
+          }
+        }
+        if (lineIdx === 1) {
+          html = `<div class="game-terminal-welcome" style="padding:40px 20px;">` +
+            `<div style="font-size:2rem; margin-bottom:8px;">💤</div>` +
+            `<div style="font-weight:600; color:var(--subtext0);">Aucun log disponible pour ce serveur pour l'instant.</div>` +
+          `</div>`;
+        } else {
+          html += `<div class="game-term-line"><span class="game-term-num"></span><span class="game-term-text"><span class="terminal-cursor"></span></span></div>`;
+        }
+        outputEl.innerHTML = html;
+
+        if (gameConsoleAutoScrollEnabled) {
           outputEl.scrollTop = outputEl.scrollHeight;
         }
       }
@@ -10432,11 +10597,6 @@ async function fetchGameConsoleLogs() {
   } catch (e) {
     console.error("Échec de la récupération des logs console :", e);
   }
-}
-
-function clearGameTerminal() {
-  const outputEl = document.getElementById("game-terminal-output");
-  if (outputEl) outputEl.textContent = "";
 }
 
 function handleGameConsoleInputKey(e) {
@@ -10447,7 +10607,10 @@ function handleGameConsoleInputKey(e) {
 }
 
 async function sendGameTerminalCommand() {
-  if (!activeConsoleServerId) return;
+  if (!activeConsoleServerId) {
+    showToast("Veuillez sélectionner un serveur de jeu d'abord.", "warning");
+    return;
+  }
   const input = document.getElementById("game-terminal-input");
   if (!input) return;
 
@@ -10456,16 +10619,16 @@ async function sendGameTerminalCommand() {
 
   input.value = "";
   try {
-    const res = await fetch(`/api/games/${activeConsoleServerId}/command`, {
+    const res = await fetch(`/api/games/${encodeURIComponent(activeConsoleServerId)}/command`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ command: cmd })
     });
     const json = await res.json();
     if (!json.success) {
-      showToast(`Erreur : ${json.message}`, "error");
+      showToast(`Erreur commande : ${json.message || 'inconnue'}`, "error");
     }
-    setTimeout(fetchGameConsoleLogs, 400);
+    setTimeout(fetchGameConsoleLogs, 350);
   } catch (e) {
     showToast(`Erreur réseau : ${e.message}`, "error");
   }
@@ -10474,6 +10637,8 @@ async function sendGameTerminalCommand() {
 function actionCurrentConsoleServer(action) {
   if (activeConsoleServerId) {
     controlGameServerAction(activeConsoleServerId, action);
+  } else {
+    showToast("Veuillez sélectionner un serveur de jeu.", "warning");
   }
 }
 

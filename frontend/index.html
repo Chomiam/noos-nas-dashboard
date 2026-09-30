@@ -1792,17 +1792,23 @@
         </div>
       </div>
 
-      <!-- SOUS-NAVIGATION SERVEURS DE JEU -->
-      <div class="games-nav-pills" style="display:flex; gap:8px; margin-bottom:20px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px;">
-        <button type="button" class="games-subtab-btn active" id="subtab-btn-games-servers" onclick="switchGamesSubtab('servers')">
-          <span>🕹️</span> Mes Serveurs <span class="badge" id="games-count-badge" style="display:none; margin-left:6px; padding:2px 7px; border-radius:999px; background:rgba(137,180,250,0.2); color:var(--blue); font-size:11px;">0</span>
-        </button>
-        <button type="button" class="games-subtab-btn" id="subtab-btn-games-catalog" onclick="switchGamesSubtab('catalog')">
-          <span>📦</span> Catalogue d'Eggs
-        </button>
-        <button type="button" class="games-subtab-btn" id="subtab-btn-games-console" onclick="switchGamesSubtab('console')">
-          <span>💻</span> Console & Contrôle
-        </button>
+      <!-- SOUS-NAVIGATION SERVEURS DE JEU (PILLS VITREES ET ANIMEES) -->
+      <div class="games-nav-pills-container">
+        <div class="games-nav-pills">
+          <button type="button" class="games-subtab-btn active" id="subtab-btn-games-servers" onclick="switchGamesSubtab('servers')">
+            <span class="subtab-icon">🕹️</span>
+            <span>Mes Serveurs</span>
+            <span class="badge" id="games-count-badge" style="display:none;">0</span>
+          </button>
+          <button type="button" class="games-subtab-btn" id="subtab-btn-games-catalog" onclick="switchGamesSubtab('catalog')">
+            <span class="subtab-icon">📦</span>
+            <span>Catalogue d'Eggs</span>
+          </button>
+          <button type="button" class="games-subtab-btn" id="subtab-btn-games-console" onclick="switchGamesSubtab('console')">
+            <span class="subtab-icon">💻</span>
+            <span>Console & Contrôle</span>
+          </button>
+        </div>
       </div>
 
       <!-- SOUS-ONGLET 1 : MES SERVEURS -->
@@ -1819,42 +1825,110 @@
         </div>
       </div>
 
-      <!-- SOUS-ONGLET 3 : CONSOLE & CONTRÔLE -->
+      <!-- SOUS-ONGLET 3 : CONSOLE & CONTROLE RELOOKEE ET HAUTE FIDELITE -->
       <div id="games-subtab-console" class="games-subtab-pane" style="display:none;">
-        <div class="game-console-card">
-          <div class="game-console-header">
-            <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-              <span style="font-weight:700; color:var(--text); font-size:0.95rem;">Serveur actif :</span>
-              <select id="game-console-server-select" class="form-input" style="max-width:240px; padding:6px 12px; font-size:0.85rem;" onchange="onGameConsoleServerChange()">
-                <option value="">Sélectionnez un serveur...</option>
-              </select>
-              <span id="game-console-status-pill" class="badge badge-secondary" style="font-size:0.75rem;">ARRÊTÉ</span>
-              <span id="game-console-stats-pill" style="font-size:0.8rem; color:var(--subtext0); font-family:var(--font-mono);"></span>
+        <div class="game-console-card" id="game-console-card-container">
+          <!-- Barre superieure du serveur & actions d'alimentation -->
+          <div class="game-console-topbar">
+            <div class="game-console-selector-group">
+              <label for="game-console-server-select" class="game-console-label">
+                <span>🎮</span> Serveur actif :
+              </label>
+              <div class="game-console-select-wrapper">
+                <select id="game-console-server-select" class="game-console-select" onchange="onGameConsoleServerChange()">
+                  <option value="">Sélectionnez un serveur...</option>
+                </select>
+              </div>
+              <div id="game-console-status-pill" class="game-console-status badge-stopped">
+                <span class="status-pulse-dot"></span>
+                <span id="game-console-status-text">ARRÊTÉ</span>
+              </div>
             </div>
-            <div style="display:flex; gap:8px;" id="game-console-power-actions">
-              <button type="button" class="btn btn-success btn-xs" id="btn-game-console-start" onclick="actionCurrentConsoleServer('start')" title="Démarrer le serveur">
-                <span>▶️</span> Démarrer
+
+            <!-- Chips de telemetrie CPU et RAM -->
+            <div class="game-console-stats-group" id="game-console-stats-wrapper">
+              <div class="game-stat-chip chip-cpu" id="chip-console-cpu" title="Charge processeur estimée">
+                <span class="chip-icon">⚡</span>
+                <span class="chip-label">CPU</span>
+                <span class="chip-value" id="game-console-cpu-val">0.0%</span>
+              </div>
+              <div class="game-stat-chip chip-ram" id="chip-console-ram" title="Mémoire vive consommée">
+                <span class="chip-icon">🧠</span>
+                <span class="chip-label">RAM</span>
+                <span class="chip-value" id="game-console-ram-val">0 Mo / 0 Mo</span>
+              </div>
+            </div>
+
+            <!-- Boutons de controle d'alimentation -->
+            <div class="game-console-power-actions" id="game-console-power-actions">
+              <button type="button" class="btn-game-power btn-power-start" id="btn-game-console-start" onclick="actionCurrentConsoleServer('start')" title="Démarrer le serveur de jeu">
+                <span class="power-icon">▶</span>
+                <span>Démarrer</span>
               </button>
-              <button type="button" class="btn btn-secondary btn-xs" id="btn-game-console-restart" onclick="actionCurrentConsoleServer('restart')" title="Redémarrer le serveur">
-                <span>🔄</span> Redémarrer
+              <button type="button" class="btn-game-power btn-power-restart" id="btn-game-console-restart" onclick="actionCurrentConsoleServer('restart')" title="Redémarrer le serveur de jeu">
+                <span class="power-icon">🔄</span>
+                <span>Redémarrer</span>
               </button>
-              <button type="button" class="btn btn-danger btn-xs" id="btn-game-console-stop" onclick="actionCurrentConsoleServer('stop')" title="Arrêter le serveur">
-                <span>⏹️</span> Arrêter
+              <button type="button" class="btn-game-power btn-power-stop" id="btn-game-console-stop" onclick="actionCurrentConsoleServer('stop')" title="Arrêter le serveur de jeu">
+                <span class="power-icon">⏹</span>
+                <span>Arrêter</span>
               </button>
             </div>
           </div>
 
-          <div class="game-console-terminal" id="game-terminal-output" style="max-height: 480px; min-height: 320px; overflow-y: auto; background: #11111b; font-family: var(--font-mono); font-size: 0.82rem; padding: 14px; border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.06); color: #cdd6f4; white-space: pre-wrap; word-break: break-all;">
-            <div class="terminal-placeholder">Sélectionnez un serveur de jeu pour afficher ses logs et sa console en temps réel...</div>
-          </div>
+          <!-- Terminal haute fidelite style macOS avec coloration syntaxique -->
+          <div class="game-terminal-container" id="game-terminal-container">
+            <div class="game-terminal-header">
+              <div class="game-terminal-dots">
+                <span class="terminal-dot dot-red" onclick="clearGameTerminal()" title="Effacer l'affichage local de la console"></span>
+                <span class="terminal-dot dot-yellow" onclick="switchGamesSubtab('servers')" title="Retourner à la liste de mes serveurs"></span>
+                <span class="terminal-dot dot-green" onclick="toggleExpandGameConsoleTerminal()" title="Agrandir / Rétablir la taille de la console"></span>
+              </div>
+              <div class="game-terminal-title" id="game-terminal-title-text">
+                <span class="term-title-icon">⚡</span>
+                <span id="game-term-title">Console : Sélectionner un serveur...</span>
+              </div>
+              <div class="game-terminal-actions">
+                <select id="game-console-lines-select" class="game-term-select" onchange="fetchGameConsoleLogs()" title="Nombre de lignes de logs à charger">
+                  <option value="100">100 lignes</option>
+                  <option value="200" selected>200 lignes</option>
+                  <option value="500">500 lignes</option>
+                  <option value="1000">1000 lignes</option>
+                </select>
+                <button type="button" class="game-term-btn" id="btn-game-console-autoscroll" onclick="toggleGameConsoleAutoScroll()" title="Basculer le défilement automatique">
+                  <span id="game-console-autoscroll-dot" class="terminal-status-dot active"></span> Auto-scroll
+                </button>
+                <button type="button" class="game-term-btn" onclick="copyGameConsoleLogs()" title="Copier tous les logs affichés">
+                  <span>📋</span> Copier
+                </button>
+                <button type="button" class="game-term-btn" onclick="clearGameTerminal()" title="Effacer l'affichage de l'écran">
+                  <span>🧹</span> Effacer
+                </button>
+                <button type="button" class="game-term-btn btn-term-expand" id="btn-toggle-expand-console" onclick="toggleExpandGameConsoleTerminal()" title="Mode plein écran / Fenêtre normale">
+                  <span id="icon-expand-console">⛶</span>
+                </button>
+              </div>
+            </div>
 
-          <form class="game-console-input-bar" onsubmit="event.preventDefault(); sendGameTerminalCommand();" style="display:flex; gap:10px; margin-top:12px;">
-            <span style="font-family:var(--font-mono); color:var(--mauve); font-weight:700; align-self:center;">&gt;</span>
-            <input type="text" id="game-terminal-input" class="form-input" style="flex:1; font-family:var(--font-mono); font-size:0.85rem;" placeholder="Tapez une commande (ex: op steve, time set day, save-all, /help)..." onkeydown="handleGameConsoleInputKey(event)">
-            <button type="button" class="btn btn-primary btn-sm" onclick="sendGameTerminalCommand()">
-              <span>Envoyer</span>
-            </button>
-          </form>
+            <!-- Corps du terminal avec scrollbar custom et lignes stylisees -->
+            <div class="game-terminal-body" id="game-terminal-output" onscroll="handleGameConsoleTerminalScroll()">
+              <div class="game-terminal-welcome">
+                <div style="font-size:2.5rem; margin-bottom:12px; filter:drop-shadow(0 4px 10px rgba(0,0,0,0.5));">🕹️</div>
+                <div style="font-weight:700; font-size:1.05rem; color:var(--text); margin-bottom:6px;">Console & Contrôle en temps réel</div>
+                <div style="color:var(--subtext0); font-size:0.85rem; max-width:440px; margin:0 auto;">Sélectionnez un serveur dans la liste déroulante ci-dessus pour surveiller son exécution, consulter ses logs en direct et lui envoyer des commandes interactives.</div>
+              </div>
+            </div>
+
+            <!-- Barre d'invite de commande interactive -->
+            <form class="game-terminal-prompt-bar" onsubmit="event.preventDefault(); sendGameTerminalCommand();">
+              <span class="prompt-symbol">❯</span>
+              <input type="text" id="game-terminal-input" class="game-terminal-input" placeholder="Tapez une commande serveur (ex: op steve, time set day, save-all, /help)..." autocomplete="off" spellcheck="false" onkeydown="handleGameConsoleInputKey(event)">
+              <button type="submit" class="game-terminal-send-btn" id="btn-send-game-cmd">
+                <span>Envoyer</span>
+                <span class="send-shortcut">⏎</span>
+              </button>
+            </form>
+          </div>
         </div>
       </div>
     </div>
