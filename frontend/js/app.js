@@ -2659,7 +2659,19 @@ function handleItemContextMenu(e, path) {
   const ctxExtractTo = document.getElementById("ctx-extract-to");
 
   if (ctxOpen) ctxOpen.style.display = selectedFileItem && selectedFileItem.is_dir ? "flex" : "none";
-  if (ctxPaste) ctxPaste.classList.toggle("disabled", !fileClipboard);
+  if (ctxPaste) {
+    if (selectedFileItem && selectedFileItem.is_dir) {
+      ctxPaste.style.display = "flex";
+      ctxPaste.innerHTML = `<span>📥</span> Coller dans ce dossier`;
+      ctxPaste.classList.toggle("disabled", !fileClipboard);
+    } else if (fileClipboard) {
+      ctxPaste.style.display = "flex";
+      ctxPaste.innerHTML = `<span>📥</span> Coller ici`;
+      ctxPaste.classList.remove("disabled");
+    } else {
+      ctxPaste.style.display = "none";
+    }
+  }
 
   const isArchive = selectedFileItem && !selectedFileItem.is_dir && isArchiveFile(selectedFileItem.name);
   if (ctxCompress) {
@@ -2733,7 +2745,7 @@ function handleBackgroundContextMenu(e) {
 function positionContextMenu(menu, x, y) {
   // Rétablir l'affichage des actions de fichier si sélectionné
   if (selectedFileItem) {
-    ["ctx-copy", "ctx-cut", "ctx-rename", "ctx-delete"].forEach(id => {
+    ["ctx-copy", "ctx-cut", "ctx-rename", "ctx-delete", "ctx-paste"].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = "flex";
     });
@@ -2820,22 +2832,50 @@ async function triggerFileAction(action) {
       break;
 
     case "copy":
-      if (!selectedFileItem) return;
-      fileClipboard = { action: "copy", path: selectedFileItem.path, name: selectedFileItem.name };
-      showToast(`Copié : ${selectedFileItem.name}`, "info");
-      updateFilesStatusBar(currentEntries.len, 0);
+      if (!selectedFileItem && selectedFilePaths.size === 0) return;
+      {
+        const paths = selectedFilePaths.size > 0 && selectedFileItem && selectedFilePaths.has(selectedFileItem.path)
+          ? Array.from(selectedFilePaths)
+          : (selectedFileItem ? [selectedFileItem.path] : Array.from(selectedFilePaths));
+
+        fileClipboard = {
+          action: "copy",
+          paths: paths,
+          path: paths[0],
+          name: paths.length > 1 ? `${paths.length} élément(s)` : (selectedFileItem ? selectedFileItem.name : paths[0].split("/").pop())
+        };
+        showToast(`Copié dans le presse-papiers : ${fileClipboard.name}`, "info");
+        updateFilesStatusBar(currentEntries.length, 0);
+      }
       break;
 
     case "cut":
-      if (!selectedFileItem) return;
-      fileClipboard = { action: "cut", path: selectedFileItem.path, name: selectedFileItem.name };
-      showToast(`Coupé : ${selectedFileItem.name}`, "info");
-      updateFilesStatusBar(currentEntries.len, 0);
+      if (!selectedFileItem && selectedFilePaths.size === 0) return;
+      {
+        const paths = selectedFilePaths.size > 0 && selectedFileItem && selectedFilePaths.has(selectedFileItem.path)
+          ? Array.from(selectedFilePaths)
+          : (selectedFileItem ? [selectedFileItem.path] : Array.from(selectedFilePaths));
+
+        fileClipboard = {
+          action: "cut",
+          paths: paths,
+          path: paths[0],
+          name: paths.length > 1 ? `${paths.length} élément(s)` : (selectedFileItem ? selectedFileItem.name : paths[0].split("/").pop())
+        };
+        showToast(`Coupé dans le presse-papiers : ${fileClipboard.name}`, "info");
+        updateFilesStatusBar(currentEntries.length, 0);
+      }
       break;
 
     case "paste":
       if (!fileClipboard) return;
-      await pasteClipboardItem();
+      {
+        let targetDest = currentFolderPath;
+        if (selectedFileItem && selectedFileItem.is_dir) {
+          targetDest = selectedFileItem.path;
+        }
+        await pasteClipboardItem(targetDest);
+      }
       break;
 
     case "rename":
@@ -2950,16 +2990,20 @@ async function confirmDelete(item, permanent = false) {
   }
 }
 
-async function pasteClipboardItem() {
+async function pasteClipboardItem(targetDir) {
   if (!fileClipboard) return;
 
+  const dest = targetDir || currentFolderPath;
   const endpoint = fileClipboard.action === "cut" ? "/api/files/move" : "/api/files/copy";
   const paths = fileClipboard.paths || (fileClipboard.path ? [fileClipboard.path] : []);
   if (paths.length === 0) return;
 
-  showToast(`${fileClipboard.action === 'cut' ? 'Déplacement' : 'Copie'} de ${fileClipboard.name}...`, "info");
+  const destName = dest.split("/").pop() || dest;
+  showToast(`${fileClipboard.action === 'cut' ? 'Déplacement' : 'Copie'} de ${fileClipboard.name} vers ${destName}...`, "info");
 
   let successCount = 0;
+  let lastError = null;
+
   for (const src of paths) {
     try {
       const res = await fetch(endpoint, {
@@ -2967,13 +3011,18 @@ async function pasteClipboardItem() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           src_path: src,
-          dest_dir: currentFolderPath
+          dest_dir: dest
         })
       });
       const json = await res.json();
-      if (json.success) successCount++;
+      if (json.success) {
+        successCount++;
+      } else {
+        lastError = json.message || "Échec du serveur";
+      }
     } catch (err) {
       console.error(err);
+      lastError = err.message || String(err);
     }
   }
 
@@ -2981,10 +3030,11 @@ async function pasteClipboardItem() {
     showToast(`${successCount}/${paths.length} élément(s) collé(s) avec succès !`, "success");
     if (fileClipboard.action === "cut") {
       fileClipboard = null;
+      updateFilesStatusBar(currentEntries.length, 0);
     }
     refreshCurrentFolder();
   } else {
-    showToast("Erreur lors du collage", "error");
+    showToast(`Erreur lors du collage : ${lastError || "Impossible de coller les éléments"}`, "error");
   }
 }
 

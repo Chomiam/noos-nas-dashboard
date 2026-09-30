@@ -267,6 +267,38 @@ pub fn rename_item(item_path: &str, new_name: &str) -> Result<String, String> {
     Ok(format!("Renommé en '{}' avec succès.", new_name))
 }
 
+fn get_unique_target_path(dest_folder: &Path, file_name: &str) -> PathBuf {
+    let original = dest_folder.join(file_name);
+    if !original.exists() {
+        return original;
+    }
+
+    let p = Path::new(file_name);
+    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or(file_name);
+    let ext = p.extension().and_then(|s| s.to_str());
+
+    let mut counter = 1;
+    loop {
+        let candidate_name = if counter == 1 {
+            match ext {
+                Some(e) => format!("{} (copie).{}", stem, e),
+                None => format!("{} (copie)", stem),
+            }
+        } else {
+            match ext {
+                Some(e) => format!("{} (copie {}).{}", stem, counter, e),
+                None => format!("{} (copie {})", stem, counter),
+            }
+        };
+
+        let candidate_path = dest_folder.join(&candidate_name);
+        if !candidate_path.exists() {
+            return candidate_path;
+        }
+        counter += 1;
+    }
+}
+
 pub fn copy_item(src: &str, dest_dir: &str) -> Result<String, String> {
     let src_path = normalize_user_path(PathBuf::from(src));
     let dest_folder = normalize_user_path(PathBuf::from(dest_dir));
@@ -278,8 +310,8 @@ pub fn copy_item(src: &str, dest_dir: &str) -> Result<String, String> {
         return Err("Dossier de destination invalide.".into());
     }
 
-    let file_name = src_path.file_name().ok_or("Nom de fichier source invalide.")?;
-    let target = dest_folder.join(file_name);
+    let file_name = src_path.file_name().and_then(|f| f.to_str()).ok_or("Nom de fichier source invalide.")?;
+    let target = get_unique_target_path(&dest_folder, file_name);
 
     // Éviter de copier un dossier dans lui-même
     if src_path.is_dir() {
@@ -289,11 +321,11 @@ pub fn copy_item(src: &str, dest_dir: &str) -> Result<String, String> {
         copy_dir_recursive(&src_path, &target)
             .map_err(|e| format!("Erreur lors de la copie du dossier : {}", e))?;
     } else {
-        fs::copy(src_path, &target)
+        fs::copy(&src_path, &target)
             .map_err(|e| format!("Erreur lors de la copie du fichier : {}", e))?;
     }
 
-    Ok("Élément copié avec succès.".into())
+    Ok(format!("Élément copié avec succès sous '{}'.", target.file_name().and_then(|f| f.to_str()).unwrap_or(file_name)))
 }
 
 pub fn move_item(src: &str, dest_dir: &str) -> Result<String, String> {
@@ -307,21 +339,30 @@ pub fn move_item(src: &str, dest_dir: &str) -> Result<String, String> {
         return Err("Dossier de destination invalide.".into());
     }
 
-    let file_name = src_path.file_name().ok_or("Nom de fichier source invalide.")?;
-    let target = dest_folder.join(file_name);
+    let file_name = src_path.file_name().and_then(|f| f.to_str()).ok_or("Nom de fichier source invalide.")?;
+    let default_target = dest_folder.join(file_name);
 
-    if target.exists() && target != src_path {
-        return Err("Un fichier ou dossier de même nom existe déjà dans la destination.".into());
+    if default_target == src_path {
+        return Ok("L'élément se trouve déjà dans le dossier de destination.".into());
     }
+
+    let target = get_unique_target_path(&dest_folder, file_name);
 
     // Essai avec rename (rapide sur même partition)
-    if fs::rename(src_path, &target).is_err() {
+    if fs::rename(&src_path, &target).is_err() {
         // Fallback copie + suppression (si partitions différentes)
-        copy_item(src, dest_dir)?;
-        let _ = delete_item(src, true);
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &target)
+                .map_err(|e| format!("Erreur lors de la copie du dossier : {}", e))?;
+            let _ = fs::remove_dir_all(&src_path);
+        } else {
+            fs::copy(&src_path, &target)
+                .map_err(|e| format!("Erreur lors de la copie du fichier : {}", e))?;
+            let _ = fs::remove_file(&src_path);
+        }
     }
 
-    Ok("Élément déplacé avec succès.".into())
+    Ok(format!("Élément déplacé avec succès sous '{}'.", target.file_name().and_then(|f| f.to_str()).unwrap_or(file_name)))
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
