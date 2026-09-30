@@ -5446,3 +5446,477 @@ select.form-control option,
   background: var(--red);
   color: var(--mantle);
 }
+
+/* ================= NOUVELLE INTERFACE DE MISES À JOUR ÉPURÉE ================= */
+.update-hero-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 28px;
+  background: linear-gradient(135deg, rgba(30, 30, 46, 0.85) 0%, rgba(24, 24, 37, 0.95) 100%);
+  border: 1px solid rgba(203, 166, 247, 0.25);
+  border-radius: var(--radius-lg);
+  margin-top: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.update-hero-main {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.update-hero-icon-large {
+  font-size: 3rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 16px rgba(203, 166, 247, 0.3));
+}
+
+.update-hero-heading {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.update-hero-subheading {
+  font-size: 0.88rem;
+  color: var(--subtext0);
+  line-height: 1.4;
+}
+
+/* Bouton Unique Principal */
+.btn-update-primary-action {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #cba6f7 0%, #89b4fa 100%);
+  color: #11111b;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 1rem;
+  padding: 14px 28px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 4px 24px rgba(203, 166, 247, 0.4);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-update-primary-action:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 32px rgba(203, 166, 247, 0.6);
+}
+
+.btn-update-primary-action:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-update-badge {
+  background: rgba(17, 17, 27, 0.25);
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+/* Stepper & Barre de Progression */
+.update-progress-panel {
+  margin-top: 24px;
+  padding: 20px 24px;
+  background: rgba(24, 24, 37, 0.85);
+  border: 1px solid rgba(203, 166, 247, 0.3);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+}
+
+.progress-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.progress-panel-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.progress-spinner {
+  font-size: 1.6rem;
+  animation: spin 1.5s linear infinite;
+  display: inline-block;
+}
+
+.progress-panel-title {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--text);
+}
+
+.progress-panel-detail {
+  font-size: 0.82rem;
+  color: var(--subtext0);
+  margin-top: 3px;
+}
+
+.progress-percent-label {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--mauve);
+  font-family: var(--font-mono);
+}
+
+.update-steps-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.step-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  z-index: 2;
+}
+
+.step-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--surface0);
+  border: 2px solid var(--overlay0);
+  color: var(--subtext0);
+  font-weight: 700;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+
+.step-node.active .step-circle {
+  background: var(--mauve);
+  border-color: var(--mauve);
+  color: var(--crust);
+  box-shadow: 0 0 12px rgba(203, 166, 247, 0.6);
+}
+
+.step-node.completed .step-circle {
+  background: var(--green);
+  border-color: var(--green);
+  color: var(--crust);
+}
+
+.step-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--subtext0);
+}
+
+.step-node.active .step-label {
+  color: var(--mauve);
+}
+
+.step-node.completed .step-label {
+  color: var(--green);
+}
+
+.step-connector {
+  flex: 1;
+  height: 3px;
+  background: var(--surface0);
+  margin: 0 8px;
+  position: relative;
+  top: -12px;
+  z-index: 1;
+  transition: all 0.3s ease;
+}
+
+.step-connector.completed {
+  background: var(--green);
+}
+
+.update-main-progress-track {
+  width: 100%;
+  height: 8px;
+  background: var(--surface0);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.update-main-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #cba6f7, #89b4fa);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+/* Grille des Versions */
+.version-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.version-card {
+  background: rgba(30, 30, 46, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.version-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.version-card-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.version-card-icon {
+  font-size: 1.3rem;
+}
+
+.version-card-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.version-card-sub {
+  font-size: 0.75rem;
+  color: var(--subtext0);
+}
+
+.version-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.83rem;
+  margin-bottom: 8px;
+}
+
+.version-commit-msg-box {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: rgba(17, 17, 27, 0.6);
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  color: var(--subtext1);
+  border-left: 3px solid var(--mauve);
+  max-height: 70px;
+  overflow-y: auto;
+  line-height: 1.4;
+}
+
+/* Sous-onglets Commits & Paquets */
+.update-subtabs-wrap {
+  margin-top: 24px;
+  background: rgba(30, 30, 46, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+
+.update-subtabs-nav {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 12px;
+}
+
+.update-subtab-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--subtext0);
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.update-subtab-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.update-subtab-btn.active {
+  color: var(--mauve);
+  background: rgba(203, 166, 247, 0.12);
+  border-color: rgba(203, 166, 247, 0.3);
+}
+
+.update-subtab-pane {
+  display: none;
+}
+
+.update-subtab-pane.active {
+  display: block;
+}
+
+.commit-timeline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.commit-timeline-item:last-child {
+  border-bottom: none;
+}
+
+.commit-sha-badge {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--mauve);
+  background: rgba(203, 166, 247, 0.12);
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.commit-details-col {
+  flex: 1;
+}
+
+.commit-msg-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.commit-meta-text {
+  font-size: 0.74rem;
+  color: var(--subtext0);
+  margin-top: 3px;
+}
+
+/* ================= POPUP / TOAST FLOTTANT EN BAS D'ÉCRAN ================= */
+.update-floating-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 99999;
+  width: 90%;
+  max-width: 580px;
+  background: rgba(24, 24, 37, 0.94);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(203, 166, 247, 0.35);
+  border-radius: 999px;
+  padding: 10px 20px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(203, 166, 247, 0.2);
+  animation: slideUpToast 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.3s ease;
+}
+
+@keyframes slideUpToast {
+  from {
+    transform: translate(-50%, 40px);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+
+.update-toast-content {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.update-toast-icon-box {
+  font-size: 1.5rem;
+  line-height: 1;
+  animation: pulseDot 1.5s infinite;
+}
+
+.update-toast-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.update-toast-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.update-toast-detail {
+  font-size: 0.74rem;
+  color: var(--subtext0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.update-toast-progress-wrap {
+  width: 100%;
+  height: 4px;
+  background: var(--surface0);
+  border-radius: 999px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.update-toast-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #cba6f7, #89b4fa);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.update-toast-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-toast-close {
+  background: transparent;
+  border: none;
+  color: var(--subtext0);
+  font-size: 1.3rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.btn-toast-close:hover {
+  color: var(--red);
+}

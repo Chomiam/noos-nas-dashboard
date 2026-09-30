@@ -45,7 +45,15 @@ const DEFAULT_PORT: u16 = 9339;
 
 #[tokio::main]
 async fn main() {
+    let args: Vec<String> = env::args().collect();
+    if args.iter().any(|a| a == "--run-system-update") {
+        let force_packages = args.iter().any(|a| a == "--force-packages");
+        updates::run_detached_update_process(force_packages);
+        return;
+    }
+
     let port = parse_port();
+    updates::init_update_tracker();
 
     let frontend_dir = env::var("STEVEOS_FRONTEND_DIR").unwrap_or_else(|_| "frontend".to_string());
 

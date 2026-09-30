@@ -736,17 +736,18 @@
     </div>
 
         <!-- ================= ONGLET 2 : MISES À JOUR INTELLIGENTES ================= -->
+        <!-- ================= ONGLET 2 : MISES À JOUR INTELLIGENTES (ÉPURÉ) ================= -->
     <div id="tab-updates" class="tab-pane">
       <div class="section-card">
         <div class="section-header">
           <div class="section-title-wrap">
-            <div class="section-icon-box">⚡</div>
+            <div class="section-icon-box" style="background:rgba(203,166,247,0.15); color:var(--mauve);">⚡</div>
             <div>
-              <div class="section-title">Gestionnaire de Mises à Jour Intelligent STEvE_OS</div>
-              <div class="section-subtitle">Vérification de la configuration GitHub, du canal Nixpkgs et liste détaillée des paquets</div>
+              <div class="section-title">Centre de Mises à Jour STEvE_OS</div>
+              <div class="section-subtitle">Gestion déclarative des versions, synchronisation GitHub et déploiement NixOS</div>
             </div>
           </div>
-          <div style="display: flex; gap: 8px; align-items: center;">
+          <div style="display: flex; gap: 10px; align-items: center;">
             <span id="updates-last-checked-time" style="font-size:0.75rem; color:var(--subtext0); font-family:var(--font-mono);"></span>
             <button type="button" class="btn btn-secondary btn-xs" id="btn-refresh-updates" onclick="checkForUpdates(true)">
               <span>🔄</span> Vérifier maintenant
@@ -754,156 +755,174 @@
           </div>
         </div>
 
-        <!-- Bannière de Stratégie Détectée -->
-        <div class="update-strategy-banner" id="update-strategy-banner">
-          <div class="update-strategy-icon" id="strategy-icon">✨</div>
-          <div class="update-strategy-details">
-            <div class="update-strategy-title" id="strategy-title">Système et configuration à jour</div>
-            <div class="update-strategy-desc" id="strategy-desc">Aucune mise à jour détectée sur le dépôt GitHub ni dans les paquets Nixpkgs.</div>
-            <div class="update-pipeline" id="strategy-pipeline">
-              <div class="pipeline-step" id="pipe-step-1">1. Git Pull Sécurisé</div>
-              <span class="pipeline-arrow">➔</span>
-              <div class="pipeline-step" id="pipe-step-2">2. Test Syntaxe Nix</div>
-              <span class="pipeline-arrow">➔</span>
-              <div class="pipeline-step" id="pipe-step-3">3. nh os switch -u</div>
+        <!-- HERO CARD AVEC BOUTON UNIQUE -->
+        <div class="update-hero-card" id="update-hero-card">
+          <div class="update-hero-main">
+            <div class="update-hero-icon-large" id="hero-status-icon">✨</div>
+            <div class="update-hero-text">
+              <h2 class="update-hero-heading" id="hero-status-heading">Vérification de l'état du système...</h2>
+              <p class="update-hero-subheading" id="hero-status-subheading">Analyse du dépôt GitHub et comparaison avec la génération active...</p>
             </div>
+          </div>
+
+          <!-- BOUTON UNIQUE D'ACTION -->
+          <div class="update-hero-action-area">
+            <button type="button" class="btn-update-primary-action" id="btn-single-update" onclick="triggerSingleUpdate()">
+              <span class="btn-update-glow"></span>
+              <span class="btn-update-icon" id="btn-single-update-icon">🚀</span>
+              <span class="btn-update-text" id="btn-single-update-text">Mettre à jour STEvE_OS</span>
+              <span class="btn-update-badge" id="btn-single-update-badge" style="display:none;">0 màj</span>
+            </button>
           </div>
         </div>
 
-        <!-- Grille des Statuts Détaillés -->
-        <div class="metrics-grid" style="margin-top: 20px;">
-          <!-- Carte Git Config -->
-          <div class="metric-card">
-            <div class="metric-header">
-              <span class="metric-title">Configuration NixOS (GitHub)</span>
-              <span class="metric-icon">🐙</span>
-            </div>
-            <div style="margin: 10px 0;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-size: 0.82rem; color: var(--subtext0);">Dépôt distant :</span>
-                <a href="https://github.com/Chomiam/steve_os-nix" target="_blank" style="color:var(--mauve); text-decoration:none; font-weight:600; font-size:0.85rem;">Chomiam/steve_os-nix ↗</a>
-              </div>
-              <div style="font-size: 0.85rem; margin-top: 8px; display:flex; justify-content:space-between; align-items:center;">
-                <span>Local : <code id="git-local-sha" style="color:var(--teal); font-weight:bold; background:rgba(148,226,213,0.1); padding:2px 6px; border-radius:4px;">--</code></span>
-                <span>Distant : <code id="git-remote-sha" style="color:var(--sky); font-weight:bold; background:rgba(137,180,250,0.1); padding:2px 6px; border-radius:4px;">--</code></span>
-              </div>
-              <div style="margin-top:8px;" id="git-commits-status-row">
-                <span class="badge badge-success" id="git-status-badge">✔ Configuration synchronisée</span>
-              </div>
-            </div>
-            <div class="metric-progress-wrap" style="height: 6px; margin: 8px 0;">
-              <div class="metric-progress-bar progress-mauve" id="git-status-bar" style="width: 100%;"></div>
-            </div>
-            <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--subtext0); margin-top:6px;">
-              <span id="git-working-tree-status">Arbre propre</span>
-              <span id="git-status-note">Rollback auto actif</span>
-            </div>
-
-            <!-- Commits en attente (déroulable) -->
-            <div id="git-pending-commits-wrap" style="display:none; margin-top:12px; padding:10px; background:rgba(0,0,0,0.2); border-radius:var(--radius-sm); border:1px solid rgba(255,255,255,0.05);">
-              <div style="font-size:0.78rem; font-weight:700; color:var(--blue); margin-bottom:6px;">Commits GitHub en attente :</div>
-              <div id="git-pending-commits-list" style="font-size:0.75rem; max-height:100px; overflow-y:auto; font-family:var(--font-mono);"></div>
-              <div id="git-changed-files-wrap" style="margin-top:8px; font-size:0.73rem; color:var(--subtext0);"></div>
-            </div>
-          </div>
-
-          <!-- Carte Paquets Nixpkgs & Flake -->
-          <div class="metric-card">
-            <div class="metric-header">
-              <span class="metric-title">Paquets Système & Flake Inputs</span>
-              <span class="metric-icon">📦</span>
-            </div>
-            <div style="margin: 10px 0;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-size: 0.82rem; color: var(--subtext0);">Canal Nixpkgs :</span>
-                <span style="color:var(--peach); font-weight:600; font-size:0.85rem;">nixos-26.05</span>
-              </div>
-              <div style="font-size: 0.85rem; margin-top: 8px; display:flex; justify-content:space-between; align-items:center;">
-                <span>Flake lock : <code id="flake-nixpkgs-sha" style="color:var(--peach); font-weight:bold; background:rgba(250,179,135,0.1); padding:2px 6px; border-radius:4px;">--</code></span>
-                <span id="packages-status-summary"><span class="badge badge-success">✔ Paquets à jour</span></span>
-              </div>
-              <div style="margin-top:8px;" id="flake-inputs-summary-row">
-                <span style="font-size:0.78rem; color:var(--subtext0);" id="flake-inputs-detail-text">Tous les inputs sont verrouillés et conformes.</span>
-              </div>
-            </div>
-            <div class="metric-progress-wrap" style="height: 6px; margin: 8px 0;">
-              <div class="metric-progress-bar progress-peach" id="packages-status-bar" style="width: 100%;"></div>
-            </div>
-            <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--subtext0); margin-top:6px;">
-              <span>nh os switch -u</span>
-              <span id="packages-count-label">0 paquet à mettre à jour</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- SECTION PAQUETS QUI SERONT MIS À JOUR -->
-        <div class="section-card" style="margin-top: 20px; background: rgba(30, 30, 46, 0.6); border: 1px solid rgba(255, 255, 255, 0.06);">
-          <div class="section-header" style="margin-bottom: 12px;">
-            <div class="section-title-wrap">
-              <span style="font-size:1.2rem;">📋</span>
+        <!-- SECTION PROGRESSION DE LA MISE À JOUR (Visible quand actif ou terminé) -->
+        <div class="update-progress-panel" id="update-progress-panel" style="display:none;">
+          <div class="progress-panel-header">
+            <div class="progress-panel-title-wrap">
+              <span class="progress-spinner" id="progress-panel-spinner">🔄</span>
               <div>
-                <div class="section-title" style="font-size:1rem;">Vérification des Paquets à Mettre à Jour</div>
-                <div class="section-subtitle">Liste des paquets, outils et modules identifiés pour installation, mise à niveau ou recompilation</div>
+                <div class="progress-panel-title" id="progress-panel-title">Mise à jour en cours d'exécution</div>
+                <div class="progress-panel-detail" id="progress-panel-detail">Préparation du système et récupération des données...</div>
               </div>
             </div>
-            <span class="badge badge-info" id="packages-list-badge">0 paquet détecté</span>
+            <span class="progress-percent-label" id="progress-percent-label">0%</span>
           </div>
 
-          <!-- Table des paquets -->
-          <div class="table-responsive" style="max-height: 280px; overflow-y: auto;">
-            <table class="custom-table" id="packages-update-table">
-              <thead>
-                <tr>
-                  <th>Nom du paquet</th>
-                  <th>Type d'opération</th>
-                  <th>Version installée</th>
-                  <th>Nouvelle version</th>
-                  <th>Source / Notes</th>
-                </tr>
-              </thead>
-              <tbody id="packages-update-tbody">
-                <tr>
-                  <td colspan="5" style="text-align:center; color:var(--subtext0); padding:24px;">
-                    ✨ Aucun paquet en attente de mise à jour. Le système est parfaitement aligné.
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- Boutons d'Action Intelligents -->
-        <div class="update-action-box" style="margin-top: 20px;">
-          <div class="update-action-buttons">
-            <button type="button" class="btn btn-primary btn-lg" id="btn-intelligent-update" onclick="triggerIntelligentUpdate()">
-              <span id="btn-update-icon">⚡</span> <span id="btn-update-label">Lancer la mise à jour intelligente</span>
-            </button>
-            <button type="button" class="btn btn-secondary" id="btn-force-packages" onclick="triggerForcePackagesUpdate()">
-              <span>📦</span> Forcer màj paquets (nh os switch -u)
-            </button>
-          </div>
-          <div class="update-guarantee-note">
-            🛡️ <strong>Garantie de sécurité STEvE_OS</strong> : Lors d'une mise à jour de configuration, vos fichiers non validés sont automatiquement mis en réserve (stash), le nouveau code Nix est compilé/évalué à blanc. En cas d'erreur de syntaxe ou de régression, un rollback automatique est appliqué sans impacter le système en production.
-          </div>
-        </div>
-
-        <!-- Console d'Exécution nh / git -->
-        <div class="terminal-window" style="margin-top: 24px;">
-          <div class="terminal-header">
-            <span style="font-size:0.78rem; color:var(--subtext0); font-family:var(--font-mono);">
-              Console d'Exécution des Mises à Jour (Git Pull + nh os switch)
-            </span>
-            <div style="display:flex; gap:8px;">
-              <span class="badge" id="terminal-update-status" style="display:none;">En attente</span>
-              <button type="button" class="btn btn-secondary btn-xs" onclick="clearUpdateTerminal()">Nettoyer</button>
+          <!-- 4 ÉTAPES VISUELLES -->
+          <div class="update-steps-stepper">
+            <div class="step-node" id="step-node-1">
+              <div class="step-circle">1</div>
+              <div class="step-label">Git Pull</div>
+            </div>
+            <div class="step-connector" id="step-conn-1"></div>
+            <div class="step-node" id="step-node-2">
+              <div class="step-circle">2</div>
+              <div class="step-label">Build NixOS</div>
+            </div>
+            <div class="step-connector" id="step-conn-2"></div>
+            <div class="step-node" id="step-node-3">
+              <div class="step-circle">3</div>
+              <div class="step-label">Activation</div>
+            </div>
+            <div class="step-connector" id="step-conn-3"></div>
+            <div class="step-node" id="step-node-4">
+              <div class="step-circle">4</div>
+              <div class="step-label">Succès</div>
             </div>
           </div>
-          <div class="terminal-body" id="update-terminal-body">Prêt pour la prochaine mise à jour.
-Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'application.</div>
+
+          <!-- Barre de progression -->
+          <div class="update-main-progress-track">
+            <div class="update-main-progress-bar" id="update-main-progress-bar" style="width: 0%;"></div>
+          </div>
         </div>
+
+        <!-- 2 CARTES DE VERSIONS COMPARATIVES -->
+        <div class="version-cards-grid">
+          <!-- Carte Version Locale -->
+          <div class="version-card">
+            <div class="version-card-header">
+              <div class="version-card-title-wrap">
+                <span class="version-card-icon">🖥️</span>
+                <div>
+                  <div class="version-card-title">Version Actuelle (Installée)</div>
+                  <div class="version-card-sub" id="version-local-gen">Génération active sur le NAS</div>
+                </div>
+              </div>
+              <span class="badge badge-success" id="version-local-badge">Actif</span>
+            </div>
+            <div class="version-card-body">
+              <div class="version-info-row">
+                <span class="info-label">Commit :</span>
+                <span class="info-value"><code id="git-local-sha">--</code></span>
+              </div>
+              <div class="version-info-row">
+                <span class="info-label">Date :</span>
+                <span class="info-value" id="git-local-date">--</span>
+              </div>
+              <div class="version-info-row">
+                <span class="info-label">Auteur :</span>
+                <span class="info-value" id="git-local-author">--</span>
+              </div>
+              <div class="version-commit-msg-box" id="git-local-msg">Chargement du message de commit...</div>
+            </div>
+          </div>
+
+          <!-- Carte Dernière Version Distante -->
+          <div class="version-card">
+            <div class="version-card-header">
+              <div class="version-card-title-wrap">
+                <span class="version-card-icon">🐙</span>
+                <div>
+                  <div class="version-card-title">Dernière Version (GitHub)</div>
+                  <div class="version-card-sub">Branche main • steve_os-nix</div>
+                </div>
+              </div>
+              <span class="badge badge-info" id="version-remote-badge">Vérification...</span>
+            </div>
+            <div class="version-card-body">
+              <div class="version-info-row">
+                <span class="info-label">Dernier Commit :</span>
+                <span class="info-value"><code id="git-remote-sha">--</code></span>
+              </div>
+              <div class="version-info-row">
+                <span class="info-label">Statut GitHub :</span>
+                <span class="info-value" id="git-sync-status">--</span>
+              </div>
+              <div class="version-info-row">
+                <span class="info-label">Dépôt distant :</span>
+                <a href="https://github.com/Chomiam/steve_os-nix" target="_blank" class="info-link" style="color:var(--mauve); text-decoration:none; font-weight:600;">Chomiam/steve_os-nix ↗</a>
+              </div>
+              <div class="version-commit-msg-box" id="git-remote-msg">Chargement du statut distant...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION ONGLETS SECONDAIRES DÉROULABLES : COMMITS & PAQUETS -->
+        <div class="update-subtabs-wrap">
+          <div class="update-subtabs-nav">
+            <button type="button" class="update-subtab-btn active" id="btn-subtab-commits" onclick="switchUpdateSubtab('commits')">
+              <span>📜</span> Commits en attente (<span id="count-pending-commits">0</span>)
+            </button>
+            <button type="button" class="update-subtab-btn" id="btn-subtab-packages" onclick="switchUpdateSubtab('packages')">
+              <span>📦</span> Paquets à mettre à niveau (<span id="count-pending-packages">0</span>)
+            </button>
+          </div>
+
+          <!-- Contenu 1 : Commits en attente -->
+          <div class="update-subtab-pane active" id="subtab-pane-commits">
+            <div id="pending-commits-list-container">
+              <div class="empty-state-notice" style="text-align:center; padding:20px; color:var(--subtext0);">✨ Aucun commit en attente. Votre configuration locale est parfaitement synchronisée avec GitHub.</div>
+            </div>
+          </div>
+
+          <!-- Contenu 2 : Paquets modifiés -->
+          <div class="update-subtab-pane" id="subtab-pane-packages">
+            <div class="table-responsive">
+              <table class="custom-table" id="packages-update-table">
+                <thead>
+                  <tr>
+                    <th>Nom du paquet</th>
+                    <th>Action</th>
+                    <th>Version installée</th>
+                    <th>Nouvelle version</th>
+                  </tr>
+                </thead>
+                <tbody id="packages-update-tbody">
+                  <tr>
+                    <td colspan="4" style="text-align:center; padding:24px; color:var(--subtext0);">
+                      ✨ Aucun paquet en attente de mise à niveau. Le système NixOS est à jour.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
-
 
     <!-- ================= ONGLET 3 : STOCKAGE & DISQUES ================= -->
     <div id="tab-storage" class="tab-pane">
@@ -3333,6 +3352,26 @@ Cliquez sur le bouton intelligent ci-dessus pour lancer la détection ou l'appli
 
       <div style="display:flex; justify-content:flex-end; padding:14px 20px; background:var(--mantle); border-top:1px solid rgba(255,255,255,0.08); border-radius:0 0 var(--radius-lg) var(--radius-lg);">
         <button type="button" class="btn btn-secondary btn-sm" onclick="closeGpuInfoModal()">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= POPUP / TOAST FLOTTANT DE MISE À JOUR (PERSISTANT) ================= -->
+  <div class="update-floating-toast" id="update-floating-toast" style="display:none;">
+    <div class="update-toast-content">
+      <div class="update-toast-icon-box" id="update-toast-icon">🚀</div>
+      <div class="update-toast-info">
+        <div class="update-toast-title" id="update-toast-title">Mise à jour STEvE_OS en cours...</div>
+        <div class="update-toast-detail" id="update-toast-detail">Téléchargement et construction des composants...</div>
+        <div class="update-toast-progress-wrap">
+          <div class="update-toast-progress-bar" id="update-toast-progress-bar" style="width: 5%;"></div>
+        </div>
+      </div>
+      <div class="update-toast-actions">
+        <button type="button" class="btn btn-primary btn-xs" onclick="switchTab('tab-updates')">
+          <span>⚙️</span> Détails
+        </button>
+        <button type="button" class="btn-toast-close" id="btn-close-update-toast" onclick="dismissUpdateToast()" style="display:none;" title="Fermer la notification">&times;</button>
       </div>
     </div>
   </div>

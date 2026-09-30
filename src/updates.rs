@@ -60,6 +60,26 @@ pub struct UpdateCheckStatus {
     pub config_dir: String,
     pub last_checked: String,
     pub is_updating: bool,
+    pub system_generation: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateProgressState {
+    pub is_running: bool,
+    pub stage: String,
+    pub step_index: u32,
+    pub total_steps: u32,
+    pub progress_percent: u32,
+    pub status_title: String,
+    pub status_detail: String,
+    pub error: Option<String>,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub target_commit: Option<String>,
+    pub generation_before: Option<String>,
+    pub generation_after: Option<String>,
+    pub dashboard_restarting: bool,
+    pub log_tail: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,6 +135,90 @@ pub fn get_live_log() -> (String, bool) {
         }
     }
     (log_str, is_updating())
+}
+
+pub fn get_current_system_generation() -> Option<String> {
+    if let Ok(target) = fs::read_link("/nix/var/nix/profiles/system") {
+        let name = target.file_name()?.to_string_lossy();
+        if let Some(stripped) = name.strip_prefix("system-") {
+            if let Some(gen) = stripped.strip_suffix("-link") {
+                return Some(gen.to_string());
+            }
+        }
+        return Some(name.to_string());
+    }
+    None
+}
+
+pub fn get_update_state_file_path() -> PathBuf {
+    PathBuf::from("/run/steveos-update-state.json")
+}
+
+pub fn save_update_progress(state: &UpdateProgressState) {
+    let path = get_update_state_file_path();
+    if let Ok(json) = serde_json::to_string_pretty(state) {
+        let _ = fs::write(&path, json);
+    }
+}
+
+pub fn get_update_progress() -> UpdateProgressState {
+    let path = get_update_state_file_path();
+    if let Ok(content) = fs::read_to_string(&path) {
+        if let Ok(state) = serde_json::from_str::<UpdateProgressState>(&content) {
+            return state;
+        }
+    }
+    UpdateProgressState {
+        is_running: is_updating(),
+        stage: if is_updating() { "running".to_string() } else { "idle".to_string() },
+        step_index: if is_updating() { 2 } else { 0 },
+        total_steps: 4,
+        progress_percent: if is_updating() { 50 } else { 0 },
+        status_title: if is_updating() { "Mise à jour en cours d'exécution...".to_string() } else { "Système prêt".to_string() },
+        status_detail: "Aucune mise à jour en cours d'exécution.".to_string(),
+        error: None,
+        started_at: None,
+        completed_at: None,
+        target_commit: None,
+        generation_before: get_current_system_generation(),
+        generation_after: None,
+        dashboard_restarting: false,
+        log_tail: String::new(),
+    }
+}
+
+pub fn dismiss_update_progress() {
+    let mut state = get_update_progress();
+    state.is_running = false;
+    state.stage = "idle".to_string();
+    state.progress_percent = 0;
+    state.error = None;
+    save_update_progress(&state);
+}
+
+pub fn init_update_tracker() {
+    let mut state = get_update_progress();
+    if state.is_running {
+        let cur_gen = get_current_system_generation();
+        let changed = match (&state.generation_before, &cur_gen) {
+            (Some(before), Some(current)) => before != current,
+            _ => true,
+        };
+
+        if changed || state.dashboard_restarting || state.stage == "activating" {
+            state.is_running = false;
+            state.stage = "completed".to_string();
+            state.step_index = 4;
+            state.total_steps = 4;
+            state.progress_percent = 100;
+            state.status_title = "Mise à jour terminée avec succès !".to_string();
+            state.status_detail = format!("Le système a basculé avec succès sur la génération {}.", cur_gen.clone().unwrap_or_else(|| "suivante".to_string()));
+            state.generation_after = cur_gen;
+            state.completed_at = Some(current_time_formatted());
+            state.dashboard_restarting = false;
+            save_update_progress(&state);
+        }
+    }
 }
 
 pub fn get_cached_status() -> Option<UpdateCheckStatus> {
@@ -547,6 +651,7 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
         config_dir: config_dir_str,
         last_checked: current_time_formatted(),
         is_updating: is_updating(),
+        system_generation: get_current_system_generation(),
     };
 
     if let Ok(mut guard) = UPDATE_CACHE.lock() {
@@ -902,6 +1007,7 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
             config_dir: dir_str,
             last_checked: current_time_formatted(),
             is_updating: false,
+            system_generation: get_current_system_generation(),
         };
         *guard = Some((Instant::now(), clean_status));
     }
@@ -911,6 +1017,233 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
         steps_executed,
         output_log,
         error: None,
+    }
+}
+
+pub fn start_detached_update(force_packages: bool) -> Result<(), String> {
+    let current_state = get_update_progress();
+    if current_state.is_running {
+        return Err("Une mise à jour est déjà en cours d'exécution.".to_string());
+    }
+
+    let cur_gen = get_current_system_generation();
+    let initial_state = UpdateProgressState {
+        is_running: true,
+        stage: "starting".to_string(),
+        step_index: 1,
+        total_steps: 4,
+        progress_percent: 5,
+        status_title: "Initialisation de la mise à jour...".to_string(),
+        status_detail: "Préparation de l'environnement d'exécution...".to_string(),
+        error: None,
+        started_at: Some(current_time_formatted()),
+        completed_at: None,
+        target_commit: None,
+        generation_before: cur_gen,
+        generation_after: None,
+        dashboard_restarting: false,
+        log_tail: "🚀 Démarrage de la mise à jour STEvE_OS...\n".to_string(),
+    };
+    save_update_progress(&initial_state);
+
+    let exe = env::current_exe().unwrap_or_else(|_| PathBuf::from("/proc/self/exe"));
+    let exe_str = exe.display().to_string();
+
+    let mut extra_args = vec![];
+    if force_packages {
+        extra_args.push("--force-packages");
+    }
+
+    // 1. systemd-run si disponible (cgroup indépendant)
+    let systemd_run = "/run/current-system/sw/bin/systemd-run";
+    if Path::new(systemd_run).exists() {
+        let mut cmd = Command::new(systemd_run);
+        cmd.args([
+            "--unit=steveos-system-update",
+            "--remain-after-exit=no",
+            "--property=KillMode=process",
+            "--description=STEvE_OS System Update Runner",
+            "--",
+            &exe_str,
+            "--run-system-update",
+        ]);
+        for a in &extra_args {
+            cmd.arg(a);
+        }
+        if let Ok(mut child) = cmd.spawn() {
+            let _ = child.wait();
+            return Ok(());
+        }
+    }
+
+    // 2. Fallback thread indépendant
+    std::thread::spawn(move || {
+        run_detached_update_process(force_packages);
+    });
+
+    Ok(())
+}
+
+pub fn run_detached_update_process(force_packages: bool) {
+    let mut state = get_update_progress();
+    state.is_running = true;
+    let config_dir = resolve_config_dir();
+    let dir_str = config_dir.display().to_string();
+
+    let cached = get_cached_status();
+    let update_type = if force_packages {
+        UpdateType::PackagesOnly
+    } else if let Some(ref c) = cached {
+        if c.update_type == UpdateType::None {
+            UpdateType::PackagesOnly
+        } else {
+            c.update_type.clone()
+        }
+    } else {
+        UpdateType::Both
+    };
+
+    // --- Étape 1 : Git pull si nécessaire ---
+    if update_type == UpdateType::ConfigOnly || update_type == UpdateType::Both {
+        state.stage = "git_pull".to_string();
+        state.step_index = 1;
+        state.total_steps = 4;
+        state.progress_percent = 15;
+        state.status_title = "Synchronisation de la configuration...".to_string();
+        state.status_detail = "Récupération des nouveautés depuis GitHub (steve_os-nix)...".to_string();
+        save_update_progress(&state);
+
+        let mut pull_log = String::new();
+        if let Err(e) = execute_secure_git_pull(&config_dir, &mut pull_log) {
+            state.is_running = false;
+            state.stage = "failed".to_string();
+            state.status_title = "Échec de synchronisation Git".to_string();
+            state.status_detail = e.clone();
+            state.error = Some(e);
+            state.log_tail.push_str(&pull_log);
+            save_update_progress(&state);
+            return;
+        }
+        state.log_tail.push_str(&pull_log);
+    }
+
+    // --- Étape 2 : Déploiement système (nh os switch) ---
+    state.stage = "building".to_string();
+    state.step_index = 2;
+    state.total_steps = 4;
+    state.progress_percent = 35;
+    state.status_title = "Construction & téléchargement du système...".to_string();
+    state.status_detail = "Compilation des dérivations NixOS et téléchargement des paquets binaires...".to_string();
+    save_update_progress(&state);
+
+    let nh_bin = nh_binary();
+    let sudo_b = sudo_binary();
+    let update_inputs = update_type == UpdateType::PackagesOnly || update_type == UpdateType::Both;
+
+    let (bin, args) = if Path::new(&nh_bin).exists() {
+        let mut a = vec!["os", "switch", "--no-nom", "-e", &sudo_b];
+        if update_inputs {
+            a.push("-u");
+            a.push("--commit-lock-file");
+        }
+        a.push(&dir_str);
+        (nh_bin, a)
+    } else {
+        if update_inputs {
+            let nix_b = nix_binary();
+            let mut update_cmd = create_user_command(&nix_b, &["flake", "update", "--flake", &dir_str]);
+            update_cmd.current_dir(&config_dir);
+            let _ = update_cmd.output();
+        }
+        ("nixos-rebuild".to_string(), vec!["switch", "--flake", &dir_str])
+    };
+
+    let mut cmd = create_user_command(&bin, &args);
+    cmd.current_dir(&config_dir);
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let mut switch_success = false;
+    let mut switch_err = String::new();
+
+    if let Ok(mut child) = cmd.spawn() {
+        use std::io::BufRead;
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+
+        let mut lines = Vec::new();
+
+        if let Some(out) = stdout {
+            let reader = std::io::BufReader::new(out);
+            for line in reader.lines().flatten() {
+                lines.push(line.clone());
+                append_live_log(&format!("{}\n", line));
+                if line.contains("fetching") || line.contains("copying path") || line.contains("paths will be fetched") {
+                    state.progress_percent = 50.max(state.progress_percent);
+                    state.status_detail = "Téléchargement des paquets binaires du système...".to_string();
+                    save_update_progress(&state);
+                } else if line.contains("building") || line.contains("derivations will be built") {
+                    state.progress_percent = 65.max(state.progress_percent);
+                    state.status_detail = "Construction et assemblage de la dérivation NixOS...".to_string();
+                    save_update_progress(&state);
+                } else if line.contains("Activating configuration") || line.contains("switching to system configuration") {
+                    state.stage = "activating".to_string();
+                    state.step_index = 3;
+                    state.progress_percent = 85;
+                    state.dashboard_restarting = true;
+                    state.status_title = "Activation de la configuration...".to_string();
+                    state.status_detail = "Application des services et redémarrage du tableau de bord...".to_string();
+                    save_update_progress(&state);
+                }
+            }
+        }
+
+        if let Some(err) = stderr {
+            let reader = std::io::BufReader::new(err);
+            for line in reader.lines().flatten() {
+                lines.push(line.clone());
+                append_live_log(&format!("{}\n", line));
+            }
+        }
+
+        match child.wait() {
+            Ok(status) => {
+                switch_success = status.success();
+                if !status.success() {
+                    switch_err = format!("Le processus s'est terminé avec le code {}", status.code().unwrap_or(-1));
+                }
+            }
+            Err(e) => {
+                switch_err = e.to_string();
+            }
+        }
+
+        let full_output = lines.join("\n");
+        state.log_tail = full_output;
+    } else {
+        switch_err = "Impossible de lancer la commande de déploiement.".to_string();
+    }
+
+    if switch_success {
+        let cur_gen = get_current_system_generation();
+        state.is_running = false;
+        state.stage = "completed".to_string();
+        state.step_index = 4;
+        state.total_steps = 4;
+        state.progress_percent = 100;
+        state.status_title = "Mise à jour terminée avec succès !".to_string();
+        state.status_detail = format!("Le système est actif sur la génération {}.", cur_gen.clone().unwrap_or_else(|| "suivante".to_string()));
+        state.generation_after = cur_gen;
+        state.completed_at = Some(current_time_formatted());
+        state.dashboard_restarting = false;
+        save_update_progress(&state);
+    } else {
+        state.is_running = false;
+        state.stage = "failed".to_string();
+        state.status_title = "Échec de la mise à jour".to_string();
+        state.status_detail = switch_err.clone();
+        state.error = Some(switch_err);
+        save_update_progress(&state);
     }
 }
 

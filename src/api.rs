@@ -34,7 +34,7 @@ use crate::services::{control_service, get_service_logs, get_services_overview, 
 use crate::storage::{create_raid, format_disk, get_raid_sync_progress, get_storage_overview, mount_volume, repair_path_permissions, trigger_disk_spindown, umount_volume, CreateRaidRequest, FormatDiskRequest, MountVolumeRequest, RaidSyncProgress, RepairPermissionsRequest, StorageOverview, UmountVolumeRequest};
 use crate::system::{cancel_power, get_gpu_info, get_power_status, get_system_info, schedule_power, GpuInfo, ImmediatePowerRequest, PowerStatusResponse, SchedulePowerRequest, SystemInfo};
 use crate::terminal::{autocomplete, execute_command, CompleteRequest, CompleteResponse, ExecRequest, ExecResponse};
-use crate::updates::{apply_intelligent_update, check_updates, get_live_log, ApplyUpdateResult, UpdateCheckStatus};
+use crate::updates::{apply_intelligent_update, check_updates, dismiss_update_progress, get_live_log, get_update_progress, start_detached_update, ApplyUpdateResult, UpdateCheckStatus, UpdateProgressState};
 use crate::hardware::{get_hardware_overview, HardwareOverview};
 use crate::smart::{get_smart_overview, SmartOverview};
 use crate::speedtest::{get_latest_speedtest, run_speedtest, SpeedtestResult};
@@ -106,6 +106,9 @@ pub fn api_routes() -> Router {
         .route("/firewall/unban", post(handle_firewall_unban))
         .route("/logs", get(handle_logs))
         .route("/updates/status", get(handle_updates_status))
+        .route("/updates/start", post(handle_updates_start))
+        .route("/updates/progress", get(handle_updates_progress))
+        .route("/updates/dismiss", post(handle_updates_dismiss))
         .route("/updates/apply", post(handle_updates_apply))
         .route("/updates/logs", get(handle_updates_logs))
         .route("/terminal/exec", post(handle_terminal_exec))
@@ -285,6 +288,45 @@ async fn handle_updates_status(Query(params): Query<UpdateCheckQuery>) -> Json<A
     Json(ApiResponse {
         success: true,
         data: Some(status),
+        message: None,
+    })
+}
+
+#[derive(Deserialize)]
+struct StartUpdateQuery {
+    force_packages: Option<bool>,
+}
+
+async fn handle_updates_start(Query(params): Query<StartUpdateQuery>) -> Json<ApiResponse<bool>> {
+    let force_pkgs = params.force_packages.unwrap_or(false);
+    match start_detached_update(force_pkgs) {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            data: Some(true),
+            message: Some("Mise à jour démarrée en arrière-plan".to_string()),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: Some(false),
+            message: Some(e),
+        }),
+    }
+}
+
+async fn handle_updates_progress() -> Json<ApiResponse<UpdateProgressState>> {
+    let progress = get_update_progress();
+    Json(ApiResponse {
+        success: true,
+        data: Some(progress),
+        message: None,
+    })
+}
+
+async fn handle_updates_dismiss() -> Json<ApiResponse<bool>> {
+    dismiss_update_progress();
+    Json(ApiResponse {
+        success: true,
+        data: Some(true),
         message: None,
     })
 }
