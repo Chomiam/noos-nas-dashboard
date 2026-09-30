@@ -6184,3 +6184,155 @@ select.form-control option,
   color: var(--text);
   font-weight: 600;
 }
+
+/* =========================================================================
+   🧬 SOUS-ONGLET GÉNÉRATIONS NIXOS & GESTION DU BOOT
+   ========================================================================= */
+
+.generations-header-card {
+  background: rgba(24, 24, 37, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.generations-stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.gen-stat-pill {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(30, 30, 46, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+}
+
+.gen-stat-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.gen-stat-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gen-stat-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--subtext0);
+  font-weight: 600;
+}
+
+.gen-stat-val {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+
+.generations-actions-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.gen-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.gen-hint-text {
+  font-size: 0.75rem;
+  color: var(--subtext0);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Barre flottante de multi-sélection */
+.generations-selection-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(49, 50, 68, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(203, 166, 247, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 10px 16px;
+  margin-top: 12px;
+  animation: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.gen-selection-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.gen-selection-badge {
+  background: var(--mauve);
+  color: var(--crust);
+  font-size: 0.75rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.gen-selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Badges tableau */
+.badge-gen-id {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--mauve);
+  background: rgba(203, 166, 247, 0.15);
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(203, 166, 247, 0.25);
+  display: inline-block;
+}
+
+.gen-chip-id {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.75rem;
+  color: var(--peach);
+  background: rgba(250, 179, 135, 0.15);
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(250, 179, 135, 0.25);
+}
+
+.gen-row-current {
+  background: rgba(166, 227, 161, 0.04) !important;
+}
+
+.gen-row-boot {
+  border-left: 3px solid var(--mauve);
+}

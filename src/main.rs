@@ -34,6 +34,7 @@ mod documents;
 mod youtube;
 mod docker_store;
 mod vms;
+mod generations;
 
 use axum::Router;
 use std::env;

@@ -32,6 +32,7 @@ use crate::firewall::{get_firewall_overview, unban_ip, FirewallOverview};
 use crate::network::{get_network_overview, NetworkOverview};
 use crate::services::{control_service, get_service_logs, get_services_overview, ServicesOverview};
 use crate::storage::{create_raid, format_disk, get_raid_sync_progress, get_storage_overview, mount_volume, repair_path_permissions, trigger_disk_spindown, umount_volume, CreateRaidRequest, FormatDiskRequest, MountVolumeRequest, RaidSyncProgress, RepairPermissionsRequest, StorageOverview, UmountVolumeRequest};
+use crate::generations;
 use crate::system::{cancel_power, get_gpu_info, get_power_status, get_system_info, schedule_power, GpuInfo, ImmediatePowerRequest, PowerStatusResponse, SchedulePowerRequest, SystemInfo};
 use crate::terminal::{autocomplete, execute_command, CompleteRequest, CompleteResponse, ExecRequest, ExecResponse};
 use crate::updates::{apply_intelligent_update, check_updates, dismiss_update_progress, get_live_log, get_update_progress, start_detached_update, ApplyUpdateResult, UpdateCheckStatus, UpdateProgressState};
@@ -111,6 +112,9 @@ pub fn api_routes() -> Router {
         .route("/updates/dismiss", post(handle_updates_dismiss))
         .route("/updates/apply", post(handle_updates_apply))
         .route("/updates/logs", get(handle_updates_logs))
+        .route("/generations/list", get(handle_generations_list))
+        .route("/generations/boot", post(handle_generations_boot))
+        .route("/generations/cleanup", post(handle_generations_cleanup))
         .route("/terminal/exec", post(handle_terminal_exec))
         .route("/terminal/complete", post(handle_terminal_complete))
         .route("/files/list", get(handle_files_list))
@@ -1504,4 +1508,67 @@ async fn handle_vms_gpus() -> Json<ApiResponse<Vec<GpuDeviceInfo>>> {
         data: Some(gpus),
         message: None,
     })
+}
+
+async fn handle_generations_list() -> Json<ApiResponse<generations::GenerationsListResponse>> {
+    let res = tokio::task::spawn_blocking(generations::list_generations).await;
+    match res {
+        Ok(Ok(data)) => Json(ApiResponse {
+            success: true,
+            data: Some(data),
+            message: None,
+        }),
+        Ok(Err(e)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur d'exécution : {}", e)),
+        }),
+    }
+}
+
+async fn handle_generations_boot(Json(req): Json<generations::SetBootRequest>) -> Json<ApiResponse<String>> {
+    let res = tokio::task::spawn_blocking(move || generations::set_boot_generation(req.generation_id)).await;
+    match res {
+        Ok(Ok(msg)) => Json(ApiResponse {
+            success: true,
+            data: Some(msg.clone()),
+            message: Some(msg),
+        }),
+        Ok(Err(e)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur d'exécution : {}", e)),
+        }),
+    }
+}
+
+async fn handle_generations_cleanup(Json(req): Json<generations::CleanupRequest>) -> Json<ApiResponse<generations::CleanupResponse>> {
+    let res = tokio::task::spawn_blocking(move || generations::cleanup_generations(req)).await;
+    match res {
+        Ok(Ok(resp)) => Json(ApiResponse {
+            success: resp.success,
+            data: Some(resp),
+            message: None,
+        }),
+        Ok(Err(e)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur d'exécution : {}", e)),
+        }),
+    }
 }

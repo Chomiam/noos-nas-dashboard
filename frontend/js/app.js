@@ -270,13 +270,21 @@ function switchUpdateSubtab(tabName) {
   updateSubtabCurrent = tabName;
   const btnCommits = document.getElementById("btn-subtab-commits");
   const btnPackages = document.getElementById("btn-subtab-packages");
+  const btnGenerations = document.getElementById("btn-subtab-generations");
   const paneCommits = document.getElementById("subtab-pane-commits");
   const panePackages = document.getElementById("subtab-pane-packages");
+  const paneGenerations = document.getElementById("subtab-pane-generations");
 
   if (btnCommits) btnCommits.classList.toggle("active", tabName === "commits");
   if (btnPackages) btnPackages.classList.toggle("active", tabName === "packages");
+  if (btnGenerations) btnGenerations.classList.toggle("active", tabName === "generations");
   if (paneCommits) paneCommits.classList.toggle("active", tabName === "commits");
   if (panePackages) panePackages.classList.toggle("active", tabName === "packages");
+  if (paneGenerations) paneGenerations.classList.toggle("active", tabName === "generations");
+
+  if (tabName === "generations") {
+    loadGenerations();
+  }
 }
 
 async function checkForUpdates(force = false) {
@@ -9245,5 +9253,351 @@ function toggleBuildLogAccordion() {
   } else {
     accordion.style.display = "none";
     if (arrow) arrow.textContent = "▼";
+  }
+}
+
+
+// =========================================================================
+// 🧬 GESTION DES GÉNÉRATIONS NIXOS & DU CHARGEUR DE DÉMARRAGE
+// =========================================================================
+let generationsData = null;
+let selectedGenerationIds = new Set();
+let pendingCleanupMode = null;
+let pendingCleanupArg = null;
+
+async function loadGenerations(force = false) {
+  const refreshBtn = document.getElementById("btn-gen-refresh");
+  if (force && refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.innerHTML = `<span>⏳</span> Chargement...`;
+  }
+
+  const tbody = document.getElementById("generations-tbody");
+
+  try {
+    const res = await fetch("/api/generations/list");
+    const json = await res.json();
+
+    if (!json.success || !json.data) {
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--red);">
+          ⚠️ Erreur de chargement : ${escapeHtml(json.message || "Impossible de récupérer les générations")}
+        </td></tr>`;
+      }
+      return;
+    }
+
+    generationsData = json.data;
+    const { generations, current_id, boot_default_id, total_count, store_free_human } = generationsData;
+
+    // Mise à jour des compteurs et statistiques
+    const statCurrent = document.getElementById("stat-gen-current");
+    const statBoot = document.getElementById("stat-gen-boot");
+    const statTotal = document.getElementById("stat-gen-total");
+    const statFree = document.getElementById("stat-gen-free");
+    const badgeCount = document.getElementById("count-system-generations");
+
+    if (statCurrent) statCurrent.textContent = `#${current_id || "--"}`;
+    if (statBoot) statBoot.textContent = `#${boot_default_id || "--"}`;
+    if (statTotal) statTotal.textContent = total_count;
+    if (statFree) statFree.textContent = store_free_human;
+    if (badgeCount) badgeCount.textContent = total_count;
+
+    if (!generations || generations.length === 0) {
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--subtext0);">
+          ✨ Aucune génération enregistrée.
+        </td></tr>`;
+      }
+      return;
+    }
+
+    if (tbody) {
+      tbody.innerHTML = generations.map(gen => {
+        const isCurrent = gen.id === current_id || gen.is_current;
+        const isBootDefault = gen.id === boot_default_id || gen.is_boot_default;
+        const isChecked = selectedGenerationIds.has(gen.id);
+
+        let rowClasses = [];
+        if (isCurrent) rowClasses.push("gen-row-current");
+        if (isBootDefault) rowClasses.push("gen-row-boot");
+
+        return `
+          <tr class="${rowClasses.join(' ')}">
+            <td style="text-align:center;">
+              <input type="checkbox" class="gen-checkbox" data-id="${gen.id}" 
+                ${isChecked ? 'checked' : ''} 
+                ${isCurrent ? 'disabled title="La génération active ne peut pas être supprimée"' : ''} 
+                onchange="toggleSelectGeneration(${gen.id}, this.checked)">
+            </td>
+            <td>
+              <span class="badge-gen-id">#${gen.id}</span>
+            </td>
+            <td>
+              <span style="font-weight:600; color:var(--text);">${escapeHtml(gen.build_date)}</span>
+            </td>
+            <td>
+              <code style="font-family:var(--font-mono); font-size:0.75rem; background:rgba(0,0,0,0.25); padding:2px 6px; border-radius:4px; color:var(--subtext0);">${escapeHtml(gen.nixos_version)}</code>
+            </td>
+            <td>
+              <code style="font-family:var(--font-mono); font-size:0.75rem; color:var(--subtext0);">${escapeHtml(gen.kernel_version)}</code>
+            </td>
+            <td>
+              <div style="display:flex; flex-wrap:wrap; gap:4px; align-items:center;">
+                ${isCurrent ? '<span class="badge badge-success" title="Génération active en mémoire vive"><span class="pulse-dot"></span> Active</span>' : ''}
+                ${isBootDefault ? '<span class="badge badge-accent" title="Génération par défaut configurée dans systemd-boot">🚀 Boot par défaut</span>' : ''}
+                ${!isCurrent && !isBootDefault ? '<span class="badge badge-secondary" style="opacity:0.75;">📦 Archivée</span>' : ''}
+              </div>
+            </td>
+            <td style="text-align:right;">
+              <div style="display:inline-flex; gap:6px; align-items:center;">
+                ${!isBootDefault ? `
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="setBootGeneration(${gen.id})" title="Sélectionner pour démarrer dessus au prochain redémarrage">
+                    <span>🚀</span> Booter dessus
+                  </button>
+                ` : `
+                  <span style="font-size:0.75rem; color:var(--mauve); font-weight:700; padding:4px 8px;">✓ Prêt au boot</span>
+                `}
+                ${!isCurrent ? `
+                  <button type="button" class="btn btn-danger btn-xs" onclick="confirmCleanupGenerations('custom', [${gen.id}])" title="Supprimer définitivement la génération #${gen.id}">
+                    <span>🗑️</span>
+                  </button>
+                ` : `
+                  <span title="Génération active protégée" style="opacity:0.4; font-size:0.9rem; padding:0 4px; cursor:not-allowed;">🔒</span>
+                `}
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    updateSelectionBar();
+  } catch (e) {
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--red);">
+        Erreur réseau : ${e.message}
+      </td></tr>`;
+    }
+  } finally {
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.innerHTML = `<span>🔄</span> Actualiser`;
+    }
+  }
+}
+
+function toggleSelectGeneration(id, checked) {
+  if (checked) {
+    selectedGenerationIds.add(id);
+  } else {
+    selectedGenerationIds.delete(id);
+  }
+  updateSelectionBar();
+}
+
+function toggleSelectAllGenerations(checked) {
+  const checkboxes = document.querySelectorAll(".gen-checkbox");
+  checkboxes.forEach(cb => {
+    if (!cb.disabled) {
+      cb.checked = checked;
+      const id = parseInt(cb.getAttribute("data-id"), 10);
+      if (checked) {
+        selectedGenerationIds.add(id);
+      } else {
+        selectedGenerationIds.delete(id);
+      }
+    }
+  });
+  updateSelectionBar();
+}
+
+function deselectAllGenerations() {
+  selectedGenerationIds.clear();
+  const selectAll = document.getElementById("gen-select-all");
+  if (selectAll) selectAll.checked = false;
+  const checkboxes = document.querySelectorAll(".gen-checkbox");
+  checkboxes.forEach(cb => {
+    cb.checked = false;
+  });
+  updateSelectionBar();
+}
+
+function updateSelectionBar() {
+  const bar = document.getElementById("gen-selection-bar");
+  const countEl = document.getElementById("gen-selected-count");
+  const selectAll = document.getElementById("gen-select-all");
+
+  if (countEl) countEl.textContent = selectedGenerationIds.size;
+
+  if (bar) {
+    bar.style.display = selectedGenerationIds.size > 0 ? "flex" : "none";
+  }
+
+  if (selectAll && generationsData && generationsData.generations) {
+    const selectableCount = generationsData.generations.filter(g => g.id !== generationsData.current_id).length;
+    selectAll.checked = selectableCount > 0 && selectedGenerationIds.size === selectableCount;
+  }
+}
+
+function confirmCustomCleanup() {
+  if (selectedGenerationIds.size === 0) return;
+  confirmCleanupGenerations('custom', Array.from(selectedGenerationIds));
+}
+
+function confirmCleanupGenerations(mode, arg) {
+  if (!generationsData || !generationsData.generations) {
+    showToast("error", "Données des générations indisponibles.");
+    return;
+  }
+
+  const currentId = generationsData.current_id;
+  const allIds = generationsData.generations.map(g => g.id);
+
+  let targetIds = [];
+  if (mode === 'keep_last') {
+    const keepCount = arg || 3;
+    targetIds = allIds.slice(keepCount).filter(id => id !== currentId);
+  } else if (mode === 'only_current') {
+    targetIds = allIds.filter(id => id !== currentId);
+  } else if (mode === 'custom') {
+    targetIds = (arg || []).filter(id => id !== currentId && allIds.includes(id));
+  }
+
+  if (targetIds.length === 0) {
+    showToast("info", "Aucune génération obsolète à supprimer (les versions actives et récentes sont déjà protégées).");
+    return;
+  }
+
+  pendingCleanupMode = mode;
+  pendingCleanupArg = targetIds;
+
+  const modal = document.getElementById("modal-gen-cleanup");
+  const summaryEl = document.getElementById("gen-cleanup-summary-text");
+  const chipsList = document.getElementById("gen-cleanup-chips-list");
+  const confirmBtn = document.getElementById("btn-confirm-gen-cleanup");
+
+  if (summaryEl) {
+    summaryEl.textContent = `${targetIds.length} génération(s) vont être supprimées et purgées du store`;
+  }
+
+  if (chipsList) {
+    chipsList.innerHTML = targetIds.map(id => `<span class="gen-chip-id">#${id}</span>`).join('');
+  }
+
+  if (confirmBtn) {
+    confirmBtn.disabled = false;
+    confirmBtn.innerHTML = `<span>🗑️</span> Confirmer la suppression (${targetIds.length})`;
+  }
+
+  if (modal) modal.style.display = "flex";
+}
+
+function closeGenCleanupModal() {
+  const modal = document.getElementById("modal-gen-cleanup");
+  if (modal) modal.style.display = "none";
+  pendingCleanupMode = null;
+  pendingCleanupArg = null;
+}
+
+async function executePendingCleanup() {
+  if (!pendingCleanupMode || !pendingCleanupArg || pendingCleanupArg.length === 0) return;
+
+  const confirmBtn = document.getElementById("btn-confirm-gen-cleanup");
+  const cancelBtn = document.getElementById("btn-cancel-gen-cleanup");
+
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = `<span>⏳</span> Purge et Garbage Collection en cours...`;
+  }
+  if (cancelBtn) cancelBtn.disabled = true;
+
+  try {
+    let payload = {};
+    if (pendingCleanupMode === 'keep_last') {
+      payload = { mode: "keep_last", count: 3 };
+    } else if (pendingCleanupMode === 'only_current') {
+      payload = { mode: "only_current" };
+    } else {
+      payload = { mode: "custom", generation_ids: pendingCleanupArg };
+    }
+
+    const res = await fetch("/api/generations/cleanup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const json = await res.json();
+    if (json.success && json.data) {
+      closeGenCleanupModal();
+      showToast("success", `✨ ${json.data.deleted_count} génération(s) supprimée(s) ! Espace libéré : ${json.data.freed_space_human}`);
+      deselectAllGenerations();
+      await loadGenerations(true);
+    } else {
+      showToast("error", `Erreur : ${json.message || "Échec de la suppression"}`);
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = `<span>🗑️</span> Réessayer la suppression`;
+      }
+      if (cancelBtn) cancelBtn.disabled = false;
+    }
+  } catch (e) {
+    showToast("error", `Erreur réseau : ${e.message}`);
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.innerHTML = `<span>🗑️</span> Réessayer la suppression`;
+    }
+    if (cancelBtn) cancelBtn.disabled = false;
+  }
+}
+
+async function setBootGeneration(id) {
+  showToast("info", `Configuration de la génération #${id} pour le démarrage...`);
+  try {
+    const res = await fetch("/api/generations/boot", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ generation_id: id })
+    });
+
+    const json = await res.json();
+    if (json.success) {
+      const modal = document.getElementById("modal-gen-boot");
+      const titleEl = document.getElementById("gen-boot-modal-title");
+      if (titleEl) titleEl.textContent = `Génération #${id} configurée avec succès`;
+      if (modal) modal.style.display = "flex";
+      showToast("success", `🚀 Génération #${id} définie pour le prochain démarrage.`);
+      await loadGenerations(true);
+    } else {
+      showToast("error", `Erreur : ${json.message || "Impossible de configurer le boot"}`);
+    }
+  } catch (e) {
+    showToast("error", `Erreur réseau : ${e.message}`);
+  }
+}
+
+function closeGenBootModal() {
+  const modal = document.getElementById("modal-gen-boot");
+  if (modal) modal.style.display = "none";
+}
+
+async function rebootNasFromGenModal() {
+  closeGenBootModal();
+  showToast("info", "Envoi de la commande de redémarrage immédiat au serveur...");
+  try {
+    const res = await fetch("/api/system/power/immediate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reboot" })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast("success", "🔄 Le NAS redémarre... Reconnexion automatique dès le retour en ligne.");
+    } else {
+      showToast("error", `Échec du redémarrage : ${json.message || "Erreur système"}`);
+    }
+  } catch (e) {
+    showToast("error", `Erreur réseau : ${e.message}`);
   }
 }
