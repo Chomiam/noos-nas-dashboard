@@ -10766,13 +10766,60 @@ async function syncEggCatalog(showToastNotice = true) {
   }
 }
 
+let eggCatalogSearchQuery = '';
+let eggCatalogViewMode = localStorage.getItem('steveos_game_store_view') || 'grid';
+
+function setEggCatalogView(mode) {
+  eggCatalogViewMode = mode === 'list' ? 'list' : 'grid';
+  localStorage.setItem('steveos_game_store_view', eggCatalogViewMode);
+  updateEggCatalogViewButtons();
+  renderEggCatalog();
+}
+
+function updateEggCatalogViewButtons() {
+  const gridBtn = document.getElementById('egg-view-grid-btn');
+  const listBtn = document.getElementById('egg-view-list-btn');
+  const grid = document.getElementById('egg-catalog-grid') || document.getElementById('games-catalog-grid');
+
+  if (gridBtn) gridBtn.classList.toggle('active', eggCatalogViewMode === 'grid');
+  if (listBtn) listBtn.classList.toggle('active', eggCatalogViewMode === 'list');
+  if (grid) {
+    grid.classList.toggle('list-view', eggCatalogViewMode === 'list');
+  }
+}
+
+function onEggCatalogSearch(val) {
+  eggCatalogSearchQuery = val || '';
+  const clearBtn = document.getElementById('games-catalog-search-clear');
+  if (clearBtn) {
+    clearBtn.style.display = eggCatalogSearchQuery.trim() ? 'flex' : 'none';
+  }
+  renderEggCatalog();
+}
+
+function clearEggCatalogSearch() {
+  eggCatalogSearchQuery = '';
+  const input = document.getElementById('games-catalog-search-input');
+  const clearBtn = document.getElementById('games-catalog-search-clear');
+  if (input) {
+    input.value = '';
+    input.focus();
+  }
+  if (clearBtn) {
+    clearBtn.style.display = 'none';
+  }
+  renderEggCatalog();
+}
+
 function renderEggCatalog() {
   const grid = document.getElementById("egg-catalog-grid") || document.getElementById("games-catalog-grid");
   if (!grid) return;
 
+  updateEggCatalogViewButtons();
+
   if (!gameCatalogData || gameCatalogData.length === 0) {
     grid.innerHTML = `
-      <div class="card" style="grid-column: 1 / -1; text-align:center; padding: 40px 20px;">
+      <div class="card" style="grid-column: 1 / -1; width:100%; text-align:center; padding: 40px 20px;">
         <span style="font-size:3rem; display:block; margin-bottom:12px;">📦</span>
         <div style="font-weight:700; font-size:1.1rem; color:var(--text); margin-bottom:6px;">Aucun Egg dans le catalogue</div>
         <p style="color:var(--subtext0); font-size:0.85rem; max-width:400px; margin:0 auto 16px auto;">
@@ -10783,10 +10830,49 @@ function renderEggCatalog() {
         </button>
       </div>
     `;
+    const counter = document.getElementById('egg-catalog-counter');
+    if (counter) counter.textContent = '0 jeu';
     return;
   }
 
-  grid.innerHTML = gameCatalogData.map(egg => {
+  const query = eggCatalogSearchQuery.trim().toLowerCase();
+  const filtered = gameCatalogData.filter(egg => {
+    if (!query) return true;
+    const matchName = (egg.name || '').toLowerCase().includes(query);
+    const matchTagline = (egg.tagline || '').toLowerCase().includes(query);
+    const matchDesc = (egg.description || '').toLowerCase().includes(query);
+    const matchCat = (egg.category || '').toLowerCase().includes(query);
+    const matchAuthor = (egg.author || '').toLowerCase().includes(query);
+    const matchId = (egg.id || '').toLowerCase().includes(query);
+    return matchName || matchTagline || matchDesc || matchCat || matchAuthor || matchId;
+  });
+
+  const counter = document.getElementById('egg-catalog-counter');
+  if (counter) {
+    if (query) {
+      counter.textContent = `${filtered.length} / ${gameCatalogData.length} trouvé${filtered.length > 1 ? 's' : ''}`;
+    } else {
+      counter.textContent = `${filtered.length} jeu${filtered.length > 1 ? 'x' : ''}`;
+    }
+  }
+
+  if (filtered.length === 0) {
+    grid.innerHTML = `
+      <div class="card" style="grid-column: 1 / -1; width:100%; text-align: center; padding: 48px 20px; background: var(--surface0); border: 1px dashed rgba(255,255,255,0.12); border-radius: var(--radius-md);">
+        <span style="font-size: 2.8rem; display: block; margin-bottom: 12px; filter: grayscale(0.4);">🔍</span>
+        <div style="font-weight: 700; font-size: 1.15rem; color: var(--text); margin-bottom: 6px;">Aucun serveur de jeu ne correspond à "${escapeHtml(eggCatalogSearchQuery)}"</div>
+        <p style="color: var(--subtext0); font-size: 0.85rem; max-width: 420px; margin: 0 auto 16px auto;">
+          Vérifiez l'orthographe ou essayez un mot-clé plus générique (ex: Minecraft, Zombie, Survie, FPS...).
+        </p>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="clearEggCatalogSearch()">
+          <span>✕</span> Effacer la recherche
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  grid.innerHTML = filtered.map(egg => {
     const bannerStyle = egg.banner_url
       ? `background: linear-gradient(180deg, rgba(17, 17, 27, 0.45) 0%, rgba(17, 17, 27, 0.90) 100%), url('${egg.banner_url}') center/cover no-repeat;`
       : `background:${egg.banner_color || 'var(--surface1)'};`;

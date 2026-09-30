@@ -2077,6 +2077,29 @@
             </button>
           </div>
         </div>
+
+        <!-- BARRE D'OUTILS DU STORE : RECHERCHE INSTANTANEE ET BASCULE GRILLE / LIGNE -->
+        <div class="games-catalog-toolbar">
+          <div class="games-catalog-search-wrapper">
+            <span class="games-catalog-search-icon">🔍</span>
+            <input type="text" id="games-catalog-search-input" class="games-catalog-search-input" placeholder="Rechercher un serveur de jeu (Minecraft, Zomboid, CS2, Enshrouded...)" oninput="onEggCatalogSearch(this.value)" autocomplete="off">
+            <button type="button" id="games-catalog-search-clear" class="games-catalog-search-clear" onclick="clearEggCatalogSearch()" style="display:none;" title="Effacer la recherche">✕</button>
+          </div>
+          <div class="games-catalog-view-toggle">
+            <div class="egg-view-btn-group">
+              <button type="button" id="egg-view-grid-btn" class="egg-view-btn active" onclick="setEggCatalogView('grid')" title="Affichage en Grille">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                <span>Grille</span>
+              </button>
+              <button type="button" id="egg-view-list-btn" class="egg-view-btn" onclick="setEggCatalogView('list')" title="Affichage stylisé en Ligne">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+                <span>Ligne</span>
+              </button>
+            </div>
+            <span id="egg-catalog-counter" class="egg-catalog-badge-counter">10 jeux</span>
+          </div>
+        </div>
+
         <div id="egg-catalog-grid" class="games-grid">
           <!-- Cartes du catalogue rendues en JS -->
         </div>
