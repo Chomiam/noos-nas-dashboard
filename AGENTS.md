@@ -37,3 +37,20 @@
 
 ## 🧬 Règle n°4 : Vérification systématique nix-ld pour toute dépendance native
 - Pour toute nouvelle dépendance, outil externe ou bibliothèque requis par le dashboard ou ses services sous-jacents, vérifier systématiquement si des bibliothèques partagées (`.so`) associées doivent être ajoutées dans `modules/services/nix-ld.nix` côté `steveos-nas`.
+
+---
+
+## 🏷️ Règle n°5 : Traçabilité des Anomalies & Identifiant Unique de Résolution (Bug Tracking)
+- **Déclenchement systématique dès qu'un problème, dysfonctionnement ou bug est identifié** :
+  1. **Établissement préalable d'un Rapport d'Incident avec Identifiant Unique :**
+     - Format standardisé de l'identifiant : `[BUG-YYYYMMDD-XX]` (ex: `[BUG-20260930-01]`).
+     - Ce rapport consigne :
+       - **Symptôme & Contexte** : Message d'erreur exact, comportement anormal, logs.
+       - **Composant(s) impacté(s)** : Backend Rust, routes Axum, composants Frontend (JS/CSS/HTML).
+       - **Cause racine (RCA)** : Analyse technique de l'origine du bug.
+       - **Stratégie de résolution** : Correctifs appliqués et tests de validation syntaxique.
+  2. **Traçabilité obligatoire dans les Commits :**
+     - Le commit de correction doit impérativement reprendre cet identifiant :
+       - Dans l'entête : `fix(scope)[BUG-YYYYMMDD-XX]: description du correctif`
+       - Dans le corps explicatif du commit : référence explicite au rapport d'incident.
+  3. **Objectif :** Corrélation directe et sans équivoque entre signalements d'anomalies, rapports et correctifs dans l'historique Git.
