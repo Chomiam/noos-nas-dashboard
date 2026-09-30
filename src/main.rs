@@ -1,17 +1,21 @@
 async fn no_cache_layer(req: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
+    let p = req.uri().path();
+    let is_media = p.starts_with("/api/files/stream") || p.starts_with("/api/files/download") || p.starts_with("/api/files/image-view");
     let mut resp = next.run(req).await;
-    resp.headers_mut().insert(
-        axum::http::header::CACHE_CONTROL,
-        axum::http::HeaderValue::from_static("no-cache, no-store, must-revalidate"),
-    );
-    resp.headers_mut().insert(
-        axum::http::header::PRAGMA,
-        axum::http::HeaderValue::from_static("no-cache"),
-    );
-    resp.headers_mut().insert(
-        axum::http::header::EXPIRES,
-        axum::http::HeaderValue::from_static("0"),
-    );
+    if !is_media {
+        resp.headers_mut().insert(
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-cache, no-store, must-revalidate"),
+        );
+        resp.headers_mut().insert(
+            axum::http::header::PRAGMA,
+            axum::http::HeaderValue::from_static("no-cache"),
+        );
+        resp.headers_mut().insert(
+            axum::http::header::EXPIRES,
+            axum::http::HeaderValue::from_static("0"),
+        );
+    }
     resp
 }
 

@@ -451,24 +451,27 @@ fn extract_token(req: &Request) -> Option<String> {
         }
     }
 
-    // 2. Cookie: steveos_token=<token>
+    // 2. Cookie: steveos_token=<token> ou steveos_auth_token=<token>
     if let Some(cookie_header) = req.headers().get(header::COOKIE) {
         if let Ok(cookies) = cookie_header.to_str() {
             for c in cookies.split(';') {
                 let parts: Vec<&str> = c.trim().split('=').collect();
-                if parts.len() == 2 && parts[0] == "steveos_token" {
+                if parts.len() == 2 && (parts[0] == "steveos_token" || parts[0] == "steveos_auth_token") {
                     return Some(parts[1].trim().to_string());
                 }
             }
         }
     }
 
-    // 3. Query param ?token=<token>
+    // 3. Query param ?token=<token> ou ?auth_token=<token>
     if let Some(query) = req.uri().query() {
         for pair in query.split('&') {
             let parts: Vec<&str> = pair.split('=').collect();
-            if parts.len() == 2 && parts[0] == "token" {
-                return Some(parts[1].to_string());
+            if parts.len() == 2 && (parts[0] == "token" || parts[0] == "auth_token") {
+                let clean = parts[1].trim();
+                if !clean.is_empty() {
+                    return Some(clean.to_string());
+                }
             }
         }
     }
@@ -649,7 +652,7 @@ pub fn extract_token_from_headers(headers: &axum::http::HeaderMap) -> Option<Str
         if let Ok(cookies) = cookie_header.to_str() {
             for c in cookies.split(';') {
                 let parts: Vec<&str> = c.trim().split('=').collect();
-                if parts.len() == 2 && parts[0] == "steveos_token" {
+                if parts.len() == 2 && (parts[0] == "steveos_token" || parts[0] == "steveos_auth_token") {
                     return Some(parts[1].trim().to_string());
                 }
             }

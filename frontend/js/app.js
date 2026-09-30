@@ -9,15 +9,48 @@ let isAppInitialized = false;
 function getAuthToken() {
   try {
     const urlParams = new URLSearchParams(window.location.search);
-    const qToken = urlParams.get("token");
+    const qToken = urlParams.get("token") || urlParams.get("auth_token");
     if (qToken) {
       localStorage.setItem(AUTH_TOKEN_KEY, qToken);
       sessionStorage.setItem(AUTH_TOKEN_KEY, qToken);
-      document.cookie = `steveos_token=${qToken}; path=/; max-age=604800`;
+      document.cookie = `steveos_token=${qToken}; path=/; max-age=604800; SameSite=Lax`;
       return qToken;
     }
   } catch (e) {}
-  return sessionStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(AUTH_TOKEN_KEY);
+  const token = sessionStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(AUTH_TOKEN_KEY);
+  if (token) {
+    try {
+      if (!document.cookie.includes("steveos_token=")) {
+        document.cookie = `steveos_token=${token}; path=/; max-age=604800; SameSite=Lax`;
+      }
+    } catch (e) {}
+  }
+  return token;
+}
+
+function buildAuthenticatedUrl(endpoint, extraParams = {}) {
+  const token = getAuthToken();
+  const baseOrigin = window.location.origin && window.location.origin !== "null" ? window.location.origin : "http://localhost:9339";
+  const url = new URL(endpoint, baseOrigin);
+  Object.entries(extraParams).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) {
+      url.searchParams.set(k, String(v));
+    }
+  });
+  if (token) {
+    url.searchParams.set("token", token);
+  }
+  return url.pathname + url.search;
+}
+
+function isVideoFile(fileName, category) {
+  if (category === "video") return true;
+  return /\.(mp4|mkv|webm|avi|mov|m4v|flv|wmv|ts|3gp)$/i.test(fileName || "");
+}
+
+function isAudioFile(fileName, category) {
+  if (category === "audio") return true;
+  return /\.(mp3|flac|wav|aac|ogg|m4a|opus|wma|aiff|alac)$/i.test(fileName || "");
 }
 
 function setAuthToken(token, remember) {
@@ -2340,7 +2373,7 @@ function renderFilesList(entries) {
     const icon = getFileIcon(item);
     let cardPreview = `<div class="file-card-icon">${icon}</div>`;
     if (isImageFile(item.name, item.category)) {
-      const thumbUrl = `/api/files/image-view?path=${encodeURIComponent(item.path)}&thumb=true`;
+      const thumbUrl = buildAuthenticatedUrl("/api/files/image-view", { path: item.path, thumb: "true" });
       cardPreview = `<div class="file-card-icon file-card-img-preview" style="width:100%; height:80px; max-height:80px; overflow:hidden; border-radius:6px; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.35);"><img src="${thumbUrl}" loading="lazy" alt="${escapeHtml(item.name)}" style="width:100%; height:100%; max-width:100%; max-height:100%; object-fit:cover; display:block; border-radius:5px;" onerror="this.onerror=null; this.parentElement.className='file-card-icon'; this.parentElement.style='width:100%; height:80px; display:flex; align-items:center; justify-content:center; font-size:2.4rem;'; this.parentElement.innerHTML='${icon}';"></div>`;
     }
     return `
@@ -2571,9 +2604,9 @@ function handleFileDblClick(path, isDir) {
       openImageModal(path, fileName, item);
     } else if (isDocumentFile(fileName, cat)) {
       openDocModal(path, fileName, item);
-    } else if (cat === "video" || /\.(mp4|mkv|webm|avi|mov|m4v|flv)$/i.test(fileName)) {
+    } else if (isVideoFile(fileName, cat)) {
       openMpvModal(path, fileName);
-    } else if (cat === "audio" || /\.(mp3|flac|wav|aac|ogg|m4a|opus|wma)$/i.test(fileName)) {
+    } else if (isAudioFile(fileName, cat)) {
       openAudioModal(path, fileName, item ? item.size_bytes : 0);
     } else if (isNvimEditableFile(fileName, cat)) {
       openNvimModal(path, fileName);
@@ -2696,9 +2729,9 @@ function handleItemContextMenu(e, path) {
   if (ctxExtractTo) ctxExtractTo.style.display = (isArchive && selectedFilePaths.size <= 1) ? "flex" : "none";
 
   const isVideo = selectedFileItem && !selectedFileItem.is_dir &&
-    (selectedFileItem.category === "video" || /\.(mp4|mkv|webm|avi|mov|m4v|flv)$/i.test(selectedFileItem.name));
+    isVideoFile(selectedFileItem.name, selectedFileItem.category);
   const isAudio = selectedFileItem && !selectedFileItem.is_dir &&
-    (selectedFileItem.category === "audio" || /\.(mp3|flac|wav|aac|ogg|m4a|opus|wma)$/i.test(selectedFileItem.name));
+    isAudioFile(selectedFileItem.name, selectedFileItem.category);
   const isEditable = selectedFileItem && !selectedFileItem.is_dir &&
     isNvimEditableFile(selectedFileItem.name, selectedFileItem.category);
 
@@ -4064,7 +4097,7 @@ function openMpvModal(path, fileName) {
 
   if (!modal || !video) return;
 
-  const streamUrl = `/api/files/stream?path=${encodeURIComponent(path)}`;
+  const streamUrl = buildAuthenticatedUrl("/api/files/stream", { path });
   if (title) title.textContent = fileName || path.split("/").pop();
   if (nativeBtn) nativeBtn.href = streamUrl;
 
@@ -4812,27 +4845,33 @@ function openAudioModal(path, fileName, sizeBytes) {
   audioEl.loop = false;
   audioEl.playbackRate = 1.0;
 
-  const streamUrl = `/api/files/stream?path=${encodeURIComponent(path)}`;
+  const streamUrl = buildAuthenticatedUrl("/api/files/stream", { path });
   audioEl.src = streamUrl;
 
   if (!audioCtx) {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (AudioContextClass) {
-      audioCtx = new AudioContextClass();
-      audioSourceNode = audioCtx.createMediaElementSource(audioEl);
-      audioAnalyserNode = audioCtx.createAnalyser();
-      audioAnalyserNode.fftSize = 128;
-      audioAnalyserNode.smoothingTimeConstant = 0.82;
-      audioSourceNode.connect(audioAnalyserNode);
-      audioAnalyserNode.connect(audioCtx.destination);
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass) {
+        audioCtx = new AudioContextClass();
+        audioSourceNode = audioCtx.createMediaElementSource(audioEl);
+        audioAnalyserNode = audioCtx.createAnalyser();
+        audioAnalyserNode.fftSize = 128;
+        audioAnalyserNode.smoothingTimeConstant = 0.82;
+        audioSourceNode.connect(audioAnalyserNode);
+        audioAnalyserNode.connect(audioCtx.destination);
+      }
+    } catch (e) {
+      console.warn("Échec d'initialisation AudioContext :", e);
     }
   }
 
   modal.style.display = "flex";
 
-  if (audioCtx && audioCtx.state === "suspended") {
-    audioCtx.resume();
-  }
+  try {
+    if (audioCtx && audioCtx.state === "suspended") {
+      audioCtx.resume();
+    }
+  } catch (e) {}
 
   audioEl.play().then(() => {
     if (playIcon) playIcon.textContent = "⏸";
@@ -5455,14 +5494,14 @@ function loadActiveImage() {
 
   if (resPill) resPill.textContent = "-- × --";
   if (downloadBtn) {
-    downloadBtn.href = `/api/files/stream?path=${encodeURIComponent(file.path)}`;
+    downloadBtn.href = buildAuthenticatedUrl("/api/files/stream", { path: file.path });
     downloadBtn.download = file.name;
   }
 
   if (loadingOverlay) loadingOverlay.style.display = "flex";
   resetImageTransformState();
 
-  const previewUrl = `/api/files/image-view?path=${encodeURIComponent(file.path)}`;
+  const previewUrl = buildAuthenticatedUrl("/api/files/image-view", { path: file.path });
   imgEl.src = previewUrl;
 
   imgEl.onload = () => {
@@ -5488,7 +5527,7 @@ function renderImageFilmstrip() {
 
   track.innerHTML = imageViewerFiles.map((file, idx) => {
     const ext = file.name.split(".").pop().toUpperCase();
-    const thumbUrl = `/api/files/image-view?path=${encodeURIComponent(file.path)}&thumb=true`;
+    const thumbUrl = buildAuthenticatedUrl("/api/files/image-view", { path: file.path, thumb: "true" });
     return `
       <div class="image-filmstrip-item ${idx === imageViewerIndex ? 'active' : ''}" 
            id="filmstrip-item-${idx}" 
@@ -6218,7 +6257,7 @@ function renderTrashList(items) {
     const icon = getFileIcon(item);
     let cardPreview = '<div class="file-card-icon">' + icon + '</div>';
     if (isImageFile(item.name, item.category)) {
-      const thumbUrl = '/api/files/image-view?path=' + encodeURIComponent(item.trash_path) + '&thumb=true';
+      const thumbUrl = buildAuthenticatedUrl("/api/files/image-view", { path: item.trash_path, thumb: "true" });
       cardPreview = '<div class="file-card-icon file-card-img-preview" style="width:100%; height:80px; max-height:80px; overflow:hidden; border-radius:6px; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.35);"><img src="' + thumbUrl + '" loading="lazy" alt="' + escapeHtml(item.name) + '" style="width:100%; height:100%; max-width:100%; max-height:100%; object-fit:cover; display:block; border-radius:5px;" onerror="this.onerror=null; this.parentElement.className=\'file-card-icon\'; this.parentElement.style=\'width:100%; height:80px; display:flex; align-items:center; justify-content:center; font-size:2.4rem;\'; this.parentElement.innerHTML=\'' + icon + '\';"></div>';
     }
 
@@ -6882,8 +6921,8 @@ async function openDocModal(path, fileName, item) {
     sizeEl.textContent = item && item.size_human ? item.size_human : "";
   }
 
-  const directPreviewUrl = `/api/documents/preview?path=${encodeURIComponent(path)}`;
-  const directDownloadUrl = `/api/files/download?path=${encodeURIComponent(path)}`;
+  const directPreviewUrl = buildAuthenticatedUrl("/api/documents/preview", { path });
+  const directDownloadUrl = buildAuthenticatedUrl("/api/files/stream", { path });
 
   if (openTabBtn) openTabBtn.href = directPreviewUrl;
   if (downloadOrigBtn) downloadOrigBtn.href = directDownloadUrl;

@@ -65,6 +65,8 @@ pub struct ApiResponse<T> {
 pub struct ImageViewQuery {
     pub path: String,
     pub thumb: Option<bool>,
+    #[allow(dead_code)]
+    pub token: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -172,6 +174,7 @@ pub fn api_routes() -> Router {
         .route("/files/move", post(handle_files_move))
         .route("/files/upload", post(handle_files_upload).layer(axum::extract::DefaultBodyLimit::disable()))
         .route("/files/stream", get(handle_files_stream))
+        .route("/files/download", get(handle_files_stream))
         .route("/files/read", get(handle_files_read))
         .route("/files/image-view", get(handle_files_image_view))
         .route("/files/image-info", get(handle_files_image_info))
@@ -1001,6 +1004,8 @@ async fn handle_files_upload(
 #[derive(Deserialize)]
 pub struct StreamQuery {
     pub path: String,
+    #[allow(dead_code)]
+    pub token: Option<String>,
 }
 
 async fn handle_files_stream(
