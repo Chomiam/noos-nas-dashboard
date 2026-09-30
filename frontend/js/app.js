@@ -9845,9 +9845,28 @@ async function loadGameServers(forceToast = false) {
   }
 }
 
+let currentGamesViewMode = localStorage.getItem('steveos_games_view_mode') || 'grid';
+
+function setGamesViewMode(mode) {
+  currentGamesViewMode = mode;
+  try { localStorage.setItem('steveos_games_view_mode', mode); } catch (_) {}
+  const btnGrid = document.getElementById("btn-view-grid");
+  const btnList = document.getElementById("btn-view-list");
+  if (btnGrid) btnGrid.classList.toggle("active", mode === "grid");
+  if (btnList) btnList.classList.toggle("active", mode === "list");
+  renderGameServers();
+}
+
 function renderGameServers() {
   const grid = document.getElementById("game-servers-grid") || document.getElementById("games-servers-grid");
   if (!grid) return;
+
+  const btnGrid = document.getElementById("btn-view-grid");
+  const btnList = document.getElementById("btn-view-list");
+  if (btnGrid) btnGrid.classList.toggle("active", currentGamesViewMode === "grid");
+  if (btnList) btnList.classList.toggle("active", currentGamesViewMode === "list");
+
+  grid.className = currentGamesViewMode === "list" ? "games-grid mode-list" : "games-grid mode-grid";
 
   if (gameServersData.length === 0) {
     grid.innerHTML = `
@@ -9894,6 +9913,131 @@ function renderGameServers() {
     const fullAddress = `${lanHost}:${s.port}`;
     const protoUpper = (s.port_protocol || "tcp").toUpperCase();
 
+    if (currentGamesViewMode === "list") {
+      // MODE LIGNE / LISTE COMPACTE
+      return `
+        <div class="game-server-row ${isOnline ? "row-status-online" : (isDeploying ? "row-status-deploying" : "row-status-offline")}">
+          
+          <!-- Identité : Icône, Nom, Jeu, Port -->
+          <div class="row-col-identity">
+            <div class="row-icon-badge">${s.icon || "🎮"}</div>
+            <div class="row-identity-meta">
+              <div class="row-server-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</div>
+              <div class="row-server-sub">
+                <span>${escapeHtml(s.game_name)}</span>
+                <span class="row-dot-sep">•</span>
+                <span class="row-port-tag">${s.port} / ${protoUpper}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Statut -->
+          <div class="row-col-status">
+            <div class="game-server-status-pill ${isOnline ? "status-online" : (isDeploying ? "status-deploying" : "status-offline")}">
+              <span class="status-beacon"></span>
+              <span class="status-label">${isDeploying ? "Déploiement" : (isOnline ? "En ligne" : "Arrêté")}</span>
+            </div>
+          </div>
+
+          <!-- Adresses de connexion -->
+          <div class="row-col-network">
+            <div class="row-endpoints">
+              <div class="endpoint-chip endpoint-lan" title="Adresse locale (LAN)">
+                <span class="endpoint-tag tag-lan">🏠 Local</span>
+                <span class="endpoint-ip">${fullAddress}</span>
+                <button type="button" class="endpoint-copy-btn" onclick="copyGameServerAddress('${fullAddress}')" title="Copier l'adresse locale">📋</button>
+              </div>
+
+              ${s.wireguard_ip ? `
+                <div class="endpoint-chip endpoint-wg" title="Adresse WireGuard VPN">
+                  <span class="endpoint-tag tag-wg">🛡️ VPN</span>
+                  <span class="endpoint-ip">${s.wireguard_ip}:${s.port}</span>
+                  <button type="button" class="endpoint-copy-btn" onclick="copyGameServerAddress('${s.wireguard_ip}:${s.port}')" title="Copier l'adresse WireGuard">📋</button>
+                </div>
+              ` : ""}
+
+              ${s.public_ip ? `
+                <div class="endpoint-chip endpoint-wan" title="Adresse IPv4 publique WAN">
+                  <span class="endpoint-tag tag-public">🌍 WAN</span>
+                  <span class="endpoint-ip">${s.public_ip}:${s.port}</span>
+                  <button type="button" class="endpoint-copy-btn" onclick="copyGameServerAddress('${s.public_ip}:${s.port}')" title="Copier l'adresse publique">📋</button>
+                </div>
+              ` : ""}
+            </div>
+          </div>
+
+          <!-- Télémétrie compacte (RAM jauge, CPU, Joueurs) -->
+          <div class="row-col-stats">
+            <div class="row-stat-box" title="Consommation RAM : ${ramUsageStr}">
+              <span class="row-stat-label">RAM</span>
+              <div class="row-ram-bar-wrap">
+                <div class="metric-bar-track" style="width: 50px; height: 5px;">
+                  <div class="metric-bar-fill fill-ram" style="width: ${ramPercent}%;"></div>
+                </div>
+                <span class="row-stat-val font-mono">${ramPercent}%</span>
+              </div>
+            </div>
+
+            <div class="row-stat-box" title="${cpuTitleStr}">
+              <span class="row-stat-label">CPU</span>
+              <span class="row-stat-val font-mono">⚡ ${cpuUsageStr}</span>
+            </div>
+
+            <div class="row-stat-box">
+              <span class="row-stat-label">JOUEURS</span>
+              <span class="row-stat-val ${isOnline && onlineCount > 0 ? "text-green" : ""}">👥 ${playersDisplay}</span>
+            </div>
+          </div>
+
+          <!-- Actions en ligne -->
+          <div class="row-col-actions">
+            ${isDeploying ? `
+              <button type="button" class="btn btn-warning btn-sm" onclick="openGameDeployProgressModal('${s.id}', '${escapeHtml(s.name)}', '${escapeHtml(s.game_name)}', '${s.icon}')" title="Suivre le déploiement">
+                <span class="spinner-inline">⏳</span> Suivre
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="openServerConsoleView('${s.id}')" title="Console">
+                <span>🖥️</span>
+              </button>
+              <button type="button" class="btn-card-delete" onclick="confirmDeleteGameServer('${s.id}', '${escapeHtml(s.name)}')" title="Supprimer ce serveur">
+                <span>🗑️</span>
+              </button>
+            ` : (isOnline ? `
+              <button type="button" class="btn-action-primary btn-action-console btn-row-console" onclick="openServerConsoleView('${s.id}')" title="Ouvrir la console en direct">
+                <span>🖥️</span> Console
+              </button>
+              <button type="button" class="btn-action-power btn-power-restart btn-row-power" onclick="controlGameServerAction('${s.id}', 'restart')" title="Redémarrer le serveur">
+                <span>🔄</span>
+              </button>
+              <button type="button" class="btn-action-power btn-power-stop btn-row-power" onclick="controlGameServerAction('${s.id}', 'stop')" title="Arrêter le serveur">
+                <span>⏹️</span>
+              </button>
+              <button type="button" class="btn-row-files" onclick="openServerFolderInFiles('${escapeHtml(s.data_dir)}')" title="Parcourir les fichiers">
+                <span>📁</span>
+              </button>
+              <button type="button" class="btn-card-delete" onclick="confirmDeleteGameServer('${s.id}', '${escapeHtml(s.name)}')" title="Supprimer ce serveur">
+                <span>🗑️</span>
+              </button>
+            ` : `
+              <button type="button" class="btn-action-primary btn-power-start btn-row-start" onclick="controlGameServerAction('${s.id}', 'start')" title="Démarrer le serveur">
+                <span>▶️</span> Démarrer
+              </button>
+              <button type="button" class="btn-action-secondary btn-row-console-sec" onclick="openServerConsoleView('${s.id}')" title="Voir la console">
+                <span>🖥️</span> Console
+              </button>
+              <button type="button" class="btn-row-files" onclick="openServerFolderInFiles('${escapeHtml(s.data_dir)}')" title="Parcourir les fichiers">
+                <span>📁</span>
+              </button>
+              <button type="button" class="btn-card-delete" onclick="confirmDeleteGameServer('${s.id}', '${escapeHtml(s.name)}')" title="Supprimer ce serveur">
+                <span>🗑️</span>
+              </button>
+            `)}
+          </div>
+
+        </div>
+      `;
+    }
+
+    // MODE GRILLE (CARTES MODERNES)
     return `
       <div class="game-server-card ${isOnline ? "card-status-online" : (isDeploying ? "card-status-deploying" : "card-status-offline")}">
         

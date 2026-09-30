@@ -1819,6 +1819,14 @@
             <span class="toolbar-subtitle">Gérez vos instances de jeux, vos accès réseau et la console en direct</span>
           </div>
           <div class="toolbar-actions">
+            <div class="games-view-toggle" id="games-view-toggle" role="group" aria-label="Mode d'affichage">
+              <button type="button" class="btn-view-toggle active" id="btn-view-grid" onclick="setGamesViewMode('grid')" title="Affichage en grille de cartes">
+                <span>⊞</span> Grille
+              </button>
+              <button type="button" class="btn-view-toggle" id="btn-view-list" onclick="setGamesViewMode('list')" title="Affichage en ligne (liste compacte)">
+                <span>☰</span> Ligne
+              </button>
+            </div>
             <button type="button" class="btn btn-secondary btn-sm" onclick="loadGameServers(true)" title="Rafraîchir l'état des serveurs">
               <span>🔄</span> Actualiser
             </button>
