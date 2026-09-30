@@ -170,6 +170,7 @@ function switchTab(tabId) {
   if (tabId === "tab-storage") loadStorage();
   if (tabId === "tab-network") loadNetwork();
   if (tabId === "tab-containers") refreshContainersAndStore();
+  if (tabId === "tab-games") loadGameServers();
   if (tabId === "tab-vms") loadVms();
   if (tabId === "tab-logs") loadLogs();
 }
