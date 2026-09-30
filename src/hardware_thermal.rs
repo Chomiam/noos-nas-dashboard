@@ -38,6 +38,8 @@ pub struct FanDevice {
     pub pwm_percent: u8,             // 0 à 100 %
     pub pwm_raw: u8,                 // 0 à 255
     pub pwm_controllable: bool,      // pwmX accessible en écriture
+    pub is_autonomous_firmware: bool,// Géré par le VBIOS/firmware sans PWM logiciel
+    pub firmware_note: Option<String>,// Explication pour l'utilisateur
     pub active_profile: FanProfile,
     pub assigned_sensor_id: String,  // ID de la sonde de référence
     pub custom_curve: Vec<CurvePoint>,
@@ -269,18 +271,35 @@ impl HardwareScanner {
                         .and_then(|s| s.trim().parse::<u32>().ok())
                         .unwrap_or(0);
 
-                    let (pwm_raw, pwm_percent, controllable) = if pwm_file.exists() {
+                    let is_intel_gpu = chip_name.to_lowercase().contains("i915") || chip_name.to_lowercase().contains("xe");
+                    let is_writable_pwm = pwm_file.exists() && fs::OpenOptions::new().write(true).open(&pwm_file).is_ok();
+                    let controllable = is_writable_pwm && !is_intel_gpu;
+
+                    let (pwm_raw, pwm_percent) = if pwm_file.exists() {
                         let raw = fs::read_to_string(&pwm_file)
                             .ok()
                             .and_then(|s| s.trim().parse::<u8>().ok())
                             .unwrap_or(0);
                         let pct = ((raw as f32 / 255.0) * 100.0).round() as u8;
-                        (raw, pct, true)
+                        (raw, pct)
                     } else {
-                        (0, 0, false)
+                        (0, 0)
                     };
 
-                    let default_label = format!("Ventilateur {} ({})", f_idx, chip_name);
+                    let is_autonomous_firmware = is_intel_gpu || !controllable;
+                    let firmware_note = if is_intel_gpu {
+                        Some("Asservissement autonome par le VBIOS Intel. Le pilote noyau i915 ne supporte pas le contrôle PWM direct sous Linux.".to_string())
+                    } else if !controllable {
+                        Some("Tachymètre en lecture seule. Régulation assurée automatiquement par le contrôleur matériel/BIOS.".to_string())
+                    } else {
+                        None
+                    };
+
+                    let default_label = if is_intel_gpu {
+                        format!("Ventilateur GPU Intel Arc ({})", chip_name)
+                    } else {
+                        format!("Ventilateur {} ({})", f_idx, chip_name)
+                    };
                     let label = fs::read_to_string(hwmon_dir.join(format!("fan{}_label", f_idx)))
                         .map(|s| s.trim().to_string())
                         .unwrap_or(default_label);
@@ -297,6 +316,8 @@ impl HardwareScanner {
                         pwm_percent,
                         pwm_raw,
                         pwm_controllable: controllable,
+                        is_autonomous_firmware,
+                        firmware_note,
                         active_profile: FanProfile::Silent,
                         assigned_sensor_id: String::new(),
                         custom_curve: get_preset_curve(&FanProfile::Silent),
@@ -511,10 +532,8 @@ impl ThermalManager {
         drop(cfg);
         self.save_config().await;
 
-        // Si profil Freeze, appliquer immédiatement 100%
-        if profile == FanProfile::Freeze {
-            self.apply_fan_direct_percent(fan_id, 100).await?;
-        }
+        // Appliquer immédiatement le nouveau profil sur les ventilateurs régulables
+        let _ = self.tick_regulation_cycle().await;
 
         Ok(())
     }
@@ -550,6 +569,11 @@ impl ThermalManager {
         let fan = state.fans.iter().find(|f| f.id == fan_id)
             .ok_or_else(|| "Ventilateur introuvable".to_string())?;
 
+        if !fan.pwm_controllable || fan.is_autonomous_firmware {
+            self.is_pulsing.store(false, Ordering::SeqCst);
+            return Err("Ce ventilateur est asservi par le firmware matériel (VBIOS/BIOS) et ne peut pas être testé en PWM direct.".to_string());
+        }
+
         let initial_rpm = fan.rpm;
         let _ = self.apply_fan_direct_percent(fan_id, 100).await;
 
@@ -574,8 +598,11 @@ impl ThermalManager {
         let pwm_file = hwmon_dir.join(format!("pwm{}", fan.fan_index));
         let pwm_enable_file = hwmon_dir.join(format!("pwm{}_enable", fan.fan_index));
 
-        if !pwm_file.exists() {
-            return Err("Ce ventilateur n'est pas régulable par PWM".to_string());
+        if !fan.pwm_controllable || fan.is_autonomous_firmware || !pwm_file.exists() {
+            return Err(format!(
+                "Le ventilateur '{}' ({}) est asservi de manière autonome par son microcode matériel (VBIOS/BIOS) et ne peut pas être forcé en PWM logiciel.",
+                fan.label, fan.chip_name
+            ));
         }
 
         // 1. Activer le mode manuel si disponible (1 = Manuel)

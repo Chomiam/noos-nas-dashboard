@@ -14031,6 +14031,8 @@ function renderFansGrid(fans, temperatures) {
       { id: "custom", label: "Courbe", icon: "📐" }
     ];
 
+    const isAutonomous = fan.is_autonomous_firmware || !fan.pwm_controllable;
+
     return `
       <div class="fan-card" id="fan-card-${fan.id}">
         <div class="fan-card-header">
@@ -14043,39 +14045,67 @@ function renderFansGrid(fans, temperatures) {
           </div>
           <div>
             <div class="fan-rpm-badge">${fan.rpm} <span style="font-size:0.75rem; font-weight:normal; color:var(--subtext0);">RPM</span></div>
-            <div class="fan-rpm-label" style="text-align:right;">${fan.pwm_controllable ? 'PWM Actif' : 'Tachymètre seul'}</div>
+            <div class="fan-rpm-label" style="text-align:right; ${isAutonomous ? 'color:var(--blue); font-weight:600;' : ''}">
+              ${isAutonomous ? '🛡️ VBIOS Autonome' : 'PWM Régulable'}
+            </div>
           </div>
         </div>
 
-        <div class="fan-pwm-slider-wrap">
-          <div class="fan-pwm-header">
-            <span>Puissance PWM : <strong>${fan.pwm_percent}%</strong></span>
-            <span>Sonde : <strong style="color:var(--mauve);">${sensorLabel}</strong></span>
+        ${isAutonomous ? `
+          <div style="background: rgba(137, 180, 250, 0.08); border: 1px solid rgba(137, 180, 250, 0.25); border-radius: 8px; padding: 10px 12px; margin: 12px 0 10px 0;">
+            <div style="display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 0.82rem; color: var(--blue);">
+              <span>🛡️ Régulation Autonome (Microcode Matériel)</span>
+            </div>
+            <div style="font-size: 0.77rem; color: var(--subtext0); margin-top: 4px; line-height: 1.4;">
+              ${escapeHtml(fan.firmware_note || "La vitesse est asservie directement par le microcode matériel (VBIOS). Le pilote Linux n'autorise pas l'écrasement PWM manuel.")}
+            </div>
           </div>
-          <div class="fan-pwm-bar-bg">
-            <div class="fan-pwm-bar-fill" style="width: ${fan.pwm_percent}%;"></div>
-          </div>
-        </div>
 
-        <!-- Boutons de profil par ventilateur -->
-        <div style="display: flex; gap: 4px; flex-wrap: wrap;">
-          ${profiles.map(p => `
-            <button type="button" class="btn btn-sm ${fan.active_profile === p.id ? 'btn-primary' : 'btn-secondary'}" 
-                    style="flex: 1; padding: 4px 6px; font-size: 0.75rem;" 
-                    onclick="${p.id === 'custom' ? `openCurveEditor('${fan.id}')` : `setSingleFanProfile('${fan.id}', '${p.id}')`}">
-              ${p.icon} ${p.label}
+          <div style="display: flex; gap: 6px; margin-bottom: 6px;">
+            <div style="flex: 1; text-align: center; padding: 6px 8px; background: var(--surface0); border: 1px dashed var(--surface2); border-radius: 6px; font-size: 0.75rem; color: var(--subtext0);">
+              🔒 Profils matériels automatiques
+            </div>
+          </div>
+
+          <div class="fan-card-footer">
+            <button type="button" class="btn btn-sm btn-secondary" disabled style="opacity: 0.45; font-size: 0.78rem; cursor: not-allowed;" title="Non disponible : régulation autonome VBIOS">
+              ⚡ Test désactivé (VBIOS)
             </button>
-          `).join('')}
-        </div>
+            <button type="button" class="btn btn-sm btn-secondary" style="font-size: 0.78rem;" onclick="openCurveEditor('${fan.id}')">
+              📐 Sonde & Profil
+            </button>
+          </div>
+        ` : `
+          <div class="fan-pwm-slider-wrap">
+            <div class="fan-pwm-header">
+              <span>Puissance PWM : <strong>${fan.pwm_percent}%</strong></span>
+              <span>Sonde : <strong style="color:var(--mauve);">${sensorLabel}</strong></span>
+            </div>
+            <div class="fan-pwm-bar-bg">
+              <div class="fan-pwm-bar-fill" style="width: ${fan.pwm_percent}%;"></div>
+            </div>
+          </div>
 
-        <div class="fan-card-footer">
-          <button type="button" class="btn btn-sm btn-secondary" style="font-size:0.78rem;" onclick="testFanPulse('${fan.id}')" title="Fait tourner le ventilateur à 100% pendant 2 secondes pour le repérer à l'oreille">
-            ⚡ Tester (2s)
-          </button>
-          <button type="button" class="btn btn-sm btn-secondary" style="font-size:0.78rem;" onclick="openCurveEditor('${fan.id}')">
-            📐 Courbe Détaillée
-          </button>
-        </div>
+          <!-- Boutons de profil par ventilateur -->
+          <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+            ${profiles.map(p => `
+              <button type="button" class="btn btn-sm ${fan.active_profile === p.id ? 'btn-primary' : 'btn-secondary'}" 
+                      style="flex: 1; padding: 4px 6px; font-size: 0.75rem;" 
+                      onclick="${p.id === 'custom' ? `openCurveEditor('${fan.id}')` : `setSingleFanProfile('${fan.id}', '${p.id}')`}">
+                ${p.icon} ${p.label}
+              </button>
+            `).join('')}
+          </div>
+
+          <div class="fan-card-footer">
+            <button type="button" class="btn btn-sm btn-secondary" style="font-size:0.78rem;" onclick="testFanPulse('${fan.id}')" title="Fait tourner le ventilateur à 100% pendant 2 secondes pour le repérer à l'oreille">
+              ⚡ Tester (2s)
+            </button>
+            <button type="button" class="btn btn-sm btn-secondary" style="font-size:0.78rem;" onclick="openCurveEditor('${fan.id}')">
+              📐 Courbe Détaillée
+            </button>
+          </div>
+        `}
       </div>
     `;
   }).join('');
@@ -14241,6 +14271,8 @@ async function setSingleFanProfile(fanId, profileName, reload = true) {
     if (res.success && reload) {
       showToast(`Profil ${profileName} appliqué au ventilateur.`, "success");
       loadHardwareThermal();
+    } else if (!res.success) {
+      showToast(res.message || "Impossible d'appliquer le profil", "warning");
     }
   } catch (err) {
     showToast("Erreur lors de l'application du profil", "error");
