@@ -4340,14 +4340,29 @@
           <div id="game-deploy-detail-subtext" style="font-size: 0.78rem; color: var(--subtext0); margin-top: 6px; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Initialisation...</div>
         </div>
 
-        <!-- Mini console / logs en direct -->
-        <div>
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
-            <label style="font-size: 0.78rem; font-weight: 700; color: var(--subtext0); text-transform: uppercase; letter-spacing: 0.5px;">Logs de déploiement en direct :</label>
-            <span style="font-size: 0.72rem; color: var(--subtext0);">Auto-scroll activé</span>
+        <!-- Terminal de logs haute fidélité -->
+        <div class="deploy-terminal-wrapper">
+          <div class="deploy-terminal-header">
+            <div class="deploy-terminal-dots">
+              <span class="terminal-dot dot-red"></span>
+              <span class="terminal-dot dot-yellow"></span>
+              <span class="terminal-dot dot-green"></span>
+            </div>
+            <div class="deploy-terminal-title" id="game-deploy-terminal-title">
+              <span>⚡</span> steamcmd@container:~/games
+            </div>
+            <div class="deploy-terminal-actions">
+              <button type="button" class="deploy-terminal-btn" id="btn-toggle-deploy-autoscroll" onclick="toggleDeployAutoScroll()" title="Basculer le défilement automatique">
+                <span id="deploy-autoscroll-indicator" class="terminal-status-dot active"></span> Auto-scroll
+              </button>
+              <button type="button" class="deploy-terminal-btn" onclick="copyDeployLogs()" title="Copier tous les logs">
+                📋 Copier
+              </button>
+            </div>
           </div>
-          <div id="game-deploy-logs-box" style="height: 160px; overflow-y: auto; background: #11111b; border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius-sm); padding: 10px; font-family: var(--font-mono); font-size: 0.78rem; color: #cdd6f4; white-space: pre-wrap; word-break: break-all;">
-            <div style="color:var(--subtext0);">Initialisation de la session de déploiement...</div>
+
+          <div id="game-deploy-logs-box" class="deploy-terminal-body" onscroll="handleDeployTerminalScroll()">
+            <div class="deploy-log-empty">⚡ Connexion aux logs de déploiement en direct...</div>
           </div>
         </div>
       </div>

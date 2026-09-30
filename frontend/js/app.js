@@ -10538,6 +10538,71 @@ async function submitImportEgg() {
 }
 
 // ================= PROGRESSION DU DÉPLOIEMENT DU SERVEUR DE JEU =================
+let deployAutoScrollEnabled = true;
+
+function toggleDeployAutoScroll() {
+  deployAutoScrollEnabled = !deployAutoScrollEnabled;
+  const ind = document.getElementById("deploy-autoscroll-indicator");
+  if (ind) {
+    if (deployAutoScrollEnabled) {
+      ind.classList.add("active");
+    } else {
+      ind.classList.remove("active");
+    }
+  }
+}
+
+function handleDeployTerminalScroll() {
+  const box = document.getElementById("game-deploy-logs-box");
+  if (!box) return;
+  const isAtBottom = box.scrollHeight - box.clientHeight <= box.scrollTop + 30;
+  const ind = document.getElementById("deploy-autoscroll-indicator");
+  if (isAtBottom) {
+    deployAutoScrollEnabled = true;
+    if (ind) ind.classList.add("active");
+  } else {
+    deployAutoScrollEnabled = false;
+    if (ind) ind.classList.remove("active");
+  }
+}
+
+function copyDeployLogs() {
+  const box = document.getElementById("game-deploy-logs-box");
+  if (!box) return;
+  const text = box.innerText;
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    showToast("Logs de déploiement copiés dans le presse-papiers !", "success");
+  });
+}
+
+function formatDeployLogLine(line) {
+  if (!line) return null;
+  let clean = line.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
+                  .replace(/\[\x1b\]/g, "")
+                  .replace(/\[[0-9;]+m/g, "")
+                  .replace(/\[0m/g, "")
+                  .replace(/\[m/g, "")
+                  .replace(/^[0-9]+\)\s*/, "")
+                  .trim();
+  if (!clean) return null;
+
+  let cls = "";
+  if (clean.includes("downloading, progress:") || clean.includes("preallocating, progress:")) {
+    cls = "log-highlight-progress";
+  } else if (clean.includes("ERROR") || clean.includes("Failed") || clean.includes("Erreur") || clean.includes("❌")) {
+    cls = "log-highlight-error";
+  } else if (clean.includes("OK") || clean.includes("fully installed") || clean.includes("Success") || clean.includes("validé") || clean.includes("✓") || clean.includes("🎉")) {
+    cls = "log-highlight-success";
+  } else if (clean.includes("Starting") || clean.includes("Connecting") || clean.includes("Steam Console") || clean.includes("steamcmd")) {
+    cls = "log-highlight-steam";
+  } else if (clean.includes("⚡") || clean.includes("🚀")) {
+    cls = "log-highlight-info";
+  }
+
+  return { text: clean, cls };
+}
+
 let activeGameDeployServerId = null;
 let gameDeployPollInterval = null;
 let isGameDeployModalMinimized = false;
@@ -10565,6 +10630,8 @@ function openGameDeployProgressModal(serverId, serverName, eggName, eggIcon) {
 
   if (badge) badge.textContent = (eggName || "SERVEUR").toUpperCase();
   if (title) title.textContent = `Déploiement : ${serverName}`;
+  const termTitle = document.getElementById("game-deploy-terminal-title");
+  if (termTitle) termTitle.innerHTML = `<span>⚡</span> container@steveos-nas:~/games/${escapeHtml(serverId)}`;
   if (heroIcon) heroIcon.textContent = eggIcon || "🎮";
   if (heroName) heroName.textContent = serverName;
   if (heroStatus) {
@@ -10640,13 +10707,32 @@ async function pollGameDeployStatus() {
     if (heroPercent) heroPercent.textContent = `${pct}%`;
     if (percentLabel) percentLabel.textContent = `${pct}%`;
     if (barFill) barFill.style.width = `${pct}%`;
-    if (heroStatus) heroStatus.textContent = d.status_message;
-    if (detailSubtext) detailSubtext.textContent = d.detail || d.status_message;
+    if (heroStatus) {
+      const cleanSt = formatDeployLogLine(d.status_message);
+      heroStatus.textContent = cleanSt ? cleanSt.text : d.status_message;
+    }
+    if (detailSubtext) {
+      const cleanDet = formatDeployLogLine(d.detail || d.status_message);
+      detailSubtext.textContent = cleanDet ? cleanDet.text : (d.status_message || "");
+    }
 
     if (logsBox && d.logs && d.logs.length > 0) {
-      const isScrolledToBottom = logsBox.scrollHeight - logsBox.clientHeight <= logsBox.scrollTop + 35;
-      logsBox.textContent = d.logs.join("\n");
-      if (isScrolledToBottom) {
+      let html = "";
+      let lineIdx = 1;
+      for (const rawLine of d.logs) {
+        const parsed = formatDeployLogLine(rawLine);
+        if (parsed) {
+          html += `<div class="deploy-log-line">` +
+            `<span class="deploy-log-num">${lineIdx}</span>` +
+            `<span class="deploy-log-text ${parsed.cls}">${escapeHtml(parsed.text)}</span>` +
+          `</div>`;
+          lineIdx++;
+        }
+      }
+      html += `<div class="deploy-log-line"><span class="deploy-log-num"></span><span class="deploy-log-text"><span class="terminal-cursor"></span></span></div>`;
+      logsBox.innerHTML = html;
+
+      if (deployAutoScrollEnabled) {
         logsBox.scrollTop = logsBox.scrollHeight;
       }
     }

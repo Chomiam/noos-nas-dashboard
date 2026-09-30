@@ -82,13 +82,63 @@ fn update_deployment(server_id: &str, mut f: impl FnMut(&mut GameDeployProgress)
     }
 }
 
+fn clean_terminal_log_line(s: &str) -> String {
+    let mut res = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(&nc) = chars.peek() {
+                    chars.next();
+                    if nc.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+        } else if c == '[' {
+            let mut is_ansi = false;
+            let temp = chars.clone();
+            let mut count = 0;
+            for tc in temp {
+                count += 1;
+                if tc.is_ascii_digit() || tc == ';' {
+                    continue;
+                } else if tc == 'm' {
+                    is_ansi = true;
+                    break;
+                } else {
+                    break;
+                }
+            }
+            if is_ansi {
+                for _ in 0..count {
+                    chars.next();
+                }
+            } else {
+                res.push('[');
+            }
+        } else if c != '\r' {
+            res.push(c);
+        }
+    }
+    res.trim().to_string()
+}
+
 fn append_deploy_log(server_id: &str, line: &str) {
+    let cleaned = clean_terminal_log_line(line);
+    if cleaned.is_empty() {
+        return;
+    }
     let mut tracker = DEPLOY_TRACKER.lock().unwrap();
     if let Some(entry) = tracker.get_mut(server_id) {
-        if entry.logs.len() > 120 {
+        if entry.logs.last().map(|l| l.as_str()) == Some(&cleaned) {
+            return;
+        }
+        if entry.logs.len() > 150 {
             entry.logs.remove(0);
         }
-        entry.logs.push(line.to_string());
+        entry.logs.push(cleaned);
     }
 }
 
@@ -351,10 +401,23 @@ fn run_server_deployment_pipeline(
                 }
             }
 
-            for line in combined.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev() {
-                let trimmed = line.trim();
-                if !trimmed.is_empty() {
-                    append_deploy_log(&server_id, trimmed);
+            // Insertion sans doublons des nouvelles lignes de logs
+            {
+                let mut tracker = DEPLOY_TRACKER.lock().unwrap();
+                if let Some(entry) = tracker.get_mut(&server_id) {
+                    for chunk in combined.split('\n') {
+                        for sub in chunk.split('\r') {
+                            let cleaned = clean_terminal_log_line(sub);
+                            if cleaned.is_empty() { continue; }
+                            let already_in_recent = entry.logs.iter().rev().take(25).any(|l| l == &cleaned);
+                            if !already_in_recent {
+                                if entry.logs.len() > 150 {
+                                    entry.logs.remove(0);
+                                }
+                                entry.logs.push(cleaned);
+                            }
+                        }
+                    }
                 }
             }
         }
