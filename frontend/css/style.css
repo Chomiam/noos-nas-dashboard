@@ -6648,12 +6648,23 @@ select.form-control option,
   box-shadow: 0 14px 35px rgba(166, 227, 161, 0.08), 0 4px 16px rgba(0,0,0,0.4);
 }
 
+.game-server-card.card-status-starting:hover {
+  border-color: rgba(249, 226, 175, 0.4);
+  box-shadow: 0 14px 35px rgba(249, 226, 175, 0.08), 0 4px 16px rgba(0,0,0,0.4);
+}
+
+.game-server-card.card-status-stopped:hover,
 .game-server-card.card-status-offline:hover {
-  border-color: rgba(243, 139, 168, 0.25);
+  border-color: rgba(147, 154, 183, 0.3);
+}
+
+.game-server-card.card-status-error:hover {
+  border-color: rgba(243, 139, 168, 0.45);
+  box-shadow: 0 14px 35px rgba(243, 139, 168, 0.12), 0 4px 16px rgba(0,0,0,0.4);
 }
 
 .game-server-card.card-status-deploying:hover {
-  border-color: rgba(249, 226, 175, 0.35);
+  border-color: rgba(137, 180, 250, 0.35);
 }
 
 .game-server-banner {
@@ -6768,16 +6779,30 @@ select.form-control option,
   border: 1px solid rgba(166, 227, 161, 0.3);
 }
 
+.game-server-status-pill.status-starting {
+  background: rgba(249, 226, 175, 0.16);
+  color: var(--yellow);
+  border: 1px solid rgba(249, 226, 175, 0.35);
+}
+
+.game-server-status-pill.status-stopped,
 .game-server-status-pill.status-offline {
-  background: rgba(243, 139, 168, 0.12);
+  background: rgba(147, 154, 183, 0.12);
+  color: var(--subtext0);
+  border: 1px solid rgba(147, 154, 183, 0.22);
+}
+
+.game-server-status-pill.status-error {
+  background: rgba(243, 139, 168, 0.18);
   color: var(--red);
-  border: 1px solid rgba(243, 139, 168, 0.25);
+  border: 1px solid rgba(243, 139, 168, 0.45);
+  box-shadow: 0 0 10px rgba(243, 139, 168, 0.15);
 }
 
 .game-server-status-pill.status-deploying {
-  background: rgba(249, 226, 175, 0.14);
-  color: var(--yellow);
-  border: 1px solid rgba(249, 226, 175, 0.3);
+  background: rgba(137, 180, 250, 0.14);
+  color: var(--blue);
+  border: 1px solid rgba(137, 180, 250, 0.3);
 }
 
 .status-beacon {
@@ -6785,6 +6810,7 @@ select.form-control option,
   height: 7px;
   border-radius: 50%;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .status-online .status-beacon {
@@ -6793,13 +6819,26 @@ select.form-control option,
   animation: beaconPulse 2s infinite ease-in-out;
 }
 
+.status-starting .status-beacon {
+  background: var(--yellow);
+  box-shadow: 0 0 8px var(--yellow);
+  animation: beaconPulse 1s infinite ease-in-out;
+}
+
+.status-stopped .status-beacon,
 .status-offline .status-beacon {
+  background: var(--subtext0);
+  opacity: 0.6;
+}
+
+.status-error .status-beacon {
   background: var(--red);
-  opacity: 0.7;
+  box-shadow: 0 0 8px var(--red);
+  animation: beaconPulse 0.8s infinite ease-in-out;
 }
 
 .status-deploying .status-beacon {
-  background: var(--yellow);
+  background: var(--blue);
   animation: beaconPulse 1.2s infinite ease-in-out;
 }
 
@@ -8667,12 +8706,61 @@ select.form-control option,
   border-color: rgba(166, 227, 161, 0.4);
 }
 
+.game-server-row.row-status-starting:hover {
+  border-color: rgba(249, 226, 175, 0.4);
+}
+
+.game-server-row.row-status-stopped:hover,
 .game-server-row.row-status-offline:hover {
-  border-color: rgba(243, 139, 168, 0.3);
+  border-color: rgba(147, 154, 183, 0.3);
+}
+
+.game-server-row.row-status-error:hover {
+  border-color: rgba(243, 139, 168, 0.45);
 }
 
 .game-server-row.row-status-deploying:hover {
-  border-color: rgba(249, 226, 175, 0.4);
+  border-color: rgba(137, 180, 250, 0.4);
+}
+
+.game-server-notice-box {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.35;
+}
+
+.game-server-notice-box.notice-error {
+  background: rgba(243, 139, 168, 0.12);
+  border: 1px solid rgba(243, 139, 168, 0.35);
+  color: var(--red);
+}
+
+.game-server-notice-box.notice-starting {
+  background: rgba(249, 226, 175, 0.12);
+  border: 1px solid rgba(249, 226, 175, 0.3);
+  color: var(--yellow);
+}
+
+.row-server-sub .row-status-subtag {
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.row-status-subtag.subtag-error {
+  background: rgba(243, 139, 168, 0.18);
+  color: var(--red);
+}
+
+.row-status-subtag.subtag-starting {
+  background: rgba(249, 226, 175, 0.18);
+  color: var(--yellow);
 }
 
 .row-col-identity {

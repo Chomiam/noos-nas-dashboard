@@ -30,6 +30,9 @@ pub struct GameDeployProgress {
 static DEPLOY_TRACKER: LazyLock<Mutex<HashMap<String, GameDeployProgress>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+static STARTING_SERVERS: LazyLock<Mutex<HashMap<String, Instant>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 pub fn is_deployment_active(server_id: &str) -> bool {
     let tracker = DEPLOY_TRACKER.lock().unwrap();
     if let Some(entry) = tracker.get(server_id) {
@@ -156,9 +159,12 @@ fn append_deploy_log(server_id: &str, line: &str) {
 }
 
 fn mark_server_online(server_id: &str) {
+    STARTING_SERVERS.lock().unwrap().remove(server_id);
     let mut servers = load_saved_servers();
     if let Some(s) = servers.iter_mut().find(|s| s.id == server_id) {
         s.status = "online".into();
+        s.status_detail = Some("Serveur opérationnel".into());
+        s.exit_code = None;
     }
     let _ = save_servers(&servers);
 }
@@ -595,7 +601,11 @@ pub struct GameServer {
     pub icon_url: Option<String>,
     #[serde(default)]
     pub banner_url: Option<String>,
-    pub status: String, // "online", "offline", "starting"
+    pub status: String, // "online", "starting", "stopped", "error", "deploying"
+    #[serde(default)]
+    pub status_detail: Option<String>,
+    #[serde(default)]
+    pub exit_code: Option<i64>,
     pub container_name: String,
     pub memory_mb: u64,
     pub port: u16,
@@ -1597,26 +1607,124 @@ pub fn list_game_servers() -> Vec<GameServer> {
             continue;
         }
 
-        // Vérifier l'état du conteneur
+        // Vérifier l'état détaillé du conteneur via docker inspect
         if let Ok(output) = Command::new("docker")
-            .args(["inspect", "--format", "{{.State.Status}}|{{.State.Running}}", &s.container_name])
+            .args([
+                "inspect",
+                "--format",
+                "{{.State.Status}}|{{.State.Running}}|{{.State.Restarting}}|{{.State.ExitCode}}|{{.State.OOMKilled}}|{{.State.Error}}|{{.State.StartedAt}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}",
+                &s.container_name,
+            ])
             .output()
         {
             let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
             let parts: Vec<&str> = text.split('|').collect();
-            if parts.len() >= 2 && parts[1] == "true" {
-                s.status = "online".into();
-                if let Some(&(cpu, cores, mem)) = stats_map.get(&s.container_name) {
-                    s.cpu_percent = cpu;
-                    s.cpu_cores_used = cores;
-                    s.memory_used_mb = mem;
+
+            if parts.len() >= 4 {
+                let container_status = parts[0].trim();
+                let is_running = parts[1].trim() == "true";
+                let is_restarting = parts[2].trim() == "true";
+                let exit_code: i64 = parts[3].trim().parse().unwrap_or(0);
+                let oom_killed = parts.get(4).map(|v| v.trim() == "true").unwrap_or(false);
+                let _docker_err = parts.get(5).map(|v| v.trim()).unwrap_or("");
+                let health_status = parts.get(7).map(|v| v.trim()).unwrap_or("");
+
+                if is_running {
+                    let mut is_starting = is_restarting || health_status == "starting";
+
+                    let starting_elapsed = {
+                        let tracker = STARTING_SERVERS.lock().unwrap();
+                        tracker.get(&s.id).map(|inst| inst.elapsed().as_secs())
+                    };
+
+                    if let Some(elapsed) = starting_elapsed {
+                        if elapsed < 45 {
+                            if s.port > 0 && s.port_protocol.to_lowercase() == "tcp" {
+                                let addr = std::net::SocketAddr::from(([127, 0, 0, 1], s.port));
+                                if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(25)).is_ok() {
+                                    STARTING_SERVERS.lock().unwrap().remove(&s.id);
+                                    is_starting = false;
+                                } else {
+                                    is_starting = true;
+                                }
+                            } else if elapsed < 20 {
+                                is_starting = true;
+                            } else {
+                                STARTING_SERVERS.lock().unwrap().remove(&s.id);
+                            }
+                        } else {
+                            STARTING_SERVERS.lock().unwrap().remove(&s.id);
+                        }
+                    }
+
+                    if is_starting {
+                        s.status = "starting".into();
+                        s.status_detail = Some(if is_restarting {
+                            "Redémarrage automatique du conteneur...".into()
+                        } else {
+                            "Démarrage en cours (initialisation du serveur)...".into()
+                        });
+                        s.exit_code = None;
+                    } else {
+                        s.status = "online".into();
+                        s.status_detail = Some("Serveur opérationnel".into());
+                        s.exit_code = None;
+                    }
+
+                    if let Some(&(cpu, cores, mem)) = stats_map.get(&s.container_name) {
+                        s.cpu_percent = cpu;
+                        s.cpu_cores_used = cores;
+                        s.memory_used_mb = mem;
+                    }
+
+                    if s.status == "online" {
+                        let (online, max, players) = detect_online_players(&s.container_name, &s.data_dir);
+                        s.online_players = online;
+                        s.max_players = max;
+                        s.player_list = players;
+                    } else {
+                        s.online_players = 0;
+                        s.max_players = None;
+                        s.player_list = vec![];
+                    }
+                } else {
+                    STARTING_SERVERS.lock().unwrap().remove(&s.id);
+                    s.cpu_percent = 0.0;
+                    s.cpu_cores_used = 0.0;
+                    s.online_players = 0;
+                    s.max_players = None;
+                    s.player_list = vec![];
+                    s.memory_used_mb = 0;
+
+                    if oom_killed {
+                        s.status = "error".into();
+                        s.exit_code = Some(137);
+                        s.status_detail = Some("Mémoire saturée (OOMKilled - RAM insuffisante)".into());
+                    } else if container_status == "dead" {
+                        s.status = "error".into();
+                        s.exit_code = Some(exit_code);
+                        s.status_detail = Some("Conteneur défaillant (Dead)".into());
+                    } else if exit_code != 0 {
+                        s.status = "error".into();
+                        s.exit_code = Some(exit_code);
+                        let detail = match exit_code {
+                            137 => "Arrêté de force (SIGKILL / 137)".to_string(),
+                            139 => "Crash critique (Segmentation Fault / 139)".to_string(),
+                            143 => "Arrêté par signal SIGTERM (143)".to_string(),
+                            1 => "Erreur applicative (Code 1 - Vérifier les logs)".to_string(),
+                            code => format!("Arrêt anormal (Code {})", code),
+                        };
+                        s.status_detail = Some(detail);
+                    } else {
+                        s.status = "stopped".into();
+                        s.exit_code = Some(0);
+                        s.status_detail = Some("Arrêté proprement".into());
+                    }
                 }
-                let (online, max, players) = detect_online_players(&s.container_name, &s.data_dir);
-                s.online_players = online;
-                s.max_players = max;
-                s.player_list = players;
             } else {
-                s.status = "offline".into();
+                s.status = "stopped".into();
+                s.status_detail = Some("Conteneur arrêté".into());
+                s.exit_code = None;
                 s.cpu_percent = 0.0;
                 s.cpu_cores_used = 0.0;
                 s.online_players = 0;
@@ -1625,7 +1733,9 @@ pub fn list_game_servers() -> Vec<GameServer> {
                 s.memory_used_mb = 0;
             }
         } else {
-            s.status = "offline".into();
+            s.status = "stopped".into();
+            s.status_detail = Some("Conteneur introuvable".into());
+            s.exit_code = None;
             s.cpu_percent = 0.0;
             s.cpu_cores_used = 0.0;
             s.online_players = 0;
@@ -2135,6 +2245,8 @@ exec {}
         icon_url: egg.icon_url.clone(),
         banner_url: egg.banner_url.clone(),
         status: "deploying".into(),
+        status_detail: Some("Déploiement en cours...".into()),
+        exit_code: None,
         container_name: container_name.clone(),
         memory_mb: req.memory_mb,
         port: target_port,
@@ -2215,19 +2327,30 @@ pub fn control_game_server(id: &str, action: &str) -> Result<String, String> {
         _ => return Err("Action invalide".into()),
     };
 
+    if action == "start" || action == "restart" {
+        STARTING_SERVERS.lock().unwrap().insert(id.to_string(), Instant::now());
+    } else {
+        STARTING_SERVERS.lock().unwrap().remove(id);
+    }
+
     let status = Command::new("docker")
         .args([cmd, &container_name])
         .status()
-        .map_err(|e| format!("Échec d'exécution docker {} : {}", cmd, e))?;
+        .map_err(|e| {
+            STARTING_SERVERS.lock().unwrap().remove(id);
+            format!("Échec d'exécution docker {} : {}", cmd, e)
+        })?;
 
     if status.success() {
         Ok(format!("Action '{}' exécutée avec succès.", action))
     } else {
+        STARTING_SERVERS.lock().unwrap().remove(id);
         Err(format!("Impossible d'exécuter l'action '{}' sur le conteneur.", action))
     }
 }
 
 pub fn delete_game_server(id: &str, delete_data: bool) -> Result<String, String> {
+    STARTING_SERVERS.lock().unwrap().remove(id);
     let mut servers = load_saved_servers();
     let container_name = format!("steveos-game-{}", id);
 

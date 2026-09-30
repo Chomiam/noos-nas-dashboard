@@ -166,6 +166,13 @@ function setupPolling() {
     if (activeTab === "tab-containers") refreshContainersAndStore();
   }, 12000);
 
+  // Rafraîchissement dynamique des serveurs de jeu (3.5 secondes pour suivre démarrages/statuts)
+  setInterval(() => {
+    if (activeTab === "tab-games") {
+      loadGameServers();
+    }
+  }, 3500);
+
   // Vérification périodique des mises à jour en arrière-plan (30 secondes)
   setInterval(() => {
     checkForUpdates(false);
@@ -10585,18 +10592,47 @@ function renderGameServers() {
   }
 
   grid.innerHTML = gameServersData.map(s => {
-    const isDeploying = s.status === "deploying" || s.status === "starting";
+    const isDeploying = s.status === "deploying";
+    const isStarting = s.status === "starting";
     const isOnline = s.status === "online";
+    const isError = s.status === "error";
+    const isStopped = s.status === "stopped" || s.status === "offline";
+
+    let statusClass = "status-stopped";
+    let statusLabel = "Arrêté";
+    let statusTitle = s.status_detail || "Serveur arrêté";
+
+    if (isDeploying) {
+      statusClass = "status-deploying";
+      statusLabel = "Déploiement";
+    } else if (isStarting) {
+      statusClass = "status-starting";
+      statusLabel = "Démarrage...";
+    } else if (isOnline) {
+      statusClass = "status-online";
+      statusLabel = "En ligne";
+    } else if (isError) {
+      statusClass = "status-error";
+      statusLabel = s.exit_code ? `Erreur (${s.exit_code})` : "En erreur";
+    }
+
+    const rowStatusClass = isOnline
+      ? "row-status-online"
+      : (isStarting ? "row-status-starting" : (isDeploying ? "row-status-deploying" : (isError ? "row-status-error" : "row-status-stopped")));
+
+    const cardStatusClass = isOnline
+      ? "card-status-online"
+      : (isStarting ? "card-status-starting" : (isDeploying ? "card-status-deploying" : (isError ? "card-status-error" : "card-status-stopped")));
     
     // Calcul RAM et jauge
     const totalMem = s.memory_mb || 1024;
-    const usedMem = isOnline ? (s.memory_used_mb || 0) : 0;
+    const usedMem = (isOnline || isStarting) ? (s.memory_used_mb || 0) : 0;
     const ramPercent = Math.min(100, Math.max(0, Math.round((usedMem / totalMem) * 100)));
-    const ramUsageStr = isOnline ? `${usedMem} Mo / ${totalMem} Mo` : (isDeploying ? `Installation...` : `0 / ${totalMem} Mo`);
+    const ramUsageStr = (isOnline || isStarting) ? `${usedMem} Mo / ${totalMem} Mo` : (isDeploying ? `Installation...` : `0 / ${totalMem} Mo`);
 
     // CPU & Joueurs
-    const cpuUsageStr = isOnline ? `${(s.cpu_percent || 0).toFixed(1)}%` : `0%`;
-    const cpuTitleStr = isOnline && s.cpu_cores_used ? `Charge CPU normalisée : ${s.cpu_percent.toFixed(1)}% de la machine hôte (~ ${s.cpu_cores_used.toFixed(1)} cœurs)` : (isOnline ? `Charge CPU : ${s.cpu_percent.toFixed(1)}%` : "Serveur arrêté");
+    const cpuUsageStr = (isOnline || isStarting) ? `${(s.cpu_percent || 0).toFixed(1)}%` : `0%`;
+    const cpuTitleStr = (isOnline || isStarting) && s.cpu_cores_used ? `Charge CPU normalisée : ${s.cpu_percent.toFixed(1)}% de la machine hôte (~ ${s.cpu_cores_used.toFixed(1)} cœurs)` : ((isOnline || isStarting) ? `Charge CPU : ${s.cpu_percent.toFixed(1)}%` : "Serveur arrêté");
     
     const onlineCount = s.online_players || 0;
     const playersDisplay = isOnline ? (s.max_players ? `${onlineCount} / ${s.max_players}` : `${onlineCount}`) : "--";
@@ -10633,7 +10669,7 @@ function renderGameServers() {
     if (currentGamesViewMode === "list") {
       // MODE LIGNE / LISTE COMPACTE
       return `
-        <div class="game-server-row ${isOnline ? "row-status-online" : (isDeploying ? "row-status-deploying" : "row-status-offline")}">
+        <div class="game-server-row ${rowStatusClass}">
           ${bannerUrl ? `<div class="row-banner-backdrop" style="background-image: url('${bannerUrl}');"></div>` : ""}
           
           <!-- Identité : Icône, Nom, Jeu, Port -->
@@ -10645,15 +10681,19 @@ function renderGameServers() {
                 <span>${escapeHtml(s.game_name)}</span>
                 <span class="row-dot-sep">•</span>
                 <span class="row-port-tag">${s.port} / ${protoUpper}</span>
+                ${s.status_detail && (isError || isStarting) ? `
+                  <span class="row-dot-sep">•</span>
+                  <span class="row-status-subtag ${isError ? 'subtag-error' : 'subtag-starting'}">${escapeHtml(s.status_detail)}</span>
+                ` : ''}
               </div>
             </div>
           </div>
 
           <!-- Statut -->
           <div class="row-col-status">
-            <div class="game-server-status-pill ${isOnline ? "status-online" : (isDeploying ? "status-deploying" : "status-offline")}">
+            <div class="game-server-status-pill ${statusClass}" title="${escapeHtml(statusTitle)}">
               <span class="status-beacon"></span>
-              <span class="status-label">${isDeploying ? "Déploiement" : (isOnline ? "En ligne" : "Arrêté")}</span>
+              <span class="status-label">${statusLabel}</span>
             </div>
           </div>
 
@@ -10719,6 +10759,32 @@ function renderGameServers() {
               <button type="button" class="btn-card-delete" onclick="confirmDeleteGameServer('${s.id}', '${escapeHtml(s.name)}')" title="Supprimer ce serveur">
                 <span>🗑️</span>
               </button>
+            ` : (isStarting ? `
+              <button type="button" class="btn-action-primary btn-action-console btn-row-console" onclick="openServerConsoleView('${s.id}')" title="Suivre l'initialisation dans la console">
+                <span class="spinner-inline">⏳</span> Boot Console
+              </button>
+              <button type="button" class="btn-action-power btn-power-stop btn-row-power" onclick="controlGameServerAction('${s.id}', 'stop')" title="Interrompre le serveur">
+                <span>⏹️</span>
+              </button>
+              <button type="button" class="btn-row-files" onclick="openServerFolderInFiles('${escapeHtml(s.data_dir)}')" title="Parcourir les fichiers">
+                <span>📁</span>
+              </button>
+              <button type="button" class="btn-card-delete" onclick="confirmDeleteGameServer('${s.id}', '${escapeHtml(s.name)}')" title="Supprimer ce serveur">
+                <span>🗑️</span>
+              </button>
+            ` : (isError ? `
+              <button type="button" class="btn-action-primary btn-action-console btn-row-console" style="background:rgba(243,139,168,0.2); border-color:rgba(243,139,168,0.4); color:var(--red);" onclick="openServerConsoleView('${s.id}')" title="Consulter les logs de crash">
+                <span>🖥️</span> Crash Log
+              </button>
+              <button type="button" class="btn-action-power btn-power-restart btn-row-power" onclick="controlGameServerAction('${s.id}', 'restart')" title="Relancer le serveur">
+                <span>🔄</span>
+              </button>
+              <button type="button" class="btn-row-files" onclick="openServerFolderInFiles('${escapeHtml(s.data_dir)}')" title="Parcourir les fichiers">
+                <span>📁</span>
+              </button>
+              <button type="button" class="btn-card-delete" onclick="confirmDeleteGameServer('${s.id}', '${escapeHtml(s.name)}')" title="Supprimer ce serveur">
+                <span>🗑️</span>
+              </button>
             ` : (isOnline ? `
               <button type="button" class="btn-action-primary btn-action-console btn-row-console" onclick="openServerConsoleView('${s.id}')" title="Ouvrir la console en direct">
                 <span>🖥️</span> Console
@@ -10748,7 +10814,7 @@ function renderGameServers() {
               <button type="button" class="btn-card-delete" onclick="confirmDeleteGameServer('${s.id}', '${escapeHtml(s.name)}')" title="Supprimer ce serveur">
                 <span>🗑️</span>
               </button>
-            `)}
+            `)))}
           </div>
 
         </div>
@@ -10757,7 +10823,7 @@ function renderGameServers() {
 
     // MODE GRILLE (CARTES MODERNES)
     return `
-      <div class="game-server-card ${isOnline ? "card-status-online" : (isDeploying ? "card-status-deploying" : "card-status-offline")}">
+      <div class="game-server-card ${cardStatusClass}">
         
         <!-- En-tête de carte avec Statut, Nom, Type et Suppression sécurisée -->
         <div class="game-server-banner" style="${cardBannerStyle}">
@@ -10774,9 +10840,9 @@ function renderGameServers() {
           </div>
 
           <div class="game-server-banner-right">
-            <div class="game-server-status-pill ${isOnline ? "status-online" : (isDeploying ? "status-deploying" : "status-offline")}">
+            <div class="game-server-status-pill ${statusClass}" title="${escapeHtml(statusTitle)}">
               <span class="status-beacon"></span>
-              <span class="status-label">${isDeploying ? "Déploiement" : (isOnline ? "En ligne" : "Arrêté")}</span>
+              <span class="status-label">${statusLabel}</span>
             </div>
             <button type="button" class="btn-card-delete" onclick="confirmDeleteGameServer('${s.id}', '${escapeHtml(s.name)}')" title="Supprimer définitivement ce serveur">
               <span>🗑️</span>
@@ -10836,6 +10902,14 @@ function renderGameServers() {
             </div>
           </div>
 
+          <!-- Notice explicative détaillée si erreur ou démarrage -->
+          ${s.status_detail && (isError || isStarting) ? `
+            <div class="game-server-notice-box ${isError ? 'notice-error' : 'notice-starting'}">
+              <span>${isError ? '⚠️' : '🚀'}</span>
+              <span>${escapeHtml(s.status_detail)}</span>
+            </div>
+          ` : ''}
+
           <!-- Raccourcis et métadonnées secondaires -->
           <div class="game-server-footer-info">
             <span class="text-subtext">📅 ${s.created_at || "Actif"}</span>
@@ -10854,6 +10928,24 @@ function renderGameServers() {
             <button type="button" class="btn-action-secondary" onclick="openServerConsoleView('${s.id}')" title="Ouvrir la console">
               <span>🖥️</span> Console
             </button>
+          ` : (isStarting ? `
+            <div class="action-btn-group">
+              <button type="button" class="btn-action-primary btn-action-console" onclick="openServerConsoleView('${s.id}')">
+                <span class="spinner-inline">⏳</span> Console & Boot
+              </button>
+              <button type="button" class="btn-action-power btn-power-stop" onclick="controlGameServerAction('${s.id}', 'stop')" title="Interrompre le serveur">
+                <span>⏹️</span> Arrêter
+              </button>
+            </div>
+          ` : (isError ? `
+            <div class="action-btn-group">
+              <button type="button" class="btn-action-primary btn-action-console" style="background:rgba(243,139,168,0.2); border-color:rgba(243,139,168,0.4); color:var(--red);" onclick="openServerConsoleView('${s.id}')">
+                <span>🖥️</span> Voir Crash Log
+              </button>
+              <button type="button" class="btn-action-power btn-power-restart" onclick="controlGameServerAction('${s.id}', 'restart')" title="Relancer le serveur">
+                <span>🔄</span> Relancer
+              </button>
+            </div>
           ` : (isOnline ? `
             <div class="action-btn-group">
               <button type="button" class="btn-action-primary btn-action-console" onclick="openServerConsoleView('${s.id}')">
@@ -10877,7 +10969,7 @@ function renderGameServers() {
                 <span>🖥️</span> Console
               </button>
             </div>
-          `)}
+          `)))}
         </div>
 
       </div>
@@ -11389,6 +11481,12 @@ async function submitCreateGameServer() {
 
 async function controlGameServerAction(id, action) {
   showToast(`Action '${action}' envoyée au serveur...`, "info");
+  const target = Array.isArray(gameServersData) ? gameServersData.find(s => s.id === id) : null;
+  if (target && (action === "start" || action === "restart")) {
+    target.status = "starting";
+    target.status_detail = "Initialisation du conteneur...";
+    renderGameServers();
+  }
   try {
     const res = await fetch(`/api/games/${id}/action`, {
       method: "POST",
@@ -11450,7 +11548,7 @@ function updateGameConsoleSelectOptions() {
 
   sel.innerHTML = gameServersData.map(s => `
     <option value="${s.id}" ${s.id === activeConsoleServerId ? 'selected' : ''}>
-      ${escapeHtml(s.name)} (${s.status === 'online' ? '🟢 En ligne' : '🔴 Arrêté'})
+      ${escapeHtml(s.name)} (${s.status === 'online' ? '🟢 En ligne' : (s.status === 'starting' ? '🚀 Démarrage...' : (s.status === 'error' ? '⚠️ Erreur' : '⏹️ Arrêté'))})
     </option>
   `).join('');
 
