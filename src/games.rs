@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::net::UdpSocket;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -553,6 +554,12 @@ pub struct GameServer {
     pub port_protocol: String,
     pub data_dir: String,
     pub ip_address: String,
+    #[serde(default)]
+    pub lan_ip: String,
+    #[serde(default)]
+    pub wireguard_ip: Option<String>,
+    #[serde(default)]
+    pub public_ip: Option<String>,
     pub cpu_percent: f32,
     #[serde(default)]
     pub cpu_cores_used: f32,
@@ -612,15 +619,127 @@ pub fn get_custom_eggs_dir() -> PathBuf {
     p
 }
 
+static PUBLIC_IP_CACHE: Mutex<Option<(String, Instant)>> = Mutex::new(None);
+
+pub fn get_public_ip() -> Option<String> {
+    if let Ok(mut cache) = PUBLIC_IP_CACHE.lock() {
+        if let Some((ref ip, timestamp)) = *cache {
+            if timestamp.elapsed() < Duration::from_secs(600) {
+                return Some(ip.clone());
+            }
+        }
+
+        let providers = [
+            "https://api.ipify.org",
+            "https://icanhazip.com",
+            "https://ifconfig.me/ip",
+        ];
+
+        for url in providers {
+            if let Ok(output) = Command::new("curl")
+                .args(["-s", "--max-time", "2", url])
+                .output()
+            {
+                if output.status.success() {
+                    let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if ip.parse::<std::net::Ipv4Addr>().is_ok() {
+                        *cache = Some((ip.clone(), Instant::now()));
+                        return Some(ip);
+                    }
+                }
+            }
+        }
+
+        cache.as_ref().map(|(ip, _)| ip.clone())
+    } else {
+        None
+    }
+}
+
+pub fn get_wireguard_ip() -> Option<String> {
+    let ip_cmd = if PathBuf::from("/run/current-system/sw/bin/ip").exists() {
+        "/run/current-system/sw/bin/ip"
+    } else {
+        "ip"
+    };
+
+    if let Ok(output) = Command::new(ip_cmd).args(["-4", "addr", "show", "dev", "wg0"]).output() {
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            for line in text.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("inet ") {
+                    if let Some(first) = trimmed.split_whitespace().nth(1) {
+                        let ip = first.split('/').next().unwrap_or("").trim();
+                        if !ip.is_empty() && !ip.starts_with("127.") {
+                            return Some(ip.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let is_active = Command::new("systemctl")
+        .args(["is-active", "wireguard-wg0"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "active")
+        .unwrap_or(false);
+
+    if is_active {
+        return Some("10.100.0.1".to_string());
+    }
+
+    None
+}
+
 pub fn get_lan_ip() -> String {
-    if let Ok(output) = Command::new("hostname").arg("-I").output() {
+    // 1. Détection non bloquante via socket UDP standard (table de routage OS, 0 binaire externe)
+    if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("1.1.1.1:80").is_ok() {
+            if let Ok(addr) = socket.local_addr() {
+                let ip = addr.ip().to_string();
+                if !ip.starts_with("127.") && !ip.starts_with("172.17.") && !ip.starts_with("169.254.") {
+                    return ip;
+                }
+            }
+        }
+    }
+
+    // 2. Commande ip -4 route get
+    let ip_cmd = if PathBuf::from("/run/current-system/sw/bin/ip").exists() {
+        "/run/current-system/sw/bin/ip"
+    } else {
+        "ip"
+    };
+    if let Ok(output) = Command::new(ip_cmd).args(["-4", "route", "get", "1.1.1.1"]).output() {
+        let text = String::from_utf8_lossy(&output.stdout);
+        let parts: Vec<&str> = text.split_whitespace().collect();
+        for i in 0..parts.len() {
+            if parts[i] == "src" && i + 1 < parts.len() {
+                let ip = parts[i + 1];
+                if !ip.starts_with("127.") && !ip.starts_with("172.17.") && !ip.starts_with("169.254.") {
+                    return ip.to_string();
+                }
+            }
+        }
+    }
+
+    // 3. hostname -I
+    let host_cmd = if PathBuf::from("/run/current-system/sw/bin/hostname").exists() {
+        "/run/current-system/sw/bin/hostname"
+    } else {
+        "hostname"
+    };
+    if let Ok(output) = Command::new(host_cmd).arg("-I").output() {
         let text = String::from_utf8_lossy(&output.stdout);
         for ip in text.split_whitespace() {
-            if !ip.starts_with("127.") && !ip.starts_with("172.17.") && !ip.starts_with("172.18.") && !ip.contains(':') {
+            if !ip.starts_with("127.") && !ip.starts_with("172.17.") && !ip.starts_with("172.18.") && !ip.starts_with("10.100.") && !ip.contains(':') {
                 return ip.to_string();
             }
         }
     }
+
     "127.0.0.1".to_string()
 }
 
@@ -976,7 +1095,13 @@ pub fn list_game_servers() -> Vec<GameServer> {
         }
     }
 
+    let wg_ip = get_wireguard_ip();
+    let pub_ip = get_public_ip();
+
     for s in &mut servers {
+        s.lan_ip = lan_ip.clone();
+        s.wireguard_ip = wg_ip.clone();
+        s.public_ip = pub_ip.clone();
         s.ip_address = lan_ip.clone();
 
         let is_deploying = {
@@ -1364,6 +1489,9 @@ exec {}
         port_protocol: egg.port_protocol.clone(),
         data_dir: data_dir.display().to_string(),
         ip_address: get_lan_ip(),
+        lan_ip: get_lan_ip(),
+        wireguard_ip: get_wireguard_ip(),
+        public_ip: get_public_ip(),
         cpu_percent: 0.0,
         cpu_cores_used: 0.0,
         online_players: 0,

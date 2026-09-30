@@ -1878,14 +1878,34 @@
 
           <!-- Bandeau de métadonnées réseau, joueurs et stockage du serveur -->
           <div class="game-console-meta-strip" id="game-console-meta-strip">
-            <div class="meta-strip-item">
+            <div class="meta-strip-item meta-strip-item-network">
               <span class="meta-strip-icon">🌐</span>
               <div class="meta-strip-content">
-                <span class="meta-strip-label">PORT & CONNEXION</span>
-                <div class="meta-strip-value-row">
-                  <span class="meta-strip-value" id="console-meta-address">--:--</span>
-                  <button type="button" class="btn-meta-copy" onclick="copyConsoleServerAddress()" title="Copier l'adresse de connexion">📋 Copier</button>
+                <div class="meta-strip-label-row">
+                  <span class="meta-strip-label" id="console-meta-proto-label">ADRESSES DE CONNEXION</span>
+                  <span class="meta-strip-port-badge" id="console-meta-port-badge">PORT --</span>
                 </div>
+                <div class="meta-network-chips" id="console-network-chips">
+                  <!-- LAN -->
+                  <div class="meta-ip-chip" id="chip-ip-lan" title="Adresse sur le réseau local (LAN)">
+                    <span class="ip-chip-tag tag-lan">🏠 Local</span>
+                    <span class="ip-chip-val" id="console-ip-lan">--:--</span>
+                    <button type="button" class="btn-ip-copy" onclick="copyGameServerIp('lan')" title="Copier l'adresse IP locale">📋</button>
+                  </div>
+                  <!-- WireGuard -->
+                  <div class="meta-ip-chip" id="chip-ip-wg" style="display:none;" title="Adresse sécurisée via VPN WireGuard">
+                    <span class="ip-chip-tag tag-wg">🛡️ WireGuard</span>
+                    <span class="ip-chip-val" id="console-ip-wg">--:--</span>
+                    <button type="button" class="btn-ip-copy" onclick="copyGameServerIp('wg')" title="Copier l'adresse WireGuard">📋</button>
+                  </div>
+                  <!-- Publique -->
+                  <div class="meta-ip-chip" id="chip-ip-public" style="display:none;" title="Adresse IPv4 publique WAN">
+                    <span class="ip-chip-tag tag-public">🌍 Publique</span>
+                    <span class="ip-chip-val" id="console-ip-public">--:--</span>
+                    <button type="button" class="btn-ip-copy" onclick="copyGameServerIp('public')" title="Copier l'adresse Publique">📋</button>
+                  </div>
+                </div>
+                <input type="hidden" id="console-meta-address" value="" />
               </div>
             </div>
 

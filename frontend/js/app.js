@@ -9880,7 +9880,15 @@ function renderGameServers() {
     const ramUsageStr = isOnline ? `${s.memory_used_mb} Mo / ${s.memory_mb} Mo` : (isDeploying ? `Installation...` : `0 / ${s.memory_mb} Mo`);
     const cpuUsageStr = isOnline ? `${s.cpu_percent.toFixed(1)}%` : `0%`;
     const cpuTitleStr = isOnline && s.cpu_cores_used ? `Charge CPU : ${s.cpu_percent.toFixed(1)}% de l'hôte (~ ${s.cpu_cores_used.toFixed(1)} cœurs)` : (isOnline ? `Charge CPU : ${s.cpu_percent.toFixed(1)}%` : 'Serveur arrêté');
-    const fullAddress = `${s.ip_address}:${s.port}`;
+    let lanHost = s.lan_ip || s.ip_address;
+    if (!lanHost || lanHost === "127.0.0.1" || lanHost === "0.0.0.0") {
+      if (window.location.hostname && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+        lanHost = window.location.hostname;
+      } else {
+        lanHost = "127.0.0.1";
+      }
+    }
+    const fullAddress = `${lanHost}:${s.port}`;
 
     return `
       <div class="game-server-card">
@@ -9897,11 +9905,20 @@ function renderGameServers() {
 
         <div class="game-server-body">
           <div class="game-server-address-box">
-            <div>
-              <span style="font-size:0.7rem; color:var(--subtext0); display:block;">ADRESSE DE CONNEXION</span>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+                <span style="font-size:0.68rem; color:var(--subtext0); font-weight:700;">🏠 ADRESSE LOCALE (LAN)</span>
+                <span style="font-size:0.65rem; color:var(--mauve); font-weight:700;">${(s.port_protocol || 'tcp').toUpperCase()}</span>
+              </div>
               <span class="game-server-ip">${fullAddress}</span>
+              ${s.wireguard_ip || s.public_ip ? `
+                <div style="display:flex; flex-wrap:wrap; gap:5px; margin-top:4px; font-size:0.7rem;">
+                  ${s.wireguard_ip ? `<span style="background:rgba(166,227,161,0.15); color:var(--green); border-radius:4px; padding:1px 5px;" title="WireGuard VPN">🛡️ ${s.wireguard_ip}:${s.port}</span>` : ''}
+                  ${s.public_ip ? `<span style="background:rgba(250,179,135,0.15); color:var(--peach); border-radius:4px; padding:1px 5px;" title="IPv4 Publique WAN">🌍 ${s.public_ip}:${s.port}</span>` : ''}
+                </div>
+              ` : ''}
             </div>
-            <button type="button" class="btn btn-secondary btn-xs" onclick="copyGameServerAddress('${fullAddress}')" title="Copier l'adresse de connexion">
+            <button type="button" class="btn btn-secondary btn-xs" onclick="copyGameServerAddress('${fullAddress}')" title="Copier l'adresse de connexion LAN">
               📋 Copier
             </button>
           </div>
@@ -10397,12 +10414,25 @@ function updateConsoleHeaderStats(server) {
   const metaPlayers = document.getElementById("console-meta-players");
   const metaPath = document.getElementById("console-meta-path");
 
+  const protoLabel = document.getElementById("console-meta-proto-label");
+  const portBadge = document.getElementById("console-meta-port-badge");
+  const chipLan = document.getElementById("chip-ip-lan");
+  const valLan = document.getElementById("console-ip-lan");
+  const chipWg = document.getElementById("chip-ip-wg");
+  const valWg = document.getElementById("console-ip-wg");
+  const chipPub = document.getElementById("chip-ip-public");
+  const valPub = document.getElementById("console-ip-public");
+
   if (!server) {
     if (statusPill) statusPill.className = "game-console-status badge-stopped";
     if (statusText) statusText.textContent = "AUCUN SERVEUR";
     if (cpuVal) cpuVal.textContent = "0.0%";
     if (ramVal) ramVal.textContent = "0 Mo / 0 Mo";
-    if (metaAddr) metaAddr.textContent = "--:--";
+    if (portBadge) portBadge.textContent = "PORT --";
+    if (valLan) valLan.textContent = "--:--";
+    if (chipWg) chipWg.style.display = "none";
+    if (chipPub) chipPub.style.display = "none";
+    if (metaAddr) metaAddr.value = "--:--";
     if (metaPlayers) metaPlayers.textContent = "0 joueur(s)";
     if (metaPath) { metaPath.textContent = "--"; metaPath.title = ""; }
     if (titleEl) titleEl.textContent = "Console : Aucun serveur sélectionné";
@@ -10429,11 +10459,52 @@ function updateConsoleHeaderStats(server) {
     ramVal.textContent = `${server.memory_used_mb || 0} Mo / ${server.memory_mb || 0} Mo`;
   }
 
-  if (metaAddr) {
-    const host = (server.ip_address && server.ip_address !== "0.0.0.0") ? server.ip_address : (window.location.hostname || "127.0.0.1");
-    const proto = (server.port_protocol || "tcp").toUpperCase();
-    metaAddr.textContent = `${host}:${server.port} (${proto})`;
+  // Protocole et Port
+  const proto = (server.port_protocol || "tcp").toUpperCase();
+  if (protoLabel) protoLabel.textContent = `CONNEXIONS (${proto})`;
+  if (portBadge) portBadge.textContent = `PORT ${server.port} / ${proto}`;
+
+  // 1. IP Réseau Local (LAN)
+  let lanHost = server.lan_ip || server.ip_address;
+  if (!lanHost || lanHost === "127.0.0.1" || lanHost === "0.0.0.0") {
+    if (window.location.hostname && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+      lanHost = window.location.hostname;
+    } else {
+      lanHost = "127.0.0.1";
+    }
   }
+  const fullLanAddr = `${lanHost}:${server.port}`;
+  if (valLan) {
+    valLan.textContent = fullLanAddr;
+    valLan.dataset.addr = fullLanAddr;
+  }
+  if (metaAddr) metaAddr.value = fullLanAddr;
+
+  // 2. IP WireGuard VPN (si interface active)
+  if (server.wireguard_ip) {
+    const fullWgAddr = `${server.wireguard_ip}:${server.port}`;
+    if (chipWg) chipWg.style.display = "inline-flex";
+    if (valWg) {
+      valWg.textContent = fullWgAddr;
+      valWg.dataset.addr = fullWgAddr;
+    }
+  } else {
+    if (chipWg) chipWg.style.display = "none";
+  }
+
+  // 3. IPv4 Publique (WAN)
+  if (server.public_ip) {
+    const fullPubAddr = `${server.public_ip}:${server.port}`;
+    if (chipPub) chipPub.style.display = "inline-flex";
+    if (valPub) {
+      valPub.textContent = fullPubAddr;
+      valPub.dataset.addr = fullPubAddr;
+    }
+  } else {
+    if (chipPub) chipPub.style.display = "none";
+  }
+
+  // Joueurs connectés
   if (metaPlayers) {
     const online = server.online_players || 0;
     const max = server.max_players;
@@ -10445,6 +10516,8 @@ function updateConsoleHeaderStats(server) {
       metaPlayers.title = isOnline ? "Aucun joueur connecté actuellement" : "Serveur arrêté";
     }
   }
+
+  // Dossier
   if (metaPath) {
     const p = server.data_dir || "--";
     metaPath.textContent = p;
@@ -10454,23 +10527,45 @@ function updateConsoleHeaderStats(server) {
   if (titleEl) {
     const onlineCount = server.online_players || 0;
     const onlineInfo = isOnline ? ` • ${onlineCount} joueur${onlineCount > 1 ? "s" : ""}` : "";
-    titleEl.textContent = `container@steveos-nas:~/games/${server.id} (${server.name} • Port ${server.port}/${(server.port_protocol || "tcp").toUpperCase()}${onlineInfo})`;
+    titleEl.textContent = `container@steveos-nas:~/games/${server.id} (${server.name} • Port ${server.port}/${proto}${onlineInfo})`;
   }
 }
 
-function copyConsoleServerAddress() {
+function copyGameServerIp(type) {
   const current = gameServersData.find(s => s.id === activeConsoleServerId);
   if (!current) {
     showToast("Aucun serveur sélectionné.", "warning");
     return;
   }
-  const host = (current.ip_address && current.ip_address !== "0.0.0.0") ? current.ip_address : (window.location.hostname || "127.0.0.1");
-  const addr = `${host}:${current.port}`;
+
+  let el = null;
+  let label = "IP";
+  if (type === "lan") {
+    el = document.getElementById("console-ip-lan");
+    label = "Locale (LAN)";
+  } else if (type === "wg") {
+    el = document.getElementById("console-ip-wg");
+    label = "WireGuard";
+  } else if (type === "public") {
+    el = document.getElementById("console-ip-public");
+    label = "Publique";
+  }
+
+  const addr = el && el.dataset.addr ? el.dataset.addr : (el ? el.textContent.trim() : "");
+  if (!addr || addr.includes("--")) {
+    showToast(`Adresse ${label} non disponible.`, "warning");
+    return;
+  }
+
   navigator.clipboard.writeText(addr).then(() => {
-    showToast(`Adresse de connexion copiée : ${addr}`, "success");
+    showToast(`Adresse ${label} copiée : ${addr}`, "success");
   }).catch(() => {
     showToast(`Adresse : ${addr}`, "info");
   });
+}
+
+function copyConsoleServerAddress() {
+  copyGameServerIp("lan");
 }
 
 function copyConsoleServerPath() {
