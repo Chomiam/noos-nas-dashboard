@@ -8973,6 +8973,15 @@ async function submitCreateWgClient() {
   }
 }
 
+function cleanWireguardConfigForQr(text) {
+  if (!text) return "";
+  return text
+    .split("\n")
+    .map(line => line.trim())
+    .filter(line => line && !line.startsWith("#"))
+    .join("\n");
+}
+
 function openViewWgClientModal(clientId) {
   const client = cachedWgClients.find(c => c.id === clientId);
   if (!client) {
@@ -8992,12 +9001,15 @@ function openViewWgClientModal(clientId) {
   if (ipEl) ipEl.textContent = client.client_ip + "/32";
   if (configEl) configEl.textContent = client.config_text;
 
+  // Nettoyage de la configuration pour un QR Code haute lisibilité (syntaxe INI pure sans commentaires)
+  const qrPayload = cleanWireguardConfigForQr(client.config_text);
+
   // Rendu du QR Code
   if (qrContainer && typeof QRCode !== "undefined") {
     qrContainer.innerHTML = "";
     try {
       new QRCode(qrContainer, {
-        text: client.config_text,
+        text: qrPayload,
         width: 210,
         height: 210,
         colorDark: "#000000",
