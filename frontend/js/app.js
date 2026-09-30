@@ -3468,6 +3468,20 @@ function uploadFiles(fileList, targetDir) {
   xhr.send(formData);
 }
 
+function formatBytes(bytes, decimals = 1) {
+  if (!bytes || isNaN(bytes) || bytes <= 0) return "0 B";
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ["B", "Ko", "Mo", "Go", "To", "Po"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  if (i < 0) return "0 B";
+  if (i >= sizes.length) return (bytes / Math.pow(k, sizes.length - 1)).toFixed(dm) + " " + sizes[sizes.length - 1];
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
+}
+if (typeof window !== "undefined") {
+  window.formatBytes = formatBytes;
+}
+
 function formatFileSize(bytes) {
   if (!bytes || bytes === 0) return "0 o";
   const k = 1024;
@@ -8665,11 +8679,7 @@ function renderTrafficMetrics(data) {
 }
 
 function formatBytesJs(bytes) {
-  if (!bytes || bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "Ko", "Mo", "Go", "To"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+  return formatBytes(bytes);
 }
 
 async function loadTrafficHistory() {
@@ -12338,7 +12348,8 @@ function filterUsersList() {
 }
 
 function renderUsersList() {
-  const search = (document.getElementById('users-search-input')?.value || '').toLowerCase().trim();
+  try {
+    const search = (document.getElementById('users-search-input')?.value || '').toLowerCase().trim();
   const gridContainer = document.getElementById('users-cards-grid');
   const tableBody = document.getElementById('users-table-body');
 
@@ -12435,7 +12446,7 @@ function renderUsersList() {
           <div style="background: var(--surface0); border-radius: var(--radius-md); padding: 12px; font-size: 0.82rem; display: flex; flex-direction: column; gap: 6px;">
             <div style="display: flex; justify-content: space-between;">
               <span style="color: var(--subtext0);">Dossier personnel :</span>
-              <span style="color: var(--text); font-family: monospace;">${escapeHtml(u.home_dir)} (${formatBytes(u.disk_usage_bytes)})</span>
+              <span style="color: var(--text); font-family: monospace;">${escapeHtml(u.home_dir)} (${formatBytes(u.disk_usage_bytes || 0)})</span>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <span style="color: var(--subtext0);">Accès terminal :</span>
@@ -12506,7 +12517,7 @@ function renderUsersList() {
             </div>
           </td>
           <td style="padding: 12px 16px; font-family: monospace; font-size: 0.82rem;">
-            ${formatBytes(u.disk_usage_bytes)}
+            ${formatBytes(u.disk_usage_bytes || 0)}
           </td>
           <td style="padding: 12px 16px; font-size: 0.82rem;">
             <div>${u.samba_enabled ? '<span style="color: var(--teal);">✓ Samba</span>' : '<span style="color: var(--subtext0);">✗ Samba</span>'}</div>
@@ -12525,6 +12536,9 @@ function renderUsersList() {
         </tr>
       `;
     }).join('');
+  }
+  } catch (err) {
+    console.error("Erreur de rendu dans renderUsersList :", err);
   }
 }
 
