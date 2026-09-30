@@ -2395,13 +2395,16 @@
             <button type="button" class="user-filter-chip" data-filter="storage" onclick="setUserRoleFilter('storage')">📁 Stockage</button>
             <button type="button" class="user-filter-chip" data-filter="docker" onclick="setUserRoleFilter('docker')">🐳 Docker</button>
             <button type="button" class="user-filter-chip" data-filter="locked" onclick="setUserRoleFilter('locked')">🔒 Verrouillés</button>
+            <button type="button" class="user-filter-chip" data-filter="system" onclick="setUserRoleFilter('system')">⚙️ Système</button>
             <div style="width: 1px; height: 24px; background: var(--surface0); margin: 0 4px;"></div>
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-users-view-grid" onclick="setUserViewMode('grid')" title="Vue Cartes" style="padding: 6px 10px;">
-              <span>🔲</span>
-            </button>
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-users-view-table" onclick="setUserViewMode('table')" title="Vue Tableau" style="padding: 6px 10px;">
-              <span>📋</span>
-            </button>
+            <div class="users-view-toggle" style="display: inline-flex; background: var(--surface0); border-radius: var(--radius-md); padding: 3px; border: 1px solid rgba(255,255,255,0.06); gap: 3px;">
+              <button type="button" id="btn-users-view-grid" onclick="setUserViewMode('grid')" title="Affichage Grille (Cartes)" style="padding: 5px 12px; font-size: 0.82rem; border-radius: 4px; border: none; cursor: pointer; display: flex; align-items: center; gap: 6px; background: var(--mauve); color: #11111b; font-weight: 600; transition: all 0.2s;">
+                <span>🔲</span> Grille
+              </button>
+              <button type="button" id="btn-users-view-table" onclick="setUserViewMode('table')" title="Affichage Lignes (Tableau)" style="padding: 5px 12px; font-size: 0.82rem; border-radius: 4px; border: none; cursor: pointer; display: flex; align-items: center; gap: 6px; background: transparent; color: var(--subtext1); font-weight: normal; transition: all 0.2s;">
+                <span>☰</span> Lignes
+              </button>
+            </div>
           </div>
         </div>
 

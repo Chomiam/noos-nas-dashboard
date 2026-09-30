@@ -894,6 +894,17 @@ pub async fn handle_users_update(
         }
     };
 
+    if username == "root" {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Le compte superviseur 'root' est protégé par le système et immuable depuis le tableau de bord."
+            })),
+        )
+            .into_response();
+    }
+
     // Protection anti-auto-éviction : un admin ne peut pas retirer son propre groupe wheel
     if session.username == username {
         if let Some(ref req_groups) = body.groups {
@@ -1037,6 +1048,17 @@ pub async fn handle_users_change_password(
     headers: HeaderMap,
     Json(body): Json<ChangePasswordRequest>,
 ) -> Response {
+    if username == "root" {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Sécurité : le mot de passe de 'root' ne peut pas être modifié depuis l'interface web."
+            })),
+        )
+            .into_response();
+    }
+
     let _session = match auth::get_session_from_headers(&headers).await {
         Some(s) if s.is_admin || s.username == username => s,
         _ => {

@@ -12217,7 +12217,7 @@ let usersData = [];
 let groupsData = [];
 let activeUsersSubtab = 'accounts';
 let userRoleFilter = 'all';
-let userViewMode = 'grid';
+let userViewMode = (typeof localStorage !== 'undefined' && localStorage.getItem('steveos_users_view_mode')) || 'grid';
 let createUserStep = 1;
 let currentLoggedInUser = '';
 
@@ -12295,9 +12295,10 @@ async function loadUsersBadge() {
 }
 
 function updateUsersHeroStats() {
-  const total = usersData.length;
-  const admins = usersData.filter(u => u.is_admin).length;
-  const samba = usersData.filter(u => u.samba_enabled).length;
+  const managedUsers = usersData.filter(u => u.username !== 'root' && !u.is_system);
+  const total = managedUsers.length;
+  const admins = managedUsers.filter(u => u.is_admin).length;
+  const samba = managedUsers.filter(u => u.samba_enabled).length;
   const activeSessions = usersData.reduce((acc, u) => acc + (u.active_sessions_count || 0), 0);
 
   const elTotal = document.getElementById('users-stat-total');
@@ -12327,15 +12328,25 @@ function setUserRoleFilter(filter) {
 
 function setUserViewMode(mode) {
   userViewMode = mode;
+  try {
+    localStorage.setItem('steveos_users_view_mode', mode);
+  } catch(e) {}
+
   const btnGrid = document.getElementById('btn-users-view-grid');
   const btnTable = document.getElementById('btn-users-view-table');
   const gridContainer = document.getElementById('users-cards-grid');
   const tableContainer = document.getElementById('users-table-container');
 
-  if (btnGrid) btnGrid.classList.toggle('btn-primary', mode === 'grid');
-  if (btnGrid) btnGrid.classList.toggle('btn-secondary', mode !== 'grid');
-  if (btnTable) btnTable.classList.toggle('btn-primary', mode === 'table');
-  if (btnTable) btnTable.classList.toggle('btn-secondary', mode !== 'table');
+  if (btnGrid) {
+    btnGrid.style.background = mode === 'grid' ? 'var(--mauve)' : 'transparent';
+    btnGrid.style.color = mode === 'grid' ? '#11111b' : 'var(--subtext1)';
+    btnGrid.style.fontWeight = mode === 'grid' ? '600' : 'normal';
+  }
+  if (btnTable) {
+    btnTable.style.background = mode === 'table' ? 'var(--mauve)' : 'transparent';
+    btnTable.style.color = mode === 'table' ? '#11111b' : 'var(--subtext1)';
+    btnTable.style.fontWeight = mode === 'table' ? '600' : 'normal';
+  }
 
   if (gridContainer) gridContainer.style.display = mode === 'grid' ? 'grid' : 'none';
   if (tableContainer) tableContainer.style.display = mode === 'table' ? 'block' : 'none';
@@ -12354,11 +12365,18 @@ function renderUsersList() {
   const tableBody = document.getElementById('users-table-body');
 
   let filtered = usersData.filter(u => {
+    const isRootUser = u.username === 'root';
+    // Masquer root par défaut sauf si le filtre spécifique 'system' est sélectionné
+    if (isRootUser && userRoleFilter !== 'system') {
+      return false;
+    }
+
     // Filtre rôle
     if (userRoleFilter === 'admin' && !u.is_admin) return false;
     if (userRoleFilter === 'storage' && !u.groups.includes('storage')) return false;
     if (userRoleFilter === 'docker' && !u.groups.includes('docker')) return false;
     if (userRoleFilter === 'locked' && !u.locked) return false;
+    if (userRoleFilter === 'system' && !isRootUser && !u.is_system) return false;
 
     // Filtre texte
     if (search) {
@@ -12465,22 +12483,29 @@ function renderUsersList() {
           </div>
 
           <!-- ACTIONS CARD -->
-          <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 14px;">
-            <button type="button" class="btn btn-secondary btn-xs" onclick="openEditUserModal('${escapeHtml(u.username)}')" title="Modifier les informations et groupes">
-              <span>✏️</span> Modifier
-            </button>
-            <button type="button" class="btn btn-secondary btn-xs" onclick="openChangePasswordModal('${escapeHtml(u.username)}')" title="Changer le mot de passe">
-              <span>🔑</span> Mdp
-            </button>
-            ${!isSelf && !isRoot ? `
-              <button type="button" class="btn btn-secondary btn-xs" onclick="toggleUserLock('${escapeHtml(u.username)}')" title="${u.locked ? 'Déverrouiller le compte' : 'Verrouiller le compte'}">
-                <span>${u.locked ? '🔓' : '🔒'}</span>
+          ${isRoot ? `
+            <div style="display: flex; gap: 8px; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 14px; font-size: 0.8rem; color: var(--subtext0);">
+              <span>🛡️ Superviseur système (NixOS)</span>
+              <span style="padding: 2px 8px; border-radius: 4px; background: rgba(243, 139, 168, 0.15); color: var(--red); font-size: 0.72rem; font-weight: 600;">🔒 Immuable</span>
+            </div>
+          ` : `
+            <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 14px;">
+              <button type="button" class="btn btn-secondary btn-xs" onclick="openEditUserModal('${escapeHtml(u.username)}')" title="Modifier les informations et groupes">
+                <span>✏️</span> Modifier
               </button>
-              <button type="button" class="btn btn-secondary btn-xs" style="color: var(--red);" onclick="openDeleteUserModal('${escapeHtml(u.username)}')" title="Supprimer l'utilisateur">
-                <span>🗑️</span>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="openChangePasswordModal('${escapeHtml(u.username)}')" title="Changer le mot de passe">
+                <span>🔑</span> Mdp
               </button>
-            ` : ''}
-          </div>
+              ${!isSelf ? `
+                <button type="button" class="btn btn-secondary btn-xs" onclick="toggleUserLock('${escapeHtml(u.username)}')" title="${u.locked ? 'Déverrouiller le compte' : 'Verrouiller le compte'}">
+                  <span>${u.locked ? '🔓' : '🔒'}</span>
+                </button>
+                <button type="button" class="btn btn-secondary btn-xs" style="color: var(--red);" onclick="openDeleteUserModal('${escapeHtml(u.username)}')" title="Supprimer l'utilisateur">
+                  <span>🗑️</span>
+                </button>
+              ` : ''}
+            </div>
+          `}
         </div>
       `;
     }).join('');
@@ -12524,14 +12549,18 @@ function renderUsersList() {
             <div style="color: var(--subtext0); font-size: 0.75rem;">${u.shell.endsWith('nologin') ? 'Pas de shell' : escapeHtml(u.shell.split('/').pop())}</div>
           </td>
           <td style="padding: 12px 16px; text-align: right;">
-            <div style="display: flex; gap: 6px; justify-content: flex-end;">
-              <button type="button" class="btn btn-secondary btn-xs" onclick="openEditUserModal('${escapeHtml(u.username)}')">✏️</button>
-              <button type="button" class="btn btn-secondary btn-xs" onclick="openChangePasswordModal('${escapeHtml(u.username)}')">🔑</button>
-              ${!isSelf && !isRoot ? `
-                <button type="button" class="btn btn-secondary btn-xs" onclick="toggleUserLock('${escapeHtml(u.username)}')">${u.locked ? '🔓' : '🔒'}</button>
-                <button type="button" class="btn btn-secondary btn-xs" style="color: var(--red);" onclick="openDeleteUserModal('${escapeHtml(u.username)}')">🗑️</button>
-              ` : ''}
-            </div>
+            ${isRoot ? `
+              <span style="padding: 3px 8px; border-radius: 4px; background: rgba(243, 139, 168, 0.15); color: var(--red); font-size: 0.72rem; font-weight: 600;">🔒 Immuable</span>
+            ` : `
+              <div style="display: flex; gap: 6px; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary btn-xs" onclick="openEditUserModal('${escapeHtml(u.username)}')" title="Modifier">✏️</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="openChangePasswordModal('${escapeHtml(u.username)}')" title="Mot de passe">🔑</button>
+                ${!isSelf ? `
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="toggleUserLock('${escapeHtml(u.username)}')" title="${u.locked ? 'Déverrouiller' : 'Verrouiller'}">${u.locked ? '🔓' : '🔒'}</button>
+                  <button type="button" class="btn btn-secondary btn-xs" style="color: var(--red);" onclick="openDeleteUserModal('${escapeHtml(u.username)}')" title="Supprimer">🗑️</button>
+                ` : ''}
+              </div>
+            `}
           </td>
         </tr>
       `;
@@ -12946,6 +12975,10 @@ async function submitCreateUser() {
 // MODAL ÉDITION UTILISATEUR
 // --------------------------------------------------------------------------
 function openEditUserModal(username) {
+  if (username === 'root') {
+    showToast("Le compte 'root' est le superviseur du système et ne peut pas être modifié depuis le tableau de bord.", "error");
+    return;
+  }
   const user = usersData.find(u => u.username === username);
   if (!user) return;
 
@@ -13051,6 +13084,10 @@ async function submitEditUser() {
 // MODAL MOT DE PASSE
 // --------------------------------------------------------------------------
 function openChangePasswordModal(username) {
+  if (username === 'root') {
+    showToast("Le mot de passe de 'root' ne peut pas être modifié depuis l'interface web pour des raisons de sécurité.", "error");
+    return;
+  }
   document.getElementById('cp-username').value = username;
   document.getElementById('cp-modal-title').textContent = `Modifier le Mot de Passe de '${username}'`;
   document.getElementById('cp-password').value = '';
