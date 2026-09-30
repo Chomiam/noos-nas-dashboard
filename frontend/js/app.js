@@ -10019,6 +10019,96 @@ function renderEggCatalog() {
   }).join('');
 }
 
+
+// ==========================================================================
+// ASSISTANT MINECRAFT MULTI-LOADER & CONFIGURATION SERVER.PROPERTIES
+// ==========================================================================
+let selectedMinecraftLoader = 'paper';
+const mcVersionsCache = {};
+
+function initMinecraftWizard() {
+  selectMinecraftLoader('paper');
+  switchMinecraftConfigTab('general');
+}
+
+function selectMinecraftLoader(loaderId) {
+  selectedMinecraftLoader = loaderId;
+  document.querySelectorAll('.mc-loader-card').forEach(card => {
+    card.classList.toggle('active', card.getAttribute('data-loader') === loaderId);
+  });
+
+  const ramSlider = document.getElementById('create-game-slider-ram');
+  const ramHint = document.getElementById('create-game-ram-hint');
+
+  if (loaderId === 'forge' || loaderId === 'neoforge') {
+    if (ramSlider && parseInt(ramSlider.value, 10) < 6144) {
+      ramSlider.value = 6144;
+      updateRamDisplay(6144);
+    }
+    if (ramHint) ramHint.textContent = "Recommandé pour modpacks : 6 à 8 Go";
+  } else if (loaderId === 'vanilla') {
+    if (ramHint) ramHint.textContent = "Recommandé Vanilla : 3 à 4 Go";
+  } else {
+    if (ramHint) ramHint.textContent = "Recommandé : 4 Go (Haute performance)";
+  }
+
+  loadMinecraftVersions(loaderId);
+}
+
+async function loadMinecraftVersions(loaderId) {
+  const select = document.getElementById('mc-version-select');
+  const hint = document.getElementById('mc-version-status-hint');
+  if (!select) return;
+
+  if (mcVersionsCache[loaderId] && mcVersionsCache[loaderId].length > 0) {
+    populateMinecraftVersionDropdown(mcVersionsCache[loaderId], loaderId);
+    return;
+  }
+
+  select.innerHTML = '<option value="">Chargement des versions scrapées...</option>';
+  if (hint) hint.textContent = 'Interrogation de l\'API en cours...';
+
+  try {
+    const res = await fetch(`/api/games/minecraft/versions?loader=${loaderId}`);
+    const json = await res.json();
+    if (json.success && json.data && json.data.length > 0) {
+      mcVersionsCache[loaderId] = json.data;
+      populateMinecraftVersionDropdown(json.data, loaderId);
+    } else {
+      select.innerHTML = '<option value="1.21.1">1.21.1 (Dernière version)</option>';
+      if (hint) hint.textContent = 'Versions de repli activées';
+    }
+  } catch (e) {
+    console.error("Échec du scraping des versions Minecraft :", e);
+    select.innerHTML = '<option value="1.21.1">1.21.1</option><option value="1.20.4">1.20.4</option><option value="1.20.1">1.20.1</option>';
+    if (hint) hint.textContent = 'Mode hors-ligne';
+  }
+}
+
+function populateMinecraftVersionDropdown(versions, loaderId) {
+  const select = document.getElementById('mc-version-select');
+  const hint = document.getElementById('mc-version-status-hint');
+  if (!select) return;
+
+  select.innerHTML = versions.map((v, i) => {
+    const isRecommended = (loaderId === 'forge' && v === '1.20.1') || (loaderId !== 'forge' && v === '1.21.1');
+    const label = isRecommended ? `${v} ★ (Version la plus stable)` : v;
+    return `<option value="${v}" ${isRecommended || i === 0 ? 'selected' : ''}>${label}</option>`;
+  }).join('');
+
+  if (hint) hint.textContent = `${versions.length} versions disponibles`;
+}
+
+function switchMinecraftConfigTab(tabName) {
+  const tabs = ['general', 'gameplay', 'network', 'perf'];
+  tabs.forEach(t => {
+    const btn = document.getElementById(`btn-mc-tab-${t}`);
+    const pane = document.getElementById(`mc-tab-pane-${t}`);
+    if (btn) btn.classList.toggle('active', t === tabName);
+    if (pane) pane.style.display = t === tabName ? 'block' : 'none';
+  });
+}
+
 function openCreateGameModal(eggId) {
   const egg = gameCatalogData.find(e => e.id === eggId);
   if (!egg) return;
@@ -10040,9 +10130,22 @@ function openCreateGameModal(eggId) {
   updateRamDisplay(egg.default_memory_mb);
   document.getElementById("create-game-ram-hint").textContent = `Recommandé : ${egg.default_memory_mb / 1024} Go (Min : ${egg.min_memory_mb / 1024} Go)`;
 
+  const isMinecraft = (egg.id === "minecraft-java");
+  const mcWrap = document.getElementById("create-game-minecraft-custom-wrap");
+  const dynWrap = document.getElementById("create-game-dynamic-vars-wrap");
+
+  if (isMinecraft) {
+    if (mcWrap) mcWrap.style.display = "block";
+    if (dynWrap) dynWrap.style.display = "none";
+    initMinecraftWizard();
+  } else {
+    if (mcWrap) mcWrap.style.display = "none";
+    if (dynWrap) dynWrap.style.display = "block";
+  }
+
   // Génération des variables dynamiques
   const varsContainer = document.getElementById("create-game-dynamic-vars-container");
-  if (varsContainer) {
+  if (varsContainer && !isMinecraft) {
     if (egg.variables && egg.variables.length > 0) {
       document.getElementById("create-game-dynamic-vars-wrap").style.display = "block";
       varsContainer.innerHTML = egg.variables.map(v => {
@@ -10113,14 +10216,35 @@ async function submitCreateGameServer() {
   const port = portInput ? parseInt(portInput.value, 10) : selectedEggForCreate.default_port;
   const memory_mb = ramSlider ? parseInt(ramSlider.value, 10) : selectedEggForCreate.default_memory_mb;
 
-  // Récupérer les variables dynamiques
+  // Récupérer les variables dynamiques ou spécifiques Minecraft
   const variables = {};
-  document.querySelectorAll(".dynamic-egg-var").forEach(el => {
-    const varName = el.getAttribute("data-var");
-    if (varName) {
-      variables[varName] = el.value;
-    }
-  });
+
+  if (selectedEggForCreate.id === "minecraft-java") {
+    variables["LOADER"] = selectedMinecraftLoader;
+    variables["MINECRAFT_VERSION"] = (document.getElementById("mc-version-select") || {}).value || "1.21.1";
+    variables["MOTD"] = (document.getElementById("mc-cfg-motd") || {}).value || "STEvE_OS Minecraft";
+    variables["LEVEL_NAME"] = (document.getElementById("mc-cfg-level-name") || {}).value || "world";
+    variables["LEVEL_SEED"] = (document.getElementById("mc-cfg-seed") || {}).value || "";
+    variables["GAMEMODE"] = (document.getElementById("mc-cfg-gamemode") || {}).value || "survival";
+    variables["DIFFICULTY"] = (document.getElementById("mc-cfg-difficulty") || {}).value || "normal";
+    variables["PVP"] = (document.getElementById("mc-cfg-pvp") || {}).value || "true";
+    variables["HARDCORE"] = (document.getElementById("mc-cfg-hardcore") || {}).value || "false";
+    variables["ONLINE_MODE"] = (document.getElementById("mc-cfg-online-mode") || {}).value || "true";
+    variables["MAX_PLAYERS"] = (document.getElementById("mc-cfg-max-players") || {}).value || "20";
+    variables["WHITELIST"] = (document.getElementById("mc-cfg-whitelist") || {}).value || "false";
+    variables["COMMAND_BLOCKS"] = (document.getElementById("mc-cfg-cmd-blocks") || {}).value || "true";
+    variables["VIEW_DISTANCE"] = (document.getElementById("mc-cfg-view-distance") || {}).value || "10";
+    variables["SIMULATION_DISTANCE"] = (document.getElementById("mc-cfg-sim-distance") || {}).value || "8";
+    variables["ALLOW_FLIGHT"] = (document.getElementById("mc-cfg-allow-flight") || {}).value || "false";
+    variables["SPAWN_PROTECTION"] = (document.getElementById("mc-cfg-spawn-prot") || {}).value || "16";
+  } else {
+    document.querySelectorAll(".dynamic-egg-var").forEach(el => {
+      const varName = el.getAttribute("data-var");
+      if (varName) {
+        variables[varName] = el.value;
+      }
+    });
+  }
 
   const origBtn = submitBtn ? submitBtn.innerHTML : "";
   if (submitBtn) {

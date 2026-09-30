@@ -465,39 +465,93 @@ pub fn create_game_server(req: CreateGameServerRequest) -> Result<GameServer, St
 
     env_map.insert("SERVER_PORT".into(), target_port.to_string());
     env_map.insert("SERVER_MEMORY".into(), req.memory_mb.to_string());
+    let mut final_docker_image = egg.docker_image.clone();
 
     // Scripts de configuration initiaux personnalisés par jeu
     if egg.id == "minecraft-java" {
+        let loader = env_map.get("LOADER").cloned().unwrap_or_else(|| "paper".to_string());
+        let version = env_map.get("MINECRAFT_VERSION").cloned().unwrap_or_else(|| "1.21.1".to_string());
+
+        let resolved = crate::minecraft::resolve_minecraft_server(&loader, &version)
+            .unwrap_or_else(|_| crate::minecraft::ResolvedMinecraftServer {
+                loader: loader.clone(),
+                version: version.clone(),
+                download_url: format!("https://api.purpurmc.org/v2/purpur/{}/latest/download", version),
+                is_installer: false,
+                docker_image: crate::minecraft::resolve_java_image(&version),
+                startup_command: "java -Xms128M -XmxM -XX:+AlwaysPreTouch -XX:+UseG1GC -jar server.jar nogui".into(),
+            });
+
+        final_docker_image = resolved.docker_image.clone();
+
+        // 1. EULA et dossiers d'extensions
         let _ = fs::write(data_dir.join("eula.txt"), "eula=true
 ");
-        let server_props = format!(
-            "server-port={}
-motd={}
-max-players={}
-difficulty={}
-online-mode={}
-pvp=true
-enable-command-block=true
-",
-            target_port,
-            env_map.get("MOTD").unwrap_or(&"STEvE_OS Minecraft".to_string()),
-            env_map.get("MAX_PLAYERS").unwrap_or(&"20".to_string()),
-            env_map.get("DIFFICULTY").unwrap_or(&"normal".to_string()),
-            env_map.get("ONLINE_MODE").unwrap_or(&"true".to_string())
-        );
+        let _ = fs::create_dir_all(data_dir.join("mods"));
+        let _ = fs::create_dir_all(data_dir.join("plugins"));
+
+        // 2. Génération assistée de server.properties
+        let props = crate::minecraft::MinecraftServerProperties {
+            motd: env_map.get("MOTD").cloned(),
+            gamemode: env_map.get("GAMEMODE").cloned(),
+            difficulty: env_map.get("DIFFICULTY").cloned(),
+            max_players: env_map.get("MAX_PLAYERS").and_then(|v| v.parse().ok()),
+            online_mode: env_map.get("ONLINE_MODE").map(|v| v == "true"),
+            pvp: env_map.get("PVP").map(|v| v != "false"),
+            hardcore: env_map.get("HARDCORE").map(|v| v == "true"),
+            white_list: env_map.get("WHITELIST").map(|v| v == "true"),
+            enable_command_block: env_map.get("COMMAND_BLOCKS").map(|v| v != "false"),
+            view_distance: env_map.get("VIEW_DISTANCE").and_then(|v| v.parse().ok()),
+            simulation_distance: env_map.get("SIMULATION_DISTANCE").and_then(|v| v.parse().ok()),
+            level_name: env_map.get("LEVEL_NAME").cloned(),
+            level_seed: env_map.get("LEVEL_SEED").cloned(),
+            allow_flight: env_map.get("ALLOW_FLIGHT").map(|v| v == "true"),
+            spawn_protection: env_map.get("SPAWN_PROTECTION").and_then(|v| v.parse().ok()),
+        };
+        let server_props = crate::minecraft::generate_server_properties(&props, target_port);
         let _ = fs::write(data_dir.join("server.properties"), server_props);
 
-        let entrypoint = r#"#!/bin/bash
+        // 3. Entrypoint avec vérification d'intégrité anti-corruption
+        let target_jar = if resolved.is_installer { "installer.jar" } else { "server.jar" };
+        let install_step = if resolved.is_installer {
+            "echo '🔨 Assemblage et installation du serveur moddé...'
+java -jar installer.jar --installServer
+touch .installed
+"
+        } else {
+            ""
+        };
+
+        let entrypoint = format!(
+r#"#!/bin/bash
 set -e
 cd /home/container
 echo "eula=true" > eula.txt
-if [ ! -f server.jar ]; then
-  echo "⚡ Téléchargement automatique de PaperMC 1.21.1..."
-  curl -s -L -o server.jar "https://api.papermc.io/v2/projects/paper/versions/1.21.1/builds/132/downloads/paper-1.21.1-132.jar" ||   curl -s -L -o server.jar "https://download.getbukkit.org/spigot/spigot-1.21.1.jar"
+mkdir -p mods plugins
+
+if [ ! -s server.jar ] && [ ! -f .installed ]; then
+  echo "⚡ Téléchargement certifié de {loader_name} {version}..."
+  curl -f -s -L -A "STEvE_OS/1.0" -o {target_jar} "{download_url}"
+
+  if ! unzip -t {target_jar} >/dev/null 2>&1; then
+    echo "❌ Erreur critique : Le fichier téléchargé est corrompu ou invalide !"
+    rm -f {target_jar}
+    exit 1
+  fi
+
+  {install_step}
 fi
-echo "🚀 Lancement de Minecraft Java (PaperMC)..."
-exec java -Xms128M -Xmx${SERVER_MEMORY}M -XX:+UseG1GC -jar server.jar nogui
-"#;
+
+echo "🚀 Démarrage de {loader_name} ({version})..."
+exec {startup_command}
+"#,
+            loader_name = resolved.loader.to_uppercase(),
+            version = resolved.version,
+            target_jar = target_jar,
+            download_url = resolved.download_url,
+            install_step = install_step,
+            startup_command = resolved.startup_command,
+        );
         let _ = fs::write(data_dir.join("entrypoint.sh"), entrypoint);
     } else if egg.id == "minecraft-bedrock" {
         let entrypoint = r#"#!/bin/bash
@@ -604,7 +658,7 @@ exec {}
         docker_args.push(format!("{}={}", k, v));
     }
 
-    docker_args.push(egg.docker_image.clone());
+    docker_args.push(final_docker_image);
     docker_args.push("bash".to_string());
     docker_args.push("/home/container/entrypoint.sh".to_string());
 

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20260930_20">
+  <link rel="stylesheet" href="/css/style.css?v=20260930_21">
 </head>
 <body>
 
@@ -2058,7 +2058,7 @@
   <div class="toast-container" id="toast-container"></div>
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20260930_20"></script>
+  <script src="/js/app.js?v=20260930_21"></script>
   <!-- MENU CONTEXTUEL CLIC DROIT -->
   <div class="context-menu" id="files-context-menu">
     <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">
@@ -4051,6 +4051,212 @@
               <span id="create-game-ram-val" style="font-weight:700; font-family:var(--font-mono); font-size:0.9rem; min-width:70px; text-align:right; color:var(--mauve);">4 Go</span>
             </div>
             <span style="font-size:0.72rem; color:var(--subtext0);" id="create-game-ram-hint">Recommandé : 4 Go</span>
+          </div>
+        </div>
+
+        <!-- SECTION SPÉCIFIQUE MINECRAFT MULTI-LOADER & SERVER.PROPERTIES -->
+        <div id="create-game-minecraft-custom-wrap" style="display:none; margin-top:16px; border-top:1px solid rgba(255,255,255,0.06); padding-top:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <label class="form-label" style="font-weight:700; color:var(--text); margin:0; display:flex; align-items:center; gap:6px;">
+              <span>⛏️</span> Choisissez votre Moteur & Plateforme de Jeu
+            </label>
+            <span class="badge badge-purple" style="font-size:0.7rem;">Scraping API Direct</span>
+          </div>
+
+          <!-- Grille des Loaders Minecraft -->
+          <div class="mc-loader-grid" id="mc-loader-selection-grid">
+            <div class="mc-loader-card active" data-loader="paper" onclick="selectMinecraftLoader('paper')">
+              <div class="mc-loader-header">
+                <div class="mc-loader-title"><span>📄</span> PaperMC</div>
+                <span class="mc-loader-badge">RECOMMANDÉ</span>
+              </div>
+              <div class="mc-loader-desc">Plugins Spigot/Paper, anti-lag et ultra haute performance.</div>
+            </div>
+
+            <div class="mc-loader-card" data-loader="purpur" onclick="selectMinecraftLoader('purpur')">
+              <div class="mc-loader-header">
+                <div class="mc-loader-title"><span>🟣</span> Purpur</div>
+                <span class="mc-loader-badge">PERFORMANCE</span>
+              </div>
+              <div class="mc-loader-desc">Fork optimisé de Paper, personnalisable à l'extrême.</div>
+            </div>
+
+            <div class="mc-loader-card" data-loader="fabric" onclick="selectMinecraftLoader('fabric')">
+              <div class="mc-loader-header">
+                <div class="mc-loader-title"><span>🧵</span> Fabric</div>
+                <span class="mc-loader-badge">MODS RAPIDES</span>
+              </div>
+              <div class="mc-loader-desc">Loader moddé moderne ultra-léger (Sodium, Lithium).</div>
+            </div>
+
+            <div class="mc-loader-card" data-loader="neoforge" onclick="selectMinecraftLoader('neoforge')">
+              <div class="mc-loader-header">
+                <div class="mc-loader-title"><span>⚡</span> NeoForge</div>
+                <span class="mc-loader-badge">1.20.2+</span>
+              </div>
+              <div class="mc-loader-desc">Standard moderne pour les gros modpacks récents.</div>
+            </div>
+
+            <div class="mc-loader-card" data-loader="forge" onclick="selectMinecraftLoader('forge')">
+              <div class="mc-loader-header">
+                <div class="mc-loader-title"><span>🔨</span> Forge</div>
+                <span class="mc-loader-badge">CLASSIQUE</span>
+              </div>
+              <div class="mc-loader-desc">Incontournable pour les modpacks historiques (1.12.2, 1.16.5, 1.20.1).</div>
+            </div>
+
+            <div class="mc-loader-card" data-loader="vanilla" onclick="selectMinecraftLoader('vanilla')">
+              <div class="mc-loader-header">
+                <div class="mc-loader-title"><span>☕</span> Vanilla</div>
+                <span class="mc-loader-badge">OFFICIEL</span>
+              </div>
+              <div class="mc-loader-desc">Serveur Mojang pur officiel, sans mod ni plugin.</div>
+            </div>
+          </div>
+
+          <!-- Sélecteur de Version dynamique -->
+          <div class="form-group" style="margin-bottom:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <label class="form-label" style="font-weight:600; margin:0;">Version Minecraft (Scrapée en direct) :</label>
+              <span id="mc-version-status-hint" style="font-size:0.72rem; color:var(--mauve); font-family:var(--font-mono);">Chargement des versions...</span>
+            </div>
+            <select id="mc-version-select" class="form-select" style="font-weight:700; font-family:var(--font-mono); font-size:0.95rem;">
+              <option value="1.21.1">1.21.1 (Chargement...)</option>
+            </select>
+          </div>
+
+          <!-- Configuration server.properties assistée -->
+          <div style="margin-top:18px; border-top:1px dashed rgba(255,255,255,0.08); padding-top:14px;">
+            <label class="form-label" style="font-weight:700; color:var(--text); margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+              <span>⚙️</span> Réglages Avancés du Monde (server.properties)
+            </label>
+
+            <div class="mc-subtab-nav">
+              <button type="button" class="mc-subtab-btn active" id="btn-mc-tab-general" onclick="switchMinecraftConfigTab('general')">🌍 Général & Monde</button>
+              <button type="button" class="mc-subtab-btn" id="btn-mc-tab-gameplay" onclick="switchMinecraftConfigTab('gameplay')">⚔️ Gameplay</button>
+              <button type="button" class="mc-subtab-btn" id="btn-mc-tab-network" onclick="switchMinecraftConfigTab('network')">🛡️ Réseau & Accès</button>
+              <button type="button" class="mc-subtab-btn" id="btn-mc-tab-perf" onclick="switchMinecraftConfigTab('perf')">⚡ Performances</button>
+            </div>
+
+            <!-- TAB 1 : GÉNÉRAL -->
+            <div id="mc-tab-pane-general" class="mc-tab-pane">
+              <div class="form-group" style="margin-bottom:12px;">
+                <label class="form-label" style="font-size:0.8rem; font-weight:600;">Message du jour (MOTD) :</label>
+                <input type="text" id="mc-cfg-motd" class="form-input" value="Serveur Minecraft propulsé par STEvE_OS NAS">
+              </div>
+              <div class="mc-props-grid">
+                <div class="form-group" style="margin:0;">
+                  <label class="form-label" style="font-size:0.8rem; font-weight:600;">Nom du dossier monde :</label>
+                  <input type="text" id="mc-cfg-level-name" class="form-input" value="world">
+                </div>
+                <div class="form-group" style="margin:0;">
+                  <label class="form-label" style="font-size:0.8rem; font-weight:600;">Graine de génération (Seed) :</label>
+                  <input type="text" id="mc-cfg-seed" class="form-input" placeholder="Optionnelle (laisser vide si aléatoire)">
+                </div>
+              </div>
+            </div>
+
+            <!-- TAB 2 : GAMEPLAY -->
+            <div id="mc-tab-pane-gameplay" class="mc-tab-pane" style="display:none;">
+              <div class="mc-props-grid">
+                <div class="form-group">
+                  <label class="form-label" style="font-size:0.8rem; font-weight:600;">Mode de jeu par défaut :</label>
+                  <select id="mc-cfg-gamemode" class="form-select">
+                    <option value="survival" selected>Survie (Survival)</option>
+                    <option value="creative">Créatif (Creative)</option>
+                    <option value="adventure">Aventure (Adventure)</option>
+                    <option value="spectator">Spectateur (Spectator)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" style="font-size:0.8rem; font-weight:600;">Niveau de Difficulté :</label>
+                  <select id="mc-cfg-difficulty" class="form-select">
+                    <option value="peaceful">Paisible (Peaceful)</option>
+                    <option value="easy">Facile (Easy)</option>
+                    <option value="normal" selected>Normal</option>
+                    <option value="hard">Difficile (Hard)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" style="font-size:0.8rem; font-weight:600;">Combats entre joueurs (PVP) :</label>
+                  <select id="mc-cfg-pvp" class="form-select">
+                    <option value="true" selected>Activé (Oui)</option>
+                    <option value="false">Désactivé (Non)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" style="font-size:0.8rem; font-weight:600;">Mode Hardcore (Mort permanente) :</label>
+                  <select id="mc-cfg-hardcore" class="form-select">
+                    <option value="false" selected>Désactivé</option>
+                    <option value="true">Activé (Bannissement à la mort)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- TAB 3 : RÉSEAU & SÉCURITÉ -->
+            <div id="mc-tab-pane-network" class="mc-tab-pane" style="display:none;">
+              <div class="mc-props-grid">
+                <div class="form-group">
+                  <label class="form-label" style="font-size:0.8rem; font-weight:600;">Mode en ligne (Authentification Mojang) :</label>
+                  <select id="mc-cfg-online-mode" class="form-select">
+                    <option value="true" selected>Activé (Comptes officiels uniquement)</option>
+                    <option value="false">Désactivé (Autoriser comptes hors-ligne/crack)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" style="font-size:0.8rem; font-weight:600;">Nombre de joueurs max :</label>
+                  <input type="number" id="mc-cfg-max-players" class="form-input" value="20" min="1" max="500">
+                </div>
+                <div class="form-group">
+                  <label class="form-label" style="font-size:0.8rem; font-weight:600;">Liste Blanche (Whitelist) :</label>
+                  <select id="mc-cfg-whitelist" class="form-select">
+                    <option value="false" selected>Désactivée (Accès libre)</option>
+                    <option value="true">Activée (Joueurs approuvés uniquement)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" style="font-size:0.8rem; font-weight:600;">Blocs de commande :</label>
+                  <select id="mc-cfg-cmd-blocks" class="form-select">
+                    <option value="true" selected>Activés (Recommandé)</option>
+                    <option value="false">Désactivés</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- TAB 4 : PERFORMANCES -->
+            <div id="mc-tab-pane-perf" class="mc-tab-pane" style="display:none;">
+              <div class="mc-props-grid">
+                <div class="form-group">
+                  <label class="form-label" style="font-size:0.8rem; font-weight:600;">Distance de vue (View distance) :</label>
+                  <div style="display:flex; align-items:center; gap:10px;">
+                    <input type="range" id="mc-cfg-view-distance" min="6" max="24" step="1" value="10" style="flex:1;" oninput="document.getElementById('mc-view-dist-val').textContent = this.value + ' chunks'">
+                    <span id="mc-view-dist-val" style="font-weight:700; font-family:var(--font-mono); font-size:0.85rem; min-width:70px; text-align:right;">10 chunks</span>
+                  </div>
+                  <span style="font-size:0.7rem; color:var(--subtext0);">Nombre de chunks rendus visuellement</span>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" style="font-size:0.8rem; font-weight:600;">Distance de simulation :</label>
+                  <div style="display:flex; align-items:center; gap:10px;">
+                    <input type="range" id="mc-cfg-sim-distance" min="4" max="16" step="1" value="8" style="flex:1;" oninput="document.getElementById('mc-sim-dist-val').textContent = this.value + ' chunks'">
+                    <span id="mc-sim-dist-val" style="font-weight:700; font-family:var(--font-mono); font-size:0.85rem; min-width:70px; text-align:right;">8 chunks</span>
+                  </div>
+                  <span style="font-size:0.7rem; color:var(--subtext0);">Rayon de simulation des entités et ticks</span>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" style="font-size:0.8rem; font-weight:600;">Vol autorisé (Allow Flight) :</label>
+                  <select id="mc-cfg-allow-flight" class="form-select">
+                    <option value="false" selected>Désactivé (Anti-cheat de base)</option>
+                    <option value="true">Activé (Recommandé pour modpacks/créatif)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" style="font-size:0.8rem; font-weight:600;">Rayon de protection du Spawn :</label>
+                  <input type="number" id="mc-cfg-spawn-prot" class="form-input" value="16" min="0" max="64">
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 

@@ -111,6 +111,9 @@ pub fn api_routes() -> Router {
         .route("/games/:id/logs", get(handle_games_logs))
         .route("/games/:id/command", post(handle_games_command))
         .route("/games/eggs/import", post(handle_games_import_egg))
+        .route("/games/minecraft/loaders", get(handle_minecraft_loaders))
+        .route("/games/minecraft/versions", get(handle_minecraft_versions))
+        .route("/games/minecraft/resolve", post(handle_minecraft_resolve))
         .route("/network", get(handle_network))
         .route("/firewall", get(handle_firewall))
         .route("/firewall/unban", post(handle_firewall_unban))
@@ -1742,6 +1745,61 @@ async fn handle_games_import_egg(
             success: true,
             data: Some(egg),
             message: Some("Egg importé avec succès !".into()),
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
+        }),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct McVersionsQuery {
+    loader: Option<String>,
+}
+
+async fn handle_minecraft_loaders() -> Json<ApiResponse<Vec<crate::minecraft::MinecraftLoader>>> {
+    let loaders = crate::minecraft::get_available_loaders();
+    Json(ApiResponse {
+        success: true,
+        data: Some(loaders),
+        message: None,
+    })
+}
+
+async fn handle_minecraft_versions(
+    Query(q): Query<McVersionsQuery>,
+) -> Json<ApiResponse<Vec<String>>> {
+    let loader = q.loader.unwrap_or_else(|| "paper".to_string());
+    let versions = tokio::task::spawn_blocking(move || {
+        crate::minecraft::get_versions_for_loader(&loader)
+    }).await.unwrap_or_default();
+
+    Json(ApiResponse {
+        success: true,
+        data: Some(versions),
+        message: None,
+    })
+}
+
+async fn handle_minecraft_resolve(
+    Json(req): Json<crate::minecraft::ResolveMinecraftRequest>,
+) -> Json<ApiResponse<crate::minecraft::ResolvedMinecraftServer>> {
+    let res = tokio::task::spawn_blocking(move || {
+        crate::minecraft::resolve_minecraft_server(&req.loader, &req.version)
+    }).await;
+
+    match res {
+        Ok(Ok(resolved)) => Json(ApiResponse {
+            success: true,
+            data: Some(resolved),
+            message: None,
         }),
         Ok(Err(err)) => Json(ApiResponse {
             success: false,

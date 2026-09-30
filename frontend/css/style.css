@@ -6803,3 +6803,98 @@ select.form-control option,
 .game-terminal-input-box:focus {
   border-color: var(--mauve);
 }
+
+/* ==========================================================================
+   MINECRAFT ADVANCED MULTI-LOADER & CONFIGURATOR
+   ========================================================================== */
+.mc-loader-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.mc-loader-card {
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.mc-loader-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(137, 180, 250, 0.5);
+  transform: translateY(-1px);
+}
+.mc-loader-card.active {
+  background: rgba(137, 180, 250, 0.12);
+  border-color: var(--blue);
+  box-shadow: 0 0 14px rgba(137, 180, 250, 0.25);
+}
+.mc-loader-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.mc-loader-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+.mc-loader-badge {
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--subtext0);
+  font-weight: 800;
+}
+.mc-loader-card.active .mc-loader-badge {
+  background: var(--blue);
+  color: var(--crust);
+}
+.mc-loader-desc {
+  font-size: 0.72rem;
+  color: var(--subtext0);
+  line-height: 1.35;
+}
+.mc-subtab-nav {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 8px;
+  overflow-x: auto;
+}
+.mc-subtab-btn {
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--subtext0);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+.mc-subtab-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+.mc-subtab-btn.active {
+  background: var(--mauve);
+  color: #11111b;
+  border-color: var(--mauve);
+  font-weight: 800;
+}
+.mc-props-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}

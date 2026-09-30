@@ -34,6 +34,7 @@ mod documents;
 mod youtube;
 mod docker_store;
 mod games;
+mod minecraft;
 mod vms;
 mod generations;
 
