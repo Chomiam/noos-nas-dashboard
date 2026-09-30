@@ -3213,7 +3213,7 @@ async function loadHardwareInfo() {
 
     const hw = json.data;
 
-    // CPU
+    // 1. CPU
     const cpuModel = document.getElementById("hw-cpu-model");
     const cpuArch = document.getElementById("hw-cpu-arch");
     const cpuCores = document.getElementById("hw-cpu-cores");
@@ -3223,12 +3223,18 @@ async function loadHardwareInfo() {
 
     if (cpuModel) cpuModel.textContent = hw.cpu.model;
     if (cpuArch) cpuArch.textContent = hw.cpu.architecture;
-    if (cpuCores) cpuCores.textContent = `${hw.cpu.total_cores} Cœurs / ${hw.cpu.total_threads} Threads (${hw.cpu.sockets} Sockets)`;
+    if (cpuCores) cpuCores.textContent = `${hw.cpu.total_cores} Cœurs / ${hw.cpu.total_threads} Threads${hw.cpu.sockets > 1 ? ` (${hw.cpu.sockets} Sockets)` : ''}`;
     if (cpuFreq) cpuFreq.textContent = hw.cpu.base_frequency_ghz;
-    if (cpuCache) cpuCache.textContent = hw.cpu.cache;
-    if (cpuVirt) cpuVirt.textContent = hw.cpu.virtualization;
+    if (cpuCache) {
+      let c = (hw.cpu.cache || "").replace("Intel® ", "").replace(" Smart Cache", " Cache").replace(" (30 Mo / socket)", "");
+      cpuCache.textContent = c || "Cache L1/L2/L3";
+    }
+    if (cpuVirt) {
+      let v = (hw.cpu.virtualization || "").replace(" (Matériel Activé)", "").replace(" (Activé)", "").replace(" (Hardware Enabled)", "");
+      cpuVirt.textContent = v.includes("Actif") ? v : `${v} Actif`;
+    }
 
-    // Carte mère
+    // 2. Carte Mère
     const mbName = document.getElementById("hw-mb-name");
     const mbVendor = document.getElementById("hw-mb-vendor");
     const mbChipset = document.getElementById("hw-mb-chipset");
@@ -3241,7 +3247,7 @@ async function loadHardwareInfo() {
     if (mbSockets) mbSockets.textContent = hw.motherboard.board_name;
     if (mbBios) mbBios.textContent = `${hw.motherboard.bios_version} (${hw.motherboard.bios_date})`;
 
-    // RAM
+    // 3. RAM
     const ramTotal = document.getElementById("hw-ram-total");
     const ramType = document.getElementById("hw-ram-type");
     const ramChannels = document.getElementById("hw-ram-channels");
@@ -3250,35 +3256,106 @@ async function loadHardwareInfo() {
     if (ramTotal) ramTotal.textContent = `${hw.memory.total_gb} Go (${hw.memory.mem_type})`;
     if (ramType) ramType.textContent = hw.memory.mem_type;
     if (ramChannels) ramChannels.textContent = hw.memory.channels;
-    if (ramAvail) ramAvail.textContent = `${hw.memory.available_gb} Go disponibles (${hw.memory.free_gb} Go libres)`;
+    if (ramAvail) ramAvail.textContent = `${hw.memory.available_gb} Go dispo (${hw.memory.free_gb} Go libres)`;
 
-    // GPU
+    // 4. GPU
     const gpuModel = document.getElementById("hw-gpu-model");
     const gpuVram = document.getElementById("hw-gpu-vram");
     const gpuDriver = document.getElementById("hw-gpu-driver");
+    const gpuRole = document.getElementById("hw-gpu-role");
 
     if (gpuModel) gpuModel.textContent = hw.gpu.model;
     if (gpuVram) gpuVram.textContent = hw.gpu.vram;
     if (gpuDriver) gpuDriver.textContent = hw.gpu.driver;
+    if (gpuRole) {
+      if (hw.gpu.features && hw.gpu.features.length > 0) {
+        gpuRole.textContent = hw.gpu.features[1] || hw.gpu.features[0];
+      } else {
+        gpuRole.textContent = "Transcodage Matériel Actif";
+      }
+    }
 
-    // Réseau
+    // 5. Réseau Physique LAN (Filtrage strict des interfaces virtuelles)
+    const netTitle = document.getElementById("hw-net-title");
     const netList = document.getElementById("hw-network-list");
     if (netList && hw.network_adapters && hw.network_adapters.length > 0) {
-      netList.innerHTML = hw.network_adapters.map(a => `
-        <div class="hw-spec-row" style="margin-bottom:6px; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.04);">
-          <div>
-            <strong style="color:var(--text);">${a.interface_name}</strong>
-            <span style="font-size:0.75rem; color:var(--subtext0); margin-left:6px;">(${a.controller_model})</span>
-            <div style="font-size:0.75rem; color:var(--subtext0); font-family:var(--font-mono); margin-top:2px;">MAC: ${a.mac_address}</div>
-          </div>
-          <div style="text-align:right;">
-            <span class="badge ${a.is_up ? 'badge-success' : 'badge-secondary'}">
-              ${a.is_up ? (a.speed_mbps > 0 ? a.speed_mbps + ' Mbps' : 'Actif') : 'Déconnecté'}
+      const physicalAdapters = hw.network_adapters.filter(a => {
+        if (typeof a.is_physical === "boolean") return a.is_physical;
+        const name = (a.interface_name || "").toLowerCase();
+        return !name.startsWith("docker") &&
+               !name.startsWith("veth") &&
+               !name.startsWith("virbr") &&
+               !name.startsWith("br-") &&
+               !name.startsWith("vnet") &&
+               !name.startsWith("wg") &&
+               !name.startsWith("tun") &&
+               !name.startsWith("tap") &&
+               !name.startsWith("dummy") &&
+               name !== "lo";
+      });
+
+      const displayAdapters = physicalAdapters.length > 0
+        ? physicalAdapters
+        : hw.network_adapters.filter(a => a.is_up && !a.interface_name.startsWith("veth"));
+
+      if (netTitle) {
+        if (displayAdapters.length === 1) {
+          const a = displayAdapters[0];
+          netTitle.textContent = `${a.interface_name} — ${a.controller_model}`;
+        } else {
+          netTitle.textContent = `${displayAdapters.length} Interface(s) Réseau Physique(s) Détectée(s)`;
+        }
+      }
+
+      netList.innerHTML = displayAdapters.map(a => {
+        const isUp = a.is_up;
+        const speedText = isUp
+          ? (a.speed_mbps > 0
+              ? (a.speed_mbps >= 1000 ? `${(a.speed_mbps / 1000).toFixed(a.speed_mbps % 1000 === 0 ? 0 : 1)} Gbps` : `${a.speed_mbps} Mbps`)
+              : "Actif")
+          : "Déconnecté";
+        const pillClass = isUp ? "hw-spec-pill-success" : "hw-spec-pill-muted";
+        const dotColor = isUp ? "green" : "gray";
+
+        return `
+          <span class="hw-spec-pill ${pillClass}">
+            <span class="hw-status-dot ${dotColor}"></span>
+            <strong>${displayAdapters.length > 1 ? a.interface_name + ' : ' : ''}${speedText}</strong>
+          </span>
+          ${a.ipv4 ? `
+            <span class="hw-spec-pill hw-spec-pill-teal">
+              <span class="hw-spec-tag">IPv4</span>
+              <strong class="hw-mono">${a.ipv4}</strong>
             </span>
-            ${a.ipv4 ? `<div style="font-size:0.75rem; color:var(--teal); font-family:var(--font-mono); font-weight:600; margin-top:2px;">${a.ipv4}</div>` : ''}
-          </div>
-        </div>
-      `).join("");
+          ` : ''}
+          <span class="hw-spec-pill">
+            <span class="hw-spec-tag">MAC</span>
+            <strong class="hw-mono" style="opacity:0.85;">${a.mac_address}</strong>
+          </span>
+        `;
+      }).join("");
+    }
+
+    // 6. Contrôleurs & Stockage
+    const storageTitle = document.getElementById("hw-storage-title");
+    const storageCtrl = document.getElementById("hw-storage-ctrl");
+    const osKernel = document.getElementById("hw-os-kernel");
+
+    if (hw.storage_controllers && hw.storage_controllers.length > 0) {
+      if (storageTitle) {
+        const types = [...new Set(hw.storage_controllers.map(c => c.controller_type))];
+        storageTitle.textContent = types.join(" & ") || "Contrôleurs SATA & NVMe";
+      }
+      if (storageCtrl) {
+        const types = [...new Set(hw.storage_controllers.map(c => {
+          let t = c.controller_type || c.name || "";
+          return t.replace(" Controller", "").replace(" [AHCI]", "").replace("Series Chipset ", "").replace(" Technology ", " ");
+        }))];
+        storageCtrl.textContent = types.slice(0, 2).join(" + ") || "Contrôleurs SATA / NVMe";
+      }
+    }
+    if (hw.system_summary && osKernel) {
+      osKernel.textContent = `${hw.system_summary.os_name} (${hw.system_summary.kernel_version})`;
     }
   } catch (err) {
     console.warn("Erreur loadHardwareInfo:", err);
@@ -3295,6 +3372,21 @@ async function loadSmartInfo() {
     if (!json.success || !json.data) return;
 
     const smart = json.data;
+
+    // Mise à jour de la pastille de disques dans la synthèse matérielle
+    const drivesCount = document.getElementById("hw-drives-count");
+    if (drivesCount && smart.disks) {
+      if (smart.disks.length === 0) {
+        drivesCount.textContent = "Aucun disque détecté";
+      } else {
+        const hdds = smart.disks.filter(d => (d.disk_type || "").includes("HDD")).length;
+        const ssds = smart.disks.filter(d => (d.disk_type || "").includes("SSD") || (d.disk_type || "").includes("NVMe")).length;
+        const parts = [];
+        if (hdds > 0) parts.push(`${hdds}x HDD`);
+        if (ssds > 0) parts.push(`${ssds}x SSD/NVMe`);
+        drivesCount.textContent = parts.length > 0 ? parts.join(" + ") : `${smart.disks.length}x Disques`;
+      }
+    }
 
     // Badge global
     const badge = document.getElementById("smart-global-badge");

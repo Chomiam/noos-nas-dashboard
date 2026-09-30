@@ -1356,64 +1356,234 @@ kbd {
   border-radius: 4px;
 }
 
-/* ================= SPÉCIFICATIONS MATÉRIELLES (HARDWARE SPECS) ================= */
-.hardware-specs-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 16px;
+/* ================= SPÉCIFICATIONS MATÉRIELLES (HARDWARE SPECS - AFFICHAGE EN LIGNE) ================= */
+.hardware-specs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   margin-top: 14px;
 }
 
-.hw-card {
-  background: rgba(24, 24, 37, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+.hw-row-item {
+  background: rgba(24, 24, 37, 0.65);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-left: 3px solid rgba(203, 166, 247, 0.4);
   border-radius: var(--radius-md);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  transition: transform 0.2s ease, border-color 0.2s ease;
-}
-
-.hw-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(203, 166, 247, 0.25);
-}
-
-.hw-card-header {
+  padding: 12px 18px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  padding-bottom: 10px;
+  justify-content: space-between;
+  gap: 16px;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
 }
 
-.hw-card-icon {
-  font-size: 1.6rem;
-  background: rgba(255, 255, 255, 0.04);
+.hw-row-item:hover {
+  background: rgba(30, 30, 46, 0.85);
+  border-color: rgba(203, 166, 247, 0.25);
+  transform: translateX(3px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+/* Thème d'accentuation par type de composant */
+.hw-row-cpu     { border-left-color: var(--mauve); }
+.hw-row-mb      { border-left-color: var(--blue); }
+.hw-row-ram     { border-left-color: var(--yellow); }
+.hw-row-gpu     { border-left-color: var(--peach); }
+.hw-row-net     { border-left-color: var(--teal); }
+.hw-row-storage { border-left-color: var(--sapphire); }
+
+.hw-row-primary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 280px;
+  flex-shrink: 0;
+}
+
+.hw-row-icon {
+  font-size: 1.3rem;
   width: 42px;
   height: 42px;
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
 }
 
-.hw-card-title {
-  font-size: 0.95rem;
+.hw-row-item:hover .hw-row-icon {
+  transform: scale(1.08);
+}
+
+.hw-icon-cpu     { background: rgba(203, 166, 247, 0.12); color: var(--mauve); border: 1px solid rgba(203, 166, 247, 0.2); }
+.hw-icon-mb      { background: rgba(137, 180, 250, 0.12); color: var(--blue); border: 1px solid rgba(137, 180, 250, 0.2); }
+.hw-icon-ram     { background: rgba(249, 226, 175, 0.12); color: var(--yellow); border: 1px solid rgba(249, 226, 175, 0.2); }
+.hw-icon-gpu     { background: rgba(250, 179, 135, 0.12); color: var(--peach); border: 1px solid rgba(250, 179, 135, 0.2); }
+.hw-icon-net     { background: rgba(148, 226, 213, 0.12); color: var(--teal); border: 1px solid rgba(148, 226, 213, 0.2); }
+.hw-icon-storage { background: rgba(116, 199, 236, 0.12); color: var(--sapphire); border: 1px solid rgba(116, 199, 236, 0.2); }
+
+.hw-row-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hw-row-category {
+  font-size: 0.68rem;
+  text-transform: uppercase;
   font-weight: 700;
-  color: var(--text);
-}
-
-.hw-card-subtitle {
-  font-size: 0.78rem;
+  letter-spacing: 0.8px;
   color: var(--subtext0);
 }
 
-.hw-card-body {
+.hw-row-title {
+  font-size: 0.94rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.hw-row-specs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex: 1;
+}
+
+/* Pastilles et badges de spécifications */
+.hw-spec-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 9999px;
+  font-size: 0.78rem;
+  color: var(--subtext1);
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.hw-spec-pill:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.hw-spec-tag {
+  color: var(--subtext0);
+  font-size: 0.70rem;
+  font-weight: 500;
+}
+
+.hw-spec-pill strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.hw-spec-pill-success {
+  background: rgba(166, 227, 161, 0.12);
+  border-color: rgba(166, 227, 161, 0.3);
+  color: var(--green);
+}
+.hw-spec-pill-success strong {
+  color: var(--green);
+}
+
+.hw-spec-pill-info {
+  background: rgba(137, 180, 250, 0.12);
+  border-color: rgba(137, 180, 250, 0.3);
+  color: var(--blue);
+}
+.hw-spec-pill-info strong {
+  color: var(--blue);
+}
+
+.hw-spec-pill-mauve {
+  background: rgba(203, 166, 247, 0.12);
+  border-color: rgba(203, 166, 247, 0.3);
+  color: var(--mauve);
+}
+.hw-spec-pill-mauve strong {
+  color: var(--mauve);
+}
+
+.hw-spec-pill-peach {
+  background: rgba(250, 179, 135, 0.12);
+  border-color: rgba(250, 179, 135, 0.3);
+  color: var(--peach);
+}
+.hw-spec-pill-peach strong {
+  color: var(--peach);
+}
+
+.hw-spec-pill-teal {
+  background: rgba(148, 226, 213, 0.12);
+  border-color: rgba(148, 226, 213, 0.3);
+  color: var(--teal);
+}
+.hw-spec-pill-teal strong {
+  color: var(--teal);
+}
+
+.hw-spec-pill-muted {
+  background: rgba(108, 112, 134, 0.1);
+  border-color: rgba(108, 112, 134, 0.2);
+  color: var(--overlay0);
+}
+
+.hw-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.hw-status-dot.green {
+  background: var(--green);
+  box-shadow: 0 0 6px rgba(166, 227, 161, 0.8);
+}
+
+.hw-status-dot.mauve {
+  background: var(--mauve);
+  box-shadow: 0 0 6px rgba(203, 166, 247, 0.8);
+}
+
+.hw-status-dot.peach {
+  background: var(--peach);
+  box-shadow: 0 0 6px rgba(250, 179, 135, 0.8);
+}
+
+.hw-status-dot.gray {
+  background: var(--overlay0);
+}
+
+.hw-mono {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+}
+
+/* Rétro-compatibilité */
+.hardware-specs-grid {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+}
+
+.hw-card {
+  background: rgba(24, 24, 37, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .hw-spec-row {
@@ -1430,6 +1600,18 @@ kbd {
 .hw-spec-row strong {
   color: var(--text);
   font-weight: 600;
+}
+
+@media (max-width: 992px) {
+  .hw-row-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .hw-row-specs {
+    justify-content: flex-start;
+    width: 100%;
+  }
 }
 
 /* ================= SMART DISK MONITORING ================= */

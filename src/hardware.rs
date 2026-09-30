@@ -67,6 +67,8 @@ pub struct NetworkAdapterInfo {
     pub ipv4: Option<String>,
     pub speed_mbps: i32,
     pub is_up: bool,
+    #[serde(default)]
+    pub is_physical: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -333,10 +335,16 @@ pub fn get_hardware_overview() -> HardwareOverview {
                 }
             }
 
+            let is_physical = entry.path().join("device").exists();
+
             let controller_model = if iface.starts_with("enp7") || iface.starts_with("enp8") {
                 "Realtek Semiconductor RTL8125 2.5GbE Controller".to_string()
             } else if iface.starts_with("docker") {
                 "Pont Réseau Virtuel Docker".to_string()
+            } else if iface.starts_with("eno") || iface.starts_with("eth") {
+                "Contrôleur Réseau Ethernet Intel / Gigabit".to_string()
+            } else if !is_physical {
+                "Interface Réseau Virtuelle".to_string()
             } else {
                 "Interface Réseau Ethernet".to_string()
             };
@@ -348,6 +356,7 @@ pub fn get_hardware_overview() -> HardwareOverview {
                 ipv4,
                 speed_mbps: speed,
                 is_up,
+                is_physical,
             });
         }
     }

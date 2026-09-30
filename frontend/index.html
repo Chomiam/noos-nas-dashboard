@@ -257,106 +257,124 @@
           </button>
         </div>
 
-        <div class="hardware-specs-grid" id="hardware-specs-grid">
-          <!-- Carte 1: Processeurs (CPU) -->
-          <div class="hw-card">
-            <div class="hw-card-header">
-              <span class="hw-card-icon">🧠</span>
-              <div>
-                <div class="hw-card-title">Processeurs (CPU)</div>
-                <div class="hw-card-subtitle" id="hw-cpu-model">Dual Intel Xeon E5-2650 v4</div>
+        <div class="hardware-specs-list" id="hardware-specs-list">
+          <!-- Ligne 1: Processeur (CPU) -->
+          <div class="hw-row-item hw-row-cpu">
+            <div class="hw-row-primary">
+              <div class="hw-row-icon hw-icon-cpu">🧠</div>
+              <div class="hw-row-meta">
+                <div class="hw-row-category">Processeur (CPU)</div>
+                <div class="hw-row-title" id="hw-cpu-model">Dual Intel Xeon E5-2650 v4</div>
               </div>
             </div>
-            <div class="hw-card-body">
-              <div class="hw-spec-row"><span>Architecture :</span><strong id="hw-cpu-arch">x86_64</strong></div>
-              <div class="hw-spec-row"><span>Cœurs / Threads :</span><strong id="hw-cpu-cores">24 Cœurs / 48 Threads (2 Sockets)</strong></div>
-              <div class="hw-spec-row"><span>Fréquence :</span><strong id="hw-cpu-freq">2.20 GHz (Turbo 2.90 GHz)</strong></div>
-              <div class="hw-spec-row"><span>Mémoire Cache :</span><strong id="hw-cpu-cache">60 Mo SmartCache (30 Mo/socket)</strong></div>
-              <div class="hw-spec-row"><span>Virtualisation :</span><strong id="hw-cpu-virt" style="color:var(--green);">Intel VT-x / VT-d Actif</strong></div>
+            <div class="hw-row-specs">
+              <span class="hw-spec-pill"><span class="hw-spec-tag">Arch</span><strong id="hw-cpu-arch">x86_64</strong></span>
+              <span class="hw-spec-pill"><span class="hw-spec-tag">Topologie</span><strong id="hw-cpu-cores">24 Cœurs / 48 Threads</strong></span>
+              <span class="hw-spec-pill"><span class="hw-spec-tag">Fréquence</span><strong id="hw-cpu-freq">2.20 GHz</strong></span>
+              <span class="hw-spec-pill"><span class="hw-spec-tag">Cache</span><strong id="hw-cpu-cache">60 Mo SmartCache</strong></span>
+              <span class="hw-spec-pill hw-spec-pill-success">
+                <span class="hw-status-dot green"></span>
+                <strong id="hw-cpu-virt">Intel VT-x / VT-d Actif</strong>
+              </span>
             </div>
           </div>
 
-          <!-- Carte 2: Carte Mère & BIOS -->
-          <div class="hw-card">
-            <div class="hw-card-header">
-              <span class="hw-card-icon">🖲️</span>
-              <div>
-                <div class="hw-card-title">Carte Mère & BIOS</div>
-                <div class="hw-card-subtitle" id="hw-mb-name">HUANANZHI X99-F8D PLUS</div>
+          <!-- Ligne 2: Carte Mère & BIOS -->
+          <div class="hw-row-item hw-row-mb">
+            <div class="hw-row-primary">
+              <div class="hw-row-icon hw-icon-mb">🖲️</div>
+              <div class="hw-row-meta">
+                <div class="hw-row-category">Carte Mère & Plateforme</div>
+                <div class="hw-row-title" id="hw-mb-name">HUANANZHI X99-F8D PLUS</div>
               </div>
             </div>
-            <div class="hw-card-body">
-              <div class="hw-spec-row"><span>Fabricant :</span><strong id="hw-mb-vendor">HUANANZHI</strong></div>
-              <div class="hw-spec-row"><span>Chipset Serveur :</span><strong id="hw-mb-chipset">Intel C610 / X99 Express</strong></div>
-              <div class="hw-spec-row"><span>Sockets :</span><strong id="hw-mb-sockets">Dual LGA 2011-v3</strong></div>
-              <div class="hw-spec-row"><span>Version BIOS :</span><strong id="hw-mb-bios">American Megatrends</strong></div>
+            <div class="hw-row-specs">
+              <span class="hw-spec-pill"><span class="hw-spec-tag">Constructeur</span><strong id="hw-mb-vendor">HUANANZHI</strong></span>
+              <span class="hw-spec-pill"><span class="hw-spec-tag">Chipset</span><strong id="hw-mb-chipset">Intel C610 / X99 Express</strong></span>
+              <span class="hw-spec-pill"><span class="hw-spec-tag">Socket</span><strong id="hw-mb-sockets">Dual LGA 2011-v3</strong></span>
+              <span class="hw-spec-pill"><span class="hw-spec-tag">BIOS</span><strong id="hw-mb-bios">American Megatrends</strong></span>
             </div>
           </div>
 
-          <!-- Carte 3: Mémoire Vive (RAM) -->
-          <div class="hw-card">
-            <div class="hw-card-header">
-              <span class="hw-card-icon">⚡</span>
-              <div>
-                <div class="hw-card-title">Mémoire Vive (RAM)</div>
-                <div class="hw-card-subtitle" id="hw-ram-total">64 Go DDR4 ECC Server</div>
+          <!-- Ligne 3: Mémoire Vive (RAM) -->
+          <div class="hw-row-item hw-row-ram">
+            <div class="hw-row-primary">
+              <div class="hw-row-icon hw-icon-ram">⚡</div>
+              <div class="hw-row-meta">
+                <div class="hw-row-category">Mémoire Vive (RAM)</div>
+                <div class="hw-row-title" id="hw-ram-total">64 Go DDR4 ECC Server</div>
               </div>
             </div>
-            <div class="hw-card-body">
-              <div class="hw-spec-row"><span>Type & Sécurité :</span><strong id="hw-ram-type" style="color:var(--teal);">DDR4 ECC Registered</strong></div>
-              <div class="hw-spec-row"><span>Canaux :</span><strong id="hw-ram-channels">Quad-Channel par Socket (8 slots)</strong></div>
-              <div class="hw-spec-row"><span>Capacité Utilisable :</span><strong id="hw-ram-avail">62.0 Go</strong></div>
-              <div class="hw-spec-row"><span>Protection :</span><strong style="color:var(--green);">Correction d'erreurs ECC active</strong></div>
+            <div class="hw-row-specs">
+              <span class="hw-spec-pill"><span class="hw-spec-tag">Type</span><strong id="hw-ram-type" style="color:var(--teal);">DDR4 ECC</strong></span>
+              <span class="hw-spec-pill"><span class="hw-spec-tag">Canaux</span><strong id="hw-ram-channels">Quad-Channel</strong></span>
+              <span class="hw-spec-pill hw-spec-pill-info"><span class="hw-spec-tag">Capacité</span><strong id="hw-ram-avail">62.0 Go dispo</strong></span>
+              <span class="hw-spec-pill hw-spec-pill-success">
+                <span class="hw-status-dot green"></span>
+                <strong>ECC Active</strong>
+              </span>
             </div>
           </div>
 
-          <!-- Carte 4: Carte Graphique (GPU) -->
-          <div class="hw-card">
-            <div class="hw-card-header">
-              <span class="hw-card-icon">🎬</span>
-              <div>
-                <div class="hw-card-title">Carte Graphique (GPU Dédié)</div>
-                <div class="hw-card-subtitle" id="hw-gpu-model">Intel Arc A380 (DG2)</div>
+          <!-- Ligne 4: Carte Graphique (GPU) -->
+          <div class="hw-row-item hw-row-gpu">
+            <div class="hw-row-primary">
+              <div class="hw-row-icon hw-icon-gpu">🎬</div>
+              <div class="hw-row-meta">
+                <div class="hw-row-category">Graphismes & Transcodage (GPU)</div>
+                <div class="hw-row-title" id="hw-gpu-model">Intel Arc A380 (DG2)</div>
               </div>
             </div>
-            <div class="hw-card-body">
-              <div class="hw-spec-row"><span>Mémoire VRAM :</span><strong id="hw-gpu-vram">6 Go GDDR6 96-bit</strong></div>
-              <div class="hw-spec-row"><span>Pilote Noyau :</span><strong id="hw-gpu-driver">i915 (Direct Rendering)</strong></div>
-              <div class="hw-spec-row"><span>Accélération :</span><strong style="color:var(--mauve);">AV1 Hardware Encode / Decode</strong></div>
-              <div class="hw-spec-row"><span>Rôle NAS :</span><strong style="color:var(--peach);">Transcodage 4K HDR Jellyfin / Plex</strong></div>
+            <div class="hw-row-specs">
+              <span class="hw-spec-pill"><span class="hw-spec-tag">Pilote</span><strong id="hw-gpu-driver">i915 (Noyau Linux)</strong></span>
+              <span class="hw-spec-pill"><span class="hw-spec-tag">VRAM</span><strong id="hw-gpu-vram">6 Go GDDR6</strong></span>
+              <span class="hw-spec-pill hw-spec-pill-mauve">
+                <span class="hw-status-dot mauve"></span>
+                <strong id="hw-gpu-role">Transcodage 4K HDR Jellyfin / Plex</strong>
+              </span>
             </div>
           </div>
 
-          <!-- Carte 5: Réseau Haute Vitesse -->
-          <div class="hw-card">
-            <div class="hw-card-header">
-              <span class="hw-card-icon">🌐</span>
-              <div>
-                <div class="hw-card-title">Contrôleurs Réseau 2.5 GbE</div>
-                <div class="hw-card-subtitle">Dual Realtek RTL8125 2.5G</div>
+          <!-- Ligne 5: Réseau Physique LAN -->
+          <div class="hw-row-item hw-row-net">
+            <div class="hw-row-primary">
+              <div class="hw-row-icon hw-icon-net">🌐</div>
+              <div class="hw-row-meta">
+                <div class="hw-row-category">Réseau Physique (LAN)</div>
+                <div class="hw-row-title" id="hw-net-title">Interfaces Réseau Détectées</div>
               </div>
             </div>
-            <div class="hw-card-body" id="hw-network-list">
-              <div class="hw-spec-row"><span>Port LAN 1 (enp8s0) :</span><strong style="color:var(--green);">2.5 Gbps (Actif - 192.168.1.139)</strong></div>
-              <div class="hw-spec-row"><span>Port LAN 2 (enp7s0) :</span><strong style="color:var(--subtext0);">2.5 Gbps (Prêt / Non connecté)</strong></div>
-              <div class="hw-spec-row"><span>Contrôleur :</span><strong>Realtek RTL8125 2.5GbE PCIe</strong></div>
+            <div class="hw-row-specs" id="hw-network-list">
+              <span class="hw-spec-pill hw-spec-pill-success">
+                <span class="hw-status-dot green"></span>
+                <strong>1000 Mbps</strong>
+              </span>
+              <span class="hw-spec-pill hw-spec-pill-teal">
+                <span class="hw-spec-tag">IPv4</span>
+                <strong class="hw-mono">192.168.1.20</strong>
+              </span>
             </div>
           </div>
 
-          <!-- Carte 6: Contrôleurs Stockage & Bus -->
-          <div class="hw-card">
-            <div class="hw-card-header">
-              <span class="hw-card-icon">🗄️</span>
-              <div>
-                <div class="hw-card-title">Contrôleurs Stockage</div>
-                <div class="hw-card-subtitle">SATA 6Gb/s & NVMe Gen3</div>
+          <!-- Ligne 6: Contrôleurs Stockage & Bus -->
+          <div class="hw-row-item hw-row-storage">
+            <div class="hw-row-primary">
+              <div class="hw-row-icon hw-icon-storage">🗄️</div>
+              <div class="hw-row-meta">
+                <div class="hw-row-category">Contrôleurs Stockage & Bus</div>
+                <div class="hw-row-title" id="hw-storage-title">SATA 6Gb/s & NVMe Gen3/Gen4</div>
               </div>
             </div>
-            <div class="hw-card-body">
-              <div class="hw-spec-row"><span>Contrôleur SATA :</span><strong>Intel C610 6-Ports AHCI</strong></div>
-              <div class="hw-spec-row"><span>Contrôleurs NVMe :</span><strong>2x MAXIO MAP1202 PCIe Gen3 x4</strong></div>
-              <div class="hw-spec-row"><span>Disques Connectés :</span><strong id="hw-drives-count">4x HDD Seagate IronWolf + 2x NVMe</strong></div>
-              <div class="hw-spec-row"><span>Système NAS :</span><strong style="color:var(--mauve);">STEvE_OS 26.05 (Kernel Linux 7.2.5)</strong></div>
+            <div class="hw-row-specs">
+              <span class="hw-spec-pill"><span class="hw-spec-tag">Contrôleurs</span><strong id="hw-storage-ctrl">Intel AHCI + NVMe PCIe</strong></span>
+              <span class="hw-spec-pill hw-spec-pill-peach">
+                <span class="hw-status-dot peach"></span>
+                <strong id="hw-drives-count">4x HDD + 2x NVMe</strong>
+              </span>
+              <span class="hw-spec-pill hw-spec-pill-mauve">
+                <span class="hw-spec-tag">Système</span>
+                <strong id="hw-os-kernel">STEvE_OS (Linux)</strong>
+              </span>
             </div>
           </div>
         </div>
