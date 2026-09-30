@@ -9500,26 +9500,174 @@ function closeGenCleanupModal() {
   pendingCleanupArg = null;
 }
 
+let isGenCleanupRunning = false;
+let genCleanupToastInterval = null;
+let genCleanupToastTimeout = null;
+
+function showGenCleanupToast(count) {
+  if (genCleanupToastInterval) clearInterval(genCleanupToastInterval);
+  if (genCleanupToastTimeout) clearTimeout(genCleanupToastTimeout);
+
+  const toast = document.getElementById("gen-cleanup-floating-toast");
+  if (!toast) return;
+
+  const card = toast.querySelector(".gen-cleanup-toast-card");
+  const icon = document.getElementById("gen-cleanup-toast-icon");
+  const title = document.getElementById("gen-cleanup-toast-title");
+  const status = document.getElementById("gen-cleanup-toast-status");
+  const desc = document.getElementById("gen-cleanup-toast-desc");
+  const bar = document.getElementById("gen-cleanup-toast-progress-bar");
+  const eta = document.getElementById("gen-cleanup-toast-eta");
+  const closeBtn = document.getElementById("btn-close-gen-cleanup-toast");
+
+  if (card) {
+    card.classList.remove("status-success", "status-error");
+  }
+
+  if (icon) icon.innerHTML = `<span class="gen-cleanup-spin">🧹</span>`;
+  if (title) title.textContent = "Purge NixOS & Garbage Collection";
+  if (status) {
+    status.className = "gen-cleanup-toast-status status-badge-running";
+    status.textContent = "En cours...";
+  }
+  if (desc) desc.innerHTML = `Suppression de <strong>${count}</strong> génération(s) et optimisation du store...`;
+  if (bar) {
+    bar.className = "gen-cleanup-toast-progress-bar progress-animated";
+    bar.style.width = "20%";
+  }
+  if (eta) eta.textContent = "Suppression des profils de démarrage...";
+  if (closeBtn) closeBtn.style.display = "block";
+
+  toast.style.display = "block";
+
+  // Animation des étapes pendant le traitement en arrière-plan
+  let step = 0;
+  const steps = [
+    { p: 35, text: "Suppression des liens dans /nix/var/nix/profiles..." },
+    { p: 60, text: "Exécution de nix-collect-garbage sur /nix/store..." },
+    { p: 80, text: "Libération des blocs orphelins et calcul d'espace..." },
+    { p: 92, text: "Mise à jour du bootloader et finalisation..." }
+  ];
+
+  genCleanupToastInterval = setInterval(() => {
+    if (step < steps.length) {
+      if (bar) bar.style.width = `${steps[step].p}%`;
+      if (eta) eta.textContent = steps[step].text;
+      step++;
+    }
+  }, 2200);
+}
+
+function completeGenCleanupToast(success, dataOrMessage) {
+  if (genCleanupToastInterval) {
+    clearInterval(genCleanupToastInterval);
+    genCleanupToastInterval = null;
+  }
+
+  const toast = document.getElementById("gen-cleanup-floating-toast");
+  if (!toast) return;
+
+  const card = toast.querySelector(".gen-cleanup-toast-card");
+  const icon = document.getElementById("gen-cleanup-toast-icon");
+  const title = document.getElementById("gen-cleanup-toast-title");
+  const status = document.getElementById("gen-cleanup-toast-status");
+  const desc = document.getElementById("gen-cleanup-toast-desc");
+  const bar = document.getElementById("gen-cleanup-toast-progress-bar");
+  const eta = document.getElementById("gen-cleanup-toast-eta");
+
+  if (success) {
+    if (card) card.classList.add("status-success");
+    if (icon) icon.innerHTML = `<span>✨</span>`;
+    if (title) title.textContent = "Purge terminée avec succès";
+    if (status) {
+      status.className = "gen-cleanup-toast-status status-badge-success";
+      status.textContent = `${dataOrMessage.deleted_count || 0} purgée(s)`;
+    }
+    if (desc) desc.innerHTML = `Espace disque récupéré : <strong style="color:var(--green);">${dataOrMessage.freed_space_human || '0 B'}</strong>`;
+    if (bar) {
+      bar.className = "gen-cleanup-toast-progress-bar progress-success";
+      bar.style.width = "100%";
+    }
+    if (eta) eta.innerHTML = `✅ Générations d'images Nix actualisées`;
+
+    // Auto-fermeture douce après 6 secondes
+    genCleanupToastTimeout = setTimeout(() => {
+      dismissGenCleanupToast();
+    }, 6000);
+  } else {
+    if (card) card.classList.add("status-error");
+    if (icon) icon.innerHTML = `<span>❌</span>`;
+    if (title) title.textContent = "Échec de la purge";
+    if (status) {
+      status.className = "gen-cleanup-toast-status status-badge-error";
+      status.textContent = "Erreur";
+    }
+    if (desc) desc.textContent = typeof dataOrMessage === 'string' ? dataOrMessage : (dataOrMessage.message || "Une erreur est survenue lors de l'exécution.");
+    if (bar) {
+      bar.className = "gen-cleanup-toast-progress-bar progress-error";
+      bar.style.width = "100%";
+    }
+    if (eta) eta.textContent = "Consultez les journaux système";
+  }
+}
+
+function dismissGenCleanupToast() {
+  if (genCleanupToastInterval) {
+    clearInterval(genCleanupToastInterval);
+    genCleanupToastInterval = null;
+  }
+  if (genCleanupToastTimeout) {
+    clearTimeout(genCleanupToastTimeout);
+    genCleanupToastTimeout = null;
+  }
+  const toast = document.getElementById("gen-cleanup-floating-toast");
+  if (toast) {
+    toast.style.animation = "slideOutBottomRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards";
+    setTimeout(() => {
+      toast.style.display = "none";
+      toast.style.animation = "";
+    }, 300);
+  }
+}
+
 async function executePendingCleanup() {
+  if (isGenCleanupRunning) {
+    showToast("warning", "Une opération de purge est déjà en cours d'exécution.");
+    return;
+  }
   if (!pendingCleanupMode || !pendingCleanupArg || pendingCleanupArg.length === 0) return;
 
-  const confirmBtn = document.getElementById("btn-confirm-gen-cleanup");
-  const cancelBtn = document.getElementById("btn-cancel-gen-cleanup");
+  const mode = pendingCleanupMode;
+  const targetIds = [...pendingCleanupArg];
+  const count = targetIds.length;
 
-  if (confirmBtn) {
-    confirmBtn.disabled = true;
-    confirmBtn.innerHTML = `<span>⏳</span> Purge et Garbage Collection en cours...`;
-  }
-  if (cancelBtn) cancelBtn.disabled = true;
+  // 1. Fermer immédiatement la modale pour libérer l'écran et permettre la navigation
+  closeGenCleanupModal();
+
+  // 2. Décocher les cases pour une interface nette
+  deselectAllGenerations();
+
+  // 3. Afficher la popup de progression en bas à droite
+  showGenCleanupToast(count);
+
+  isGenCleanupRunning = true;
+
+  // Verrouiller les boutons de purge pendant l'exécution
+  const btnKeep3 = document.getElementById("btn-gen-keep3");
+  const btnPurge = document.getElementById("btn-gen-purge");
+  const btnBatch = document.getElementById("btn-gen-batch-delete");
+  if (btnKeep3) btnKeep3.disabled = true;
+  if (btnPurge) btnPurge.disabled = true;
+  if (btnBatch) btnBatch.disabled = true;
 
   try {
     let payload = {};
-    if (pendingCleanupMode === 'keep_last') {
+    if (mode === 'keep_last') {
       payload = { mode: "keep_last", count: 3 };
-    } else if (pendingCleanupMode === 'only_current') {
+    } else if (mode === 'only_current') {
       payload = { mode: "only_current" };
     } else {
-      payload = { mode: "custom", generation_ids: pendingCleanupArg };
+      payload = { mode: "custom", generation_ids: targetIds };
     }
 
     const res = await fetch("/api/generations/cleanup", {
@@ -9530,25 +9678,23 @@ async function executePendingCleanup() {
 
     const json = await res.json();
     if (json.success && json.data) {
-      closeGenCleanupModal();
-      showToast("success", `✨ ${json.data.deleted_count} génération(s) supprimée(s) ! Espace libéré : ${json.data.freed_space_human}`);
-      deselectAllGenerations();
-      await loadGenerations(true);
+      completeGenCleanupToast(true, json.data);
+      showToast("success", `✨ Purge terminée : ${json.data.deleted_count} génération(s) supprimée(s), ${json.data.freed_space_human} libérés`);
     } else {
+      completeGenCleanupToast(false, json.message || "Échec de la suppression");
       showToast("error", `Erreur : ${json.message || "Échec de la suppression"}`);
-      if (confirmBtn) {
-        confirmBtn.disabled = false;
-        confirmBtn.innerHTML = `<span>🗑️</span> Réessayer la suppression`;
-      }
-      if (cancelBtn) cancelBtn.disabled = false;
     }
   } catch (e) {
+    completeGenCleanupToast(false, `Erreur réseau : ${e.message}`);
     showToast("error", `Erreur réseau : ${e.message}`);
-    if (confirmBtn) {
-      confirmBtn.disabled = false;
-      confirmBtn.innerHTML = `<span>🗑️</span> Réessayer la suppression`;
-    }
-    if (cancelBtn) cancelBtn.disabled = false;
+  } finally {
+    isGenCleanupRunning = false;
+    if (btnKeep3) btnKeep3.disabled = false;
+    if (btnPurge) btnPurge.disabled = false;
+    if (btnBatch) btnBatch.disabled = false;
+
+    // 4. Une fois terminé, actualiser automatiquement les générations d'images Nix
+    await loadGenerations(true);
   }
 }
 

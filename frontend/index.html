@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20260930_14">
+  <link rel="stylesheet" href="/css/style.css?v=20260930_15">
 </head>
 <body>
 
@@ -1968,7 +1968,7 @@
   <div class="toast-container" id="toast-container"></div>
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20260930_14"></script>
+  <script src="/js/app.js?v=20260930_15"></script>
   <!-- MENU CONTEXTUEL CLIC DROIT -->
   <div class="context-menu" id="files-context-menu">
     <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">
@@ -3866,6 +3866,35 @@
         <button type="button" class="btn btn-danger" id="btn-confirm-gen-cleanup" onclick="executePendingCleanup()">
           <span>🗑️</span> Confirmer la suppression
         </button>
+      </div>
+    </div>
+  </div>
+
+    <!-- ================= POPUP FLOTTANTE EN BAS À DROITE : PROGRESSION PURGE GÉNÉRATIONS ================= -->
+  <div class="gen-cleanup-floating-toast" id="gen-cleanup-floating-toast" style="display:none;">
+    <div class="gen-cleanup-toast-card">
+      <div class="gen-cleanup-toast-header">
+        <div class="gen-cleanup-toast-icon-wrap" id="gen-cleanup-toast-icon">
+          <span class="gen-cleanup-spin">🧹</span>
+        </div>
+        <div class="gen-cleanup-toast-titles">
+          <div class="gen-cleanup-toast-title" id="gen-cleanup-toast-title">Purge des générations NixOS</div>
+          <div class="gen-cleanup-toast-status status-badge-running" id="gen-cleanup-toast-status">En cours...</div>
+        </div>
+        <button type="button" class="btn-toast-close" id="btn-close-gen-cleanup-toast" onclick="dismissGenCleanupToast()" title="Masquer la notification">&times;</button>
+      </div>
+
+      <div class="gen-cleanup-toast-body">
+        <div class="gen-cleanup-toast-desc" id="gen-cleanup-toast-desc">
+          Suppression des profils et libération du store en cours...
+        </div>
+        <div class="gen-cleanup-toast-progress-bar-wrap">
+          <div class="gen-cleanup-toast-progress-bar progress-animated" id="gen-cleanup-toast-progress-bar" style="width: 25%;"></div>
+        </div>
+        <div class="gen-cleanup-toast-footer">
+          <span class="gen-cleanup-bg-badge">⚙️ Tâche en arrière-plan</span>
+          <span class="gen-cleanup-toast-eta" id="gen-cleanup-toast-eta">Nettoyage des profils...</span>
+        </div>
       </div>
     </div>
   </div>

@@ -6336,3 +6336,203 @@ select.form-control option,
 .gen-row-boot {
   border-left: 3px solid var(--mauve);
 }
+
+/* ================= POPUP FLOTTANTE EN BAS À DROITE : PURGE GÉNÉRATIONS ================= */
+.gen-cleanup-floating-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 99999;
+  width: 410px;
+  max-width: calc(100vw - 32px);
+  pointer-events: auto;
+  animation: slideInBottomRight 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.3s ease;
+}
+
+@keyframes slideInBottomRight {
+  from {
+    opacity: 0;
+    transform: translateY(30px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes slideOutBottomRight {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(30px) scale(0.95);
+  }
+}
+
+.gen-cleanup-toast-card {
+  background: rgba(24, 24, 37, 0.95);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(243, 139, 168, 0.35);
+  border-radius: 16px;
+  padding: 16px 18px;
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.65), 0 0 25px rgba(243, 139, 168, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.gen-cleanup-toast-card.status-success {
+  border-color: rgba(166, 227, 161, 0.45);
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.65), 0 0 25px rgba(166, 227, 161, 0.2);
+}
+
+.gen-cleanup-toast-card.status-error {
+  border-color: rgba(243, 139, 168, 0.6);
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.65), 0 0 25px rgba(243, 139, 168, 0.3);
+}
+
+.gen-cleanup-toast-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.gen-cleanup-toast-icon-wrap {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(243, 139, 168, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.gen-cleanup-toast-card.status-success .gen-cleanup-toast-icon-wrap {
+  background: rgba(166, 227, 161, 0.18);
+}
+
+.gen-cleanup-toast-card.status-error .gen-cleanup-toast-icon-wrap {
+  background: rgba(243, 139, 168, 0.25);
+}
+
+.gen-cleanup-spin {
+  display: inline-block;
+  animation: genBroomSwing 1.3s ease-in-out infinite;
+}
+
+@keyframes genBroomSwing {
+  0% { transform: rotate(0deg); }
+  25% { transform: rotate(-22deg); }
+  75% { transform: rotate(12deg); }
+  100% { transform: rotate(0deg); }
+}
+
+.gen-cleanup-toast-titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.gen-cleanup-toast-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gen-cleanup-toast-status {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin-top: 2px;
+}
+
+.status-badge-running {
+  background: rgba(250, 179, 135, 0.15);
+  color: var(--peach);
+  border: 1px solid rgba(250, 179, 135, 0.3);
+}
+
+.status-badge-success {
+  background: rgba(166, 227, 161, 0.15);
+  color: var(--green);
+  border: 1px solid rgba(166, 227, 161, 0.3);
+}
+
+.status-badge-error {
+  background: rgba(243, 139, 168, 0.15);
+  color: var(--red);
+  border: 1px solid rgba(243, 139, 168, 0.3);
+}
+
+.gen-cleanup-toast-desc {
+  font-size: 0.8rem;
+  color: var(--subtext0);
+  line-height: 1.4;
+}
+
+.gen-cleanup-toast-progress-bar-wrap {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.gen-cleanup-toast-progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease, background 0.3s ease;
+}
+
+.progress-animated {
+  background: linear-gradient(90deg, #f38ba8, #fab387, #cba6f7, #f38ba8);
+  background-size: 300% 100%;
+  animation: genShimmer 2.2s linear infinite;
+}
+
+@keyframes genShimmer {
+  0% { background-position: 0% 0; }
+  100% { background-position: 300% 0; }
+}
+
+.progress-success {
+  background: var(--green) !important;
+}
+
+.progress-error {
+  background: var(--red) !important;
+}
+
+.gen-cleanup-toast-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--subtext0);
+  margin-top: -2px;
+}
+
+.gen-cleanup-bg-badge {
+  font-weight: 600;
+  color: var(--overlay1);
+}
+
+.gen-cleanup-toast-eta {
+  color: var(--subtext1);
+  font-weight: 500;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
