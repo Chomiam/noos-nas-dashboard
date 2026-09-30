@@ -1,3 +1,9 @@
+use crate::users::{
+    handle_groups_create, handle_groups_delete, handle_groups_list, handle_groups_update_members,
+    handle_users_audit, handle_users_change_password, handle_users_create, handle_users_delete,
+    handle_users_get, handle_users_list, handle_users_revoke_session, handle_users_sessions,
+    handle_users_toggle_lock, handle_users_update,
+};
 use crate::vms::{
     control_vm, create_vm, detect_gpus, get_iso_job_store, get_vm_vnc_port, handle_vm_vnc_ws,
     list_isos, list_vms, start_iso_download, CreateVmRequest, GpuDeviceInfo, IsoDownloadJob,
@@ -90,7 +96,17 @@ pub struct LiveLogsResponse {
 
 pub fn api_routes() -> Router {
     Router::new()
-        .route("/system", get(handle_system))
+                .route("/users", get(handle_users_list).post(handle_users_create))
+        .route("/users/audit", get(handle_users_audit))
+        .route("/users/sessions", get(handle_users_sessions))
+        .route("/users/sessions/:token/revoke", post(handle_users_revoke_session))
+        .route("/users/:username", get(handle_users_get).put(handle_users_update).delete(handle_users_delete))
+        .route("/users/:username/password", post(handle_users_change_password))
+        .route("/users/:username/toggle-lock", post(handle_users_toggle_lock))
+        .route("/groups", get(handle_groups_list).post(handle_groups_create))
+        .route("/groups/:group", delete(handle_groups_delete))
+        .route("/groups/:group/members", post(handle_groups_update_members))
+.route("/system", get(handle_system))
         .route("/system/power/status", get(handle_power_status))
         .route("/system/power/immediate", post(handle_power_immediate))
         .route("/system/power/schedule", post(handle_power_schedule))

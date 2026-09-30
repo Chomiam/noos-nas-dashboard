@@ -180,6 +180,7 @@ function switchTab(tabId) {
     loadEggCatalog();
   }
   if (tabId === "tab-vms") loadVms();
+  if (tabId === "tab-users") loadUsersAndGroups();
   if (tabId === "tab-logs") loadLogs();
 }
 
@@ -12195,5 +12196,1092 @@ async function confirmPruneDockerImages() {
     showToast(`Erreur réseau : ${e.message}`, "error");
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+// ==========================================================================
+// 👥 GESTION DES UTILISATEURS, GROUPES ET SÉCURITÉ (STEvE_OS NAS)
+// ==========================================================================
+
+let usersData = [];
+let groupsData = [];
+let activeUsersSubtab = 'accounts';
+let userRoleFilter = 'all';
+let userViewMode = 'grid';
+let createUserStep = 1;
+let currentLoggedInUser = '';
+
+function switchUsersSubtab(subtabId) {
+  activeUsersSubtab = subtabId;
+  document.querySelectorAll('.users-subtab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.id === `btn-users-subtab-${subtabId}`);
+  });
+  document.querySelectorAll('.users-subview').forEach(view => {
+    view.classList.toggle('active', view.id === `users-subview-${subtabId}`);
+    view.style.display = view.id === `users-subview-${subtabId}` ? 'block' : 'none';
+  });
+
+  if (subtabId === 'audit') loadSecurityAudit();
+  if (subtabId === 'sessions') loadActiveSessions();
+}
+
+async function loadUsersAndGroups(showNotice = false) {
+  try {
+    const [usersRes, groupsRes] = await Promise.all([
+      fetch('/api/users').then(r => r.json()),
+      fetch('/api/groups').then(r => r.json())
+    ]);
+
+    if (usersRes && usersRes.success) {
+      usersData = usersRes.users || [];
+      if (usersRes.current_user) {
+        currentLoggedInUser = usersRes.current_user;
+      }
+      updateUsersHeroStats();
+      renderUsersList();
+    } else {
+      showToast(usersRes.error || "Impossible de charger les utilisateurs", "error");
+    }
+
+    if (groupsRes && groupsRes.success) {
+      groupsData = groupsRes.groups || [];
+      renderGroupsList();
+    }
+
+    if (showNotice) {
+      showToast("Données utilisateurs actualisées avec succès", "success");
+    }
+  } catch (err) {
+    console.error("Erreur lors du chargement des utilisateurs/groupes :", err);
+    if (showNotice) {
+      showToast("Erreur réseau lors de l'actualisation", "error");
+    }
+  }
+}
+
+async function loadUsersBadge() {
+  try {
+    const res = await fetch('/api/users').then(r => r.json());
+    if (res && res.success && res.users) {
+      const badge = document.getElementById("users-count-badge");
+      if (badge) {
+        badge.textContent = res.users.length;
+        badge.style.display = res.users.length > 0 ? "inline-block" : "none";
+      }
+    }
+  } catch (e) {
+    // Silencieux
+  }
+}
+
+function updateUsersHeroStats() {
+  const total = usersData.length;
+  const admins = usersData.filter(u => u.is_admin).length;
+  const samba = usersData.filter(u => u.samba_enabled).length;
+  const activeSessions = usersData.reduce((acc, u) => acc + (u.active_sessions_count || 0), 0);
+
+  const elTotal = document.getElementById('users-stat-total');
+  const elAdmins = document.getElementById('users-stat-admins');
+  const elSamba = document.getElementById('users-stat-samba');
+  const elSessions = document.getElementById('users-stat-sessions');
+
+  if (elTotal) elTotal.textContent = total;
+  if (elAdmins) elAdmins.textContent = admins;
+  if (elSamba) elSamba.textContent = samba;
+  if (elSessions) elSessions.textContent = activeSessions;
+
+  const badge = document.getElementById("users-count-badge");
+  if (badge) {
+    badge.textContent = total;
+    badge.style.display = total > 0 ? "inline-block" : "none";
+  }
+}
+
+function setUserRoleFilter(filter) {
+  userRoleFilter = filter;
+  document.querySelectorAll('.user-filter-chip').forEach(chip => {
+    chip.classList.toggle('active', chip.getAttribute('data-filter') === filter);
+  });
+  renderUsersList();
+}
+
+function setUserViewMode(mode) {
+  userViewMode = mode;
+  const btnGrid = document.getElementById('btn-users-view-grid');
+  const btnTable = document.getElementById('btn-users-view-table');
+  const gridContainer = document.getElementById('users-cards-grid');
+  const tableContainer = document.getElementById('users-table-container');
+
+  if (btnGrid) btnGrid.classList.toggle('btn-primary', mode === 'grid');
+  if (btnGrid) btnGrid.classList.toggle('btn-secondary', mode !== 'grid');
+  if (btnTable) btnTable.classList.toggle('btn-primary', mode === 'table');
+  if (btnTable) btnTable.classList.toggle('btn-secondary', mode !== 'table');
+
+  if (gridContainer) gridContainer.style.display = mode === 'grid' ? 'grid' : 'none';
+  if (tableContainer) tableContainer.style.display = mode === 'table' ? 'block' : 'none';
+
+  renderUsersList();
+}
+
+function filterUsersList() {
+  renderUsersList();
+}
+
+function renderUsersList() {
+  const search = (document.getElementById('users-search-input')?.value || '').toLowerCase().trim();
+  const gridContainer = document.getElementById('users-cards-grid');
+  const tableBody = document.getElementById('users-table-body');
+
+  let filtered = usersData.filter(u => {
+    // Filtre rôle
+    if (userRoleFilter === 'admin' && !u.is_admin) return false;
+    if (userRoleFilter === 'storage' && !u.groups.includes('storage')) return false;
+    if (userRoleFilter === 'docker' && !u.groups.includes('docker')) return false;
+    if (userRoleFilter === 'locked' && !u.locked) return false;
+
+    // Filtre texte
+    if (search) {
+      const matchUsername = u.username.toLowerCase().includes(search);
+      const matchFullName = (u.full_name || '').toLowerCase().includes(search);
+      const matchEmail = (u.email || '').toLowerCase().includes(search);
+      const matchGroup = u.groups.some(g => g.toLowerCase().includes(search));
+      if (!matchUsername && !matchFullName && !matchEmail && !matchGroup) return false;
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    const emptyMsg = `<div style="grid-column: 1 / -1; text-align: center; padding: 48px 20px; background: var(--base); border-radius: var(--radius-lg); border: 1px dashed var(--surface0); color: var(--subtext0);">
+      <div style="font-size: 2.2rem; margin-bottom: 12px;">🔍</div>
+      <h3 style="margin: 0; color: var(--text);">Aucun utilisateur trouvé</h3>
+      <p style="margin: 8px 0 0 0; font-size: 0.9rem;">Aucun compte ne correspond aux critères de recherche actuels.</p>
+    </div>`;
+    if (gridContainer) gridContainer.innerHTML = emptyMsg;
+    if (tableBody) tableBody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 36px;">Aucun utilisateur trouvé.</td></tr>`;
+    return;
+  }
+
+  // Rendu Grille
+  if (gridContainer && userViewMode === 'grid') {
+    gridContainer.innerHTML = filtered.map(u => {
+      const initial = (u.full_name || u.username).charAt(0).toUpperCase();
+      const colorClass = `user-avatar-${u.avatar_color || 'sapphire'}`;
+      const isSelf = u.username === currentLoggedInUser;
+      const isRoot = u.username === 'root';
+
+      let badgesHtml = '';
+      if (u.locked) {
+        badgesHtml += `<span class="user-badge user-badge-locked">🔒 Verrouillé</span>`;
+      } else {
+        badgesHtml += `<span class="user-badge user-badge-active">🟢 Actif</span>`;
+      }
+      if (u.is_admin) {
+        badgesHtml += `<span class="user-badge user-badge-admin">👑 Admin</span>`;
+      }
+      if (u.samba_enabled) {
+        badgesHtml += `<span class="user-badge user-badge-storage">📁 Samba</span>`;
+      }
+      if (u.groups.includes('docker')) {
+        badgesHtml += `<span class="user-badge user-badge-docker">🐳 Docker</span>`;
+      }
+      if (u.active_sessions_count > 0) {
+        badgesHtml += `<span class="user-badge" style="background: rgba(166, 227, 161, 0.15); color: #a6e3a1; border: 1px solid rgba(166, 227, 161, 0.3);">⚡ ${u.active_sessions_count} session(s)</span>`;
+      }
+
+      const groupsChips = u.groups.slice(0, 4).map(g => 
+        `<span style="padding: 2px 7px; border-radius: 4px; background: var(--surface0); font-size: 0.72rem; color: var(--subtext1);">${escapeHtml(g)}</span>`
+      ).join(' ') + (u.groups.length > 4 ? ` <span style="font-size: 0.72rem; color: var(--subtext0);">+${u.groups.length - 4}</span>` : '');
+
+      const isShellNoLogin = u.shell.endsWith('nologin') || u.shell.endsWith('false');
+      const shellBadge = isShellNoLogin 
+        ? `<span style="color: var(--subtext0); font-size: 0.78rem;">🔒 Aucun shell (Partage seul)</span>`
+        : `<span style="color: var(--peach); font-size: 0.78rem; font-family: monospace;">🐚 ${escapeHtml(u.shell.split('/').pop())}</span>`;
+
+      return `
+        <div class="user-card ${u.locked ? 'is-locked' : ''}">
+          <!-- EN-TÊTE CARTE -->
+          <div style="display: flex; gap: 14px; align-items: flex-start;">
+            <div class="user-avatar-circle ${colorClass}">${initial}</div>
+            <div style="flex: 1; min-width: 0;">
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <h4 style="margin: 0; font-size: 1.05rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  ${escapeHtml(u.username)}
+                </h4>
+                ${isSelf ? '<span class="badge" style="background: rgba(203, 166, 247, 0.2); color: var(--mauve); font-size: 0.7rem; padding: 2px 6px; border-radius: 4px;">Vous</span>' : ''}
+              </div>
+              <div style="font-size: 0.85rem; color: var(--subtext0); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                ${escapeHtml(u.full_name || u.username)}
+              </div>
+              ${u.email ? `<div style="font-size: 0.78rem; color: var(--subtext0); margin-top: 1px;">${escapeHtml(u.email)}</div>` : ''}
+            </div>
+          </div>
+
+          <!-- BADGES DE RÔLES -->
+          <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+            ${badgesHtml}
+          </div>
+
+          <!-- DÉTAILS SYSTÈME -->
+          <div style="background: var(--surface0); border-radius: var(--radius-md); padding: 12px; font-size: 0.82rem; display: flex; flex-direction: column; gap: 6px;">
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: var(--subtext0);">Dossier personnel :</span>
+              <span style="color: var(--text); font-family: monospace;">${escapeHtml(u.home_dir)} (${formatBytes(u.disk_usage_bytes)})</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="color: var(--subtext0);">Accès terminal :</span>
+              ${shellBadge}
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="color: var(--subtext0);">Partage Samba :</span>
+              <span style="color: ${u.samba_enabled ? 'var(--teal)' : 'var(--subtext0)'}; font-weight: 600;">
+                ${u.samba_enabled ? '✓ Connecté (SMB)' : '✗ Désactivé'}
+              </span>
+            </div>
+            <div style="margin-top: 2px; display: flex; gap: 4px; align-items: center; flex-wrap: wrap;">
+              <span style="color: var(--subtext0); font-size: 0.75rem; margin-right: 4px;">Groupes :</span>
+              ${groupsChips}
+            </div>
+          </div>
+
+          <!-- ACTIONS CARD -->
+          <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 14px;">
+            <button type="button" class="btn btn-secondary btn-xs" onclick="openEditUserModal('${escapeHtml(u.username)}')" title="Modifier les informations et groupes">
+              <span>✏️</span> Modifier
+            </button>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="openChangePasswordModal('${escapeHtml(u.username)}')" title="Changer le mot de passe">
+              <span>🔑</span> Mdp
+            </button>
+            ${!isSelf && !isRoot ? `
+              <button type="button" class="btn btn-secondary btn-xs" onclick="toggleUserLock('${escapeHtml(u.username)}')" title="${u.locked ? 'Déverrouiller le compte' : 'Verrouiller le compte'}">
+                <span>${u.locked ? '🔓' : '🔒'}</span>
+              </button>
+              <button type="button" class="btn btn-secondary btn-xs" style="color: var(--red);" onclick="openDeleteUserModal('${escapeHtml(u.username)}')" title="Supprimer l'utilisateur">
+                <span>🗑️</span>
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Rendu Tableau
+  if (tableBody && userViewMode === 'table') {
+    tableBody.innerHTML = filtered.map(u => {
+      const isSelf = u.username === currentLoggedInUser;
+      const isRoot = u.username === 'root';
+      const colorClass = `user-avatar-${u.avatar_color || 'sapphire'}`;
+      const initial = (u.full_name || u.username).charAt(0).toUpperCase();
+
+      return `
+        <tr style="border-bottom: 1px solid var(--surface0); font-size: 0.9rem;">
+          <td style="padding: 12px 16px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <div class="user-avatar-circle ${colorClass}" style="width: 34px; height: 34px; font-size: 0.9rem;">${initial}</div>
+              <div>
+                <strong style="color: var(--text);">${escapeHtml(u.username)}</strong>
+                ${isSelf ? '<span class="badge" style="background: rgba(203, 166, 247, 0.2); color: var(--mauve); font-size: 0.65rem; padding: 1px 4px; margin-left: 4px;">Vous</span>' : ''}
+                <div style="font-size: 0.78rem; color: var(--subtext0);">${escapeHtml(u.full_name || '')}</div>
+              </div>
+            </div>
+          </td>
+          <td style="padding: 12px 16px;">
+            ${u.locked ? '<span class="user-badge user-badge-locked">🔒 Verrouillé</span>' : '<span class="user-badge user-badge-active">🟢 Actif</span>'}
+            ${u.is_admin ? '<span class="user-badge user-badge-admin" style="margin-left: 4px;">👑 Admin</span>' : ''}
+          </td>
+          <td style="padding: 12px 16px;">
+            <div style="display: flex; gap: 4px; flex-wrap: wrap; max-width: 220px;">
+              ${u.groups.slice(0, 3).map(g => `<span style="padding: 2px 6px; border-radius: 4px; background: var(--surface0); font-size: 0.72rem; color: var(--subtext1);">${escapeHtml(g)}</span>`).join('')}
+              ${u.groups.length > 3 ? `<span style="font-size: 0.72rem; color: var(--subtext0);">+${u.groups.length - 3}</span>` : ''}
+            </div>
+          </td>
+          <td style="padding: 12px 16px; font-family: monospace; font-size: 0.82rem;">
+            ${formatBytes(u.disk_usage_bytes)}
+          </td>
+          <td style="padding: 12px 16px; font-size: 0.82rem;">
+            <div>${u.samba_enabled ? '<span style="color: var(--teal);">✓ Samba</span>' : '<span style="color: var(--subtext0);">✗ Samba</span>'}</div>
+            <div style="color: var(--subtext0); font-size: 0.75rem;">${u.shell.endsWith('nologin') ? 'Pas de shell' : escapeHtml(u.shell.split('/').pop())}</div>
+          </td>
+          <td style="padding: 12px 16px; text-align: right;">
+            <div style="display: flex; gap: 6px; justify-content: flex-end;">
+              <button type="button" class="btn btn-secondary btn-xs" onclick="openEditUserModal('${escapeHtml(u.username)}')">✏️</button>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="openChangePasswordModal('${escapeHtml(u.username)}')">🔑</button>
+              ${!isSelf && !isRoot ? `
+                <button type="button" class="btn btn-secondary btn-xs" onclick="toggleUserLock('${escapeHtml(u.username)}')">${u.locked ? '🔓' : '🔒'}</button>
+                <button type="button" class="btn btn-secondary btn-xs" style="color: var(--red);" onclick="openDeleteUserModal('${escapeHtml(u.username)}')">🗑️</button>
+              ` : ''}
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+}
+
+function renderGroupsList() {
+  const container = document.getElementById('groups-list-container');
+  if (!container) return;
+
+  if (groupsData.length === 0) {
+    container.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 36px; color: var(--subtext0);">Aucun groupe trouvé.</div>`;
+    return;
+  }
+
+  container.innerHTML = groupsData.map(g => {
+    const isSensitive = ['wheel', 'docker', 'disk', 'storage'].includes(g.name);
+    const memberChips = g.members.map(m => 
+      `<span style="padding: 3px 8px; border-radius: 999px; background: var(--surface1); font-size: 0.75rem; color: var(--text);">👤 ${escapeHtml(m)}</span>`
+    ).join(' ') || '<span style="color: var(--subtext0); font-size: 0.8rem; font-style: italic;">Aucun membre assigné</span>';
+
+    return `
+      <div class="card" style="background: var(--base); border: 1px solid var(--surface0); border-radius: var(--radius-lg); padding: 20px; display: flex; flex-direction: column; justify-content: space-between; gap: 14px;">
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 1.2rem;">${isSensitive ? '🛡️' : '👥'}</span>
+              <strong style="font-size: 1.05rem; color: var(--text);">${escapeHtml(g.name)}</strong>
+            </div>
+            <div>
+              ${g.is_system ? '<span class="badge" style="background: rgba(137, 180, 250, 0.15); color: var(--blue); font-size: 0.7rem; padding: 2px 7px; border-radius: 4px;">Système</span>' : '<span class="badge" style="background: rgba(166, 227, 161, 0.15); color: var(--green); font-size: 0.7rem; padding: 2px 7px; border-radius: 4px;">Personnalisé</span>'}
+            </div>
+          </div>
+          <p style="margin: 0 0 12px 0; font-size: 0.85rem; color: var(--subtext0); min-height: 38px;">
+            ${escapeHtml(g.description)}
+          </p>
+          <div style="background: var(--surface0); border-radius: var(--radius-md); padding: 10px; margin-bottom: 8px;">
+            <div style="font-size: 0.75rem; color: var(--subtext0); margin-bottom: 6px; font-weight: 600;">Membres (${g.members.length}) :</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+              ${memberChips}
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px;">
+          <button type="button" class="btn btn-secondary btn-xs" onclick="openManageGroupMembersModal('${escapeHtml(g.name)}')">
+            <span>👥</span> Gérer les membres
+          </button>
+          ${!g.is_system ? `
+            <button type="button" class="btn btn-secondary btn-xs" style="color: var(--red);" onclick="deleteGroup('${escapeHtml(g.name)}')">
+              <span>🗑️</span> Supprimer
+            </button>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function loadSecurityAudit() {
+  try {
+    const res = await fetch('/api/users/audit').then(r => r.json());
+    if (!res || !res.success || !res.report) return;
+
+    const report = res.report;
+    const warningsBox = document.getElementById('security-warnings-box');
+    const matrixContainer = document.getElementById('security-matrix-container');
+
+    if (warningsBox) {
+      if (report.warnings && report.warnings.length > 0) {
+        warningsBox.style.display = 'block';
+        warningsBox.innerHTML = `
+          <div style="background: rgba(250, 179, 135, 0.1); border: 1px solid rgba(250, 179, 135, 0.3); border-radius: var(--radius-md); padding: 16px;">
+            <h4 style="margin: 0 0 8px 0; color: var(--peach); display: flex; align-items: center; gap: 8px;">
+              <span>⚠️</span> Alertes de Sécurité & Bonnes Pratiques
+            </h4>
+            <ul style="margin: 0; padding-left: 20px; font-size: 0.88rem; color: var(--text);">
+              ${report.warnings.map(w => `<li style="margin-bottom: 4px;">${escapeHtml(w)}</li>`).join('')}
+            </ul>
+          </div>
+        `;
+      } else {
+        warningsBox.style.display = 'none';
+      }
+    }
+
+    if (matrixContainer) {
+      matrixContainer.innerHTML = `
+        <table class="security-matrix-table">
+          <thead>
+            <tr style="color: var(--subtext0); font-size: 0.82rem; border-bottom: 1px solid var(--surface0);">
+              <th>Utilisateur</th>
+              <th>Dashboard Admin</th>
+              <th>Samba (SMB)</th>
+              <th>SFTP / SSH</th>
+              <th>Conteneurs Docker</th>
+              <th>Virtualisation KVM</th>
+              <th>GPU Transcodage</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${report.users.map(u => `
+              <tr>
+                <td>
+                  <strong>${escapeHtml(u.username)}</strong>
+                  <div style="font-size: 0.75rem; color: var(--subtext0);">${escapeHtml(u.full_name || '')}</div>
+                </td>
+                <td>${u.is_admin ? '<span style="color: var(--mauve); font-weight: bold;">✓ OUI (root)</span>' : '<span style="color: var(--subtext0);">✗</span>'}</td>
+                <td>${u.samba_enabled ? '<span style="color: var(--teal); font-weight: bold;">✓ OUI</span>' : '<span style="color: var(--subtext0);">✗</span>'}</td>
+                <td>${!u.shell.endsWith('nologin') ? '<span style="color: var(--peach); font-weight: bold;">✓ OUI</span>' : '<span style="color: var(--subtext0);">✗ Non</span>'}</td>
+                <td>${u.groups.includes('docker') ? '<span style="color: var(--blue); font-weight: bold;">✓ OUI</span>' : '<span style="color: var(--subtext0);">✗</span>'}</td>
+                <td>${(u.groups.includes('kvm') || u.groups.includes('libvirtd')) ? '<span style="color: var(--green); font-weight: bold;">✓ OUI</span>' : '<span style="color: var(--subtext0);">✗</span>'}</td>
+                <td>${(u.groups.includes('video') || u.groups.includes('render')) ? '<span style="color: var(--text); font-weight: bold;">✓ OUI</span>' : '<span style="color: var(--subtext0);">✗</span>'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+  } catch (err) {
+    console.error("Erreur chargement audit de sécurité :", err);
+  }
+}
+
+async function loadActiveSessions() {
+  const container = document.getElementById('sessions-list-container');
+  if (!container) return;
+
+  try {
+    const res = await fetch('/api/users/sessions').then(r => r.json());
+    if (res && res.success && res.sessions) {
+      if (res.sessions.length === 0) {
+        container.innerHTML = `<p style="color: var(--subtext0); font-style: italic;">Aucune session active enregistrée.</p>`;
+        return;
+      }
+
+      container.innerHTML = `
+        <table class="table" style="width: 100%; border-collapse: collapse; font-size: 0.88rem;">
+          <thead>
+            <tr style="text-align: left; color: var(--subtext0); border-bottom: 1px solid var(--surface0);">
+              <th style="padding: 10px 12px;">Utilisateur</th>
+              <th style="padding: 10px 12px;">Rôle</th>
+              <th style="padding: 10px 12px;">Connexion</th>
+              <th style="padding: 10px 12px;">Expiration</th>
+              <th style="padding: 10px 12px; text-align: right;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${res.sessions.map(s => `
+              <tr style="border-bottom: 1px solid var(--surface0);">
+                <td style="padding: 10px 12px;"><strong>${escapeHtml(s.username)}</strong></td>
+                <td style="padding: 10px 12px;">${s.is_admin ? '<span class="user-badge user-badge-admin">👑 Admin</span>' : '<span class="user-badge user-badge-storage">Standard</span>'}</td>
+                <td style="padding: 10px 12px; color: var(--subtext0);">${new Date(s.created_at * 1000).toLocaleString('fr-FR')}</td>
+                <td style="padding: 10px 12px; color: var(--subtext0);">${new Date(s.expires_at * 1000).toLocaleString('fr-FR')}</td>
+                <td style="padding: 10px 12px; text-align: right;">
+                  <button type="button" class="btn btn-secondary btn-xs" style="color: var(--red);" onclick="revokeSession('${s.token}')">
+                    <span>🚫</span> Révoquer
+                  </button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+  } catch (err) {
+    console.error("Erreur sessions :", err);
+  }
+}
+
+async function revokeSession(token) {
+  if (!confirm("Voulez-vous vraiment déconnecter cette session active ?")) return;
+  try {
+    const res = await fetch(`/api/users/sessions/${token}/revoke`, { method: 'POST' }).then(r => r.json());
+    if (res && res.success) {
+      showToast("Session révoquée avec succès", "success");
+      loadActiveSessions();
+      loadUsersAndGroups();
+    } else {
+      showToast(res.error || "Erreur de révocation", "error");
+    }
+  } catch (err) {
+    showToast("Erreur de communication", "error");
+  }
+}
+
+// --------------------------------------------------------------------------
+// WIZARD CRÉATION UTILISATEUR
+// --------------------------------------------------------------------------
+function openCreateUserModal() {
+  createUserStep = 1;
+  setCreateUserStep(1);
+
+  document.getElementById('cu-username').value = '';
+  document.getElementById('cu-fullname').value = '';
+  document.getElementById('cu-email').value = '';
+  document.getElementById('cu-password').value = '';
+  document.getElementById('cu-password-confirm').value = '';
+  document.getElementById('cu-sshkey').value = '';
+  document.getElementById('cu-role-admin').checked = false;
+  document.getElementById('cu-role-storage').checked = true;
+  document.getElementById('cu-role-docker').checked = false;
+  document.getElementById('cu-role-shell').checked = false;
+  document.getElementById('cu-shell-select-box').style.display = 'none';
+  document.getElementById('cu-samba-access').checked = true;
+  document.getElementById('cu-create-share').checked = true;
+  document.getElementById('cu-username-error').style.display = 'none';
+
+  const modal = document.getElementById('modal-create-user');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeCreateUserModal() {
+  const modal = document.getElementById('modal-create-user');
+  if (modal) modal.style.display = 'none';
+}
+
+function setCreateUserStep(step) {
+  createUserStep = step;
+  for (let i = 1; i <= 4; i++) {
+    const node = document.getElementById(`wstep-node-${i}`);
+    const pane = document.getElementById(`wstep-pane-${i}`);
+    if (node) node.classList.toggle('active', i <= step);
+    if (pane) pane.style.display = i === step ? 'block' : 'none';
+  }
+
+  const btnPrev = document.getElementById('btn-cu-prev');
+  const btnNext = document.getElementById('btn-cu-next');
+  const btnSubmit = document.getElementById('btn-cu-submit');
+
+  if (btnPrev) btnPrev.style.display = step > 1 ? 'inline-block' : 'none';
+  if (btnNext) btnNext.style.display = step < 4 ? 'inline-block' : 'none';
+  if (btnSubmit) btnSubmit.style.display = step === 4 ? 'inline-block' : 'none';
+}
+
+function nextCreateUserStep() {
+  if (createUserStep === 1) {
+    const username = document.getElementById('cu-username')?.value.trim().toLowerCase();
+    if (!username || !/^[a-z_][a-z0-9_-]{0,31}$/.test(username)) {
+      showToast("Veuillez renseigner un identifiant valide (lettres minuscules, chiffres, tirets).", "warning");
+      document.getElementById('cu-username')?.focus();
+      return;
+    }
+  }
+  if (createUserStep === 2) {
+    const pwd = document.getElementById('cu-password')?.value;
+    const pwdConfirm = document.getElementById('cu-password-confirm')?.value;
+    if (!pwd || pwd.length < 6) {
+      showToast("Le mot de passe doit comporter au moins 6 caractères.", "warning");
+      return;
+    }
+    if (pwd !== pwdConfirm) {
+      showToast("Les deux mots de passe ne correspondent pas.", "error");
+      return;
+    }
+  }
+
+  if (createUserStep < 4) {
+    setCreateUserStep(createUserStep + 1);
+  }
+}
+
+function prevCreateUserStep() {
+  if (createUserStep > 1) {
+    setCreateUserStep(createUserStep - 1);
+  }
+}
+
+function validateNewUsername(input) {
+  const val = input.value.trim().toLowerCase();
+  input.value = val;
+  const errBox = document.getElementById('cu-username-error');
+  if (!errBox) return;
+
+  if (!val) {
+    errBox.style.display = 'none';
+    return;
+  }
+
+  if (!/^[a-z_]/.test(val)) {
+    errBox.textContent = "L'identifiant doit commencer par une lettre minuscule ou un underscore.";
+    errBox.style.display = 'block';
+    return;
+  }
+
+  if (!/^[a-z_][a-z0-9_-]*$/.test(val)) {
+    errBox.textContent = "Caractères autorisés : minuscules (a-z), chiffres (0-9), tirets (-) et underscores (_). Pas d'espaces ni d'accents.";
+    errBox.style.display = 'block';
+    return;
+  }
+
+  errBox.style.display = 'none';
+}
+
+function checkPasswordStrength(pwd, textId, barId) {
+  const textEl = document.getElementById(textId);
+  const barEl = document.getElementById(barId);
+  if (!textEl || !barEl) return;
+
+  if (!pwd) {
+    barEl.style.width = '0%';
+    textEl.textContent = 'Minimum 6 caractères recommandé';
+    return;
+  }
+
+  let score = 0;
+  if (pwd.length >= 6) score += 25;
+  if (pwd.length >= 10) score += 25;
+  if (/[0-9]/.test(pwd)) score += 25;
+  if (/[^A-Za-z0-9]/.test(pwd)) score += 25;
+
+  barEl.style.width = `${score}%`;
+  if (score <= 25) {
+    barEl.style.background = 'var(--red)';
+    textEl.textContent = 'Faible (ajoutez des chiffres et des caractères spéciaux)';
+    textEl.style.color = 'var(--red)';
+  } else if (score <= 75) {
+    barEl.style.background = 'var(--peach)';
+    textEl.textContent = 'Moyen (satisfaisant)';
+    textEl.style.color = 'var(--peach)';
+  } else {
+    barEl.style.background = 'var(--green)';
+    textEl.textContent = 'Excellent (robuste)';
+    textEl.style.color = 'var(--green)';
+  }
+}
+
+function toggleAdminRole(checkbox) {
+  if (checkbox.checked) {
+    document.getElementById('cu-role-storage').checked = true;
+    document.getElementById('cu-role-docker').checked = true;
+  }
+}
+
+function toggleShellOption(checkbox) {
+  const box = document.getElementById('cu-shell-select-box');
+  if (box) box.style.display = checkbox.checked ? 'block' : 'none';
+}
+
+async function submitCreateUser() {
+  const username = document.getElementById('cu-username')?.value.trim().toLowerCase();
+  const fullName = document.getElementById('cu-fullname')?.value.trim();
+  const email = document.getElementById('cu-email')?.value.trim();
+  const password = document.getElementById('cu-password')?.value;
+  const avatarColor = document.querySelector('input[name="cu-color"]:checked')?.value || 'sapphire';
+
+  const isAdmin = document.getElementById('cu-role-admin')?.checked || false;
+  const isStorage = document.getElementById('cu-role-storage')?.checked || false;
+  const isDocker = document.getElementById('cu-role-docker')?.checked || false;
+  const allowShell = document.getElementById('cu-role-shell')?.checked || false;
+  const shellChoice = document.getElementById('cu-shell-choice')?.value;
+  const sambaAccess = document.getElementById('cu-samba-access')?.checked || false;
+  const createShare = document.getElementById('cu-create-share')?.checked || false;
+
+  const rawSsh = document.getElementById('cu-sshkey')?.value.trim();
+  const sshKeys = rawSsh ? [rawSsh] : [];
+
+  const groups = [];
+  if (isAdmin) groups.push('wheel');
+  if (isStorage) groups.push('storage');
+  if (isDocker) groups.push('docker');
+
+  const payload = {
+    username,
+    full_name: fullName,
+    email,
+    avatar_color: avatarColor,
+    password,
+    role: isAdmin ? 'admin' : (allowShell ? 'standard' : 'share_only'),
+    groups,
+    allow_shell: allowShell,
+    shell: allowShell ? shellChoice : undefined,
+    samba_access: sambaAccess,
+    create_dedicated_share: createShare,
+    ssh_keys: sshKeys
+  };
+
+  const btnSubmit = document.getElementById('btn-cu-submit');
+  if (btnSubmit) {
+    btnSubmit.disabled = true;
+    btnSubmit.innerHTML = `<span>⏳</span> Création en cours...`;
+  }
+
+  try {
+    const res = await fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(r => r.json());
+
+    if (res && res.success) {
+      showToast(`Utilisateur '${username}' créé avec succès !`, "success");
+      closeCreateUserModal();
+      loadUsersAndGroups();
+    } else {
+      showToast(res.error || "Échec de la création du compte", "error");
+    }
+  } catch (err) {
+    showToast("Erreur de connexion avec le serveur", "error");
+  } finally {
+    if (btnSubmit) {
+      btnSubmit.disabled = false;
+      btnSubmit.innerHTML = `<span>✨</span> Créer l'Utilisateur`;
+    }
+  }
+}
+
+// --------------------------------------------------------------------------
+// MODAL ÉDITION UTILISATEUR
+// --------------------------------------------------------------------------
+function openEditUserModal(username) {
+  const user = usersData.find(u => u.username === username);
+  if (!user) return;
+
+  document.getElementById('eu-username').value = user.username;
+  document.getElementById('eu-modal-title').textContent = `Modifier '${user.username}'`;
+  document.getElementById('eu-fullname').value = user.full_name || '';
+  document.getElementById('eu-email').value = user.email || '';
+
+  const colorRadio = document.querySelector(`input[name="eu-color"][value="${user.avatar_color || 'sapphire'}"]`);
+  if (colorRadio) colorRadio.checked = true;
+
+  document.getElementById('eu-samba-access').checked = user.samba_enabled;
+
+  const isShellNoLogin = user.shell.endsWith('nologin') || user.shell.endsWith('false');
+  const checkShell = document.getElementById('eu-shell-access');
+  const boxShell = document.getElementById('eu-shell-select-box');
+  const selShell = document.getElementById('eu-shell-choice');
+
+  if (checkShell) checkShell.checked = !isShellNoLogin;
+  if (boxShell) boxShell.style.display = !isShellNoLogin ? 'block' : 'none';
+  if (selShell && !isShellNoLogin) selShell.value = user.shell;
+
+  // Chips des groupes
+  const chipsContainer = document.getElementById('eu-groups-chips-container');
+  if (chipsContainer) {
+    const allGroupNames = groupsData.map(g => g.name);
+    user.groups.forEach(g => {
+      if (!allGroupNames.includes(g)) allGroupNames.push(g);
+    });
+
+    chipsContainer.innerHTML = allGroupNames.map(g => {
+      const isSelected = user.groups.includes(g);
+      const isWheelAndSelf = (g === 'wheel' && user.username === currentLoggedInUser);
+      return `
+        <label class="group-user-chip ${isSelected ? 'selected' : ''}" style="${isWheelAndSelf ? 'opacity: 0.6; cursor: not-allowed;' : ''}">
+          <input type="checkbox" name="eu-groups" value="${escapeHtml(g)}" ${isSelected ? 'checked' : ''} ${isWheelAndSelf ? 'disabled' : ''} onchange="this.parentElement.classList.toggle('selected', this.checked)">
+          <span>${escapeHtml(g)}</span>
+        </label>
+      `;
+    }).join('');
+  }
+
+  const modal = document.getElementById('modal-edit-user');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeEditUserModal() {
+  const modal = document.getElementById('modal-edit-user');
+  if (modal) modal.style.display = 'none';
+}
+
+function toggleEditShellSelect(checkbox) {
+  const box = document.getElementById('eu-shell-select-box');
+  if (box) box.style.display = checkbox.checked ? 'block' : 'none';
+}
+
+async function submitEditUser() {
+  const username = document.getElementById('eu-username')?.value;
+  if (!username) return;
+
+  const fullName = document.getElementById('eu-fullname')?.value.trim();
+  const email = document.getElementById('eu-email')?.value.trim();
+  const avatarColor = document.querySelector('input[name="eu-color"]:checked')?.value || 'sapphire';
+  const sambaAccess = document.getElementById('eu-samba-access')?.checked || false;
+  const allowShell = document.getElementById('eu-shell-access')?.checked || false;
+  const shellChoice = document.getElementById('eu-shell-choice')?.value;
+
+  const selectedGroups = [];
+  document.querySelectorAll('input[name="eu-groups"]:checked').forEach(cb => {
+    selectedGroups.push(cb.value);
+  });
+
+  const payload = {
+    full_name: fullName,
+    email,
+    avatar_color: avatarColor,
+    groups: selectedGroups,
+    allow_shell: allowShell,
+    shell: allowShell ? shellChoice : undefined,
+    samba_access: sambaAccess
+  };
+
+  try {
+    const res = await fetch(`/api/users/${username}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(r => r.json());
+
+    if (res && res.success) {
+      showToast(`Utilisateur '${username}' mis à jour avec succès`, "success");
+      closeEditUserModal();
+      loadUsersAndGroups();
+    } else {
+      showToast(res.error || "Erreur de mise à jour", "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau", "error");
+  }
+}
+
+// --------------------------------------------------------------------------
+// MODAL MOT DE PASSE
+// --------------------------------------------------------------------------
+function openChangePasswordModal(username) {
+  document.getElementById('cp-username').value = username;
+  document.getElementById('cp-modal-title').textContent = `Modifier le Mot de Passe de '${username}'`;
+  document.getElementById('cp-password').value = '';
+  document.getElementById('cp-password-confirm').value = '';
+  document.getElementById('cp-update-samba').checked = true;
+  document.getElementById('cp-revoke-sessions').checked = true;
+
+  checkPasswordStrength('', 'cp-pwd-strength', 'cp-pwd-bar');
+
+  const modal = document.getElementById('modal-user-password');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeChangePasswordModal() {
+  const modal = document.getElementById('modal-user-password');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitChangePassword() {
+  const username = document.getElementById('cp-username')?.value;
+  const pwd = document.getElementById('cp-password')?.value;
+  const pwdConfirm = document.getElementById('cp-password-confirm')?.value;
+  const updateSamba = document.getElementById('cp-update-samba')?.checked || false;
+  const revokeSessions = document.getElementById('cp-revoke-sessions')?.checked || false;
+
+  if (!pwd || pwd.length < 6) {
+    showToast("Le mot de passe doit comporter au moins 6 caractères.", "warning");
+    return;
+  }
+  if (pwd !== pwdConfirm) {
+    showToast("Les deux mots de passe ne correspondent pas.", "error");
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/users/${username}/password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pwd, update_samba: updateSamba, revoke_sessions: revokeSessions })
+    }).then(r => r.json());
+
+    if (res && res.success) {
+      showToast(`Mot de passe modifié pour '${username}'.`, "success");
+      closeChangePasswordModal();
+    } else {
+      showToast(res.error || "Erreur de modification du mot de passe", "error");
+    }
+  } catch (err) {
+    showToast("Erreur de connexion", "error");
+  }
+}
+
+// --------------------------------------------------------------------------
+// VERROUILLAGE / DÉVERROUILLAGE COMPTE
+// --------------------------------------------------------------------------
+async function toggleUserLock(username) {
+  const user = usersData.find(u => u.username === username);
+  const actionText = user && user.locked ? "déverrouiller" : "verrouiller";
+
+  if (!confirm(`Confirmez-vous vouloir ${actionText} l'accès pour '${username}' ?`)) return;
+
+  try {
+    const res = await fetch(`/api/users/${username}/toggle-lock`, { method: 'POST' }).then(r => r.json());
+    if (res && res.success) {
+      showToast(res.message, "success");
+      loadUsersAndGroups();
+    } else {
+      showToast(res.error || "Erreur de modification du verrouillage", "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau", "error");
+  }
+}
+
+// --------------------------------------------------------------------------
+// MODAL SUPPRESSION UTILISATEUR
+// --------------------------------------------------------------------------
+function openDeleteUserModal(username) {
+  document.getElementById('du-username').value = username;
+  document.getElementById('du-username-label').textContent = username;
+  document.getElementById('du-delete-home').checked = true;
+  document.getElementById('du-delete-share').checked = false;
+
+  const modal = document.getElementById('modal-delete-user');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeDeleteUserModal() {
+  const modal = document.getElementById('modal-delete-user');
+  if (modal) modal.style.display = 'none';
+}
+
+async function confirmDeleteUser() {
+  const username = document.getElementById('du-username')?.value;
+  if (!username) return;
+
+  const deleteHome = document.getElementById('du-delete-home')?.checked || false;
+  const deleteShare = document.getElementById('du-delete-share')?.checked || false;
+
+  try {
+    const res = await fetch(`/api/users/${username}?delete_home=${deleteHome}&delete_share=${deleteShare}`, {
+      method: 'DELETE'
+    }).then(r => r.json());
+
+    if (res && res.success) {
+      showToast(`Utilisateur '${username}' supprimé avec succès.`, "success");
+      closeDeleteUserModal();
+      loadUsersAndGroups();
+    } else {
+      showToast(res.error || "Erreur lors de la suppression", "error");
+    }
+  } catch (err) {
+    showToast("Erreur de communication", "error");
+  }
+}
+
+// --------------------------------------------------------------------------
+// GESTION DES GROUPES
+// --------------------------------------------------------------------------
+function openCreateGroupModal() {
+  document.getElementById('cg-name').value = '';
+  document.getElementById('cg-description').value = '';
+
+  const chipsContainer = document.getElementById('cg-members-chips');
+  if (chipsContainer) {
+    chipsContainer.innerHTML = usersData.map(u => `
+      <label class="group-user-chip">
+        <input type="checkbox" name="cg-members" value="${escapeHtml(u.username)}" onchange="this.parentElement.classList.toggle('selected', this.checked)">
+        <span>${escapeHtml(u.username)}</span>
+      </label>
+    `).join('');
+  }
+
+  const modal = document.getElementById('modal-create-group');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeCreateGroupModal() {
+  const modal = document.getElementById('modal-create-group');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitCreateGroup() {
+  const name = document.getElementById('cg-name')?.value.trim().toLowerCase();
+  const description = document.getElementById('cg-description')?.value.trim();
+
+  if (!name || !/^[a-z_][a-z0-9_-]{0,31}$/.test(name)) {
+    showToast("Nom de groupe invalide. Utilisez des minuscules et chiffres.", "warning");
+    return;
+  }
+
+  const members = [];
+  document.querySelectorAll('input[name="cg-members"]:checked').forEach(cb => {
+    members.push(cb.value);
+  });
+
+  try {
+    const res = await fetch('/api/groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description, members })
+    }).then(r => r.json());
+
+    if (res && res.success) {
+      showToast(`Groupe '${name}' créé avec succès !`, "success");
+      closeCreateGroupModal();
+      loadUsersAndGroups();
+    } else {
+      showToast(res.error || "Erreur de création de groupe", "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau", "error");
+  }
+}
+
+function openManageGroupMembersModal(groupName) {
+  const group = groupsData.find(g => g.name === groupName);
+  if (!group) return;
+
+  document.getElementById('mgm-group-name').value = groupName;
+  document.getElementById('mgm-modal-title').textContent = `Membres du groupe '${groupName}'`;
+  document.getElementById('mgm-group-desc').textContent = group.description;
+
+  const usersListEl = document.getElementById('mgm-users-list');
+  if (usersListEl) {
+    usersListEl.innerHTML = usersData.map(u => {
+      const isMember = group.members.includes(u.username);
+      const isWheelAndSelf = (groupName === 'wheel' && u.username === currentLoggedInUser);
+
+      return `
+        <label style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: var(--base); border-radius: var(--radius-sm); cursor: pointer; ${isWheelAndSelf ? 'opacity: 0.7;' : ''}">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div class="user-avatar-circle user-avatar-${u.avatar_color || 'sapphire'}" style="width: 28px; height: 28px; font-size: 0.8rem;">
+              ${(u.full_name || u.username).charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <strong style="color: var(--text);">${escapeHtml(u.username)}</strong>
+              <span style="color: var(--subtext0); font-size: 0.78rem; margin-left: 6px;">(${escapeHtml(u.full_name || '')})</span>
+            </div>
+          </div>
+          <input type="checkbox" name="mgm-user-check" value="${escapeHtml(u.username)}" ${isMember ? 'checked' : ''} ${isWheelAndSelf ? 'disabled' : ''}>
+        </label>
+      `;
+    }).join('');
+  }
+
+  const modal = document.getElementById('modal-manage-group-members');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeManageGroupMembersModal() {
+  const modal = document.getElementById('modal-manage-group-members');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitManageGroupMembers() {
+  const groupName = document.getElementById('mgm-group-name')?.value;
+  if (!groupName) return;
+
+  const members = [];
+  document.querySelectorAll('input[name="mgm-user-check"]:checked').forEach(cb => {
+    members.push(cb.value);
+  });
+
+  try {
+    const res = await fetch(`/api/groups/${groupName}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ members })
+    }).then(r => r.json());
+
+    if (res && res.success) {
+      showToast(`Membres du groupe '${groupName}' mis à jour`, "success");
+      closeManageGroupMembersModal();
+      loadUsersAndGroups();
+    } else {
+      showToast(res.error || "Erreur de mise à jour des membres", "error");
+    }
+  } catch (err) {
+    showToast("Erreur de connexion", "error");
+  }
+}
+
+async function deleteGroup(groupName) {
+  if (!confirm(`Supprimer définitivement le groupe '${groupName}' ?`)) return;
+
+  try {
+    const res = await fetch(`/api/groups/${groupName}`, { method: 'DELETE' }).then(r => r.json());
+    if (res && res.success) {
+      showToast(`Groupe '${groupName}' supprimé avec succès.`, "success");
+      loadUsersAndGroups();
+    } else {
+      showToast(res.error || "Erreur de suppression", "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau", "error");
   }
 }

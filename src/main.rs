@@ -37,6 +37,7 @@ mod games;
 mod minecraft;
 mod vms;
 mod generations;
+mod users;
 
 use axum::Router;
 use std::env;

@@ -126,6 +126,9 @@
     <button class="tab-btn" data-tab="tab-vms" onclick="switchTab('tab-vms')">
       <span>💻</span> Machines Virtuelles <span class="badge" id="vms-count-badge" style="display:none; margin-left: 6px; padding: 2px 7px; border-radius: 999px; background: rgba(166, 227, 161, 0.2); color: #a6e3a1; font-size: 11px; font-weight: bold;">0</span>
     </button>
+    <button class="tab-btn" data-tab="tab-users" onclick="switchTab('tab-users')">
+      <span>👥</span> Utilisateurs & Droits <span class="badge" id="users-count-badge" style="display:none; margin-left: 6px; padding: 2px 7px; border-radius: 999px; background: rgba(203, 166, 247, 0.2); color: #cba6f7; font-size: 11px; font-weight: bold;">0</span>
+    </button>
     <button class="tab-btn" data-tab="tab-logs" onclick="switchTab('tab-logs')">
       <span>📜</span> Logs & Console
     </button>
@@ -2303,6 +2306,175 @@
       </div>
     </div>
 
+
+    <!-- ================= ONGLET 8 : UTILISATEURS & PERMISSIONS ================= -->
+    <div id="tab-users" class="tab-pane">
+      <!-- EN-TÊTE DE SECTION AVEC ACTIONS PRINCIPALES -->
+      <div class="section-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
+        <div>
+          <h2 style="margin: 0; font-size: 1.6rem; color: var(--text); display: flex; align-items: center; gap: 10px;">
+            <span>👥</span> Utilisateurs & Sécurité
+          </h2>
+          <p style="margin: 6px 0 0 0; color: var(--subtext0); font-size: 0.95rem;">
+            Gestion des comptes système Linux, des partages réseau Samba/SFTP, des privilèges et des groupes du NAS.
+          </p>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+          <button type="button" class="btn btn-secondary" onclick="loadUsersAndGroups(true)" title="Rafraîchir les données">
+            <span>🔄</span> Rafraîchir
+          </button>
+          <button type="button" class="btn btn-secondary" onclick="openCreateGroupModal()">
+            <span>➕</span> Nouveau Groupe
+          </button>
+          <button type="button" class="btn btn-primary" onclick="openCreateUserModal()">
+            <span>👤➕</span> Nouvel Utilisateur
+          </button>
+        </div>
+      </div>
+
+      <!-- BANDEAU DE STATISTIQUES HERO CATPPUCCIN -->
+      <div class="users-hero-stats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px;">
+        <div class="card stat-card" style="background: var(--base); border-radius: var(--radius-lg); padding: 18px 20px; border: 1px solid var(--surface0); display: flex; align-items: center; gap: 16px;">
+          <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(137, 180, 250, 0.15); color: var(--blue); display: flex; align-items: center; justify-content: center; font-size: 24px;">👥</div>
+          <div>
+            <div style="font-size: 0.85rem; color: var(--subtext0); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Utilisateurs Gérés</div>
+            <div id="users-stat-total" style="font-size: 1.6rem; font-weight: 700; color: var(--text); margin-top: 2px;">--</div>
+          </div>
+        </div>
+        <div class="card stat-card" style="background: var(--base); border-radius: var(--radius-lg); padding: 18px 20px; border: 1px solid var(--surface0); display: flex; align-items: center; gap: 16px;">
+          <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(203, 166, 247, 0.15); color: var(--mauve); display: flex; align-items: center; justify-content: center; font-size: 24px;">👑</div>
+          <div>
+            <div style="font-size: 0.85rem; color: var(--subtext0); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Administrateurs</div>
+            <div id="users-stat-admins" style="font-size: 1.6rem; font-weight: 700; color: var(--mauve); margin-top: 2px;">--</div>
+          </div>
+        </div>
+        <div class="card stat-card" style="background: var(--base); border-radius: var(--radius-lg); padding: 18px 20px; border: 1px solid var(--surface0); display: flex; align-items: center; gap: 16px;">
+          <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(148, 226, 213, 0.15); color: var(--teal); display: flex; align-items: center; justify-content: center; font-size: 24px;">📁</div>
+          <div>
+            <div style="font-size: 0.85rem; color: var(--subtext0); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Partages Samba</div>
+            <div id="users-stat-samba" style="font-size: 1.6rem; font-weight: 700; color: var(--teal); margin-top: 2px;">--</div>
+          </div>
+        </div>
+        <div class="card stat-card" style="background: var(--base); border-radius: var(--radius-lg); padding: 18px 20px; border: 1px solid var(--surface0); display: flex; align-items: center; gap: 16px;">
+          <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(166, 227, 161, 0.15); color: var(--green); display: flex; align-items: center; justify-content: center; font-size: 24px;">🟢</div>
+          <div>
+            <div style="font-size: 0.85rem; color: var(--subtext0); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Sessions Actives</div>
+            <div id="users-stat-sessions" style="font-size: 1.6rem; font-weight: 700; color: var(--green); margin-top: 2px;">--</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SOUS-ONGLETS INTERNES UTILISATEURS -->
+      <div class="users-subtabs-nav" style="display: flex; gap: 8px; border-bottom: 1px solid var(--surface0); margin-bottom: 24px; padding-bottom: 2px;">
+        <button type="button" class="users-subtab-btn active" id="btn-users-subtab-accounts" onclick="switchUsersSubtab('accounts')">
+          <span>👤</span> Comptes Utilisateurs
+        </button>
+        <button type="button" class="users-subtab-btn" id="btn-users-subtab-groups" onclick="switchUsersSubtab('groups')">
+          <span>👥</span> Groupes & Rôles
+        </button>
+        <button type="button" class="users-subtab-btn" id="btn-users-subtab-audit" onclick="switchUsersSubtab('audit')">
+          <span>🛡️</span> Matrice d'Audit
+        </button>
+        <button type="button" class="users-subtab-btn" id="btn-users-subtab-sessions" onclick="switchUsersSubtab('sessions')">
+          <span>📊</span> Sessions Connectées
+        </button>
+      </div>
+
+      <!-- SOUS-VUE 1 : COMPTES UTILISATEURS -->
+      <div id="users-subview-accounts" class="users-subview active">
+        <!-- BARRE D'OUTILS ET FILTRES -->
+        <div class="users-toolbar" style="display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; flex-wrap: wrap;">
+          <div style="position: relative; flex: 1; min-width: 260px;">
+            <input type="text" id="users-search-input" class="form-control" placeholder="Rechercher par identifiant, nom complet, groupe..." oninput="filterUsersList()" style="width: 100%; padding-left: 36px; background: var(--base); border: 1px solid var(--surface0); border-radius: var(--radius-md); color: var(--text);">
+            <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--subtext0); pointer-events: none;">🔍</span>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <span style="font-size: 0.85rem; color: var(--subtext0); margin-right: 4px;">Filtre :</span>
+            <button type="button" class="user-filter-chip active" data-filter="all" onclick="setUserRoleFilter('all')">Tous</button>
+            <button type="button" class="user-filter-chip" data-filter="admin" onclick="setUserRoleFilter('admin')">👑 Admins</button>
+            <button type="button" class="user-filter-chip" data-filter="storage" onclick="setUserRoleFilter('storage')">📁 Stockage</button>
+            <button type="button" class="user-filter-chip" data-filter="docker" onclick="setUserRoleFilter('docker')">🐳 Docker</button>
+            <button type="button" class="user-filter-chip" data-filter="locked" onclick="setUserRoleFilter('locked')">🔒 Verrouillés</button>
+            <div style="width: 1px; height: 24px; background: var(--surface0); margin: 0 4px;"></div>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-users-view-grid" onclick="setUserViewMode('grid')" title="Vue Cartes" style="padding: 6px 10px;">
+              <span>🔲</span>
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-users-view-table" onclick="setUserViewMode('table')" title="Vue Tableau" style="padding: 6px 10px;">
+              <span>📋</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- GRILLE DE CARTES UTILISATEURS -->
+        <div id="users-cards-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 20px;">
+          <!-- Injecté dynamiquement par renderUsersList() -->
+        </div>
+
+        <!-- VUE TABLEAU UTILISATEURS (INITIALEMENT CACHÉE) -->
+        <div id="users-table-container" style="display: none; background: var(--base); border-radius: var(--radius-lg); border: 1px solid var(--surface0); overflow-x: auto;">
+          <table class="table" style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--surface0); text-align: left; color: var(--subtext0); font-size: 0.85rem;">
+                <th style="padding: 12px 16px;">Utilisateur</th>
+                <th style="padding: 12px 16px;">Statut & Rôles</th>
+                <th style="padding: 12px 16px;">Groupes</th>
+                <th style="padding: 12px 16px;">Stockage Home</th>
+                <th style="padding: 12px 16px;">Shell & Samba</th>
+                <th style="padding: 12px 16px; text-align: right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="users-table-body">
+              <!-- Injecté dynamiquement -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SOUS-VUE 2 : GROUPES & RÔLES -->
+      <div id="users-subview-groups" class="users-subview" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+          <p style="margin: 0; color: var(--subtext0); font-size: 0.95rem;">
+            Structurez vos autorisations d'accès aux disques, conteneurs et partages réseau par groupes.
+          </p>
+          <button type="button" class="btn btn-primary btn-sm" onclick="openCreateGroupModal()">
+            <span>➕</span> Créer un Groupe Personnalisé
+          </button>
+        </div>
+        <div id="groups-list-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 20px;">
+          <!-- Injecté dynamiquement -->
+        </div>
+      </div>
+
+      <!-- SOUS-VUE 3 : MATRICE D'AUDIT DE SÉCURITÉ -->
+      <div id="users-subview-audit" class="users-subview" style="display: none;">
+        <div id="security-warnings-box" style="margin-bottom: 20px; display: none;"></div>
+        <div style="background: var(--base); border-radius: var(--radius-lg); border: 1px solid var(--surface0); padding: 20px; overflow-x: auto;">
+          <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 1.1rem; color: var(--text); display: flex; align-items: center; gap: 8px;">
+            <span>🛡️</span> Matrice des Privilèges Utilisateurs ✕ Services
+          </h3>
+          <div id="security-matrix-container">
+            <!-- Injecté dynamiquement -->
+          </div>
+        </div>
+      </div>
+
+      <!-- SOUS-VUE 4 : SESSIONS CONNECTÉES -->
+      <div id="users-subview-sessions" class="users-subview" style="display: none;">
+        <div style="background: var(--base); border-radius: var(--radius-lg); border: 1px solid var(--surface0); padding: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h3 style="margin: 0; font-size: 1.1rem; color: var(--text); display: flex; align-items: center; gap: 8px;">
+              <span>📊</span> Sessions Web STEvE_OS Actives
+            </h3>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="loadActiveSessions()">
+              <span>🔄</span> Actualiser
+            </button>
+          </div>
+          <div id="sessions-list-container">
+            <!-- Injecté dynamiquement -->
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- ================= ONGLET 8 : LOGS & CONSOLE ================= -->
     <div id="tab-logs" class="tab-pane">
@@ -4940,6 +5112,393 @@
         <button type="button" class="btn btn-secondary" onclick="cancelFirewallToggle()">Garder Protégé</button>
         <button type="button" class="btn btn-danger" onclick="confirmFirewallDisable()">
           <span>🔴</span> Désactiver le Pare-feu
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODALS : GESTION DES UTILISATEURS ================= -->
+
+  <!-- MODAL 1 : CRÉATION D'UTILISATEUR (WIZARD 4 ÉTAPES) -->
+  <div class="file-modal-overlay" id="modal-create-user" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-create-user')">
+    <div class="file-modal-window" style="max-width: 620px;">
+      <div class="file-modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.06); padding: 18px 24px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 1.4rem;">👤➕</span>
+          <span class="file-modal-title">Créer un Nouvel Utilisateur</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeCreateUserModal()">&times;</button>
+      </div>
+
+      <!-- ÉTAPES DU WIZARD -->
+      <div class="wizard-steps-indicator" style="display: flex; justify-content: space-between; background: var(--surface0); padding: 12px 24px; border-bottom: 1px solid rgba(255,255,255,0.04);">
+        <div class="wizard-step-node active" id="wstep-node-1">
+          <span class="step-num">1</span>
+          <span class="step-label">Identité</span>
+        </div>
+        <div class="wizard-step-line"></div>
+        <div class="wizard-step-node" id="wstep-node-2">
+          <span class="step-num">2</span>
+          <span class="step-label">Sécurité</span>
+        </div>
+        <div class="wizard-step-line"></div>
+        <div class="wizard-step-node" id="wstep-node-3">
+          <span class="step-num">3</span>
+          <span class="step-label">Droits & Rôles</span>
+        </div>
+        <div class="wizard-step-line"></div>
+        <div class="wizard-step-node" id="wstep-node-4">
+          <span class="step-num">4</span>
+          <span class="step-label">Partages</span>
+        </div>
+      </div>
+
+      <div class="modal-body" style="padding: 24px;">
+        <!-- ÉTAPE 1 : IDENTITÉ -->
+        <div class="wizard-step-pane active" id="wstep-pane-1">
+          <div class="form-group" style="margin-bottom: 16px;">
+            <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text);">Identifiant Linux (Username) *</label>
+            <input type="text" id="cu-username" class="form-control" placeholder="ex: marie, alex, invite_salon" oninput="validateNewUsername(this)" style="width: 100%;">
+            <small style="color: var(--subtext0); display: block; margin-top: 4px;">Minuscules, chiffres, tirets. 1 à 32 caractères.</small>
+            <div id="cu-username-error" style="color: var(--red); font-size: 0.82rem; margin-top: 4px; display: none;"></div>
+          </div>
+          <div class="form-group" style="margin-bottom: 16px;">
+            <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text);">Nom Complet affiché</label>
+            <input type="text" id="cu-fullname" class="form-control" placeholder="ex: Marie Valens" style="width: 100%;">
+          </div>
+          <div class="form-group" style="margin-bottom: 16px;">
+            <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text);">Email (Optionnel)</label>
+            <input type="email" id="cu-email" class="form-control" placeholder="marie@exemple.fr" style="width: 100%;">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text);">Couleur du Profil Catppuccin</label>
+            <div class="avatar-color-picker" style="display: flex; gap: 12px; align-items: center;">
+              <label class="color-opt"><input type="radio" name="cu-color" value="sapphire" checked><span class="color-dot" style="background:#74c7ec;"></span></label>
+              <label class="color-opt"><input type="radio" name="cu-color" value="mauve"><span class="color-dot" style="background:#cba6f7;"></span></label>
+              <label class="color-opt"><input type="radio" name="cu-color" value="teal"><span class="color-dot" style="background:#94e2d5;"></span></label>
+              <label class="color-opt"><input type="radio" name="cu-color" value="peach"><span class="color-dot" style="background:#fab387;"></span></label>
+              <label class="color-opt"><input type="radio" name="cu-color" value="green"><span class="color-dot" style="background:#a6e3a1;"></span></label>
+              <label class="color-opt"><input type="radio" name="cu-color" value="pink"><span class="color-dot" style="background:#f5c2e7;"></span></label>
+            </div>
+          </div>
+        </div>
+
+        <!-- ÉTAPE 2 : SÉCURITÉ -->
+        <div class="wizard-step-pane" id="wstep-pane-2" style="display: none;">
+          <div class="form-group" style="margin-bottom: 16px;">
+            <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text);">Mot de passe initial *</label>
+            <input type="password" id="cu-password" class="form-control" placeholder="••••••••" oninput="checkPasswordStrength(this.value, 'cu-pwd-strength', 'cu-pwd-bar')" style="width: 100%;">
+            <div style="margin-top: 8px;">
+              <div style="height: 4px; background: var(--surface0); border-radius: 2px; overflow: hidden;">
+                <div id="cu-pwd-bar" style="height: 100%; width: 0%; transition: width 0.3s, background 0.3s;"></div>
+              </div>
+              <div id="cu-pwd-strength" style="font-size: 0.8rem; color: var(--subtext0); margin-top: 4px;">Minimum 6 caractères recommandé</div>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom: 16px;">
+            <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text);">Confirmer le mot de passe *</label>
+            <input type="password" id="cu-password-confirm" class="form-control" placeholder="••••••••" style="width: 100%;">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text);">Clé Publique SSH (Optionnel)</label>
+            <textarea id="cu-sshkey" class="form-control" rows="2" placeholder="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5... ou ssh-rsa..." style="width: 100%; font-family: monospace; font-size: 0.8rem;"></textarea>
+            <small style="color: var(--subtext0); display: block; margin-top: 4px;">Permet la connexion sans mot de passe via SFTP ou SSH.</small>
+          </div>
+        </div>
+
+        <!-- ÉTAPE 3 : RÔLES & DROITS -->
+        <div class="wizard-step-pane" id="wstep-pane-3" style="display: none;">
+          <div class="role-cards-selector" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px;">
+            <label class="custom-check-card" style="display: flex; gap: 14px; padding: 14px; border: 1px solid var(--surface0); border-radius: var(--radius-md); background: var(--surface0); cursor: pointer;">
+              <input type="checkbox" id="cu-role-admin" onchange="toggleAdminRole(this)" style="margin-top: 3px;">
+              <div>
+                <strong style="color: var(--mauve); display: flex; align-items: center; gap: 6px;">👑 Administrateur Système (wheel / sudo)</strong>
+                <span style="font-size: 0.85rem; color: var(--subtext0); display: block; margin-top: 2px;">Accès root complet, modification de la configuration et gestion de tous les services.</span>
+              </div>
+            </label>
+            <label class="custom-check-card" style="display: flex; gap: 14px; padding: 14px; border: 1px solid var(--surface0); border-radius: var(--radius-md); background: var(--surface0); cursor: pointer;">
+              <input type="checkbox" id="cu-role-storage" checked style="margin-top: 3px;">
+              <div>
+                <strong style="color: var(--teal); display: flex; align-items: center; gap: 6px;">📁 Accès Stockage NAS (storage)</strong>
+                <span style="font-size: 0.85rem; color: var(--subtext0); display: block; margin-top: 2px;">Autorisé à lire et écrire sur les volumes `/mnt/storage` et les partages partagés.</span>
+              </div>
+            </label>
+            <label class="custom-check-card" style="display: flex; gap: 14px; padding: 14px; border: 1px solid var(--surface0); border-radius: var(--radius-md); background: var(--surface0); cursor: pointer;">
+              <input type="checkbox" id="cu-role-docker" style="margin-top: 3px;">
+              <div>
+                <strong style="color: var(--blue); display: flex; align-items: center; gap: 6px;">🐳 Conteneurs Docker (docker)</strong>
+                <span style="font-size: 0.85rem; color: var(--subtext0); display: block; margin-top: 2px;">Accès au daemon Docker pour démarrer et piloter des conteneurs.</span>
+              </div>
+            </label>
+            <label class="custom-check-card" style="display: flex; gap: 14px; padding: 14px; border: 1px solid var(--surface0); border-radius: var(--radius-md); background: var(--surface0); cursor: pointer;">
+              <input type="checkbox" id="cu-role-shell" onchange="toggleShellOption(this)" style="margin-top: 3px;">
+              <div>
+                <strong style="color: var(--peach); display: flex; align-items: center; gap: 6px;">🐚 Accès Console & Terminal (SSH / Bash)</strong>
+                <span style="font-size: 0.85rem; color: var(--subtext0); display: block; margin-top: 2px;">Désactivé par défaut (nologin). À activer uniquement si l'utilisateur a besoin d'un shell.</span>
+              </div>
+            </label>
+          </div>
+          <div id="cu-shell-select-box" style="display: none; margin-top: 10px;">
+            <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text);">Shell Interactif</label>
+            <select id="cu-shell-choice" class="form-control" style="width: 100%;">
+              <option value="/run/current-system/sw/bin/bash">Bash (/run/current-system/sw/bin/bash)</option>
+              <option value="/run/current-system/sw/bin/fish">Fish (/run/current-system/sw/bin/fish)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- ÉTAPE 4 : PARTAGES & DOSSIERS -->
+        <div class="wizard-step-pane" id="wstep-pane-4" style="display: none;">
+          <div class="form-group" style="margin-bottom: 18px;">
+            <label class="custom-check-card" style="display: flex; gap: 14px; padding: 14px; border: 1px solid var(--surface0); border-radius: var(--radius-md); background: var(--surface0); cursor: pointer;">
+              <input type="checkbox" id="cu-samba-access" checked style="margin-top: 3px;">
+              <div>
+                <strong style="color: var(--teal); display: flex; align-items: center; gap: 6px;">🌐 Activer l'accès Samba (SMB Windows / macOS)</strong>
+                <span style="font-size: 0.85rem; color: var(--subtext0); display: block; margin-top: 2px;">Synchronise instantanément les identifiants avec le serveur Samba du NAS.</span>
+              </div>
+            </label>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="custom-check-card" style="display: flex; gap: 14px; padding: 14px; border: 1px solid var(--surface0); border-radius: var(--radius-md); background: var(--surface0); cursor: pointer;">
+              <input type="checkbox" id="cu-create-share" checked style="margin-top: 3px;">
+              <div>
+                <strong style="color: var(--text); display: flex; align-items: center; gap: 6px;">📁 Créer un dossier dédié dans /mnt/storage/shares/</strong>
+                <span style="font-size: 0.85rem; color: var(--subtext0); display: block; margin-top: 2px;">Initialise un répertoire privé avec permissions adaptées pour ce compte.</span>
+              </div>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- FOOTER WIZARD -->
+      <div class="file-modal-footer" style="padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: space-between; align-items: center;">
+        <button type="button" class="btn btn-secondary" id="btn-cu-prev" onclick="prevCreateUserStep()" style="display: none;">
+          Précédent
+        </button>
+        <div style="flex: 1;"></div>
+        <div style="display: flex; gap: 10px;">
+          <button type="button" class="btn btn-secondary" onclick="closeCreateUserModal()">Annuler</button>
+          <button type="button" class="btn btn-primary" id="btn-cu-next" onclick="nextCreateUserStep()">
+            Continuer ➔
+          </button>
+          <button type="button" class="btn btn-primary" id="btn-cu-submit" onclick="submitCreateUser()" style="display: none;">
+            <span>✨</span> Créer l'Utilisateur
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2 : ÉDITION D'UTILISATEUR -->
+  <div class="file-modal-overlay" id="modal-edit-user" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-edit-user')">
+    <div class="file-modal-window" style="max-width: 540px;">
+      <div class="file-modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.06); padding: 18px 24px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 1.4rem;">✏️</span>
+          <span class="file-modal-title" id="eu-modal-title">Modifier l'Utilisateur</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeEditUserModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 24px;">
+        <input type="hidden" id="eu-username">
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text);">Nom Complet</label>
+          <input type="text" id="eu-fullname" class="form-control" style="width: 100%;">
+        </div>
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text);">Email</label>
+          <input type="email" id="eu-email" class="form-control" style="width: 100%;">
+        </div>
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text);">Couleur du Profil</label>
+          <div class="avatar-color-picker" style="display: flex; gap: 12px; align-items: center;">
+            <label class="color-opt"><input type="radio" name="eu-color" value="sapphire"><span class="color-dot" style="background:#74c7ec;"></span></label>
+            <label class="color-opt"><input type="radio" name="eu-color" value="mauve"><span class="color-dot" style="background:#cba6f7;"></span></label>
+            <label class="color-opt"><input type="radio" name="eu-color" value="teal"><span class="color-dot" style="background:#94e2d5;"></span></label>
+            <label class="color-opt"><input type="radio" name="eu-color" value="peach"><span class="color-dot" style="background:#fab387;"></span></label>
+            <label class="color-opt"><input type="radio" name="eu-color" value="green"><span class="color-dot" style="background:#a6e3a1;"></span></label>
+            <label class="color-opt"><input type="radio" name="eu-color" value="pink"><span class="color-dot" style="background:#f5c2e7;"></span></label>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text);">Groupes Secondaires</label>
+          <div id="eu-groups-chips-container" style="display: flex; flex-wrap: wrap; gap: 8px; max-height: 140px; overflow-y: auto; padding: 10px; background: var(--surface0); border-radius: var(--radius-md);">
+            <!-- Injecté dynamiquement -->
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+            <input type="checkbox" id="eu-samba-access">
+            <span style="color: var(--text); font-weight: 600;">Autoriser l'accès Samba (SMB)</span>
+          </label>
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+            <input type="checkbox" id="eu-shell-access" onchange="toggleEditShellSelect(this)">
+            <span style="color: var(--text); font-weight: 600;">Autoriser l'accès Console / Shell interactif</span>
+          </label>
+          <div id="eu-shell-select-box" style="display: none; margin-top: 8px;">
+            <select id="eu-shell-choice" class="form-control" style="width: 100%;">
+              <option value="/run/current-system/sw/bin/bash">Bash (/run/current-system/sw/bin/bash)</option>
+              <option value="/run/current-system/sw/bin/fish">Fish (/run/current-system/sw/bin/fish)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="file-modal-footer" style="padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeEditUserModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" onclick="submitEditUser()">
+          <span>💾</span> Enregistrer
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 3 : RÉINITIALISATION MOT DE PASSE -->
+  <div class="file-modal-overlay" id="modal-user-password" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-user-password')">
+    <div class="file-modal-window" style="max-width: 480px;">
+      <div class="file-modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.06); padding: 18px 24px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 1.4rem;">🔑</span>
+          <span class="file-modal-title" id="cp-modal-title">Modifier le Mot de Passe</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeChangePasswordModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 24px;">
+        <input type="hidden" id="cp-username">
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text);">Nouveau mot de passe *</label>
+          <input type="password" id="cp-password" class="form-control" placeholder="••••••••" oninput="checkPasswordStrength(this.value, 'cp-pwd-strength', 'cp-pwd-bar')" style="width: 100%;">
+          <div style="margin-top: 8px;">
+            <div style="height: 4px; background: var(--surface0); border-radius: 2px; overflow: hidden;">
+              <div id="cp-pwd-bar" style="height: 100%; width: 0%; transition: width 0.3s, background 0.3s;"></div>
+            </div>
+            <div id="cp-pwd-strength" style="font-size: 0.8rem; color: var(--subtext0); margin-top: 4px;">Minimum 6 caractères</div>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text);">Confirmer le nouveau mot de passe *</label>
+          <input type="password" id="cp-password-confirm" class="form-control" placeholder="••••••••" style="width: 100%;">
+        </div>
+        <div class="form-group" style="margin-bottom: 10px;">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+            <input type="checkbox" id="cp-update-samba" checked>
+            <span style="color: var(--text);">Mettre à jour le mot de passe Samba (Windows/Mac)</span>
+          </label>
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+            <input type="checkbox" id="cp-revoke-sessions" checked>
+            <span style="color: var(--text);">Déconnecter toutes les sessions actives de ce compte</span>
+          </label>
+        </div>
+      </div>
+      <div class="file-modal-footer" style="padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeChangePasswordModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" onclick="submitChangePassword()">
+          <span>🔑</span> Appliquer le Mot de Passe
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 4 : CRÉATION DE GROUPE -->
+  <div class="file-modal-overlay" id="modal-create-group" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-create-group')">
+    <div class="file-modal-window" style="max-width: 480px;">
+      <div class="file-modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.06); padding: 18px 24px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 1.4rem;">👥➕</span>
+          <span class="file-modal-title">Créer un Groupe Personnalisé</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeCreateGroupModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 24px;">
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text);">Nom du groupe *</label>
+          <input type="text" id="cg-name" class="form-control" placeholder="ex: famille, medias, comptabilite" style="width: 100%;">
+          <small style="color: var(--subtext0); display: block; margin-top: 4px;">Minuscules et tirets uniquement.</small>
+        </div>
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text);">Description / Rôle</label>
+          <input type="text" id="cg-description" class="form-control" placeholder="ex: Accès restreint aux photos privées" style="width: 100%;">
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text);">Membres initiaux</label>
+          <div id="cg-members-chips" style="display: flex; flex-wrap: wrap; gap: 8px; max-height: 120px; overflow-y: auto; padding: 10px; background: var(--surface0); border-radius: var(--radius-md);">
+            <!-- Injecté dynamiquement -->
+          </div>
+        </div>
+      </div>
+      <div class="file-modal-footer" style="padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeCreateGroupModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" onclick="submitCreateGroup()">
+          <span>➕</span> Créer le Groupe
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 5 : GESTION DES MEMBRES D'UN GROUPE -->
+  <div class="file-modal-overlay" id="modal-manage-group-members" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-manage-group-members')">
+    <div class="file-modal-window" style="max-width: 500px;">
+      <div class="file-modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.06); padding: 18px 24px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 1.4rem;">👥</span>
+          <span class="file-modal-title" id="mgm-modal-title">Gérer les Membres</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeManageGroupMembersModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 24px;">
+        <input type="hidden" id="mgm-group-name">
+        <p id="mgm-group-desc" style="margin: 0 0 16px 0; color: var(--subtext0); font-size: 0.9rem;"></p>
+        <div id="mgm-users-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; padding: 10px; background: var(--surface0); border-radius: var(--radius-md);">
+          <!-- Injecté dynamiquement -->
+        </div>
+      </div>
+      <div class="file-modal-footer" style="padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeManageGroupMembersModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" onclick="submitManageGroupMembers()">
+          <span>💾</span> Mettre à jour
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 6 : CONFIRMATION SUPPRESSION UTILISATEUR -->
+  <div class="file-modal-overlay" id="modal-delete-user" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-delete-user')">
+    <div class="file-modal-window" style="max-width: 480px; border-color: rgba(243, 139, 168, 0.4);">
+      <div class="file-modal-header" style="border-bottom: 1px solid rgba(243, 139, 168, 0.25); padding: 18px 24px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span class="badge badge-danger" style="font-size: 0.75rem; font-weight: 800;">DANGER</span>
+          <span class="file-modal-title" style="color: var(--red);">Supprimer l'Utilisateur ?</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeDeleteUserModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 24px;">
+        <input type="hidden" id="du-username">
+        <p style="margin: 0 0 16px 0; font-size: 0.95rem; color: var(--text);">
+          Êtes-vous sûr de vouloir supprimer définitivement le compte <strong id="du-username-label" style="color: var(--red);"></strong> ?
+        </p>
+        <div style="background: rgba(243, 139, 168, 0.1); border: 1px solid rgba(243, 139, 168, 0.25); border-radius: var(--radius-md); padding: 14px; margin-bottom: 16px;">
+          <div style="margin-bottom: 10px;">
+            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+              <input type="checkbox" id="du-delete-home" checked>
+              <span style="color: var(--text); font-size: 0.9rem;">Supprimer aussi le répertoire <code>/home/&lt;user&gt;</code></span>
+            </label>
+          </div>
+          <div>
+            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+              <input type="checkbox" id="du-delete-share">
+              <span style="color: var(--text); font-size: 0.9rem;">Supprimer aussi le partage <code>/mnt/storage/shares/&lt;user&gt;</code></span>
+            </label>
+          </div>
+        </div>
+        <small style="color: var(--subtext0);">Les sessions actives de cet utilisateur seront immédiatement révoquées.</small>
+      </div>
+      <div class="file-modal-footer" style="padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeDeleteUserModal()">Annuler</button>
+        <button type="button" class="btn btn-danger" onclick="confirmDeleteUser()">
+          <span>🗑️</span> Confirmer la Suppression
         </button>
       </div>
     </div>

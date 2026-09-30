@@ -614,3 +614,69 @@ pub async fn auth_middleware(req: Request, next: Next) -> Response {
     )
         .into_response()
 }
+
+
+pub async fn revoke_user_sessions(username: &str) {
+    let sessions_lock = get_sessions();
+    let mut sessions = sessions_lock.write().await;
+    sessions.retain(|_, s| s.username != username);
+    save_sessions_to_disk(&sessions);
+}
+
+pub async fn revoke_token(token: &str) {
+    let sessions_lock = get_sessions();
+    let mut sessions = sessions_lock.write().await;
+    sessions.remove(token);
+    save_sessions_to_disk(&sessions);
+}
+
+pub async fn get_all_active_sessions() -> Vec<Session> {
+    let now = now_secs();
+    let sessions_lock = get_sessions();
+    let sessions = sessions_lock.read().await;
+    sessions.values().filter(|s| s.expires_at > now).cloned().collect()
+}
+
+pub fn extract_token_from_headers(headers: &axum::http::HeaderMap) -> Option<String> {
+    if let Some(auth_header) = headers.get(header::AUTHORIZATION) {
+        if let Ok(val) = auth_header.to_str() {
+            if val.starts_with("Bearer ") {
+                return Some(val[7..].trim().to_string());
+            }
+        }
+    }
+    if let Some(cookie_header) = headers.get(header::COOKIE) {
+        if let Ok(cookies) = cookie_header.to_str() {
+            for c in cookies.split(';') {
+                let parts: Vec<&str> = c.trim().split('=').collect();
+                if parts.len() == 2 && parts[0] == "steveos_token" {
+                    return Some(parts[1].trim().to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+pub async fn get_session_from_headers(headers: &axum::http::HeaderMap) -> Option<Session> {
+    let token = extract_token_from_headers(headers)?;
+    let now = now_secs();
+    let sessions_lock = get_sessions();
+    {
+        let sessions = sessions_lock.read().await;
+        if let Some(session) = sessions.get(&token) {
+            if session.expires_at > now {
+                return Some(session.clone());
+            }
+        }
+    }
+    let disk_sessions = load_sessions_from_disk();
+    if let Some(session) = disk_sessions.get(&token) {
+        if session.expires_at > now {
+            let mut sessions = sessions_lock.write().await;
+            sessions.insert(token.clone(), session.clone());
+            return Some(session.clone());
+        }
+    }
+    None
+}

@@ -9336,3 +9336,250 @@ select.form-control option,
     grid-template-columns: 1fr;
   }
 }
+
+/* ==========================================================================
+   👥 STYLES DE L'ONGLET UTILISATEURS & SÉCURITÉ (CATPPUCCIN MOCHA)
+   ========================================================================== */
+
+.users-subtab-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--subtext0);
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.users-subtab-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.users-subtab-btn.active {
+  background: rgba(203, 166, 247, 0.15);
+  border-color: rgba(203, 166, 247, 0.35);
+  color: var(--mauve);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.users-subview {
+  display: none;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.users-subview.active {
+  display: block;
+}
+
+.user-filter-chip {
+  background: var(--surface0);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--subtext0);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.user-filter-chip:hover {
+  background: var(--surface1);
+  color: var(--text);
+}
+
+.user-filter-chip.active {
+  background: rgba(137, 180, 250, 0.2);
+  border-color: var(--blue);
+  color: var(--blue);
+  font-weight: 700;
+}
+
+/* CARTE UTILISATEUR CATPPUCCIN */
+.user-card {
+  background: var(--base);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 16px;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.user-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(203, 166, 247, 0.3);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.user-card.is-locked {
+  border-color: rgba(243, 139, 168, 0.3);
+  background: linear-gradient(180deg, rgba(243, 139, 168, 0.03) 0%, var(--base) 100%);
+}
+
+.user-avatar-circle {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--crust);
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.user-avatar-sapphire { background: linear-gradient(135deg, #74c7ec 0%, #89b4fa 100%); }
+.user-avatar-mauve    { background: linear-gradient(135deg, #cba6f7 0%, #b4befe 100%); }
+.user-avatar-teal     { background: linear-gradient(135deg, #94e2d5 0%, #a6e3a1 100%); }
+.user-avatar-peach    { background: linear-gradient(135deg, #fab387 0%, #f9e2af 100%); }
+.user-avatar-green    { background: linear-gradient(135deg, #a6e3a1 0%, #94e2d5 100%); }
+.user-avatar-pink     { background: linear-gradient(135deg, #f5c2e7 0%, #eba0ac 100%); }
+
+.user-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.user-badge-admin   { background: rgba(203, 166, 247, 0.15); color: var(--mauve); border: 1px solid rgba(203, 166, 247, 0.3); }
+.user-badge-storage { background: rgba(148, 226, 213, 0.15); color: var(--teal); border: 1px solid rgba(148, 226, 213, 0.3); }
+.user-badge-docker  { background: rgba(137, 180, 250, 0.15); color: var(--blue); border: 1px solid rgba(137, 180, 250, 0.3); }
+.user-badge-locked  { background: rgba(243, 139, 168, 0.15); color: var(--red); border: 1px solid rgba(243, 139, 168, 0.3); }
+.user-badge-active  { background: rgba(166, 227, 161, 0.15); color: var(--green); border: 1px solid rgba(166, 227, 161, 0.3); }
+
+/* WIZARD ÉTAPES */
+.wizard-step-node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
+}
+
+.wizard-step-node.active {
+  opacity: 1;
+}
+
+.wizard-step-node .step-num {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--surface1);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.wizard-step-node.active .step-num {
+  background: var(--mauve);
+  color: var(--crust);
+}
+
+.wizard-step-node .step-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.wizard-step-line {
+  flex: 1;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 0 12px;
+  align-self: center;
+}
+
+/* SÉLECTEUR DE COULEURS AVATAR */
+.avatar-color-picker .color-opt {
+  cursor: pointer;
+  display: inline-block;
+  position: relative;
+}
+
+.avatar-color-picker .color-opt input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.avatar-color-picker .color-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: block;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.avatar-color-picker .color-opt input[type="radio"]:checked + .color-dot {
+  transform: scale(1.25);
+  box-shadow: 0 0 0 3px var(--base), 0 0 0 5px var(--text);
+}
+
+/* GROUP CHIPS */
+.group-user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface1);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.group-user-chip:hover {
+  background: var(--surface2);
+}
+
+.group-user-chip.selected {
+  background: rgba(203, 166, 247, 0.2);
+  border-color: var(--mauve);
+  color: var(--mauve);
+}
+
+/* MATRICE DE SÉCURITÉ TABLE */
+.security-matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.security-matrix-table th,
+.security-matrix-table td {
+  padding: 12px 14px;
+  text-align: center;
+  border-bottom: 1px solid var(--surface0);
+}
+
+.security-matrix-table th:first-child,
+.security-matrix-table td:first-child {
+  text-align: left;
+}
+
+.security-matrix-table tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
