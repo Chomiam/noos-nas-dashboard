@@ -387,7 +387,7 @@ pub fn create_user_command(bin: &str, args: &[&str]) -> Command {
 
 fn git_cmd(repo_dir: &str) -> Command {
     let git_b = git_binary();
-    create_user_command(&git_b, &["-c", "safe.directory=*", "-C", repo_dir])
+    create_user_command(&git_b, &["-c", "safe.directory=*", "-c", "user.name=STEvE_OS", "-c", "user.email=steveos@local", "-C", repo_dir])
 }
 
 pub fn resolve_config_dir() -> PathBuf {
@@ -960,8 +960,8 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
 
     let dir_str = config_dir.display().to_string();
 
-    // Aligner préventivement flake.lock avec le dépôt Git
-    let _ = git_cmd(&dir_str).args(["checkout", "--", "flake.lock"]).output();
+    // Aligner préventivement flake.lock et les fichiers d'état déclaratifs avec le dépôt Git
+    let _ = git_cmd(&dir_str).args(["checkout", "--", "flake.lock", "firewall-state.json", "firewall-rules.json"]).output();
 
     // 1. Sauvegarde automatique du commit courant
     let current_sha = git_cmd(&dir_str)

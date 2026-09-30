@@ -168,7 +168,12 @@ function switchTab(tabId) {
   if (tabId === "tab-files") navigateToPath(currentFolderPath);
   if (tabId === "tab-updates") checkForUpdates(false);
   if (tabId === "tab-storage") loadStorage();
-  if (tabId === "tab-network") loadNetwork();
+  if (tabId === "tab-network") {
+    loadNetwork();
+    if (activeNetworkSubtab === "subtab-vpn") {
+      loadWireguardClients();
+    }
+  }
   if (tabId === "tab-containers") refreshContainersAndStore();
   if (tabId === "tab-games") {
     loadGameServers();
@@ -8235,6 +8240,12 @@ async function loadNetwork(showFeedback = false) {
       }
     }
 
+    // Charger les profils clients WireGuard si le sous-onglet VPN est actif
+    const vpnSubpane = document.getElementById("subtab-vpn");
+    if (activeNetworkSubtab === "subtab-vpn" || (vpnSubpane && vpnSubpane.classList.contains("active"))) {
+      loadWireguardClients();
+    }
+
     if (showFeedback) {
       showToast("Données réseau actualisées !", "success");
     }
@@ -8769,75 +8780,104 @@ function copyElementText(elementId, successMsg) {
 let cachedWgClients = [];
 let currentViewingWgClient = null;
 
+function renderWireguardClients(clients, tbody) {
+  if (!tbody) tbody = document.getElementById("wg-clients-tbody");
+  if (!tbody) return;
+
+  if (!clients || clients.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="5" style="text-align:center; color:var(--subtext0); padding:30px;">
+          <div style="font-size:1.8rem; margin-bottom:8px;">🔒</div>
+          <div style="font-weight:600; color:var(--text); margin-bottom:4px;">Aucun profil client WireGuard créé</div>
+          <div style="font-size:0.82rem; margin-bottom:14px;">Générez un profil pour votre smartphone, PC portable ou tablette pour accéder au NAS en toute sécurité.</div>
+          <button type="button" class="btn btn-primary btn-sm" onclick="openCreateWgClientModal()">
+            <span>➕</span> Créer le premier profil
+          </button>
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = clients.map(c => {
+    const dateStr = c.created_at ? new Date(c.created_at * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—";
+    return `
+      <tr>
+        <td>
+          <div style="font-weight:600; color:var(--text);">${escapeHtml(c.username)}</div>
+          <div style="font-size:0.75rem; color:var(--subtext0);">ID: ${escapeHtml(c.id)}</div>
+        </td>
+        <td>
+          <span class="badge badge-info" style="font-family:var(--font-mono);">${escapeHtml(c.client_ip)}/32</span>
+        </td>
+        <td>
+          <code style="font-size:0.75rem; color:var(--teal); background:rgba(0,0,0,0.2); padding:3px 6px; border-radius:4px;" title="${escapeHtml(c.public_key)}">
+            ${escapeHtml(c.public_key.substring(0, 16))}...
+          </code>
+        </td>
+        <td style="font-size:0.82rem; color:var(--subtext1);">${dateStr}</td>
+        <td style="text-align:right;">
+          <div style="display:inline-flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
+            <button type="button" class="btn btn-secondary btn-xs" onclick="openViewWgClientModal('${c.id}')" title="Afficher le QR code et la configuration">
+              <span>📱</span> QR Code &amp; Config
+            </button>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="downloadWgClientConfig('${c.id}')" title="Télécharger le fichier .conf">
+              <span>📥</span> .conf
+            </button>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="copyWgClientConfigById('${c.id}')" title="Copier la configuration dans le presse-papiers">
+              <span>📋</span> Copier
+            </button>
+            <button type="button" class="btn btn-danger btn-xs" onclick="deleteWgClient('${c.id}', '${escapeHtml(c.username)}')" title="Révoquer l'accès de cet appareil">
+              <span>🗑️</span>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join("");
+}
+
 async function loadWireguardClients() {
   const tbody = document.getElementById("wg-clients-tbody");
   if (!tbody) return;
 
+  // 1. Rendu optimiste immédiat depuis le cache local (0 ms dès le chargement de la page)
+  if (!cachedWgClients || cachedWgClients.length === 0) {
+    try {
+      const saved = localStorage.getItem("steveos_cached_wg_clients");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          cachedWgClients = parsed;
+          renderWireguardClients(cachedWgClients, tbody);
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 2. Récupération fraîche en arrière-plan
   try {
     const res = await fetch("/api/wireguard/clients");
     const json = await res.json();
     if (!json.success || !json.data) {
-      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--red); padding:16px;">Impossible de charger les profils : ${escapeHtml(json.message || "Erreur serveur")}</td></tr>`;
+      if (!cachedWgClients || cachedWgClients.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--red); padding:16px;">Impossible de charger les profils : ${escapeHtml(json.message || "Erreur serveur")}</td></tr>`;
+      }
       return;
     }
 
     cachedWgClients = json.data;
+    try {
+      localStorage.setItem("steveos_cached_wg_clients", JSON.stringify(cachedWgClients));
+    } catch (e) {}
 
-    if (cachedWgClients.length === 0) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="5" style="text-align:center; color:var(--subtext0); padding:30px;">
-            <div style="font-size:1.8rem; margin-bottom:8px;">🔒</div>
-            <div style="font-weight:600; color:var(--text); margin-bottom:4px;">Aucun profil client WireGuard créé</div>
-            <div style="font-size:0.82rem; margin-bottom:14px;">Générez un profil pour votre smartphone, PC portable ou tablette pour accéder au NAS en toute sécurité.</div>
-            <button type="button" class="btn btn-primary btn-sm" onclick="openCreateWgClientModal()">
-              <span>➕</span> Créer le premier profil
-            </button>
-          </td>
-        </tr>
-      `;
-      return;
-    }
-
-    tbody.innerHTML = cachedWgClients.map(c => {
-      const dateStr = c.created_at ? new Date(c.created_at * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—";
-      return `
-        <tr>
-          <td>
-            <div style="font-weight:600; color:var(--text);">${escapeHtml(c.username)}</div>
-            <div style="font-size:0.75rem; color:var(--subtext0);">ID: ${escapeHtml(c.id)}</div>
-          </td>
-          <td>
-            <span class="badge badge-info" style="font-family:var(--font-mono);">${escapeHtml(c.client_ip)}/32</span>
-          </td>
-          <td>
-            <code style="font-size:0.75rem; color:var(--teal); background:rgba(0,0,0,0.2); padding:3px 6px; border-radius:4px;" title="${escapeHtml(c.public_key)}">
-              ${escapeHtml(c.public_key.substring(0, 16))}...
-            </code>
-          </td>
-          <td style="font-size:0.82rem; color:var(--subtext1);">${dateStr}</td>
-          <td style="text-align:right;">
-            <div style="display:inline-flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
-              <button type="button" class="btn btn-secondary btn-xs" onclick="openViewWgClientModal('${c.id}')" title="Afficher le QR code et la configuration">
-                <span>📱</span> QR Code &amp; Config
-              </button>
-              <button type="button" class="btn btn-secondary btn-xs" onclick="downloadWgClientConfig('${c.id}')" title="Télécharger le fichier .conf">
-                <span>📥</span> .conf
-              </button>
-              <button type="button" class="btn btn-secondary btn-xs" onclick="copyWgClientConfigById('${c.id}')" title="Copier la configuration dans le presse-papiers">
-                <span>📋</span> Copier
-              </button>
-              <button type="button" class="btn btn-danger btn-xs" onclick="deleteWgClient('${c.id}', '${escapeHtml(c.username)}')" title="Révoquer l'accès de cet appareil">
-                <span>🗑️</span>
-              </button>
-            </div>
-          </td>
-        </tr>
-      `;
-    }).join("");
+    renderWireguardClients(cachedWgClients, tbody);
 
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--red); padding:16px;">Erreur de connexion : ${escapeHtml(err.message)}</td></tr>`;
+    if (!cachedWgClients || cachedWgClients.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--red); padding:16px;">Erreur de connexion : ${escapeHtml(err.message)}</td></tr>`;
+    }
   }
 }
 
