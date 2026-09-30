@@ -170,7 +170,10 @@ function switchTab(tabId) {
   if (tabId === "tab-storage") loadStorage();
   if (tabId === "tab-network") loadNetwork();
   if (tabId === "tab-containers") refreshContainersAndStore();
-  if (tabId === "tab-games") loadGameServers();
+  if (tabId === "tab-games") {
+    loadGameServers();
+    loadEggCatalog();
+  }
   if (tabId === "tab-vms") loadVms();
   if (tabId === "tab-logs") loadLogs();
 }
@@ -9829,8 +9832,11 @@ async function loadGameServers(forceToast = false) {
       gameServersData = json.data;
       renderGameServers();
       updateGameConsoleSelectOptions();
-      const countEl = document.getElementById("count-game-servers");
-      if (countEl) countEl.textContent = gameServersData.length;
+      const countEl = document.getElementById("count-game-servers") || document.getElementById("games-count-badge");
+      if (countEl) {
+        countEl.textContent = gameServersData.length;
+        countEl.style.display = gameServersData.length > 0 ? "inline-block" : "none";
+      }
       if (forceToast) showToast("Serveurs de jeu actualisés", "info");
     }
   } catch (e) {
@@ -9839,7 +9845,7 @@ async function loadGameServers(forceToast = false) {
 }
 
 function renderGameServers() {
-  const grid = document.getElementById("game-servers-grid");
+  const grid = document.getElementById("game-servers-grid") || document.getElementById("games-servers-grid");
   if (!grid) return;
 
   if (gameServersData.length === 0) {
@@ -9963,8 +9969,24 @@ async function loadEggCatalog() {
 }
 
 function renderEggCatalog() {
-  const grid = document.getElementById("egg-catalog-grid");
+  const grid = document.getElementById("egg-catalog-grid") || document.getElementById("games-catalog-grid");
   if (!grid) return;
+
+  if (!gameCatalogData || gameCatalogData.length === 0) {
+    grid.innerHTML = `
+      <div class="card" style="grid-column: 1 / -1; text-align:center; padding: 40px 20px;">
+        <span style="font-size:3rem; display:block; margin-bottom:12px;">📦</span>
+        <div style="font-weight:700; font-size:1.1rem; color:var(--text); margin-bottom:6px;">Aucun Egg dans le catalogue</div>
+        <p style="color:var(--subtext0); font-size:0.85rem; max-width:400px; margin:0 auto 16px auto;">
+          Cliquez sur 'Importer un Egg' pour ajouter un serveur communautaire Pterodactyl ou Pelican.
+        </p>
+        <button type="button" class="btn btn-primary btn-sm" onclick="openImportEggModal()">
+          <span>📥</span> Importer un Egg
+        </button>
+      </div>
+    `;
+    return;
+  }
 
   grid.innerHTML = gameCatalogData.map(egg => {
     return `
@@ -10355,6 +10377,7 @@ async function submitImportEgg() {
       showToast(`✨ Egg '${json.data.name}' importé avec succès dans le catalogue !`, "success");
       closeImportEggModal();
       await loadEggCatalog();
+      switchGamesSubtab("catalog");
     } else {
       showToast(`Échec de l'import : ${json.message || "Fichier invalide"}`, "error");
     }
