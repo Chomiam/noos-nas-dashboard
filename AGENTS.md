@@ -55,3 +55,11 @@
        - Dans l'entête : `fix(scope)[BUG-YYYYMMDD-XX]: description du correctif (#num_issue)`
        - Dans le corps explicatif du commit : référence explicite et fermeture de la GitHub Issue (`Closes #num_issue` ou `Fixes #num_issue`).
   3. **Objectif :** Corrélation directe et traçabilité absolue entre GitHub Issues, rapports techniques et historique Git.
+
+---
+
+## ⚡ Règle n°6 : Garantie d'alimentation du cache binaire Cachix (steveos)
+- À chaque nouvelle mise à jour ou release du Dashboard :
+  1. Le workflow GitHub Actions (`.github/workflows/build.yml`) **doit obligatoirement compiler le binaire et le pousser dans le cache Cachix officiel `steveos`** via le secret `CACHIX_AUTH_TOKEN`.
+  2. L'agent IA ou le développeur doit **systématiquement surveiller et attendre la réussite du run GitHub Actions** (`gh run list` / `gh run view`) avant de déclarer la mise à jour prête.
+  3. Aucun déploiement de mise à jour côté NAS ne doit nécessiter une compilation Rust locale : le cache binaire `steveos.cachix.org` doit être alimenté sans exception.
