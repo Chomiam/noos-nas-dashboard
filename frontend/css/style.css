@@ -5447,6 +5447,153 @@ select.form-control option,
   color: var(--mantle);
 }
 
+/* ================= BOUTON VÉRIFIER MAINTENANT INTELLIGENT (PROGRESSION VISUELLE) ================= */
+.btn-update-check {
+  position: relative;
+  overflow: hidden;
+  background: rgba(30, 30, 46, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(203, 166, 247, 0.28);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 7px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  user-select: none;
+}
+
+.btn-update-check:hover:not(:disabled) {
+  background: rgba(203, 166, 247, 0.16);
+  border-color: rgba(203, 166, 247, 0.55);
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(203, 166, 247, 0.25), 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.btn-update-check:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-update-check:disabled {
+  cursor: wait;
+  opacity: 0.95;
+}
+
+/* ÉTAT EN COURS DE VÉRIFICATION / PROGRESSION ACTIVE */
+.btn-update-check.is-checking {
+  border-color: rgba(203, 166, 247, 0.75);
+  background: rgba(17, 17, 27, 0.9);
+  box-shadow: 0 0 20px rgba(203, 166, 247, 0.25);
+}
+
+/* Balayage lumineux Shimmer à travers le bouton pendant l'analyse */
+.btn-update-check.is-checking::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 200%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(203, 166, 247, 0.22) 50%,
+    transparent 100%
+  );
+  animation: btnScanSweep 1.6s infinite linear;
+  pointer-events: none;
+}
+
+@keyframes btnScanSweep {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(100%); }
+}
+
+/* Jauge de progression intégrée sur la bordure inférieure */
+.btn-update-progress-track {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.btn-update-check.is-checking .btn-update-progress-track {
+  opacity: 1;
+}
+
+.btn-update-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--mauve), var(--blue), var(--green));
+  box-shadow: 0 0 10px var(--mauve);
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 0 0 8px 8px;
+}
+
+/* Icône animée */
+.btn-update-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  transition: transform 0.3s ease;
+}
+
+.btn-update-check.is-checking .btn-update-icon {
+  animation: spinIconSmooth 0.85s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite;
+  color: var(--mauve);
+}
+
+@keyframes spinIconSmooth {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ÉTAT SUCCÈS TEMPORAIRE */
+.btn-update-check.is-success {
+  background: rgba(166, 227, 161, 0.18) !important;
+  border-color: rgba(166, 227, 161, 0.6) !important;
+  color: var(--green) !important;
+  box-shadow: 0 0 16px rgba(166, 227, 161, 0.3) !important;
+}
+
+/* Badge horaire de dernière vérification */
+.updates-last-checked-pill {
+  font-size: 0.76rem;
+  color: var(--subtext0);
+  font-family: var(--font-mono);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 5px 12px;
+  border-radius: 6px;
+  transition: all 0.35s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.updates-last-checked-pill.pulse-updated {
+  border-color: rgba(166, 227, 161, 0.5);
+  color: var(--green);
+  background: rgba(166, 227, 161, 0.08);
+  box-shadow: 0 0 12px rgba(166, 227, 161, 0.25);
+  transform: scale(1.02);
+}
+
+
 /* ================= NOUVELLE INTERFACE DE MISES À JOUR ÉPURÉE ================= */
 .update-hero-card {
   display: flex;

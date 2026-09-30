@@ -342,26 +342,88 @@ function switchUpdateSubtab(tabName) {
 
 async function checkForUpdates(force = false) {
   const refreshBtn = document.getElementById("btn-refresh-updates");
+  const refreshIcon = document.getElementById("btn-refresh-updates-icon");
+  const refreshLabel = document.getElementById("btn-refresh-updates-label");
+  const progressBar = document.getElementById("btn-update-progress-bar");
+
+  let progressTimer1 = null;
+  let progressTimer2 = null;
+
   if (force && refreshBtn) {
     refreshBtn.disabled = true;
-    refreshBtn.innerHTML = `<span>⏳</span> Recherche...`;
+    refreshBtn.classList.remove("is-success");
+    refreshBtn.classList.add("is-checking");
+    if (refreshIcon) refreshIcon.textContent = "🔄";
+    if (refreshLabel) refreshLabel.textContent = "Interrogation GitHub...";
+    if (progressBar) progressBar.style.width = "30%";
+
+    progressTimer1 = setTimeout(() => {
+      if (refreshLabel) refreshLabel.textContent = "Analyse des commits & paquets...";
+      if (progressBar) progressBar.style.width = "65%";
+    }, 400);
+
+    progressTimer2 = setTimeout(() => {
+      if (refreshLabel) refreshLabel.textContent = "Comparaison de l'arbre NixOS...";
+      if (progressBar) progressBar.style.width = "85%";
+    }, 900);
   }
+
   if (lastUpdateStatus) {
     renderUpdatesUI(lastUpdateStatus);
   }
+
   try {
     const res = await fetch(`/api/updates/status${force ? '?force=true' : ''}`);
     const json = await res.json();
     if (!json.success || !json.data) return;
 
+    if (progressTimer1) clearTimeout(progressTimer1);
+    if (progressTimer2) clearTimeout(progressTimer2);
+    if (progressBar) progressBar.style.width = "100%";
+    if (refreshLabel && force) refreshLabel.textContent = "Finalisation...";
+
     lastUpdateStatus = json.data;
     renderUpdatesUI(lastUpdateStatus);
-  } catch (err) {
-    console.warn("Erreur fetch /api/updates/status:", err);
-  } finally {
+
     if (force && refreshBtn) {
+      const hasConfigUpdate = !!json.data.config_update_available;
+      const hasDashboardUpdate = !!json.data.dashboard_update_available || (json.data.dashboard_telemetry && json.data.dashboard_telemetry.update_available);
+      const hasPkgUpdate = !!json.data.package_updates_available;
+      const hasAny = hasConfigUpdate || hasDashboardUpdate || hasPkgUpdate;
+
+      refreshBtn.classList.remove("is-checking");
+      refreshBtn.classList.add("is-success");
+      if (refreshIcon) refreshIcon.textContent = hasAny ? "⚡" : "✨";
+      if (refreshLabel) {
+        refreshLabel.textContent = hasAny ? "Mises à jour trouvées !" : "Système synchronisé !";
+      }
+
+      // Animation lumineuse de l'horodatage
+      const lastCheckedTime = document.getElementById("updates-last-checked-time");
+      if (lastCheckedTime) {
+        lastCheckedTime.classList.add("pulse-updated");
+        setTimeout(() => lastCheckedTime.classList.remove("pulse-updated"), 2500);
+      }
+
+      setTimeout(() => {
+        refreshBtn.classList.remove("is-success");
+        refreshBtn.disabled = false;
+        if (refreshIcon) refreshIcon.textContent = "🔄";
+        if (refreshLabel) refreshLabel.textContent = "Vérifier maintenant";
+        if (progressBar) progressBar.style.width = "0%";
+      }, 2200);
+    }
+  } catch (err) {
+    if (progressTimer1) clearTimeout(progressTimer1);
+    if (progressTimer2) clearTimeout(progressTimer2);
+    console.warn("Erreur fetch /api/updates/status:", err);
+    if (force && refreshBtn) {
+      refreshBtn.classList.remove("is-checking");
       refreshBtn.disabled = false;
-      refreshBtn.innerHTML = `<span>🔄</span> Vérifier maintenant`;
+      if (refreshIcon) refreshIcon.textContent = "🔄";
+      if (refreshLabel) refreshLabel.textContent = "Vérifier maintenant";
+      if (progressBar) progressBar.style.width = "0%";
+      showToast("Échec de la vérification des mises à jour", "error");
     }
   }
 }
@@ -387,7 +449,7 @@ function renderUpdatesUI(status) {
 
   const lastCheckedTime = document.getElementById("updates-last-checked-time");
   if (lastCheckedTime && status.last_checked) {
-    lastCheckedTime.textContent = `Vérifié à ${status.last_checked}`;
+    lastCheckedTime.innerHTML = `<span>🕒</span> Vérifié à ${status.last_checked}`;
   }
 
   const hasConfigUpdate = !!status.config_update_available;
