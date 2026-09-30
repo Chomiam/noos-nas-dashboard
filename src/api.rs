@@ -198,6 +198,11 @@ pub fn api_routes() -> Router {
         .route("/service/:unit/:action", post(handle_service_action))
         .route("/storage/:disk/spindown", post(handle_disk_spindown))
         .route("/hardware", get(handle_hardware))
+        .route("/hardware/thermal", get(handle_hardware_thermal))
+        .route("/hardware/fan/profile", post(handle_set_fan_profile))
+        .route("/hardware/fan/curve", post(handle_set_fan_curve))
+        .route("/hardware/fan/test", post(handle_test_fan))
+        .route("/hardware/cpu/profile", post(handle_set_cpu_profile))
         .route("/smart", get(handle_smart))
         .route("/speedtest/latest", get(handle_speedtest_latest))
         .route("/speedtest/run", post(handle_speedtest_run))
@@ -2030,6 +2035,106 @@ async fn handle_delete_docker_image(
             success: false,
             data: None,
             message: Some(err),
+        }),
+    }
+}
+
+
+#[derive(Debug, Deserialize)]
+pub struct SetFanProfileRequest {
+    pub fan_id: String,
+    pub profile: crate::hardware_thermal::FanProfile,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetFanCurveRequest {
+    pub fan_id: String,
+    pub sensor_id: Option<String>,
+    pub curve: Vec<crate::hardware_thermal::CurvePoint>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TestFanRequest {
+    pub fan_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetCpuProfileRequest {
+    pub governor: Option<String>,
+    pub epp: Option<String>,
+    pub boost: Option<bool>,
+}
+
+async fn handle_hardware_thermal() -> Json<ApiResponse<crate::hardware_thermal::HardwareMonitoringState>> {
+    let mgr = crate::hardware_thermal::ThermalManager::global().await;
+    let state = mgr.get_monitoring_state().await;
+    Json(ApiResponse {
+        success: true,
+        data: Some(state),
+        message: None,
+    })
+}
+
+async fn handle_set_fan_profile(Json(req): Json<SetFanProfileRequest>) -> Json<ApiResponse<()>> {
+    let mgr = crate::hardware_thermal::ThermalManager::global().await;
+    match mgr.set_fan_profile(&req.fan_id, req.profile).await {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            data: Some(()),
+            message: Some("Profil de ventilation appliqué".into()),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+    }
+}
+
+async fn handle_set_fan_curve(Json(req): Json<SetFanCurveRequest>) -> Json<ApiResponse<()>> {
+    let mgr = crate::hardware_thermal::ThermalManager::global().await;
+    match mgr.set_fan_curve(&req.fan_id, req.curve, req.sensor_id).await {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            data: Some(()),
+            message: Some("Courbe thermique personnalisée enregistrée".into()),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+    }
+}
+
+async fn handle_test_fan(Json(req): Json<TestFanRequest>) -> Json<ApiResponse<u32>> {
+    let mgr = crate::hardware_thermal::ThermalManager::global().await;
+    match mgr.test_fan_pulse(&req.fan_id).await {
+        Ok(rpm) => Json(ApiResponse {
+            success: true,
+            data: Some(rpm),
+            message: Some(format!("Test d'impulsion terminé : vitesse max atteinte {} RPM", rpm)),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+    }
+}
+
+async fn handle_set_cpu_profile(Json(req): Json<SetCpuProfileRequest>) -> Json<ApiResponse<()>> {
+    let mgr = crate::hardware_thermal::ThermalManager::global().await;
+    match mgr.apply_cpu_profile(req.governor, req.epp, req.boost).await {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            data: Some(()),
+            message: Some("Profil énergétique CPU appliqué".into()),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
         }),
     }
 }

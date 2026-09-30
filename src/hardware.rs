@@ -93,19 +93,23 @@ fn read_dmi_field(field: &str) -> String {
 }
 
 pub fn get_hardware_overview() -> HardwareOverview {
-    // 1. CPU Info
-    let mut cpu_model = "Intel(R) Xeon(R) CPU E5-2650 v4 @ 2.20GHz".to_string();
-    let mut total_threads = 48;
-    let mut sockets = 2;
-    let mut cores_per_socket = 12;
+    // 1. CPU Info dynamique
+    let mut cpu_model = "Processeur x86_64".to_string();
+    let mut total_threads: u32 = 1;
+    let mut sockets: u32 = 1;
+    let mut cores_per_socket: u32 = 1;
+    let mut has_vmx = false;
+    let mut has_svm = false;
 
     if let Ok(cpuinfo) = fs::read_to_string("/proc/cpuinfo") {
         for line in cpuinfo.lines() {
             if line.starts_with("model name") {
                 if let Some(m) = line.split(':').nth(1) {
                     cpu_model = m.trim().to_string();
-                    break;
                 }
+            } else if line.starts_with("flags") {
+                if line.contains(" vmx ") { has_vmx = true; }
+                if line.contains(" svm ") { has_svm = true; }
             }
         }
         let processor_count = cpuinfo.lines().filter(|l| l.starts_with("processor")).count();
@@ -132,38 +136,66 @@ pub fn get_hardware_overview() -> HardwareOverview {
         }
     }
 
+    if cores_per_socket == 1 && total_threads > 1 {
+        cores_per_socket = total_threads / sockets.max(1);
+    }
+
+    let virt_str = if has_vmx {
+        "Intel VT-x / VT-d (Matériel Activé)".to_string()
+    } else if has_svm {
+        "AMD-V / SVM (Matériel Activé)".to_string()
+    } else {
+        "Virtualisation Standard".to_string()
+    };
+
+    let base_freq = if let Ok(khz_str) = fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq") {
+        if let Ok(khz) = khz_str.trim().parse::<f32>() {
+            format!("{:.2} GHz Max", khz / 1_000_000.0)
+        } else {
+            "Fréquence dynamique".to_string()
+        }
+    } else {
+        "Fréquence adaptative".to_string()
+    };
+
     let cpu = CpuHardwareInfo {
-        model: format!("{}x {}", sockets, cpu_model),
+        model: if sockets > 1 { format!("{}x {}", sockets, cpu_model) } else { cpu_model.clone() },
         architecture: "x86_64 (64-bit)".to_string(),
         sockets,
         cores_per_socket,
-        total_cores: sockets * cores_per_socket,
+        total_cores: (sockets * cores_per_socket).max(1),
         total_threads,
-        base_frequency_ghz: "2.20 GHz (Turbo 2.90 GHz)".to_string(),
-        cache: "60 Mo Intel® Smart Cache (30 Mo / socket)".to_string(),
-        virtualization: "Intel VT-x / VT-d (Activé)".to_string(),
+        base_frequency_ghz: base_freq,
+        cache: "Cache CPU Hiérarchique L1/L2/L3".to_string(),
+        virtualization: virt_str,
     };
 
-    // 2. Motherboard & BIOS
-    let vendor = read_dmi_field("sys_vendor");
-    let product_name = read_dmi_field("product_name");
+    // 2. Motherboard & BIOS dynamique
+    let mut vendor = read_dmi_field("sys_vendor");
+    if vendor.is_empty() || vendor == "Inconnu" {
+        vendor = read_dmi_field("board_vendor");
+    }
+    let mut product_name = read_dmi_field("product_name");
+    if product_name.is_empty() || product_name == "Inconnu" {
+        product_name = read_dmi_field("board_name");
+    }
     let board_name = read_dmi_field("board_name");
     let bios_version = read_dmi_field("bios_version");
     let bios_date = read_dmi_field("bios_date");
 
     let motherboard = MotherboardInfo {
-        vendor: if vendor.is_empty() || vendor == "Inconnu" { "HUANANZHI".to_string() } else { vendor },
-        product_name: if product_name.is_empty() || product_name == "Inconnu" { "X99-F8D PLUS".to_string() } else { product_name },
-        board_name: if board_name.is_empty() || board_name == "Inconnu" { "X99-F8D PLUS (Dual Socket LGA 2011-v3)".to_string() } else { board_name },
-        chipset: "Intel C610 / X99 Express Server Chipset".to_string(),
-        bios_version: if bios_version.is_empty() { "American Megatrends 5.11".to_string() } else { bios_version },
-        bios_date: if bios_date.is_empty() { "2023".to_string() } else { bios_date },
+        vendor: if vendor.is_empty() || vendor == "Inconnu" { "Carte Mère Hôte".to_string() } else { vendor },
+        product_name: if product_name.is_empty() || product_name == "Inconnu" { "Plateforme Serveur / NAS".to_string() } else { product_name },
+        board_name: if board_name.is_empty() || board_name == "Inconnu" { "Format standard".to_string() } else { board_name },
+        chipset: "Contrôleur Système Hôte".to_string(),
+        bios_version: if bios_version.is_empty() { "UEFI / BIOS".to_string() } else { bios_version },
+        bios_date: if bios_date.is_empty() { "Inconnu".to_string() } else { bios_date },
     };
 
-    // 3. Memory Info
-    let mut total_kb: f64 = 65000000.0;
-    let mut free_kb: f64 = 50000000.0;
-    let mut avail_kb: f64 = 60000000.0;
+    // 3. Memory Info dynamique
+    let mut total_kb: f64 = 8000000.0;
+    let mut free_kb: f64 = 4000000.0;
+    let mut avail_kb: f64 = 6000000.0;
 
     if let Ok(meminfo) = fs::read_to_string("/proc/meminfo") {
         for line in meminfo.lines() {
@@ -183,11 +215,11 @@ pub fn get_hardware_overview() -> HardwareOverview {
         total_gb: (total_kb / 1024.0 / 1024.0 * 10.0).round() / 10.0,
         free_gb: (free_kb / 1024.0 / 1024.0 * 10.0).round() / 10.0,
         available_gb: (avail_kb / 1024.0 / 1024.0 * 10.0).round() / 10.0,
-        mem_type: "DDR4 ECC Registered Server Memory".to_string(),
-        channels: "Quad-Channel par Socket (8 slots DIMM)".to_string(),
+        mem_type: "Mémoire Vive Système (RAM)".to_string(),
+        channels: "Canal Mémoire Détecté".to_string(),
     };
 
-    // 4. GPU Info & Render Node Detection
+    // 4. GPU Info & Render Node Detection dynamique
     let mut render_node = String::new();
     if Path::new("/dev/dri/renderD128").exists() {
         render_node = "/dev/dri/renderD128".to_string();
@@ -211,16 +243,53 @@ pub fn get_hardware_overview() -> HardwareOverview {
         "none".to_string()
     };
 
+    // Détection réelle du GPU via PCI sysfs
+    let mut gpu_model = "Contrôleur Graphique Intégré".to_string();
+    let mut gpu_vendor = "Générique".to_string();
+    let mut gpu_driver = "Direct Rendering Manager (DRM)".to_string();
+
+    let pci_dir = Path::new("/sys/bus/pci/devices");
+    if let Ok(entries) = fs::read_dir(pci_dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            let class = fs::read_to_string(p.join("class")).unwrap_or_default();
+            if class.trim().starts_with("0x03") {
+                let vendor_hex = fs::read_to_string(p.join("vendor")).unwrap_or_default();
+                let device_hex = fs::read_to_string(p.join("device")).unwrap_or_default();
+
+                let drv = p.join("driver")
+                    .canonicalize()
+                    .ok()
+                    .and_then(|d| d.file_name().map(|n| n.to_string_lossy().to_string()))
+                    .unwrap_or_else(|| "drm".to_string());
+
+                gpu_driver = format!("{} (Noyau Linux)", drv);
+
+                if vendor_hex.trim() == "0x1002" {
+                    gpu_vendor = "Advanced Micro Devices (AMD)".to_string();
+                    gpu_model = format!("AMD Radeon Graphics [{}]", device_hex.trim());
+                    break;
+                } else if vendor_hex.trim() == "0x8086" {
+                    gpu_vendor = "Intel Corporation".to_string();
+                    gpu_model = format!("Intel Graphics / Arc [{}]", device_hex.trim());
+                    break;
+                } else if vendor_hex.trim() == "0x10de" {
+                    gpu_vendor = "NVIDIA Corporation".to_string();
+                    gpu_model = format!("NVIDIA GeForce / RTX [{}]", device_hex.trim());
+                    break;
+                }
+            }
+        }
+    }
+
     let gpu = GpuHardwareInfo {
-        model: "Intel Corporation DG2 [Arc A380]".to_string(),
-        vendor: "Intel Corporation".to_string(),
-        driver: "i915 (Kernel Direct Rendering Manager)".to_string(),
-        vram: "6 Go GDDR6 96-bit".to_string(),
+        model: gpu_model,
+        vendor: gpu_vendor,
+        driver: gpu_driver,
+        vram: "Allouée dynamiquement / Dédiée".to_string(),
         features: vec![
-            "Encodage & Décodage Matériel AV1".to_string(),
-            "Décodage HEVC / H.265 10-bit".to_string(),
-            "Transcodage matériel Jellyfin / QSV".to_string(),
-            "PCIe 4.0 x8".to_string(),
+            "Accélération Matérielle DRM / DRI".to_string(),
+            "Transcodage matériel / VA-API".to_string(),
         ],
         render_node,
         device_path,
@@ -269,7 +338,7 @@ pub fn get_hardware_overview() -> HardwareOverview {
             } else if iface.starts_with("docker") {
                 "Pont Réseau Virtuel Docker".to_string()
             } else {
-                "Contrôleur Réseau Ethernet".to_string()
+                "Interface Réseau Ethernet".to_string()
             };
 
             network_adapters.push(NetworkAdapterInfo {
@@ -283,24 +352,37 @@ pub fn get_hardware_overview() -> HardwareOverview {
         }
     }
 
-    // 6. Storage Controllers
-    let storage_controllers = vec![
-        StorageControllerInfo {
-            name: "Intel C610/X99 Series Chipset 6-Port SATA Controller [AHCI]".to_string(),
-            controller_type: "SATA 6Gb/s (AHCI)".to_string(),
-            pci_slot: "00:1f.2".to_string(),
-        },
-        StorageControllerInfo {
-            name: "MAXIO Technology MAP1202 NVMe SSD Controller".to_string(),
-            controller_type: "NVMe PCIe Gen3 x4".to_string(),
-            pci_slot: "01:00.0".to_string(),
-        },
-        StorageControllerInfo {
-            name: "MAXIO Technology MAP1202 NVMe SSD Controller".to_string(),
-            controller_type: "NVMe PCIe Gen3 x4".to_string(),
-            pci_slot: "02:00.0".to_string(),
-        },
-    ];
+    // 6. Storage Controllers dynamiques
+    let mut storage_controllers = Vec::new();
+    if let Ok(entries) = fs::read_dir(pci_dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            let class = fs::read_to_string(p.join("class")).unwrap_or_default();
+            if class.trim().starts_with("0x01") {
+                let slot = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let c_type = if class.trim().starts_with("0x0108") {
+                    "NVMe PCIe Gen3/Gen4 Controller".to_string()
+                } else if class.trim().starts_with("0x0106") {
+                    "SATA AHCI Controller".to_string()
+                } else {
+                    "Mass Storage Controller".to_string()
+                };
+
+                storage_controllers.push(StorageControllerInfo {
+                    name: format!("Contrôleur {}", c_type),
+                    controller_type: c_type,
+                    pci_slot: slot,
+                });
+            }
+        }
+    }
+    if storage_controllers.is_empty() {
+        storage_controllers.push(StorageControllerInfo {
+            name: "Contrôleur de Stockage Système".to_string(),
+            controller_type: "NVMe / SATA".to_string(),
+            pci_slot: "00:00.0".to_string(),
+        });
+    }
 
     // 7. System Summary
     let kernel = fs::read_to_string("/proc/version")
