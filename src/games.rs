@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -556,6 +556,12 @@ pub struct GameServer {
     pub cpu_percent: f32,
     #[serde(default)]
     pub cpu_cores_used: f32,
+    #[serde(default)]
+    pub online_players: u32,
+    #[serde(default)]
+    pub max_players: Option<u32>,
+    #[serde(default)]
+    pub player_list: Vec<String>,
     pub memory_used_mb: u64,
     pub created_at: String,
     pub env: HashMap<String, String>,
@@ -857,6 +863,67 @@ pub fn save_servers(servers: &[GameServer]) -> Result<(), String> {
     Ok(())
 }
 
+fn detect_online_players(container_name: &str, data_dir: &str) -> (u32, Option<u32>, Vec<String>) {
+    let mut max_players: Option<u32> = None;
+    let prop_path = PathBuf::from(data_dir).join("server.properties");
+    if let Ok(content) = fs::read_to_string(&prop_path) {
+        for line in content.lines() {
+            if let Some((k, v)) = line.split_once('=') {
+                if k.trim() == "max-players" {
+                    max_players = v.trim().parse().ok();
+                }
+            }
+        }
+    }
+
+    let mut active_players: HashSet<String> = HashSet::new();
+    if let Ok(output) = Command::new("docker")
+        .args(["logs", "--tail", "150", container_name])
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{}
+{}", stdout, stderr);
+
+        for line in combined.lines() {
+            if line.contains(" joined the game") {
+                if let Some(idx) = line.find(" joined the game") {
+                    let prefix = &line[..idx];
+                    let player = prefix.split_whitespace().last().unwrap_or("").trim_matches(':');
+                    if !player.is_empty() && !player.contains('[') {
+                        active_players.insert(player.to_string());
+                    }
+                }
+            } else if line.contains(" left the game") || line.contains(" lost connection:") {
+                let marker = if line.contains(" left the game") { " left the game" } else { " lost connection:" };
+                if let Some(idx) = line.find(marker) {
+                    let prefix = &line[..idx];
+                    let player = prefix.split_whitespace().last().unwrap_or("").trim_matches(':');
+                    if !player.is_empty() {
+                        active_players.remove(player);
+                    }
+                }
+            }
+            if line.contains("Join player: ") {
+                if let Some((_, rest)) = line.split_once("Join player: ") {
+                    let p = rest.trim();
+                    if !p.is_empty() { active_players.insert(p.to_string()); }
+                }
+            } else if line.contains("Left player: ") {
+                if let Some((_, rest)) = line.split_once("Left player: ") {
+                    let p = rest.trim();
+                    if !p.is_empty() { active_players.remove(p); }
+                }
+            }
+        }
+    }
+
+    let count = active_players.len() as u32;
+    let list: Vec<String> = active_players.into_iter().collect();
+    (count, max_players, list)
+}
+
 fn get_host_cpu_count() -> usize {
     if let Ok(count) = std::thread::available_parallelism() {
         return count.get().max(1);
@@ -935,16 +1002,26 @@ pub fn list_game_servers() -> Vec<GameServer> {
                     s.cpu_cores_used = cores;
                     s.memory_used_mb = mem;
                 }
+                let (online, max, players) = detect_online_players(&s.container_name, &s.data_dir);
+                s.online_players = online;
+                s.max_players = max;
+                s.player_list = players;
             } else {
                 s.status = "offline".into();
                 s.cpu_percent = 0.0;
                 s.cpu_cores_used = 0.0;
+                s.online_players = 0;
+                s.max_players = None;
+                s.player_list = vec![];
                 s.memory_used_mb = 0;
             }
         } else {
             s.status = "offline".into();
             s.cpu_percent = 0.0;
             s.cpu_cores_used = 0.0;
+            s.online_players = 0;
+            s.max_players = None;
+            s.player_list = vec![];
             s.memory_used_mb = 0;
         }
     }
@@ -1289,6 +1366,9 @@ exec {}
         ip_address: get_lan_ip(),
         cpu_percent: 0.0,
         cpu_cores_used: 0.0,
+        online_players: 0,
+        max_players: None,
+        player_list: vec![],
         memory_used_mb: 0,
         created_at: get_now_timestamp(),
         env: env_map,

@@ -9820,6 +9820,7 @@ function switchGamesSubtab(subtab) {
     loadEggCatalog();
     stopGameConsoleStream();
   } else if (subtab === "console") {
+    loadGameServers();
     startGameConsoleStream();
   }
 }
@@ -9913,6 +9914,10 @@ function renderGameServers() {
             <div class="game-server-stat-item">
               <span class="game-server-stat-label">CPU Utilisé</span>
               <span class="game-server-stat-val" title="${cpuTitleStr}">${cpuUsageStr}</span>
+            </div>
+            <div class="game-server-stat-item">
+              <span class="game-server-stat-label">Joueurs</span>
+              <span class="game-server-stat-val" style="color:var(--green);">${isOnline ? (s.online_players || 0) + (s.max_players ? "/" + s.max_players : "") : "--"}</span>
             </div>
           </div>
 
@@ -10388,26 +10393,32 @@ function updateConsoleHeaderStats(server) {
   const cpuVal = document.getElementById("game-console-cpu-val");
   const ramVal = document.getElementById("game-console-ram-val");
   const titleEl = document.getElementById("game-term-title");
+  const metaAddr = document.getElementById("console-meta-address");
+  const metaPlayers = document.getElementById("console-meta-players");
+  const metaPath = document.getElementById("console-meta-path");
 
   if (!server) {
     if (statusPill) statusPill.className = "game-console-status badge-stopped";
     if (statusText) statusText.textContent = "AUCUN SERVEUR";
     if (cpuVal) cpuVal.textContent = "0.0%";
     if (ramVal) ramVal.textContent = "0 Mo / 0 Mo";
+    if (metaAddr) metaAddr.textContent = "--:--";
+    if (metaPlayers) metaPlayers.textContent = "0 joueur(s)";
+    if (metaPath) { metaPath.textContent = "--"; metaPath.title = ""; }
     if (titleEl) titleEl.textContent = "Console : Aucun serveur sélectionné";
     return;
   }
 
-  const isOnline = server.status === 'online';
+  const isOnline = server.status === "online";
   if (statusPill) {
-    statusPill.className = `game-console-status ${isOnline ? 'badge-online' : 'badge-stopped'}`;
+    statusPill.className = `game-console-status ${isOnline ? "badge-online" : "badge-stopped"}`;
   }
   if (statusText) {
-    statusText.textContent = isOnline ? 'EN LIGNE' : 'ARRÊTÉ';
+    statusText.textContent = isOnline ? "EN LIGNE" : "ARRÊTÉ";
   }
   if (cpuVal) {
     const pct = (server.cpu_percent || 0).toFixed(1);
-    const cores = server.cpu_cores_used ? ` (~ ${server.cpu_cores_used.toFixed(1)} cœurs)` : '';
+    const cores = server.cpu_cores_used ? ` (~ ${server.cpu_cores_used.toFixed(1)} cœurs)` : "";
     cpuVal.textContent = `${pct}%`;
     const cpuChip = document.getElementById("chip-console-cpu");
     if (cpuChip) {
@@ -10417,9 +10428,71 @@ function updateConsoleHeaderStats(server) {
   if (ramVal) {
     ramVal.textContent = `${server.memory_used_mb || 0} Mo / ${server.memory_mb || 0} Mo`;
   }
-  if (titleEl) {
-    titleEl.textContent = `container@steveos-nas:~/games/${server.id} (${server.name} • ${server.container_name})`;
+
+  if (metaAddr) {
+    const host = (server.ip_address && server.ip_address !== "0.0.0.0") ? server.ip_address : (window.location.hostname || "127.0.0.1");
+    const proto = (server.port_protocol || "tcp").toUpperCase();
+    metaAddr.textContent = `${host}:${server.port} (${proto})`;
   }
+  if (metaPlayers) {
+    const online = server.online_players || 0;
+    const max = server.max_players;
+    const playersText = max ? `${online} / ${max} joueur${online > 1 ? "s" : ""}` : `${online} joueur${online > 1 ? "s" : ""} en ligne`;
+    metaPlayers.textContent = playersText;
+    if (server.player_list && server.player_list.length > 0) {
+      metaPlayers.title = `Joueurs connectés (${online}) :\n• ` + server.player_list.join("\n• ");
+    } else {
+      metaPlayers.title = isOnline ? "Aucun joueur connecté actuellement" : "Serveur arrêté";
+    }
+  }
+  if (metaPath) {
+    const p = server.data_dir || "--";
+    metaPath.textContent = p;
+    metaPath.title = p;
+  }
+
+  if (titleEl) {
+    const onlineCount = server.online_players || 0;
+    const onlineInfo = isOnline ? ` • ${onlineCount} joueur${onlineCount > 1 ? "s" : ""}` : "";
+    titleEl.textContent = `container@steveos-nas:~/games/${server.id} (${server.name} • Port ${server.port}/${(server.port_protocol || "tcp").toUpperCase()}${onlineInfo})`;
+  }
+}
+
+function copyConsoleServerAddress() {
+  const current = gameServersData.find(s => s.id === activeConsoleServerId);
+  if (!current) {
+    showToast("Aucun serveur sélectionné.", "warning");
+    return;
+  }
+  const host = (current.ip_address && current.ip_address !== "0.0.0.0") ? current.ip_address : (window.location.hostname || "127.0.0.1");
+  const addr = `${host}:${current.port}`;
+  navigator.clipboard.writeText(addr).then(() => {
+    showToast(`Adresse de connexion copiée : ${addr}`, "success");
+  }).catch(() => {
+    showToast(`Adresse : ${addr}`, "info");
+  });
+}
+
+function copyConsoleServerPath() {
+  const current = gameServersData.find(s => s.id === activeConsoleServerId);
+  if (!current || !current.data_dir) {
+    showToast("Aucun dossier disponible pour ce serveur.", "warning");
+    return;
+  }
+  navigator.clipboard.writeText(current.data_dir).then(() => {
+    showToast(`Chemin copié dans le presse-papiers : ${current.data_dir}`, "success");
+  }).catch(() => {
+    showToast(`Chemin : ${current.data_dir}`, "info");
+  });
+}
+
+function openConsoleServerFolder() {
+  const current = gameServersData.find(s => s.id === activeConsoleServerId);
+  if (!current || !current.data_dir) {
+    showToast("Dossier non trouvé pour ce serveur.", "warning");
+    return;
+  }
+  openServerFolderInFiles(current.data_dir);
 }
 
 function openServerConsoleView(id) {
@@ -10553,11 +10626,17 @@ function formatGameConsoleLogLine(line) {
   return { text: clean, cls };
 }
 
+let gameConsoleCycleCounter = 0;
 function startGameConsoleStream() {
   stopGameConsoleStream();
+  gameConsoleCycleCounter = 0;
   fetchGameConsoleLogs();
   gameConsoleRefreshInterval = setInterval(() => {
     fetchGameConsoleLogs();
+    gameConsoleCycleCounter++;
+    if (gameConsoleCycleCounter % 4 === 0) {
+      loadGameServers();
+    }
   }, 2500);
 }
 

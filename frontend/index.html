@@ -1876,6 +1876,46 @@
             </div>
           </div>
 
+          <!-- Bandeau de métadonnées réseau, joueurs et stockage du serveur -->
+          <div class="game-console-meta-strip" id="game-console-meta-strip">
+            <div class="meta-strip-item">
+              <span class="meta-strip-icon">🌐</span>
+              <div class="meta-strip-content">
+                <span class="meta-strip-label">PORT & CONNEXION</span>
+                <div class="meta-strip-value-row">
+                  <span class="meta-strip-value" id="console-meta-address">--:--</span>
+                  <button type="button" class="btn-meta-copy" onclick="copyConsoleServerAddress()" title="Copier l'adresse de connexion">📋 Copier</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="meta-strip-divider"></div>
+
+            <div class="meta-strip-item">
+              <span class="meta-strip-icon">👥</span>
+              <div class="meta-strip-content">
+                <span class="meta-strip-label">JOUEURS CONNECTÉS</span>
+                <div class="meta-strip-value-row">
+                  <span class="meta-strip-value meta-players-badge" id="console-meta-players">0 joueur(s)</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="meta-strip-divider"></div>
+
+            <div class="meta-strip-item meta-strip-item-path">
+              <span class="meta-strip-icon">📁</span>
+              <div class="meta-strip-content" style="flex:1; min-width:0;">
+                <span class="meta-strip-label">DOSSIER DU SERVEUR</span>
+                <div class="meta-strip-value-row">
+                  <span class="meta-strip-value meta-strip-path" id="console-meta-path" title="Chemin du dossier serveur">--</span>
+                  <button type="button" class="btn-meta-copy" onclick="copyConsoleServerPath()" title="Copier le chemin du dossier">📋 Copier</button>
+                  <button type="button" class="btn-meta-open" onclick="openConsoleServerFolder()" title="Ouvrir dans le gestionnaire de fichiers">📁 Ouvrir</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Terminal haute fidelite style macOS avec coloration syntaxique -->
           <div class="game-terminal-container" id="game-terminal-container">
             <div class="game-terminal-header">

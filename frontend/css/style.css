@@ -6626,7 +6626,7 @@ select.form-control option,
 
 .game-server-stats-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 10px;
   background: rgba(255, 255, 255, 0.02);
   padding: 10px 14px;
@@ -7670,4 +7670,107 @@ select.form-control option,
 .send-shortcut {
   font-size: 0.72rem;
   opacity: 0.7;
+}
+
+
+/* ================= GAME CONSOLE METADATA STRIP ================= */
+.game-console-meta-strip {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(17, 17, 27, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  backdrop-filter: blur(10px);
+}
+
+.meta-strip-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.meta-strip-item-path {
+  flex: 2;
+  min-width: 240px;
+}
+
+.meta-strip-icon {
+  font-size: 1.35rem;
+  line-height: 1;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+}
+
+.meta-strip-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.meta-strip-label {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--subtext0);
+}
+
+.meta-strip-value-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.meta-strip-value {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.meta-strip-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 380px;
+  color: var(--mauve);
+}
+
+.meta-players-badge {
+  background: rgba(166, 227, 161, 0.15);
+  color: var(--green);
+  border: 1px solid rgba(166, 227, 161, 0.35);
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.meta-strip-divider {
+  width: 1px;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.btn-meta-copy, .btn-meta-open {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+}
+
+.btn-meta-copy:hover, .btn-meta-open:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.22);
+  transform: translateY(-1px);
 }
