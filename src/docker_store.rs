@@ -991,3 +991,170 @@ in
         _ => Err(format!("Module pour l'application '{}' non trouvé", app_id)),
     }
 }
+
+// --------------------------------------------------------------------------
+// GESTION ET NETTOYAGE DES IMAGES DOCKER (DISK PRUNING)
+// --------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DockerImageInfo {
+    pub id: String,
+    pub repository: String,
+    pub tag: String,
+    pub size: String,
+    pub created_at: String,
+    pub is_used: bool,
+    pub used_by: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DockerImagesOverview {
+    pub total_images: usize,
+    pub unused_images: usize,
+    pub total_size: String,
+    pub reclaimable_size: String,
+    pub images: Vec<DockerImageInfo>,
+}
+
+pub fn list_docker_images() -> DockerImagesOverview {
+    let mut container_image_map: HashMap<String, Vec<String>> = HashMap::new();
+    if let Ok(output) = Command::new("docker")
+        .args(["ps", "-a", "--format", "{{.Image}}|{{.Names}}|{{.ID}}"])
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split('|').collect();
+            if parts.len() >= 2 {
+                let img = parts[0].trim().to_string();
+                let name = parts[1].trim().to_string();
+                container_image_map.entry(img).or_default().push(name);
+            }
+        }
+    }
+
+    if let Ok(output) = Command::new("docker")
+        .args(["ps", "-a", "-q"])
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for cid in stdout.lines().filter(|s| !s.trim().is_empty()) {
+            if let Ok(insp) = Command::new("docker").args(["inspect", "--format", "{{.Image}}|{{.Name}}", cid.trim()]).output() {
+                let insp_txt = String::from_utf8_lossy(&insp.stdout);
+                if let Some((img_id, cname)) = insp_txt.trim().split_once('|') {
+                    let clean_name = cname.trim().trim_start_matches('/').to_string();
+                    let raw_id = img_id.trim();
+                    let short_id = raw_id.trim_start_matches("sha256:").chars().take(12).collect::<String>();
+                    container_image_map.entry(short_id).or_default().push(clean_name.clone());
+                    container_image_map.entry(raw_id.to_string()).or_default().push(clean_name);
+                }
+            }
+        }
+    }
+
+    let mut images: Vec<DockerImageInfo> = Vec::new();
+    if let Ok(output) = Command::new("docker")
+        .args(["images", "-a", "--format", "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}|{{.CreatedAt}}"])
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split('|').collect();
+            if parts.len() >= 5 {
+                let id = parts[0].trim().to_string();
+                let repo = parts[1].trim().to_string();
+                let tag = parts[2].trim().to_string();
+                let size = parts[3].trim().to_string();
+                let created = parts[4].trim().to_string();
+
+                let repo_tag = format!("{}:{}", repo, tag);
+                let mut used_by: Vec<String> = Vec::new();
+                if let Some(c) = container_image_map.get(&id) {
+                    used_by.extend(c.clone());
+                }
+                if let Some(c) = container_image_map.get(&repo_tag) {
+                    used_by.extend(c.clone());
+                }
+                if let Some(c) = container_image_map.get(&repo) {
+                    used_by.extend(c.clone());
+                }
+                used_by.sort();
+                used_by.dedup();
+
+                let is_used = !used_by.is_empty();
+                images.push(DockerImageInfo {
+                    id,
+                    repository: repo,
+                    tag,
+                    size,
+                    created_at: created,
+                    is_used,
+                    used_by,
+                });
+            }
+        }
+    }
+
+    let mut total_size = "0 B".to_string();
+    let mut reclaimable_size = "0 B".to_string();
+
+    if let Ok(output) = Command::new("docker").args(["system", "df"]).output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.starts_with("Images") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 5 {
+                    total_size = parts[3].to_string();
+                    reclaimable_size = parts[4..].join(" ");
+                }
+            }
+        }
+    }
+
+    let total_images = images.len();
+    let unused_images = images.iter().filter(|i| !i.is_used).count();
+
+    DockerImagesOverview {
+        total_images,
+        unused_images,
+        total_size,
+        reclaimable_size,
+        images,
+    }
+}
+
+pub fn delete_docker_image(id: &str) -> Result<String, String> {
+    let output = Command::new("docker")
+        .args(["rmi", id])
+        .output()
+        .map_err(|e| format!("Erreur lors de l'exécution de docker rmi : {}", e))?;
+
+    if output.status.success() {
+        Ok(format!("Image {} supprimée avec succès.", id))
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr);
+        Err(format!("Impossible de supprimer l'image : {}", err.trim()))
+    }
+}
+
+pub fn prune_docker_images(all: bool) -> Result<String, String> {
+    let mut args = vec!["image", "prune", "-f"];
+    if all {
+        args.push("-a");
+    }
+    let output = Command::new("docker")
+        .args(&args)
+        .output()
+        .map_err(|e| format!("Erreur lors de la purge docker image prune : {}", e))?;
+
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout);
+        let reclaimed = text.lines()
+            .find(|l| l.contains("Total reclaimed space:"))
+            .unwrap_or("Nettoyage des images terminé avec succès.");
+        Ok(reclaimed.to_string())
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr);
+        Err(format!("Échec du nettoyage : {}", err.trim()))
+    }
+}

@@ -17,8 +17,9 @@ use crate::wireguard::{
 
 use crate::documents::{get_document_info, get_document_pdf_path, DocumentInfoResponse};
 use crate::docker_store::{
-    control_docker_container, get_docker_logs, get_store_catalog, install_store_app,
-    uninstall_store_app, ContainerActionRequest, InstallAppRequest, StoreCatalog,
+    control_docker_container, delete_docker_image, get_docker_logs, get_store_catalog,
+    install_store_app, list_docker_images, prune_docker_images, uninstall_store_app,
+    ContainerActionRequest, DockerImagesOverview, InstallAppRequest, StoreCatalog,
     UninstallAppRequest,
 };
 use crate::services::{get_docker_containers, DockerContainer};
@@ -102,6 +103,9 @@ pub fn api_routes() -> Router {
         .route("/docker/store", get(handle_docker_store))
         .route("/docker/store/install", post(handle_docker_store_install))
         .route("/docker/store/uninstall", post(handle_docker_store_uninstall))
+        .route("/docker/images", get(handle_docker_images))
+        .route("/docker/images/prune", post(handle_docker_images_prune))
+        .route("/docker/images/:id", delete(handle_delete_docker_image))
         // Game Servers & Egg Engine
         .route("/games/servers", get(handle_games_servers))
         .route("/games/catalog", get(handle_games_catalog))
@@ -1829,6 +1833,56 @@ async fn handle_minecraft_resolve(
             success: false,
             data: None,
             message: Some(e.to_string()),
+        }),
+    }
+}
+
+async fn handle_docker_images() -> Json<ApiResponse<DockerImagesOverview>> {
+    let overview = list_docker_images();
+    Json(ApiResponse {
+        success: true,
+        data: Some(overview),
+        message: None,
+    })
+}
+
+#[derive(Debug, Deserialize)]
+struct PruneImagesRequest {
+    #[serde(default)]
+    all: bool,
+}
+
+async fn handle_docker_images_prune(
+    payload: Option<Json<PruneImagesRequest>>,
+) -> Json<ApiResponse<String>> {
+    let all = payload.map(|Json(p)| p.all).unwrap_or(true);
+    match prune_docker_images(all) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_delete_docker_image(
+    Path(id): Path<String>,
+) -> Json<ApiResponse<String>> {
+    match delete_docker_image(&id) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
         }),
     }
 }

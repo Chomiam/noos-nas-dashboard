@@ -1734,13 +1734,16 @@
           </div>
         </div>
 
-        <!-- SOUS-NAVIGATION CONTENEURS / BOUTIQUE -->
+        <!-- SOUS-NAVIGATION CONTENEURS / BOUTIQUE / IMAGES -->
         <div class="docker-subtabs-nav">
           <button type="button" class="docker-subtab-btn active" id="btn-subtab-containers" onclick="switchDockerSubTab('containers')">
             <span>📦</span> Mes Conteneurs (<span id="running-containers-count">0</span>)
           </button>
           <button type="button" class="docker-subtab-btn" id="btn-subtab-store" onclick="switchDockerSubTab('store')">
             <span>🛍️</span> Boutique d'Applications (Store)
+          </button>
+          <button type="button" class="docker-subtab-btn" id="btn-subtab-images" onclick="switchDockerSubTab('images')">
+            <span>🧹</span> Images & Nettoyage (<span id="docker-images-count">0</span>)
           </button>
         </div>
 
@@ -1765,6 +1768,73 @@
           <!-- GRILLE DES APPLICATIONS -->
           <div class="store-apps-grid" id="store-apps-grid">
             <p style="color:var(--subtext0); font-size:0.9rem;">Chargement de la boutique...</p>
+          </div>
+        </div>
+
+        <!-- SOUS-ONGLET 3 : IMAGES & NETTOYAGE DOCKER -->
+        <div id="docker-pane-images" class="docker-subpane" style="display:none;">
+          <!-- BANDEAU DE SYNTHÈSE D'ESPACE ET PURGE -->
+          <div class="docker-images-summary-bar">
+            <div class="summary-metric-group">
+              <div class="summary-metric-box">
+                <span class="summary-metric-label">IMAGES TOTALES</span>
+                <span class="summary-metric-val" id="docker-metric-total-images">0</span>
+              </div>
+              <div class="summary-metric-box">
+                <span class="summary-metric-label">ESPACE OCCUPÉ</span>
+                <span class="summary-metric-val font-mono" id="docker-metric-total-size">0 B</span>
+              </div>
+              <div class="summary-metric-box">
+                <span class="summary-metric-label">IMAGES INUTILISÉES</span>
+                <span class="summary-metric-val text-yellow" id="docker-metric-unused-images">0</span>
+              </div>
+              <div class="summary-metric-box">
+                <span class="summary-metric-label">ESPACE RÉCUPÉRABLE</span>
+                <span class="summary-metric-val font-mono text-green" id="docker-metric-reclaimable">0 B</span>
+              </div>
+            </div>
+
+            <div class="summary-action-group">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="loadDockerImages(true)" title="Actualiser la liste des images">
+                <span>🔄</span> Actualiser
+              </button>
+              <button type="button" class="btn btn-danger btn-sm" onclick="confirmPruneDockerImages()" id="btn-prune-images">
+                <span>🧹</span> Purger les images inutilisées
+              </button>
+            </div>
+          </div>
+
+          <!-- BARRE DE FILTRE ET RECHERCHE -->
+          <div class="images-filter-toolbar">
+            <div class="images-search-box">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="docker-images-search" class="form-control" placeholder="Filtrer les images par dépôt, tag ou ID..." oninput="filterDockerImagesList()">
+            </div>
+            <div class="images-filter-pills">
+              <button type="button" class="btn-filter-pill active" id="pill-filter-all" onclick="setImagesFilter('all')">Toutes (<span id="count-pill-all">0</span>)</button>
+              <button type="button" class="btn-filter-pill" id="pill-filter-unused" onclick="setImagesFilter('unused')">Inutilisées (<span id="count-pill-unused">0</span>)</button>
+              <button type="button" class="btn-filter-pill" id="pill-filter-used" onclick="setImagesFilter('used')">En cours d'utilisation (<span id="count-pill-used">0</span>)</button>
+            </div>
+          </div>
+
+          <!-- TABLEAU DES IMAGES DOCKER -->
+          <div class="docker-images-table-wrap">
+            <table class="docker-images-table">
+              <thead>
+                <tr>
+                  <th style="width: 42%;">Image (Dépôt & Tag)</th>
+                  <th style="width: 14%;">ID Court</th>
+                  <th style="width: 12%;">Taille</th>
+                  <th style="width: 22%;">Statut / Utilisation</th>
+                  <th style="width: 10%; text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="docker-images-table-body">
+                <tr>
+                  <td colspan="5" style="text-align:center; padding:40px; color:var(--subtext0);">Chargement des images Docker...</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -1827,6 +1897,9 @@
                 <span>☰</span> Ligne
               </button>
             </div>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="openDockerImagesCleanup()" title="Gérer et nettoyer les images Docker volumineuses">
+              <span>🧹</span> Nettoyage Images
+            </button>
             <button type="button" class="btn btn-secondary btn-sm" onclick="loadGameServers(true)" title="Rafraîchir l'état des serveurs">
               <span>🔄</span> Actualiser
             </button>

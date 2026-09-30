@@ -6975,26 +6975,40 @@ function switchDockerSubTab(subTab) {
   activeDockerSubTab = subTab;
   const btnContainers = document.getElementById("btn-subtab-containers");
   const btnStore = document.getElementById("btn-subtab-store");
+  const btnImages = document.getElementById("btn-subtab-images");
   const paneContainers = document.getElementById("docker-pane-containers");
   const paneStore = document.getElementById("docker-pane-store");
+  const paneImages = document.getElementById("docker-pane-images");
 
-  if (btnContainers && btnStore && paneContainers && paneStore) {
-    btnContainers.classList.toggle("active", subTab === "containers");
-    btnStore.classList.toggle("active", subTab === "store");
-    paneContainers.style.display = subTab === "containers" ? "block" : "none";
-    paneStore.style.display = subTab === "store" ? "block" : "none";
-  }
+  if (btnContainers) btnContainers.classList.toggle("active", subTab === "containers");
+  if (btnStore) btnStore.classList.toggle("active", subTab === "store");
+  if (btnImages) btnImages.classList.toggle("active", subTab === "images");
+
+  if (paneContainers) paneContainers.style.display = subTab === "containers" ? "block" : "none";
+  if (paneStore) paneStore.style.display = subTab === "store" ? "block" : "none";
+  if (paneImages) paneImages.style.display = subTab === "images" ? "block" : "none";
 
   if (subTab === "store" && !currentStoreCatalog) {
     loadDockerStore();
+  } else if (subTab === "images") {
+    loadDockerImages();
   }
+}
+
+function openDockerImagesCleanup() {
+  switchTab("tab-containers");
+  switchDockerSubTab("images");
 }
 
 async function refreshContainersAndStore(showFeedback = false) {
   try {
-    await Promise.all([loadDockerContainers(), loadDockerStore()]);
+    const promises = [loadDockerContainers(), loadDockerStore()];
+    if (activeDockerSubTab === "images") {
+      promises.push(loadDockerImages());
+    }
+    await Promise.all(promises);
     if (showFeedback) {
-      showToast("Conteneurs et boutique actualisés !", "success");
+      showToast("Conteneurs, boutique et images actualisés !", "success");
     }
   } catch (err) {
     console.error("Erreur actualisation conteneurs/store:", err);
@@ -11467,5 +11481,196 @@ function jumpToGameConsole() {
       select.value = serverId;
       onGameConsoleServerChange();
     }
+  }
+}
+
+// --------------------------------------------------------------------------
+// GESTION ET NETTOYAGE DES IMAGES DOCKER (DISK PRUNING)
+// --------------------------------------------------------------------------
+let dockerImagesData = null;
+let currentDockerImageFilter = "all";
+
+async function loadDockerImages(forceToast = false) {
+  try {
+    const res = await fetch("/api/docker/images");
+    const json = await res.json();
+    if (json.success && json.data) {
+      dockerImagesData = json.data;
+      renderDockerImagesOverview();
+      renderDockerImagesTable();
+      if (forceToast) showToast("Images Docker actualisées", "info");
+    } else {
+      showToast(`Erreur chargement images : ${json.message || "inconnue"}`, "error");
+    }
+  } catch (e) {
+    console.error("Échec chargement images Docker :", e);
+    showToast(`Erreur réseau : ${e.message}`, "error");
+  }
+}
+
+function renderDockerImagesOverview() {
+  if (!dockerImagesData) return;
+  const totalEl = document.getElementById("docker-metric-total-images");
+  const sizeEl = document.getElementById("docker-metric-total-size");
+  const unusedEl = document.getElementById("docker-metric-unused-images");
+  const recEl = document.getElementById("docker-metric-reclaimable");
+  const countBadge = document.getElementById("docker-images-count");
+
+  if (totalEl) totalEl.textContent = dockerImagesData.total_images;
+  if (sizeEl) sizeEl.textContent = dockerImagesData.total_size;
+  if (unusedEl) unusedEl.textContent = dockerImagesData.unused_images;
+  if (recEl) recEl.textContent = dockerImagesData.reclaimable_size;
+  if (countBadge) countBadge.textContent = dockerImagesData.total_images;
+
+  const pillAll = document.getElementById("count-pill-all");
+  const pillUnused = document.getElementById("count-pill-unused");
+  const pillUsed = document.getElementById("count-pill-used");
+
+  const usedCount = dockerImagesData.total_images - dockerImagesData.unused_images;
+  if (pillAll) pillAll.textContent = dockerImagesData.total_images;
+  if (pillUnused) pillUnused.textContent = dockerImagesData.unused_images;
+  if (pillUsed) pillUsed.textContent = usedCount;
+}
+
+function setImagesFilter(filter) {
+  currentDockerImageFilter = filter;
+  ["all", "unused", "used"].forEach(f => {
+    const el = document.getElementById(`pill-filter-${f}`);
+    if (el) el.classList.toggle("active", f === filter);
+  });
+  renderDockerImagesTable();
+}
+
+function filterDockerImagesList() {
+  renderDockerImagesTable();
+}
+
+function renderDockerImagesTable() {
+  const tbody = document.getElementById("docker-images-table-body");
+  if (!tbody || !dockerImagesData) return;
+
+  const search = (document.getElementById("docker-images-search")?.value || "").toLowerCase().trim();
+
+  let list = dockerImagesData.images || [];
+
+  if (currentDockerImageFilter === "unused") {
+    list = list.filter(i => !i.is_used);
+  } else if (currentDockerImageFilter === "used") {
+    list = list.filter(i => i.is_used);
+  }
+
+  if (search) {
+    list = list.filter(i => 
+      i.repository.toLowerCase().includes(search) || 
+      i.tag.toLowerCase().includes(search) || 
+      i.id.toLowerCase().includes(search)
+    );
+  }
+
+  if (list.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="5" style="text-align:center; padding:50px 20px; color:var(--subtext0);">
+          <span style="font-size:2rem; display:block; margin-bottom:10px;">✨</span>
+          Aucune image Docker trouvée selon les critères sélectionnés.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = list.map(img => {
+    const isUnused = !img.is_used;
+    const repoTag = `${img.repository}:${img.tag}`;
+    const statusHtml = isUnused 
+      ? `<span class="badge" style="background:rgba(249,226,175,0.15); color:var(--yellow); border:1px solid rgba(249,226,175,0.3); font-weight:700;">🟡 Inutilisée (Orpheline)</span>`
+      : `<span class="badge badge-success" title="Utilisée par : ${img.used_by.join(", ")}">🟢 Active (${img.used_by.join(", ")})</span>`;
+
+    return `
+      <tr class="docker-image-row ${isUnused ? "image-unused" : "image-used"}">
+        <td>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-size:1.3rem;">🐳</span>
+            <div style="min-width:0;">
+              <div style="font-weight:700; color:var(--text); word-break:break-all;" title="${escapeHtml(repoTag)}">${escapeHtml(img.repository)}<span style="color:var(--mauve); font-weight:800;">:${escapeHtml(img.tag)}</span></div>
+              <div style="font-size:0.72rem; color:var(--subtext0);">${escapeHtml(img.created_at)}</div>
+            </div>
+          </div>
+        </td>
+        <td>
+          <span class="font-mono text-subtext" style="font-size:0.8rem; background:rgba(255,255,255,0.04); padding:2px 6px; border-radius:4px;">${img.id}</span>
+        </td>
+        <td>
+          <span class="font-mono" style="font-weight:700; color:var(--text);">${escapeHtml(img.size)}</span>
+        </td>
+        <td>
+          ${statusHtml}
+        </td>
+        <td style="text-align:right;">
+          ${isUnused ? `
+            <button type="button" class="btn btn-danger btn-xs" onclick="confirmDeleteDockerImage('${img.id}', '${escapeHtml(repoTag)}')" title="Supprimer cette image pour libérer de l'espace">
+              <span>🗑️</span> Supprimer
+            </button>
+          ` : `
+            <button type="button" class="btn btn-secondary btn-xs" disabled title="Cette image est utilisée par un conteneur et ne peut pas être supprimée">
+              <span>🔒</span> En usage
+            </button>
+          `}
+        </td>
+      </tr>
+    `;
+  }).join("");
+}
+
+async function confirmDeleteDockerImage(id, repoTag) {
+  if (!confirm(`Voulez-vous vraiment supprimer l'image Docker suivante ?\n\n${repoTag} (${id})\n\nCette action libérera l'espace disque immédiatement.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/docker/images/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || "Image supprimée avec succès", "success");
+      loadDockerImages();
+    } else {
+      showToast(`Erreur : ${json.message || "inconnue"}`, "error");
+    }
+  } catch (e) {
+    showToast(`Erreur réseau : ${e.message}`, "error");
+  }
+}
+
+async function confirmPruneDockerImages() {
+  const unusedCount = dockerImagesData ? dockerImagesData.unused_images : 0;
+  const reclaimable = dockerImagesData ? dockerImagesData.reclaimable_size : "inconnu";
+  
+  if (!confirm(`🧹 NETTOYAGE COMPLET DES IMAGES DOCKER\n\nÊtes-vous sûr de vouloir supprimer TOUTES les images Docker inutilisées ?\n\n• Images ciblées : ${unusedCount} orpheline(s)\n• Espace estimé récupérable : ${reclaimable}\n\nAucun conteneur en cours d'exécution ou configuré ne sera affecté.`)) {
+    return;
+  }
+
+  showToast("Purge des images Docker en cours...", "info");
+  const btn = document.getElementById("btn-prune-images");
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch("/api/docker/images/prune", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ all: true })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(`Nettoyage réussi : ${json.data || "espace libéré"}`, "success");
+      loadDockerImages();
+    } else {
+      showToast(`Erreur de nettoyage : ${json.message || "inconnue"}`, "error");
+    }
+  } catch (e) {
+    showToast(`Erreur réseau : ${e.message}`, "error");
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }

@@ -8543,3 +8543,163 @@ select.form-control option,
   color: var(--pink);
   transform: scale(1.08);
 }
+
+/* ==========================================================================
+   IMAGES DOCKER & NETTOYAGE DISQUE (CATPPUCCIN MOCHA)
+   ========================================================================== */
+.docker-images-summary-bar {
+  background: rgba(30, 30, 46, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  padding: 16px 22px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.summary-metric-group {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+
+.summary-metric-box {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.summary-metric-label {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--subtext0);
+  letter-spacing: 0.5px;
+}
+
+.summary-metric-val {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.summary-action-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.images-filter-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.images-search-box {
+  position: relative;
+  flex: 1;
+  min-width: 280px;
+}
+
+.images-search-box .search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--subtext0);
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.images-search-box .form-control {
+  padding-left: 36px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  width: 100%;
+}
+
+.images-filter-pills {
+  display: inline-flex;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  gap: 3px;
+}
+
+.btn-filter-pill {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--subtext0);
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-filter-pill:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.btn-filter-pill.active {
+  background: rgba(203, 166, 247, 0.2);
+  color: var(--mauve);
+  border-color: rgba(203, 166, 247, 0.35);
+  font-weight: 700;
+}
+
+.docker-images-table-wrap {
+  background: rgba(30, 30, 46, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.docker-images-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.docker-images-table th {
+  background: rgba(17, 17, 27, 0.6);
+  padding: 12px 18px;
+  text-align: left;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--subtext0);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.docker-images-table td {
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  vertical-align: middle;
+}
+
+.docker-image-row {
+  transition: background 0.15s ease;
+}
+
+.docker-image-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.docker-image-row:last-child td {
+  border-bottom: none;
+}
