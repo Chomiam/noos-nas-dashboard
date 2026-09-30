@@ -4991,26 +4991,49 @@ select.form-control option,
    AUTHENTIFICATION & ÉCRAN DE CONNEXION STEvE_OS
    ========================================================================== */
 
+/* Contrôle d'affichage strict selon l'état d'authentification */
+body.not-authenticated .app-shell,
+body:not(.authenticated) .app-shell {
+  display: none !important;
+}
+
+body.not-authenticated .login-modal-overlay,
+body:not(.authenticated) .login-modal-overlay {
+  display: flex !important;
+}
+
+body.authenticated .login-modal-overlay {
+  display: none !important;
+}
+
+body.authenticated .app-shell {
+  display: block;
+}
+
 .login-modal-overlay {
   position: fixed;
   inset: 0;
   z-index: 100000;
-  background: radial-gradient(circle at 50% 30%, rgba(30, 30, 46, 0.98), #11111b 90%);
-  backdrop-filter: blur(20px);
+  background-color: #11111b;
+  background-image: 
+    radial-gradient(circle at 50% 15%, rgba(203, 166, 247, 0.1) 0%, transparent 60%),
+    radial-gradient(circle at 80% 80%, rgba(137, 180, 250, 0.06) 0%, transparent 50%),
+    radial-gradient(circle at 20% 85%, rgba(166, 227, 161, 0.05) 0%, transparent 50%);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
-  animation: fadeIn 0.3s ease-out;
+  overflow-y: auto;
+  animation: fadeIn 0.25s ease-out;
 }
 
 .login-card {
   width: 100%;
   max-width: 440px;
-  background: rgba(30, 30, 46, 0.85);
+  background: #181825;
   border: 1px solid rgba(203, 166, 247, 0.25);
   border-radius: var(--radius-xl);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6), 0 0 32px rgba(203, 166, 247, 0.1);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7), 0 0 32px rgba(203, 166, 247, 0.15);
   padding: 36px 32px;
   text-align: center;
   position: relative;

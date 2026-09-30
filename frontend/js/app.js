@@ -33,6 +33,9 @@ function getAuthToken() {
       localStorage.setItem(AUTH_TOKEN_KEY, qToken);
       sessionStorage.setItem(AUTH_TOKEN_KEY, qToken);
       document.cookie = `steveos_token=${qToken}; path=/; max-age=604800; SameSite=Lax`;
+      try {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } catch (e) {}
       return qToken;
     }
   } catch (e) {}
@@ -89,7 +92,8 @@ function clearAuthToken() {
   sessionStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(AUTH_TOKEN_KEY);
   try {
-    document.cookie = "steveos_token=; path=/; max-age=0";
+    document.cookie = "steveos_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
+    document.cookie = "steveos_auth_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
   } catch (e) {}
   currentUserSession = null;
 }
@@ -146,6 +150,8 @@ window.fetch = async function(...args) {
 
     clearAuthToken();
     updateUserSessionUI(null);
+    document.body.classList.remove("authenticated");
+    document.body.classList.add("not-authenticated");
     showLoginModal();
   }
 
@@ -7993,6 +7999,8 @@ async function checkAuthSession() {
         currentUserSession = data;
         if (data.home_dir) currentUserHome = data.home_dir;
         updateUserSessionUI(data);
+        document.body.classList.remove("not-authenticated");
+        document.body.classList.add("authenticated");
         hideLoginModal();
         if (!isAppInitialized) {
           isAppInitialized = true;
@@ -8008,10 +8016,14 @@ async function checkAuthSession() {
 
   clearAuthToken();
   updateUserSessionUI(null);
+  document.body.classList.remove("authenticated");
+  document.body.classList.add("not-authenticated");
   showLoginModal();
 }
 
 function showLoginModal() {
+  document.body.classList.remove("authenticated");
+  document.body.classList.add("not-authenticated");
   const modal = document.getElementById("login-modal");
   if (modal) {
     modal.style.display = "flex";
@@ -8096,6 +8108,8 @@ async function handleLoginSubmit(event) {
         is_admin: data.is_admin
       };
       updateUserSessionUI(currentUserSession);
+      document.body.classList.remove("not-authenticated");
+      document.body.classList.add("authenticated");
       hideLoginModal();
 
       if (!isAppInitialized) {
@@ -8126,6 +8140,13 @@ async function handleLoginSubmit(event) {
 
 async function logoutUser() {
   const token = getAuthToken();
+
+  // 1. Masquer immédiatement le dashboard et afficher l'écran de connexion
+  document.body.classList.remove("authenticated");
+  document.body.classList.add("not-authenticated");
+  showLoginModal();
+
+  // 2. Appel serveur de révocation
   if (token) {
     try {
       await originalFetch("/api/auth/logout", {
@@ -8137,10 +8158,19 @@ async function logoutUser() {
     } catch (_) {}
   }
 
+  // 3. Purge complète du stockage client et des cookies
   clearAuthToken();
   updateUserSessionUI(null);
-  showLoginModal();
-  showToast("Vous avez été déconnecté.", "info");
+
+  // 4. Nettoyage de l'URL (?token=...)
+  if (window.location.search) {
+    try {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } catch (e) {}
+  }
+
+  // 5. Redirection / Rechargement propre à la racine pour purger la mémoire, les intervals et le DOM
+  window.location.replace("/");
 }
 
 function togglePasswordVisibility() {
