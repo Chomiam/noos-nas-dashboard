@@ -789,3 +789,331 @@ pub fn get_image_info(path_str: &str) -> Result<ImageInfoResponse, String> {
 
     Ok(info)
 }
+
+
+// =========================================================================
+// 🗜️ MOTEUR D'ARCHIVAGE & COMPRESSION (ZIP, 7Z, TAR.*)
+// =========================================================================
+
+fn find_bin(candidates: &[&str]) -> String {
+    for b in candidates {
+        if std::path::Path::new(b).exists() {
+            return b.to_string();
+        }
+        if std::process::Command::new(b).arg("--version").output().is_ok() {
+            return b.to_string();
+        }
+    }
+    candidates[0].to_string()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CompressRequest {
+    pub sources: Vec<String>,
+    pub dest_dir: String,
+    pub archive_name: String,
+    pub format: String,
+    pub compression_level: String,
+    pub password: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExtractRequest {
+    pub archive_path: String,
+    pub dest_dir: String,
+    pub create_subfolder: bool,
+    pub password: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ArchiveInfoRequest {
+    pub archive_path: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ArchiveInfoResponse {
+    pub is_archive: bool,
+    pub format: String,
+    pub is_encrypted: bool,
+    pub file_count: Option<usize>,
+}
+
+pub fn get_archive_info(archive_path_str: &str) -> Result<ArchiveInfoResponse, String> {
+    let p = normalize_user_path(PathBuf::from(archive_path_str));
+    if !p.is_file() {
+        return Err("Fichier introuvable".into());
+    }
+
+    let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+    let format = if file_name.ends_with(".tar.gz") || file_name.ends_with(".tgz") {
+        "tar.gz".to_string()
+    } else if file_name.ends_with(".tar.xz") || file_name.ends_with(".txz") {
+        "tar.xz".to_string()
+    } else if file_name.ends_with(".tar.zst") || file_name.ends_with(".tzst") {
+        "tar.zst".to_string()
+    } else if file_name.ends_with(".tar.bz2") || file_name.ends_with(".tbz2") {
+        "tar.bz2".to_string()
+    } else if file_name.ends_with(".zip") {
+        "zip".to_string()
+    } else if file_name.ends_with(".7z") {
+        "7z".to_string()
+    } else if file_name.ends_with(".rar") {
+        "rar".to_string()
+    } else if file_name.ends_with(".tar") {
+        "tar".to_string()
+    } else {
+        "archive".to_string()
+    };
+
+    let mut is_encrypted = false;
+    let mut file_count = 0;
+
+    let p7z_bin = find_bin(&["/run/current-system/sw/bin/7z", "7z", "7za", "/nix/var/nix/profiles/default/bin/7z"]);
+    if let Ok(out) = std::process::Command::new(&p7z_bin)
+        .args(["l", "-slt", "-p", p.to_str().unwrap_or_default()])
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let combined = format!("{}\n{}", stdout, stderr);
+
+        if combined.contains("Encrypted = +") || combined.contains("Enter password") || combined.contains("Wrong password") {
+            is_encrypted = true;
+        }
+
+        for line in stdout.lines() {
+            if line.starts_with("Path = ") && !line.ends_with(p.to_str().unwrap_or_default()) {
+                file_count += 1;
+            }
+        }
+    }
+
+    Ok(ArchiveInfoResponse {
+        is_archive: true,
+        format,
+        is_encrypted,
+        file_count: if file_count > 0 { Some(file_count) } else { None },
+    })
+}
+
+pub fn compress_items(req: CompressRequest) -> Result<String, String> {
+    if req.sources.is_empty() {
+        return Err("Aucun fichier ou dossier sélectionné pour la compression".into());
+    }
+
+    let dest_dir = normalize_user_path(PathBuf::from(&req.dest_dir));
+    if !dest_dir.is_dir() {
+        return Err(format!("Le dossier de destination n'existe pas : {}", req.dest_dir));
+    }
+
+    let ext = match req.format.as_str() {
+        "zip" => ".zip",
+        "7z" => ".7z",
+        "tar.gz" | "tgz" => ".tar.gz",
+        "tar.xz" | "txz" => ".tar.xz",
+        "tar.zst" | "tzst" => ".tar.zst",
+        "tar" => ".tar",
+        _ => ".zip",
+    };
+
+    let mut clean_name = req.archive_name.trim().to_string();
+    if clean_name.is_empty() {
+        clean_name = "archive".to_string();
+    }
+    if !clean_name.to_lowercase().ends_with(ext) {
+        clean_name.push_str(ext);
+    }
+
+    let archive_path = dest_dir.join(&clean_name);
+
+    let mut resolved_sources = Vec::new();
+    let mut common_parent: Option<PathBuf> = None;
+
+    for s in &req.sources {
+        let p = normalize_user_path(PathBuf::from(s));
+        if !p.exists() {
+            return Err(format!("L'élément source n'existe pas : {}", s));
+        }
+        if common_parent.is_none() {
+            common_parent = p.parent().map(|d| d.to_path_buf());
+        }
+        resolved_sources.push(p);
+    }
+
+    let work_dir = common_parent.unwrap_or_else(|| dest_dir.clone());
+
+    let rel_items: Vec<String> = resolved_sources
+        .iter()
+        .map(|p| {
+            p.strip_prefix(&work_dir)
+                .map(|r| r.to_string_lossy().to_string())
+                .unwrap_or_else(|_| p.to_string_lossy().to_string())
+        })
+        .collect();
+
+    let p7z_bin = find_bin(&["/run/current-system/sw/bin/7z", "7z", "7za", "/nix/var/nix/profiles/default/bin/7z"]);
+    let zip_bin = find_bin(&["/run/current-system/sw/bin/zip", "zip", "/nix/var/nix/profiles/default/bin/zip"]);
+    let tar_bin = find_bin(&["/run/current-system/sw/bin/tar", "tar", "/nix/var/nix/profiles/default/bin/tar"]);
+
+    let level_num = match req.compression_level.as_str() {
+        "fast" => "1",
+        "max" => "9",
+        _ => "6",
+    };
+
+    let status = match req.format.as_str() {
+        "zip" => {
+            if let Some(ref pass) = req.password {
+                if !pass.trim().is_empty() {
+                    let mut cmd = std::process::Command::new(&p7z_bin);
+                    cmd.current_dir(&work_dir);
+                    cmd.args(["a", "-tzip", &format!("-p{}", pass.trim()), "-mem=AES256", &format!("-mx={}", level_num), archive_path.to_str().unwrap_or_default()]);
+                    for item in &rel_items {
+                        cmd.arg(item);
+                    }
+                    cmd.status()
+                } else {
+                    let mut cmd = std::process::Command::new(&zip_bin);
+                    cmd.current_dir(&work_dir);
+                    cmd.args(["-r", &format!("-{}", level_num), archive_path.to_str().unwrap_or_default()]);
+                    for item in &rel_items {
+                        cmd.arg(item);
+                    }
+                    cmd.status()
+                }
+            } else {
+                let mut cmd = std::process::Command::new(&zip_bin);
+                cmd.current_dir(&work_dir);
+                cmd.args(["-r", &format!("-{}", level_num), archive_path.to_str().unwrap_or_default()]);
+                for item in &rel_items {
+                    cmd.arg(item);
+                }
+                cmd.status()
+            }
+        }
+        "7z" => {
+            let mut cmd = std::process::Command::new(&p7z_bin);
+            cmd.current_dir(&work_dir);
+            cmd.args(["a", "-t7z", &format!("-mx={}", level_num)]);
+            if let Some(ref pass) = req.password {
+                if !pass.trim().is_empty() {
+                    cmd.arg(format!("-p{}", pass.trim()));
+                    cmd.arg("-mhe=on");
+                }
+            }
+            cmd.arg(archive_path.to_str().unwrap_or_default());
+            for item in &rel_items {
+                cmd.arg(item);
+            }
+            cmd.status()
+        }
+        "tar.gz" | "tgz" => {
+            let mut cmd = std::process::Command::new(&tar_bin);
+            cmd.current_dir(&work_dir);
+            cmd.args(["-czf", archive_path.to_str().unwrap_or_default()]);
+            for item in &rel_items {
+                cmd.arg(item);
+            }
+            cmd.status()
+        }
+        "tar.xz" | "txz" => {
+            let mut cmd = std::process::Command::new(&tar_bin);
+            cmd.current_dir(&work_dir);
+            cmd.args(["-cJf", archive_path.to_str().unwrap_or_default()]);
+            for item in &rel_items {
+                cmd.arg(item);
+            }
+            cmd.status()
+        }
+        "tar.zst" | "tzst" => {
+            let mut cmd = std::process::Command::new(&tar_bin);
+            cmd.current_dir(&work_dir);
+            cmd.args(["--zstd", "-cf", archive_path.to_str().unwrap_or_default()]);
+            for item in &rel_items {
+                cmd.arg(item);
+            }
+            cmd.status()
+        }
+        "tar" => {
+            let mut cmd = std::process::Command::new(&tar_bin);
+            cmd.current_dir(&work_dir);
+            cmd.args(["-cf", archive_path.to_str().unwrap_or_default()]);
+            for item in &rel_items {
+                cmd.arg(item);
+            }
+            cmd.status()
+        }
+        _ => return Err(format!("Format non supporté : {}", req.format)),
+    };
+
+    match status {
+        Ok(s) if s.success() => {
+            let user = std::env::var("STEVEOS_USER").unwrap_or_else(|_| "chomiam".to_string());
+            let _ = std::process::Command::new("chown").args([&format!("{}:users", user), archive_path.to_str().unwrap_or_default()]).output();
+            Ok(format!("Archive créée avec succès : {}", clean_name))
+        }
+        Ok(s) => Err(format!("Échec de la compression (code {})", s.code().unwrap_or(-1))),
+        Err(e) => Err(format!("Erreur lors de l'exécution de la commande de compression : {}", e)),
+    }
+}
+
+pub fn extract_archive(req: ExtractRequest) -> Result<String, String> {
+    let archive_path = normalize_user_path(PathBuf::from(&req.archive_path));
+    if !archive_path.is_file() {
+        return Err("Le fichier d'archive n'existe pas".into());
+    }
+
+    let mut dest_dir = normalize_user_path(PathBuf::from(&req.dest_dir));
+    if !dest_dir.is_dir() {
+        return Err(format!("Le dossier de destination n'existe pas : {}", req.dest_dir));
+    }
+
+    if req.create_subfolder {
+        let file_name = archive_path.file_name().and_then(|n| n.to_str()).unwrap_or("archive");
+        let subfolder_name = file_name
+            .trim_end_matches(".tar.gz")
+            .trim_end_matches(".tar.xz")
+            .trim_end_matches(".tar.zst")
+            .trim_end_matches(".tar.bz2")
+            .trim_end_matches(".tgz")
+            .trim_end_matches(".txz")
+            .trim_end_matches(".tzst")
+            .trim_end_matches(".zip")
+            .trim_end_matches(".7z")
+            .trim_end_matches(".rar")
+            .trim_end_matches(".tar");
+        
+        let target_subfolder = dest_dir.join(subfolder_name);
+        if !target_subfolder.exists() {
+            let _ = fs::create_dir_all(&target_subfolder);
+        }
+        dest_dir = target_subfolder;
+    }
+
+    let p7z_bin = find_bin(&["/run/current-system/sw/bin/7z", "7z", "7za", "/nix/var/nix/profiles/default/bin/7z"]);
+    let mut cmd = std::process::Command::new(&p7z_bin);
+    cmd.args(["x", "-y"]);
+    if let Some(ref pass) = req.password {
+        if !pass.trim().is_empty() {
+            cmd.arg(format!("-p{}", pass.trim()));
+        }
+    }
+    cmd.arg(format!("-o{}", dest_dir.to_str().unwrap_or_default()));
+    cmd.arg(archive_path.to_str().unwrap_or_default());
+
+    let out = cmd.output().map_err(|e| format!("Impossible d'exécuter 7z : {}", e))?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let combined = format!("{}\n{}", stdout, stderr);
+        if combined.contains("Wrong password") || combined.contains("Enter password") {
+            return Err("Mot de passe incorrect ou manquant pour extraire cette archive.".into());
+        }
+        return Err(format!("Échec de l'extraction : {}", stderr.trim()));
+    }
+
+    let user = std::env::var("STEVEOS_USER").unwrap_or_else(|_| "chomiam".to_string());
+    let _ = std::process::Command::new("chown").args(["-R", &format!("{}:users", user), dest_dir.to_str().unwrap_or_default()]).output();
+
+    Ok(format!("Archive extraite avec succès dans {}", dest_dir.display()))
+}

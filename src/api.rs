@@ -125,6 +125,9 @@ pub fn api_routes() -> Router {
         .route("/files/image-view", get(handle_files_image_view))
         .route("/files/image-info", get(handle_files_image_info))
         .route("/files/write", post(handle_files_write))
+        .route("/files/compress", post(handle_files_compress))
+        .route("/files/extract", post(handle_files_extract))
+        .route("/files/archive-info", post(handle_files_archive_info))
         .route("/files/trash", get(handle_trash_overview))
         .route("/files/trash/restore", post(handle_trash_restore))
         .route("/files/trash/delete", post(handle_trash_delete))
@@ -973,6 +976,57 @@ async fn handle_files_write(
         Ok(msg) => Json(ApiResponse {
             success: true,
             data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_files_compress(
+    Json(payload): Json<crate::files::CompressRequest>,
+) -> Json<ApiResponse<String>> {
+    match crate::files::compress_items(payload) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_files_extract(
+    Json(payload): Json<crate::files::ExtractRequest>,
+) -> Json<ApiResponse<String>> {
+    match crate::files::extract_archive(payload) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_files_archive_info(
+    Json(payload): Json<crate::files::ArchiveInfoRequest>,
+) -> Json<ApiResponse<crate::files::ArchiveInfoResponse>> {
+    match crate::files::get_archive_info(&payload.archive_path) {
+        Ok(info) => Json(ApiResponse {
+            success: true,
+            data: Some(info),
             message: None,
         }),
         Err(err) => Json(ApiResponse {

@@ -5996,3 +5996,180 @@ select.form-control option,
   word-break: break-all;
   line-height: 1.45;
 }
+
+
+/* ==========================================================================
+   MODULE FICHIERS : MULTI-SÉLECTION & GESTION D'ARCHIVES (.ZIP, .7Z, .TAR)
+   ========================================================================== */
+
+/* Barre flottante d'action contextuelle multi-sélection */
+.files-selection-bar {
+  position: absolute;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(24, 24, 37, 0.95);
+  border: 1px solid rgba(203, 166, 247, 0.45);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65), 0 0 20px rgba(203, 166, 247, 0.15);
+  backdrop-filter: blur(14px);
+  border-radius: var(--radius-lg);
+  padding: 8px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  z-index: 100;
+  animation: slideUpFadeSelection 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUpFadeSelection {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 15px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+.files-sel-info {
+  display: flex;
+  align-items: center;
+}
+
+.files-sel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Checkboxes de sélection sur les cartes de fichiers */
+.file-card-select {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  z-index: 6;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: all 0.18s ease;
+  background: rgba(17, 17, 27, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.file-card:hover .file-card-select,
+.file-card.selected .file-card-select {
+  opacity: 1;
+}
+
+.file-card.selected .file-card-select {
+  border-color: var(--mauve);
+  background: rgba(203, 166, 247, 0.25);
+}
+
+.file-card-checkbox,
+.file-table-checkbox {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: var(--mauve);
+  pointer-events: none;
+  margin: 0;
+}
+
+/* Grille de sélection des formats d'archive */
+.archive-format-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .archive-format-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.archive-format-card {
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  user-select: none;
+}
+
+.archive-format-card:hover {
+  background: var(--surface0);
+  border-color: rgba(203, 166, 247, 0.4);
+}
+
+.archive-format-card.active {
+  background: rgba(203, 166, 247, 0.14);
+  border-color: var(--mauve);
+  box-shadow: 0 0 12px rgba(203, 166, 247, 0.22);
+}
+
+.archive-format-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.archive-format-header strong {
+  font-size: 0.84rem;
+  color: var(--text);
+}
+
+.archive-format-desc {
+  font-size: 0.71rem;
+  color: var(--subtext0);
+  line-height: 1.35;
+}
+
+/* Pilules de sélection du taux de compression */
+.compress-level-pills {
+  display: flex;
+  gap: 8px;
+}
+
+.compress-level-pill {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  color: var(--subtext0);
+  cursor: pointer;
+  transition: all 0.18s ease;
+  user-select: none;
+}
+
+.compress-level-pill input[type="radio"] {
+  display: none;
+}
+
+.compress-level-pill:hover {
+  background: var(--surface0);
+  color: var(--text);
+}
+
+.compress-level-pill.active {
+  background: rgba(203, 166, 247, 0.16);
+  border-color: var(--mauve);
+  color: var(--text);
+  font-weight: 600;
+}

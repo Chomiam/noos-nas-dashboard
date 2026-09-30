@@ -582,6 +582,7 @@
             <table class="files-table-view" id="files-table-wrap" style="display:none;">
               <thead>
                 <tr>
+                  <th style="width:36px; text-align:center;"><input type="checkbox" id="files-select-all" class="file-table-checkbox" onclick="toggleSelectAllFiles(event)" title="Tout sélectionner / désélectionner"></th>
                   <th>Nom</th>
                   <th>Taille</th>
                   <th>Date de modification</th>
@@ -590,6 +591,30 @@
               </thead>
               <tbody id="files-table-tbody"></tbody>
             </table>
+
+            <!-- Barre flottante contextuelle pour multi-sélection -->
+            <div class="files-selection-bar" id="files-selection-bar" style="display:none;">
+              <div class="files-sel-info">
+                <span class="badge badge-accent" id="files-sel-count">0 sélectionné</span>
+              </div>
+              <div class="files-sel-actions">
+                <button type="button" class="btn btn-primary btn-xs" onclick="showCompressModal()" title="Compresser les éléments sélectionnés dans une archive">
+                  <span>🗜️</span> Compresser...
+                </button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="triggerMultiCopy()" title="Copier les éléments sélectionnés">
+                  <span>📋</span> Copier
+                </button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="triggerMultiCut()" title="Couper les éléments sélectionnés">
+                  <span>✂️</span> Couper
+                </button>
+                <button type="button" class="btn btn-danger btn-xs" onclick="triggerMultiDelete()" title="Supprimer les éléments sélectionnés">
+                  <span>🗑️</span> Supprimer
+                </button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="clearFileSelection()" title="Désélectionner tout">
+                  <span>✕</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- Barre d'état -->
@@ -1845,11 +1870,20 @@
   <div class="toast-container" id="toast-container"></div>
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20260930_09"></script>
+  <script src="/js/app.js?v=20260930_10"></script>
   <!-- MENU CONTEXTUEL CLIC DROIT -->
   <div class="context-menu" id="files-context-menu">
     <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">
       <span>📂</span> Ouvrir
+    </div>
+    <div class="context-menu-item" onclick="triggerFileAction('extract-here')" id="ctx-extract-here" style="display:none;">
+      <span>📦</span> Extraire ici
+    </div>
+    <div class="context-menu-item" onclick="triggerFileAction('extract-to')" id="ctx-extract-to" style="display:none;">
+      <span>📂</span> Extraire vers...
+    </div>
+    <div class="context-menu-item" onclick="triggerFileAction('compress')" id="ctx-compress">
+      <span>🗜️</span> Compresser...
     </div>
         <div class="context-menu-item" onclick="triggerFileAction('view-doc')" id="ctx-view-doc" style="display:none;">
       <span>📑</span> Visualiser le document (Bureautique & PDF)
@@ -3376,6 +3410,285 @@
 
       <div style="display:flex; justify-content:flex-end; padding:14px 20px; background:var(--mantle); border-top:1px solid rgba(255,255,255,0.08); border-radius:0 0 var(--radius-lg) var(--radius-lg);">
         <button type="button" class="btn btn-secondary btn-sm" onclick="closeGpuInfoModal()">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODALE COMPRESSION D'ARCHIVES ================= -->
+  <div class="file-modal-overlay" id="modal-compress" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-compress')">
+    <div class="file-modal-window format-window" style="max-width: 620px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(203, 166, 247, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-accent" style="font-size:0.75rem; font-weight:800;">ARCHIVAGE</span>
+          <span class="file-modal-title">Compresser les fichiers</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeCompressModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:20px;">
+        <div class="storage-modal-infobox" style="margin-bottom:16px;">
+          <span class="infobox-icon">🗜️</span>
+          <div class="infobox-text">
+            <span id="compress-summary-count">0 élément(s) sélectionné(s)</span>
+            <div id="compress-items-list" style="margin-top:6px; font-size:0.75rem; color:var(--subtext0); max-height:60px; overflow-y:auto; font-family:var(--font-mono);"></div>
+          </div>
+        </div>
+
+        <!-- Nom de l'archive -->
+        <div class="form-group" style="margin-bottom:16px;">
+          <label class="form-label">
+            <span>Nom de l'archive</span>
+            <span class="label-tag">Nom du fichier</span>
+          </label>
+          <div class="input-with-icon">
+            <span class="input-icon-prefix">📦</span>
+            <input type="text" id="compress-archive-name" class="form-control font-mono" placeholder="archive.zip">
+          </div>
+        </div>
+
+        <!-- Format de compression -->
+        <div class="form-group" style="margin-bottom:16px;">
+          <label class="form-label">
+            <span>Format de compression</span>
+            <span class="label-tag">Format</span>
+          </label>
+          <div class="archive-format-grid" id="compress-format-grid">
+            <div class="archive-format-card active" data-format="zip" onclick="selectCompressFormat('zip')">
+              <div class="archive-format-header">
+                <strong>ZIP</strong>
+                <span class="badge badge-success" style="font-size:0.65rem;">Universel</span>
+              </div>
+              <div class="archive-format-desc">Compatible Windows, macOS, Linux, Android et NAS.</div>
+            </div>
+            <div class="archive-format-card" data-format="7z" onclick="selectCompressFormat('7z')">
+              <div class="archive-format-header">
+                <strong>7-Zip (.7z)</strong>
+                <span class="badge badge-accent" style="font-size:0.65rem;">Max Ratio</span>
+              </div>
+              <div class="archive-format-desc">Algorithme LZMA2. Compression maximale et sécurité AES-256.</div>
+            </div>
+            <div class="archive-format-card" data-format="tar.gz" onclick="selectCompressFormat('tar.gz')">
+              <div class="archive-format-header">
+                <strong>TAR.GZ</strong>
+                <span class="badge badge-primary" style="font-size:0.65rem;">Standard Linux</span>
+              </div>
+              <div class="archive-format-desc">Archive tarball compressée en Gzip. Idéal pour serveurs.</div>
+            </div>
+            <div class="archive-format-card" data-format="tar.xz" onclick="selectCompressFormat('tar.xz')">
+              <div class="archive-format-header">
+                <strong>TAR.XZ</strong>
+                <span class="badge badge-warning" style="font-size:0.65rem;">Haute Comp.</span>
+              </div>
+              <div class="archive-format-desc">Archive tarball XZ. Taux très élevé pour sauvegardes.</div>
+            </div>
+            <div class="archive-format-card" data-format="tar.zst" onclick="selectCompressFormat('tar.zst')">
+              <div class="archive-format-header">
+                <strong>TAR.ZST</strong>
+                <span class="badge badge-accent" style="font-size:0.65rem;">Zstandard</span>
+              </div>
+              <div class="archive-format-desc">Compression Facebook Zstandard en temps réel ultra-rapide.</div>
+            </div>
+            <div class="archive-format-card" data-format="tar" onclick="selectCompressFormat('tar')">
+              <div class="archive-format-header">
+                <strong>TAR</strong>
+                <span class="badge badge-secondary" style="font-size:0.65rem;">Non compressé</span>
+              </div>
+              <div class="archive-format-desc">Regroupement direct sans compression (ultra rapide).</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Taux de compression -->
+        <div class="form-group" style="margin-bottom:16px;">
+          <label class="form-label">
+            <span>Taux de compression</span>
+            <span class="label-tag">Algorithme</span>
+          </label>
+          <div class="compress-level-pills">
+            <label class="compress-level-pill" id="pill-level-fast" onclick="selectCompressLevel('fast')">
+              <input type="radio" name="compress-level" value="fast">
+              <span>⚡ Rapide</span>
+            </label>
+            <label class="compress-level-pill active" id="pill-level-normal" onclick="selectCompressLevel('normal')">
+              <input type="radio" name="compress-level" value="normal" checked>
+              <span>⚖️ Normal (Équilibré)</span>
+            </label>
+            <label class="compress-level-pill" id="pill-level-maximum" onclick="selectCompressLevel('maximum')">
+              <input type="radio" name="compress-level" value="maximum">
+              <span>🗜️ Maximum</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Chiffrement par mot de passe -->
+        <div class="form-group" style="margin-bottom:16px;" id="compress-password-group">
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.86rem; color:var(--text); margin-bottom:8px;">
+            <input type="checkbox" id="compress-enable-password" onchange="toggleCompressPasswordField()" style="accent-color:var(--mauve); width:18px; height:18px;">
+            <span style="font-weight:600;">🔒 Protéger par mot de passe (Chiffrement AES-256)</span>
+          </label>
+          <div id="compress-password-input-wrap" style="display:none; margin-top:8px;">
+            <div class="input-with-icon" style="position:relative;">
+              <span class="input-icon-prefix">🔑</span>
+              <input type="password" id="compress-password" class="form-control" placeholder="Mot de passe de protection de l'archive" style="padding-right:44px;">
+              <button type="button" onclick="togglePasswordVisibility('compress-password', this)" style="position:absolute; right:12px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--subtext0); cursor:pointer; font-size:1.1rem;" title="Afficher/Masquer le mot de passe">👁️</button>
+            </div>
+            <small class="form-hint" style="margin-top:4px;">Chiffrement robuste AES-256 supporté nativement pour ZIP et 7-Zip.</small>
+          </div>
+        </div>
+
+        <!-- Destination -->
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">
+            <span>Dossier de destination</span>
+            <span class="label-tag">Cible</span>
+          </label>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.84rem; color:var(--text);">
+              <input type="radio" name="compress-dest-mode" value="current" checked onchange="toggleCompressDestCustom(false)">
+              <span>Dans le dossier actuel (<code id="compress-current-dest-path" style="color:var(--mauve); font-size:0.78rem;">/</code>)</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.84rem; color:var(--text);">
+              <input type="radio" name="compress-dest-mode" value="custom" onchange="toggleCompressDestCustom(true)">
+              <span>Dossier personnalisé</span>
+            </label>
+            <div id="compress-custom-dest-wrap" style="display:none; margin-top:4px;">
+              <div class="input-with-icon">
+                <span class="input-icon-prefix">📂</span>
+                <input type="text" id="compress-custom-dest" class="form-control font-mono" placeholder="/chemin/vers/dossier">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 20px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeCompressModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-compress" onclick="submitCompress()">
+          <span>🗜️</span> Créer l'archive
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODALE EXTRACTION D'ARCHIVE ================= -->
+  <div class="file-modal-overlay" id="modal-extract" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-extract')">
+    <div class="file-modal-window format-window" style="max-width: 580px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(137, 180, 250, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-primary" style="font-size:0.75rem; font-weight:800;">EXTRACTION</span>
+          <span class="file-modal-title">Extraire l'archive</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeExtractModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:20px;">
+        <input type="hidden" id="extract-archive-path">
+        
+        <div class="storage-modal-infobox" style="margin-bottom:16px;">
+          <span class="infobox-icon">📦</span>
+          <div class="infobox-text">
+            <div>Archive : <strong id="extract-archive-name" style="color:var(--text);">archive.zip</strong></div>
+            <div id="extract-archive-info-text" style="font-size:0.78rem; color:var(--subtext0); margin-top:2px;">Format détecté</div>
+          </div>
+        </div>
+
+        <!-- Destination -->
+        <div class="form-group" style="margin-bottom:16px;">
+          <label class="form-label">
+            <span>Dossier de destination</span>
+            <span class="label-tag">Cible</span>
+          </label>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.84rem; color:var(--text);">
+              <input type="radio" name="extract-dest-mode" value="current" checked onchange="toggleExtractDestCustom(false)">
+              <span>Dans le dossier actuel (<code id="extract-current-dest-path" style="color:var(--blue); font-size:0.78rem;">/</code>)</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.84rem; color:var(--text);">
+              <input type="radio" name="extract-dest-mode" value="custom" onchange="toggleExtractDestCustom(true)">
+              <span>Dossier personnalisé</span>
+            </label>
+            <div id="extract-custom-dest-wrap" style="display:none; margin-top:4px;">
+              <div class="input-with-icon">
+                <span class="input-icon-prefix">📂</span>
+                <input type="text" id="extract-custom-dest" class="form-control font-mono" placeholder="/chemin/vers/dossier">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Option sous-dossier -->
+        <div class="form-group" style="margin-bottom:16px;">
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.86rem; color:var(--text);">
+            <input type="checkbox" id="extract-create-subfolder" checked style="accent-color:var(--blue); width:18px; height:18px;">
+            <span>Créer un sous-dossier portant le nom de l'archive</span>
+          </label>
+          <small class="form-hint" style="margin-top:4px; margin-left:28px;">Évite d'éparpiller les fichiers extraits dans le dossier parent.</small>
+        </div>
+
+        <!-- Mot de passe si chiffré -->
+        <div class="form-group" style="margin-bottom:0;" id="extract-password-group">
+          <label class="form-label">
+            <span>Mot de passe (facultatif si archive non chiffrée)</span>
+            <span class="label-tag">Protection</span>
+          </label>
+          <div class="input-with-icon" style="position:relative;">
+            <span class="input-icon-prefix">🔑</span>
+            <input type="password" id="extract-password" class="form-control" placeholder="Laisser vide si non chiffré" style="padding-right:44px;">
+            <button type="button" onclick="togglePasswordVisibility('extract-password', this)" style="position:absolute; right:12px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--subtext0); cursor:pointer; font-size:1.1rem;" title="Afficher/Masquer le mot de passe">👁️</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 20px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeExtractModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-extract" onclick="submitExtract()">
+          <span>📦</span> Extraire
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODALE ARCHIVE PROTÉGÉE PAR MOT DE PASSE ================= -->
+  <div class="file-modal-overlay" id="modal-archive-password" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-archive-password')">
+    <div class="file-modal-window format-window" style="max-width: 480px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(243, 139, 168, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-danger" style="font-size:0.75rem; font-weight:800;">CHIFFREMENT</span>
+          <span class="file-modal-title">Archive protégée</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeArchivePasswordModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:20px;">
+        <input type="hidden" id="pwd-prompt-archive-path">
+        <input type="hidden" id="pwd-prompt-dest-path">
+        <input type="hidden" id="pwd-prompt-subfolder">
+
+        <div class="storage-modal-infobox" style="margin-bottom:16px;">
+          <span class="infobox-icon">🔒</span>
+          <div class="infobox-text">
+            L'archive <strong id="pwd-prompt-archive-name" style="color:var(--text);">archive.zip</strong> est protégée par un mot de passe.
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">
+            <span>Mot de passe de l'archive</span>
+            <span class="label-tag">Requis</span>
+          </label>
+          <div class="input-with-icon" style="position:relative;">
+            <span class="input-icon-prefix">🔑</span>
+            <input type="password" id="pwd-prompt-input" class="form-control" placeholder="Entrez le mot de passe" style="padding-right:44px;" onkeydown="if(event.key==='Enter') submitArchivePasswordPrompt()">
+            <button type="button" onclick="togglePasswordVisibility('pwd-prompt-input', this)" style="position:absolute; right:12px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--subtext0); cursor:pointer; font-size:1.1rem;" title="Afficher/Masquer le mot de passe">👁️</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 20px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeArchivePasswordModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-pwd-prompt" onclick="submitArchivePasswordPrompt()">
+          <span>🔓</span> Déverrouiller &amp; Extraire
+        </button>
       </div>
     </div>
   </div>

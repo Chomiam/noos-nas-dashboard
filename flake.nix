@@ -102,6 +102,14 @@
                 libreoffice-still
                 curl
                 docker
+                zip
+                unzip
+                p7zip
+                gnutar
+                gzip
+                bzip2
+                xz
+                zstd
               ];
               environment = {
                 STEVEOS_PORT = toString cfg.port;

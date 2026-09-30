@@ -2199,12 +2199,17 @@ let selectedTrashItem = null;
 let currentFolderParent = null;
 let currentEntries = [];
 let fileViewMode = "grid";
-let fileClipboard = null; // { action: 'copy' | 'cut', path: string, name: string }
+let fileClipboard = null; // { action: 'copy' | 'cut', path: string, name: string, paths?: string[] }
 let selectedFileItem = null;
+let selectedFilePaths = new Set();
+let lastSelectedFilePath = null;
+let currentCompressFormat = "zip";
+let currentCompressLevel = "normal";
 
 async function navigateToPath(targetPath) {
   isTrashView = false;
   selectedTrashItem = null;
+  clearFileSelection();
   const normalTb = document.getElementById("files-toolbar-normal");
   const trashTb = document.getElementById("files-toolbar-trash");
   if (normalTb) normalTb.style.display = "flex";
@@ -2285,6 +2290,11 @@ function updateFilesBreadcrumbs(path) {
   container.innerHTML = html;
 }
 
+function isArchiveFile(fileName) {
+  if (!fileName) return false;
+  return /\.(zip|7z|tar\.gz|tgz|tar\.bz2|tbz2|tar\.xz|txz|tar\.zst|tzst|tar|rar|iso|gz|bz2|xz|zst)$/i.test(fileName);
+}
+
 function renderFilesList(entries) {
   const gridWrap = document.getElementById("files-grid-wrap");
   const tableBody = document.getElementById("files-table-tbody");
@@ -2296,12 +2306,14 @@ function renderFilesList(entries) {
   if (entries.length === 0) {
     const emptyHtml = `<div style="grid-column:1/-1; padding:40px; text-align:center; color:var(--subtext0);">📁 Dossier vide</div>`;
     gridWrap.innerHTML = emptyHtml;
-    tableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--subtext0); padding:30px;">📁 Dossier vide</td></tr>`;
+    tableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--subtext0); padding:30px;">📁 Dossier vide</td></tr>`;
+    updateSelectionUI();
     return;
   }
 
   // Rendu Grille
   gridWrap.innerHTML = entries.map(item => {
+    const isSelected = selectedFilePaths.has(item.path);
     const icon = getFileIcon(item);
     let cardPreview = `<div class="file-card-icon">${icon}</div>`;
     if (isImageFile(item.name, item.category)) {
@@ -2309,11 +2321,14 @@ function renderFilesList(entries) {
       cardPreview = `<div class="file-card-icon file-card-img-preview" style="width:100%; height:80px; max-height:80px; overflow:hidden; border-radius:6px; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.35);"><img src="${thumbUrl}" loading="lazy" alt="${escapeHtml(item.name)}" style="width:100%; height:100%; max-width:100%; max-height:100%; object-fit:cover; display:block; border-radius:5px;" onerror="this.onerror=null; this.parentElement.className='file-card-icon'; this.parentElement.style='width:100%; height:80px; display:flex; align-items:center; justify-content:center; font-size:2.4rem;'; this.parentElement.innerHTML='${icon}';"></div>`;
     }
     return `
-      <div class="file-card" style="min-width:0; overflow:hidden;"
+      <div class="file-card ${isSelected ? 'selected' : ''}" style="min-width:0; overflow:hidden;"
            data-path="${escapeHtml(item.path)}"
            onclick="handleFileClick(event, '${escapeHtml(item.path)}', ${item.is_dir})"
            ondblclick="handleFileDblClick('${escapeHtml(item.path)}', ${item.is_dir})"
            oncontextmenu="handleItemContextMenu(event, '${escapeHtml(item.path)}')">
+        <div class="file-card-select" onclick="handleCardCheckboxClick(event, '${escapeHtml(item.path)}')" title="Sélectionner">
+          <input type="checkbox" class="file-card-checkbox" ${isSelected ? 'checked' : ''} tabindex="-1">
+        </div>
         ${cardPreview}
         <div class="file-card-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
         <div class="file-card-meta">${escapeHtml(item.size_human)}</div>
@@ -2323,12 +2338,17 @@ function renderFilesList(entries) {
 
   // Rendu Liste / Table
   tableBody.innerHTML = entries.map(item => {
+    const isSelected = selectedFilePaths.has(item.path);
     const icon = getFileIcon(item);
     return `
       <tr data-path="${escapeHtml(item.path)}"
+          class="${isSelected ? 'selected' : ''}"
           onclick="handleFileClick(event, '${escapeHtml(item.path)}', ${item.is_dir})"
           ondblclick="handleFileDblClick('${escapeHtml(item.path)}', ${item.is_dir})"
           oncontextmenu="handleItemContextMenu(event, '${escapeHtml(item.path)}')">
+        <td style="width:36px; text-align:center;" onclick="handleRowCheckboxClick(event, '${escapeHtml(item.path)}')" title="Sélectionner">
+          <input type="checkbox" class="file-table-checkbox" ${isSelected ? 'checked' : ''} tabindex="-1">
+        </td>
         <td>
           <span style="font-size:1.1rem; margin-right:8px;">${icon}</span>
           <strong style="color:var(--text);">${escapeHtml(item.name)}</strong>
@@ -2348,6 +2368,8 @@ function renderFilesList(entries) {
     gridContainer.style.display = "none";
     tableContainer.style.display = "table";
   }
+
+  updateSelectionUI();
 }
 
 function isDocumentFile(fileName, category) {
@@ -2361,6 +2383,7 @@ function isDocumentFile(fileName, category) {
 function getFileIcon(item) {
   if (item.is_dir) return "📁";
   const name = item.name.toLowerCase();
+  if (isArchiveFile(name)) return "📦";
   if (/\.(nef|nrw|cr2|cr3|crw|arw|srf|sr2|dng|raf|rw2|orf|pef|3fr|raw)$/i.test(name)) return "📷";
   if (/\.(heic|heif|hif)$/i.test(name)) return "📱";
   if (/\.(pcx|tga|targa|dds)$/i.test(name)) return "🎨";
@@ -2381,11 +2404,114 @@ function getFileIcon(item) {
 
 function handleFileClick(e, path, isDir) {
   e.stopPropagation();
-  selectedFileItem = currentEntries.find(i => i.path === path) || null;
 
-  document.querySelectorAll(".file-card, .files-table-view tr").forEach(el => {
-    el.classList.toggle("selected", el.getAttribute("data-path") === path);
+  if (e.ctrlKey || e.metaKey) {
+    if (selectedFilePaths.has(path)) {
+      selectedFilePaths.delete(path);
+    } else {
+      selectedFilePaths.add(path);
+      lastSelectedFilePath = path;
+    }
+  } else if (e.shiftKey && lastSelectedFilePath && currentEntries.length > 0) {
+    const idx1 = currentEntries.findIndex(i => i.path === lastSelectedFilePath);
+    const idx2 = currentEntries.findIndex(i => i.path === path);
+    if (idx1 !== -1 && idx2 !== -1) {
+      const min = Math.min(idx1, idx2);
+      const max = Math.max(idx1, idx2);
+      for (let i = min; i <= max; i++) {
+        selectedFilePaths.add(currentEntries[i].path);
+      }
+    } else {
+      selectedFilePaths.add(path);
+    }
+    lastSelectedFilePath = path;
+  } else {
+    selectedFilePaths.clear();
+    selectedFilePaths.add(path);
+    lastSelectedFilePath = path;
+  }
+
+  selectedFileItem = currentEntries.find(i => i.path === path) || null;
+  updateSelectionUI();
+}
+
+function handleCardCheckboxClick(e, path) {
+  e.stopPropagation();
+  if (selectedFilePaths.has(path)) {
+    selectedFilePaths.delete(path);
+  } else {
+    selectedFilePaths.add(path);
+    lastSelectedFilePath = path;
+  }
+  selectedFileItem = currentEntries.find(i => i.path === path) || null;
+  updateSelectionUI();
+}
+
+function handleRowCheckboxClick(e, path) {
+  e.stopPropagation();
+  if (selectedFilePaths.has(path)) {
+    selectedFilePaths.delete(path);
+  } else {
+    selectedFilePaths.add(path);
+    lastSelectedFilePath = path;
+  }
+  selectedFileItem = currentEntries.find(i => i.path === path) || null;
+  updateSelectionUI();
+}
+
+function toggleSelectAllFiles(e) {
+  if (e && e.stopPropagation) e.stopPropagation();
+  if (selectedFilePaths.size === currentEntries.length && currentEntries.length > 0) {
+    clearFileSelection();
+  } else {
+    selectAllFiles();
+  }
+}
+
+function selectAllFiles() {
+  currentEntries.forEach(i => selectedFilePaths.add(i.path));
+  updateSelectionUI();
+}
+
+function clearFileSelection() {
+  selectedFilePaths.clear();
+  lastSelectedFilePath = null;
+  updateSelectionUI();
+}
+
+function updateSelectionUI() {
+  document.querySelectorAll(".file-card").forEach(el => {
+    const p = el.getAttribute("data-path");
+    const isSel = selectedFilePaths.has(p);
+    el.classList.toggle("selected", isSel);
+    const chk = el.querySelector(".file-card-checkbox");
+    if (chk) chk.checked = isSel;
   });
+
+  document.querySelectorAll(".files-table-view tbody tr").forEach(el => {
+    const p = el.getAttribute("data-path");
+    const isSel = selectedFilePaths.has(p);
+    el.classList.toggle("selected", isSel);
+    const chk = el.querySelector(".file-table-checkbox");
+    if (chk) chk.checked = isSel;
+  });
+
+  const allBox = document.getElementById("files-select-all");
+  if (allBox) {
+    allBox.checked = currentEntries.length > 0 && selectedFilePaths.size === currentEntries.length;
+    allBox.indeterminate = selectedFilePaths.size > 0 && selectedFilePaths.size < currentEntries.length;
+  }
+
+  const bar = document.getElementById("files-selection-bar");
+  const countEl = document.getElementById("files-sel-count");
+  if (bar && countEl) {
+    if (selectedFilePaths.size > 0) {
+      bar.style.display = "flex";
+      countEl.textContent = `${selectedFilePaths.size} élément${selectedFilePaths.size > 1 ? "s" : ""} sélectionné${selectedFilePaths.size > 1 ? "s" : ""}`;
+    } else {
+      bar.style.display = "none";
+    }
+  }
 }
 
 function isNvimEditableFile(fileName, category) {
@@ -2416,7 +2542,9 @@ function handleFileDblClick(path, isDir) {
     const fileName = item ? item.name : path.split("/").pop();
     const cat = item ? item.category : "";
 
-    if (isImageFile(fileName, cat)) {
+    if (isArchiveFile(fileName)) {
+      showExtractModal(path, fileName);
+    } else if (isImageFile(fileName, cat)) {
       openImageModal(path, fileName, item);
     } else if (isDocumentFile(fileName, cat)) {
       openDocModal(path, fileName, item);
@@ -2494,6 +2622,13 @@ function handleItemContextMenu(e, path) {
     return;
   }
 
+  if (!selectedFilePaths.has(path)) {
+    selectedFilePaths.clear();
+    selectedFilePaths.add(path);
+    lastSelectedFilePath = path;
+    updateSelectionUI();
+  }
+
   selectedFileItem = currentEntries.find(i => i.path === path) || null;
 
   const menu = document.getElementById("files-context-menu");
@@ -2506,9 +2641,24 @@ function handleItemContextMenu(e, path) {
   const ctxEdit = document.getElementById("ctx-edit-nvim");
   const ctxPlay = document.getElementById("ctx-play-video");
   const ctxAudio = document.getElementById("ctx-play-audio");
+  const ctxCompress = document.getElementById("ctx-compress");
+  const ctxExtractHere = document.getElementById("ctx-extract-here");
+  const ctxExtractTo = document.getElementById("ctx-extract-to");
 
   if (ctxOpen) ctxOpen.style.display = selectedFileItem && selectedFileItem.is_dir ? "flex" : "none";
   if (ctxPaste) ctxPaste.classList.toggle("disabled", !fileClipboard);
+
+  const isArchive = selectedFileItem && !selectedFileItem.is_dir && isArchiveFile(selectedFileItem.name);
+  if (ctxCompress) {
+    ctxCompress.style.display = "flex";
+    if (selectedFilePaths.size > 1) {
+      ctxCompress.innerHTML = `<span>🗜️</span> Compresser (${selectedFilePaths.size})...`;
+    } else {
+      ctxCompress.innerHTML = `<span>🗜️</span> Compresser...`;
+    }
+  }
+  if (ctxExtractHere) ctxExtractHere.style.display = (isArchive && selectedFilePaths.size <= 1) ? "flex" : "none";
+  if (ctxExtractTo) ctxExtractTo.style.display = (isArchive && selectedFilePaths.size <= 1) ? "flex" : "none";
 
   const isVideo = selectedFileItem && !selectedFileItem.is_dir &&
     (selectedFileItem.category === "video" || /\.(mp4|mkv|webm|avi|mov|m4v|flv)$/i.test(selectedFileItem.name));
@@ -2603,6 +2753,22 @@ async function triggerFileAction(action) {
     case "open":
       if (selectedFileItem && selectedFileItem.is_dir) {
         navigateToPath(selectedFileItem.path);
+      }
+      break;
+
+    case "compress":
+      showCompressModal();
+      break;
+
+    case "extract-here":
+      if (selectedFileItem) {
+        extractArchiveDirect(selectedFileItem.path, selectedFileItem.name);
+      }
+      break;
+
+    case "extract-to":
+      if (selectedFileItem) {
+        showExtractModal(selectedFileItem.path, selectedFileItem.name);
       }
       break;
 
@@ -2775,29 +2941,37 @@ async function pasteClipboardItem() {
   if (!fileClipboard) return;
 
   const endpoint = fileClipboard.action === "cut" ? "/api/files/move" : "/api/files/copy";
+  const paths = fileClipboard.paths || (fileClipboard.path ? [fileClipboard.path] : []);
+  if (paths.length === 0) return;
+
   showToast(`${fileClipboard.action === 'cut' ? 'Déplacement' : 'Copie'} de ${fileClipboard.name}...`, "info");
 
-  try {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        src_path: fileClipboard.path,
-        dest_dir: currentFolderPath
-      })
-    });
-    const json = await res.json();
-    if (json.success) {
-      showToast(json.message || "Opération terminée avec succès !", "success");
-      if (fileClipboard.action === "cut") {
-        fileClipboard = null;
-      }
-      refreshCurrentFolder();
-    } else {
-      showToast(json.message || "Erreur lors du collage", "error");
+  let successCount = 0;
+  for (const src of paths) {
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          src_path: src,
+          dest_dir: currentFolderPath
+        })
+      });
+      const json = await res.json();
+      if (json.success) successCount++;
+    } catch (err) {
+      console.error(err);
     }
-  } catch (err) {
-    showToast("Erreur réseau : " + err, "error");
+  }
+
+  if (successCount > 0) {
+    showToast(`${successCount}/${paths.length} élément(s) collé(s) avec succès !`, "success");
+    if (fileClipboard.action === "cut") {
+      fileClipboard = null;
+    }
+    refreshCurrentFolder();
+  } else {
+    showToast("Erreur lors du collage", "error");
   }
 }
 
@@ -3932,6 +4106,536 @@ function closeMpvModal() {
   if (modal) modal.style.display = "none";
 }
 
+
+// ==========================================================================
+// FONCTIONS DE GESTION DES ARCHIVES & MULTI-SÉLECTION
+// ==========================================================================
+
+function togglePasswordVisibility(inputId, btnEl) {
+  const inp = document.getElementById(inputId);
+  if (!inp) return;
+  if (inp.type === "password") {
+    inp.type = "text";
+    if (btnEl) btnEl.textContent = "🙈";
+  } else {
+    inp.type = "password";
+    if (btnEl) btnEl.textContent = "👁️";
+  }
+}
+
+function triggerMultiCopy() {
+  if (selectedFilePaths.size === 0) return;
+  const paths = Array.from(selectedFilePaths);
+  fileClipboard = {
+    action: "copy",
+    paths: paths,
+    path: paths[0],
+    name: `${paths.length} élément(s)`
+  };
+  showToast(`${paths.length} élément(s) copié(s) dans le presse-papiers`, "info");
+  updateFilesStatusBar(currentEntries.length, 0);
+}
+
+function triggerMultiCut() {
+  if (selectedFilePaths.size === 0) return;
+  const paths = Array.from(selectedFilePaths);
+  fileClipboard = {
+    action: "cut",
+    paths: paths,
+    path: paths[0],
+    name: `${paths.length} élément(s)`
+  };
+  showToast(`${paths.length} élément(s) coupé(s) dans le presse-papiers`, "info");
+  updateFilesStatusBar(currentEntries.length, 0);
+}
+
+async function triggerMultiDelete() {
+  if (selectedFilePaths.size === 0) return;
+  const count = selectedFilePaths.size;
+  if (!confirm(`Voulez-vous déplacer ces ${count} élément(s) vers la corbeille ?`)) {
+    return;
+  }
+
+  const paths = Array.from(selectedFilePaths);
+  let successCount = 0;
+  for (const p of paths) {
+    try {
+      const res = await fetch("/api/files/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: p, permanent: false })
+      });
+      const json = await res.json();
+      if (json.success) successCount++;
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  showToast(`${successCount}/${count} élément(s) mis à la corbeille`, successCount === count ? "success" : "warning");
+  clearFileSelection();
+  refreshCurrentFolder();
+}
+
+function showCompressModal(itemsOverride) {
+  let items = itemsOverride;
+  if (!items || items.length === 0) {
+    if (selectedFilePaths.size > 0) {
+      items = Array.from(selectedFilePaths);
+    } else if (selectedFileItem) {
+      items = [selectedFileItem.path];
+    }
+  }
+
+  if (!items || items.length === 0) {
+    showToast("Veuillez sélectionner au moins un fichier ou dossier à compresser", "warning");
+    return;
+  }
+
+  const countEl = document.getElementById("compress-summary-count");
+  if (countEl) {
+    countEl.textContent = `${items.length} élément${items.length > 1 ? "s" : ""} à compresser`;
+  }
+  const listEl = document.getElementById("compress-items-list");
+  if (listEl) {
+    listEl.innerHTML = items.map(p => `<div>• ${escapeHtml(p.split("/").pop())}</div>`).join("");
+  }
+
+  let defaultName = "archive.zip";
+  if (items.length === 1) {
+    const singleName = items[0].split("/").pop();
+    const base = singleName.replace(/\.[^/.]+$/, "");
+    defaultName = `${base || singleName}.zip`;
+  } else {
+    const folderName = currentFolderPath.split("/").filter(Boolean).pop() || "nas";
+    defaultName = `${folderName}_archive.zip`;
+  }
+
+  const nameInput = document.getElementById("compress-archive-name");
+  if (nameInput) nameInput.value = defaultName;
+
+  selectCompressFormat("zip");
+  selectCompressLevel("normal");
+
+  const pwdCheck = document.getElementById("compress-enable-password");
+  if (pwdCheck) pwdCheck.checked = false;
+  const pwdWrap = document.getElementById("compress-password-input-wrap");
+  if (pwdWrap) pwdWrap.style.display = "none";
+  const pwdInput = document.getElementById("compress-password");
+  if (pwdInput) pwdInput.value = "";
+
+  const curDestCode = document.getElementById("compress-current-dest-path");
+  if (curDestCode) curDestCode.textContent = currentFolderPath;
+  const radCurrent = document.querySelector('input[name="compress-dest-mode"][value="current"]');
+  if (radCurrent) radCurrent.checked = true;
+  toggleCompressDestCustom(false);
+
+  const modal = document.getElementById("modal-compress");
+  if (modal) modal.style.display = "flex";
+}
+
+function closeCompressModal() {
+  const modal = document.getElementById("modal-compress");
+  if (modal) modal.style.display = "none";
+}
+
+function selectCompressFormat(fmt) {
+  currentCompressFormat = fmt;
+  document.querySelectorAll(".archive-format-card").forEach(c => {
+    c.classList.toggle("active", c.getAttribute("data-format") === fmt);
+  });
+
+  const nameInput = document.getElementById("compress-archive-name");
+  if (nameInput && nameInput.value) {
+    let base = nameInput.value.replace(/\.(zip|7z|tar\.gz|tgz|tar\.bz2|tbz2|tar\.xz|txz|tar\.zst|tzst|tar)$/i, "");
+    if (!base) base = "archive";
+    let ext = fmt;
+    if (fmt === "tar.gz") ext = "tar.gz";
+    else if (fmt === "tar.xz") ext = "tar.xz";
+    else if (fmt === "tar.zst") ext = "tar.zst";
+    nameInput.value = `${base}.${ext}`;
+  }
+
+  const pwdGroup = document.getElementById("compress-password-group");
+  if (pwdGroup) {
+    if (fmt === "tar" || fmt === "tar.gz" || fmt === "tar.xz" || fmt === "tar.zst") {
+      pwdGroup.style.opacity = "0.45";
+      pwdGroup.title = "Le chiffrement par mot de passe natif nécessite le format ZIP ou 7-Zip";
+      const chk = document.getElementById("compress-enable-password");
+      if (chk) chk.disabled = true;
+      toggleCompressPasswordField(false);
+    } else {
+      pwdGroup.style.opacity = "1";
+      pwdGroup.title = "";
+      const chk = document.getElementById("compress-enable-password");
+      if (chk) chk.disabled = false;
+    }
+  }
+}
+
+function selectCompressLevel(lvl) {
+  currentCompressLevel = lvl;
+  ["fast", "normal", "maximum"].forEach(l => {
+    const pill = document.getElementById(`pill-level-${l}`);
+    if (pill) {
+      pill.classList.toggle("active", l === lvl);
+      const rad = pill.querySelector("input");
+      if (rad) rad.checked = (l === lvl);
+    }
+  });
+}
+
+function toggleCompressPasswordField(force) {
+  const chk = document.getElementById("compress-enable-password");
+  const show = typeof force === "boolean" ? force : (chk ? chk.checked : false);
+  const wrap = document.getElementById("compress-password-input-wrap");
+  if (wrap) wrap.style.display = show ? "block" : "none";
+}
+
+function toggleCompressDestCustom(isCustom) {
+  const wrap = document.getElementById("compress-custom-dest-wrap");
+  if (wrap) {
+    wrap.style.display = isCustom ? "block" : "none";
+    if (isCustom) {
+      const inp = document.getElementById("compress-custom-dest");
+      if (inp && !inp.value) inp.value = currentFolderPath;
+    }
+  }
+}
+
+async function submitCompress() {
+  const btn = document.getElementById("btn-submit-compress");
+  const nameInput = document.getElementById("compress-archive-name");
+  let archiveName = nameInput ? nameInput.value.trim() : "";
+  if (!archiveName) {
+    showToast("Veuillez renseigner un nom pour l'archive", "warning");
+    if (nameInput) nameInput.focus();
+    return;
+  }
+
+  const fmt = currentCompressFormat;
+  let ext = "." + fmt;
+  if (fmt === "tar.gz") ext = ".tar.gz";
+  else if (fmt === "tar.xz") ext = ".tar.xz";
+  else if (fmt === "tar.zst") ext = ".tar.zst";
+
+  if (!archiveName.toLowerCase().endsWith(ext.toLowerCase())) {
+    archiveName += ext;
+  }
+
+  let items = Array.from(selectedFilePaths);
+  if (items.length === 0 && selectedFileItem) {
+    items = [selectedFileItem.path];
+  }
+  if (items.length === 0) {
+    showToast("Aucun fichier sélectionné", "warning");
+    return;
+  }
+
+  const destMode = document.querySelector('input[name="compress-dest-mode"]:checked')?.value || "current";
+  let destDir = currentFolderPath;
+  if (destMode === "custom") {
+    const customInput = document.getElementById("compress-custom-dest");
+    const val = customInput ? customInput.value.trim() : "";
+    if (val) destDir = val;
+  }
+
+  let password = null;
+  const enablePwd = document.getElementById("compress-enable-password")?.checked;
+  if (enablePwd) {
+    const pwdInput = document.getElementById("compress-password");
+    password = pwdInput ? pwdInput.value : "";
+    if (!password) {
+      showToast("Veuillez saisir un mot de passe ou désactiver la protection", "warning");
+      if (pwdInput) pwdInput.focus();
+      return;
+    }
+  }
+
+  const origBtnHtml = btn ? btn.innerHTML : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span>⏳</span> Compression en cours...`;
+  }
+
+  try {
+    const res = await fetch("/api/files/compress", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items: items,
+        destination_dir: destDir,
+        archive_name: archiveName,
+        format: fmt,
+        level: currentCompressLevel,
+        password: password
+      })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.message || "Archive créée avec succès !", "success");
+      closeCompressModal();
+      clearFileSelection();
+      refreshCurrentFolder();
+    } else {
+      showToast("Erreur lors de la compression : " + (json.message || "Échec"), "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau : " + err, "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origBtnHtml;
+    }
+  }
+}
+
+async function showExtractModal(archivePath, archiveName) {
+  const path = archivePath || (selectedFileItem ? selectedFileItem.path : null);
+  const name = archiveName || (selectedFileItem ? selectedFileItem.name : (path ? path.split("/").pop() : "archive"));
+
+  if (!path) {
+    showToast("Aucune archive spécifiée pour l'extraction", "warning");
+    return;
+  }
+
+  document.getElementById("extract-archive-path").value = path;
+  document.getElementById("extract-archive-name").textContent = name;
+  document.getElementById("extract-current-dest-path").textContent = currentFolderPath;
+
+  const infoEl = document.getElementById("extract-archive-info-text");
+  if (infoEl) infoEl.textContent = "Analyse de l'archive en cours...";
+
+  const pwdInput = document.getElementById("extract-password");
+  if (pwdInput) pwdInput.value = "";
+
+  const radCurrent = document.querySelector('input[name="extract-dest-mode"][value="current"]');
+  if (radCurrent) radCurrent.checked = true;
+  toggleExtractDestCustom(false);
+
+  const subfolderChk = document.getElementById("extract-create-subfolder");
+  if (subfolderChk) subfolderChk.checked = true;
+
+  const modal = document.getElementById("modal-extract");
+  if (modal) modal.style.display = "flex";
+
+  try {
+    const res = await fetch("/api/files/archive-info", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archive_path: path })
+    });
+    const json = await res.json();
+    if (json.success && json.data) {
+      const d = json.data;
+      let text = `Format : ${d.format.toUpperCase()}`;
+      if (d.file_count > 0) text += ` • ${d.file_count} fichier(s) détecté(s)`;
+      if (d.is_encrypted) {
+        text += ` • 🔒 Archive chiffrée (mot de passe requis)`;
+        if (pwdInput) pwdInput.placeholder = "Mot de passe requis pour déchiffrer";
+      } else {
+        if (pwdInput) pwdInput.placeholder = "Laisser vide si non chiffré";
+      }
+      if (infoEl) infoEl.textContent = text;
+    } else {
+      if (infoEl) infoEl.textContent = "Format d'archive prêt à être extrait";
+    }
+  } catch (e) {
+    if (infoEl) infoEl.textContent = "Format d'archive prêt à être extrait";
+  }
+}
+
+function closeExtractModal() {
+  const modal = document.getElementById("modal-extract");
+  if (modal) modal.style.display = "none";
+}
+
+function toggleExtractDestCustom(isCustom) {
+  const wrap = document.getElementById("extract-custom-dest-wrap");
+  if (wrap) {
+    wrap.style.display = isCustom ? "block" : "none";
+    if (isCustom) {
+      const inp = document.getElementById("extract-custom-dest");
+      if (inp && !inp.value) inp.value = currentFolderPath;
+    }
+  }
+}
+
+async function submitExtract() {
+  const btn = document.getElementById("btn-submit-extract");
+  const archivePath = document.getElementById("extract-archive-path")?.value;
+  if (!archivePath) {
+    showToast("Chemin d'archive introuvable", "error");
+    return;
+  }
+
+  const destMode = document.querySelector('input[name="extract-dest-mode"]:checked')?.value || "current";
+  let destDir = currentFolderPath;
+  if (destMode === "custom") {
+    const customInput = document.getElementById("extract-custom-dest");
+    const val = customInput ? customInput.value.trim() : "";
+    if (val) destDir = val;
+  }
+
+  const createSubfolder = document.getElementById("extract-create-subfolder")?.checked ?? true;
+  const pwdInput = document.getElementById("extract-password");
+  const password = (pwdInput && pwdInput.value.trim()) ? pwdInput.value.trim() : null;
+
+  const origBtnHtml = btn ? btn.innerHTML : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span>⏳</span> Extraction en cours...`;
+  }
+
+  try {
+    const res = await fetch("/api/files/extract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        archive_path: archivePath,
+        destination_dir: destDir,
+        create_subfolder: createSubfolder,
+        password: password
+      })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.message || "Archive extraite avec succès !", "success");
+      closeExtractModal();
+      clearFileSelection();
+      refreshCurrentFolder();
+    } else {
+      const errMsg = json.message || "";
+      if (errMsg.toLowerCase().includes("mot de passe") || errMsg.toLowerCase().includes("password") || errMsg.toLowerCase().includes("chiffr")) {
+        closeExtractModal();
+        openArchivePasswordModal(archivePath, archivePath.split("/").pop(), destDir, createSubfolder);
+      } else {
+        showToast("Erreur lors de l'extraction : " + errMsg, "error");
+      }
+    }
+  } catch (err) {
+    showToast("Erreur réseau : " + err, "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origBtnHtml;
+    }
+  }
+}
+
+async function extractArchiveDirect(path, name) {
+  showToast(`Vérification de l'archive ${name}...`, "info");
+  try {
+    const infoRes = await fetch("/api/files/archive-info", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archive_path: path })
+    });
+    const infoJson = await infoRes.json();
+    if (infoJson.success && infoJson.data && infoJson.data.is_encrypted) {
+      openArchivePasswordModal(path, name, currentFolderPath, true);
+      return;
+    }
+  } catch (e) {
+    // Continue direct attempt
+  }
+
+  showToast(`Extraction de ${name} en cours... ⏳`, "info");
+  try {
+    const res = await fetch("/api/files/extract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        archive_path: path,
+        destination_dir: currentFolderPath,
+        create_subfolder: true,
+        password: null
+      })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.message || `Archive ${name} extraite avec succès !`, "success");
+      refreshCurrentFolder();
+    } else {
+      const errMsg = json.message || "";
+      if (errMsg.toLowerCase().includes("mot de passe") || errMsg.toLowerCase().includes("password") || errMsg.toLowerCase().includes("chiffr")) {
+        openArchivePasswordModal(path, name, currentFolderPath, true);
+      } else {
+        showToast("Échec de l'extraction : " + errMsg, "error");
+      }
+    }
+  } catch (err) {
+    showToast("Erreur réseau : " + err, "error");
+  }
+}
+
+function openArchivePasswordModal(archivePath, archiveName, destDir, createSubfolder) {
+  document.getElementById("pwd-prompt-archive-path").value = archivePath;
+  document.getElementById("pwd-prompt-dest-path").value = destDir || currentFolderPath;
+  document.getElementById("pwd-prompt-subfolder").value = createSubfolder ? "true" : "false";
+  document.getElementById("pwd-prompt-archive-name").textContent = archiveName || archivePath.split("/").pop();
+  const input = document.getElementById("pwd-prompt-input");
+  if (input) {
+    input.value = "";
+    setTimeout(() => input.focus(), 150);
+  }
+  document.getElementById("modal-archive-password").style.display = "flex";
+}
+
+function closeArchivePasswordModal() {
+  document.getElementById("modal-archive-password").style.display = "none";
+}
+
+async function submitArchivePasswordPrompt() {
+  const btn = document.getElementById("btn-submit-pwd-prompt");
+  const archivePath = document.getElementById("pwd-prompt-archive-path").value;
+  const destDir = document.getElementById("pwd-prompt-dest-path").value || currentFolderPath;
+  const createSubfolder = document.getElementById("pwd-prompt-subfolder").value === "true";
+  const pwdInput = document.getElementById("pwd-prompt-input");
+  const password = pwdInput ? pwdInput.value : "";
+
+  if (!password) {
+    showToast("Veuillez saisir le mot de passe de l'archive", "warning");
+    if (pwdInput) pwdInput.focus();
+    return;
+  }
+
+  const origBtnHtml = btn ? btn.innerHTML : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span>⏳</span> Déchiffrement & Extraction...`;
+  }
+
+  try {
+    const res = await fetch("/api/files/extract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        archive_path: archivePath,
+        destination_dir: destDir,
+        create_subfolder: createSubfolder,
+        password: password
+      })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.message || "Archive déchiffrée et extraite avec succès !", "success");
+      closeArchivePasswordModal();
+      clearFileSelection();
+      refreshCurrentFolder();
+    } else {
+      showToast("Échec : " + (json.message || "Mot de passe incorrect"), "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau : " + err, "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origBtnHtml;
+    }
+  }
+}
+
 function handleModalOverlayClick(e, modalId) {
   if (e.target.id === modalId) {
     if (modalId === "image-modal") closeImageModal();
@@ -3941,6 +4645,9 @@ function handleModalOverlayClick(e, modalId) {
     if (modalId === "create-raid-modal") closeCreateRaidModal();
     if (modalId === "format-disk-modal") closeFormatDiskModal();
     if (modalId === "doc-modal") closeDocModal();
+    if (modalId === "modal-compress") closeCompressModal();
+    if (modalId === "modal-extract") closeExtractModal();
+    if (modalId === "modal-archive-password") closeArchivePasswordModal();
   }
 }
 
@@ -5014,13 +5721,44 @@ function closeImageModal() {
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    const compressModal = document.getElementById("modal-compress");
+    if (compressModal && compressModal.style.display !== "none") {
+      closeCompressModal();
+      return;
+    }
+    const extractModal = document.getElementById("modal-extract");
+    if (extractModal && extractModal.style.display !== "none") {
+      closeExtractModal();
+      return;
+    }
+    const pwdModal = document.getElementById("modal-archive-password");
+    if (pwdModal && pwdModal.style.display !== "none") {
+      closeArchivePasswordModal();
+      return;
+    }
     const powerModal = document.getElementById("power-modal");
     if (powerModal && powerModal.style.display !== "none") {
       closePowerModal();
+      return;
     }
     const docModal = document.getElementById("doc-modal");
     if (docModal && docModal.style.display !== "none") {
       closeDocModal();
+      return;
+    }
+    if (selectedFilePaths && selectedFilePaths.size > 0) {
+      clearFileSelection();
+    }
+  }
+
+  // Ctrl+A / Cmd+A dans la vue Fichiers
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+    const activeTab = document.querySelector(".tab-pane.active");
+    const activeEl = document.activeElement;
+    const isInput = activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.isContentEditable);
+    if (!isInput && activeTab && activeTab.id === "tab-files") {
+      e.preventDefault();
+      selectAllFiles();
     }
   }
 });
