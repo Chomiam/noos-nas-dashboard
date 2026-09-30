@@ -341,23 +341,29 @@ pub fn create_user_command(bin: &str, args: &[&str]) -> Command {
     let user = target_user();
     let is_root = is_root_process();
     let runuser_bin = "/run/current-system/sw/bin/runuser";
+    let sudo_b = sudo_binary();
+    let cur_path = env::var("PATH").unwrap_or_default();
+    let complete_path = format!("/run/wrappers/bin:/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:{}", cur_path);
 
     if is_root && user != "root" && (Path::new(runuser_bin).exists() || Command::new("runuser").arg("--version").output().is_ok()) {
         let prog = if Path::new(runuser_bin).exists() { runuser_bin } else { "runuser" };
         let mut cmd = Command::new(prog);
-        cmd.args(["-u", &user, "--", bin]);
+        cmd.args(["-u", &user, "--", "env", &format!("PATH={}", complete_path), &format!("HOME=/home/{}", user), &format!("USER={}", user), &format!("NH_FLAKE=/etc/nixos"), &format!("NH_ELEVATION_STRATEGY={}", sudo_b), bin]);
         cmd.args(args);
-        let sudo_b = sudo_binary();
-        let cur_path = env::var("PATH").unwrap_or_default();
         cmd.env("USER", &user);
         cmd.env("HOME", format!("/home/{}", user));
         cmd.env("NH_FLAKE", "/etc/nixos");
         cmd.env("NH_ELEVATION_STRATEGY", &sudo_b);
-        cmd.env("PATH", format!("/run/wrappers/bin:/run/current-system/sw/bin:{}", cur_path));
+        cmd.env("PATH", &complete_path);
         cmd
     } else {
         let mut cmd = Command::new(bin);
         cmd.args(args);
+        cmd.env("USER", &user);
+        cmd.env("HOME", format!("/home/{}", user));
+        cmd.env("NH_FLAKE", "/etc/nixos");
+        cmd.env("NH_ELEVATION_STRATEGY", &sudo_b);
+        cmd.env("PATH", &complete_path);
         cmd
     }
 }
@@ -1278,9 +1284,12 @@ pub fn start_detached_update(force_packages: bool) -> Result<(), String> {
     let systemd_run = "/run/current-system/sw/bin/systemd-run";
     if Path::new(systemd_run).exists() {
         let mut cmd = Command::new(systemd_run);
+        let complete_path = "/run/wrappers/bin:/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/usr/bin:/bin";
         cmd.args([
             "--unit=steveos-system-update",
             "--property=KillMode=process",
+            &format!("--setenv=PATH={}", complete_path),
+            "--setenv=NIX_PATH=nixpkgs=flake:nixpkgs",
             "--description=STEvE_OS System Update Runner",
             "--",
             &exe_str,
