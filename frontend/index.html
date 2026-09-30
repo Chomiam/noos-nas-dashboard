@@ -4283,6 +4283,111 @@
     </div>
   </div>
 
+  <!-- MODAL : PROGRESSION DU DÉPLOIEMENT DU SERVEUR DE JEU -->
+  <div class="file-modal-overlay" id="modal-game-deploy-progress" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-game-deploy-progress')">
+    <div class="file-modal-window" style="max-width: 660px; border-color: rgba(203, 166, 247, 0.4); box-shadow: 0 16px 40px rgba(0,0,0,0.6);">
+      <div class="file-modal-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: space-between; align-items: center;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-primary" id="game-deploy-modal-badge" style="font-weight:800; font-size:0.75rem;">SERVEUR DE JEU</span>
+          <span class="file-modal-title" id="game-deploy-modal-title">Déploiement en cours...</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <button type="button" class="btn-minimize-modal" onclick="minimizeGameDeployModal()" title="Réduire en bas à droite" style="background:rgba(255,255,255,0.06); border:none; color:var(--text); border-radius:6px; cursor:pointer; font-size:0.85rem; padding:4px 9px;">🗕 Réduire</button>
+          <button type="button" class="btn-close-modal" onclick="closeGameDeployProgressModal()">&times;</button>
+        </div>
+      </div>
+
+      <div class="storage-wizard-body" style="padding: 22px;">
+        <!-- Hero serveur en cours -->
+        <div style="display:flex; align-items:center; gap:16px; background: rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 14px 18px; margin-bottom: 20px;">
+          <div id="game-deploy-hero-icon" style="font-size: 2.2rem; line-height: 1; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.4));">🎮</div>
+          <div style="flex:1; min-width:0;">
+            <div id="game-deploy-hero-name" style="font-size: 1.15rem; font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Mon Serveur</div>
+            <div id="game-deploy-hero-status" style="font-size: 0.85rem; color: var(--mauve); font-weight: 600; margin-top: 3px;">Préparation de l'environnement...</div>
+          </div>
+          <div id="game-deploy-hero-percent-badge" class="badge badge-purple" style="font-size: 1rem; padding: 4px 10px; font-weight: 800;">15%</div>
+        </div>
+
+        <!-- Timeline 4 étapes -->
+        <div class="game-deploy-steps" style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 18px;">
+          <div class="game-deploy-step-card step-done" id="game-deploy-step-1">
+            <div class="step-icon">📁</div>
+            <div class="step-label">Stockage</div>
+          </div>
+          <div class="game-deploy-step-card step-active" id="game-deploy-step-2">
+            <div class="step-icon">🐳</div>
+            <div class="step-label">Image Docker</div>
+          </div>
+          <div class="game-deploy-step-card" id="game-deploy-step-3">
+            <div class="step-icon">⚡</div>
+            <div class="step-label">Conteneur</div>
+          </div>
+          <div class="game-deploy-step-card" id="game-deploy-step-4">
+            <div class="step-icon">🎮</div>
+            <div class="step-label">Fichiers Jeu</div>
+          </div>
+        </div>
+
+        <!-- Jauge de progression -->
+        <div style="margin-bottom: 18px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px; font-size:0.8rem;">
+            <span style="color:var(--subtext0); font-weight:600;" id="game-deploy-phase-desc">Téléchargement & Assemblage</span>
+            <span style="color:var(--text); font-family:var(--font-mono); font-weight:700;" id="game-deploy-percent-label">15%</span>
+          </div>
+          <div class="game-deploy-bar-track" style="height: 10px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden; border:1px solid rgba(255,255,255,0.08);">
+            <div id="game-deploy-bar-fill" style="width: 15%; height: 100%; background: linear-gradient(90deg, var(--mauve), var(--blue)); border-radius: 999px; transition: width 0.4s ease;"></div>
+          </div>
+          <div id="game-deploy-detail-subtext" style="font-size: 0.78rem; color: var(--subtext0); margin-top: 6px; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Initialisation...</div>
+        </div>
+
+        <!-- Mini console / logs en direct -->
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
+            <label style="font-size: 0.78rem; font-weight: 700; color: var(--subtext0); text-transform: uppercase; letter-spacing: 0.5px;">Logs de déploiement en direct :</label>
+            <span style="font-size: 0.72rem; color: var(--subtext0);">Auto-scroll activé</span>
+          </div>
+          <div id="game-deploy-logs-box" style="height: 160px; overflow-y: auto; background: #11111b; border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius-sm); padding: 10px; font-family: var(--font-mono); font-size: 0.78rem; color: #cdd6f4; white-space: pre-wrap; word-break: break-all;">
+            <div style="color:var(--subtext0);">Initialisation de la session de déploiement...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 22px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="minimizeGameDeployModal()">
+          <span>🗕</span> Continuer en arrière-plan
+        </button>
+        <div style="display:flex; gap:10px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-game-deploy-to-console" onclick="jumpToGameConsole()" style="display:none;">
+            <span>💻</span> Ouvrir la Console
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" id="btn-game-deploy-finish" onclick="closeGameDeployProgressModal()">
+            <span>Fermer</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- POPUP FLOTTANTE EN BAS À DROITE (MINIMISÉE) : DÉPLOIEMENT SERVEUR -->
+  <div class="game-deploy-floating-toast" id="game-deploy-floating-toast" style="display:none;">
+    <div class="game-deploy-toast-card">
+      <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:0;">
+        <span id="game-deploy-toast-icon" style="font-size:1.4rem;">🎮</span>
+        <div style="flex:1; min-width:0;">
+          <div id="game-deploy-toast-title" style="font-weight:700; font-size:0.85rem; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Déploiement</div>
+          <div id="game-deploy-toast-desc" style="font-size:0.75rem; color:var(--subtext0); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">En cours...</div>
+          <div style="height:4px; border-radius:999px; background:rgba(255,255,255,0.08); margin-top:5px; overflow:hidden;">
+            <div id="game-deploy-toast-bar" style="width:15%; height:100%; background:var(--mauve); transition:width 0.4s ease;"></div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:6px; margin-left:10px;">
+        <button type="button" class="btn btn-secondary btn-xs" onclick="expandGameDeployModal()" title="Agrandir la fenêtre de déploiement">⛶</button>
+        <button type="button" class="btn-toast-close" onclick="dismissGameDeployToast()" title="Masquer la notification">&times;</button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL : IMPORTER UN EGG PTERODACTYL -->
   <div class="file-modal-overlay" id="modal-import-egg" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-import-egg')">
     <div class="file-modal-window" style="max-width: 580px;">

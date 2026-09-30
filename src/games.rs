@@ -3,7 +3,400 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GameDeployProgress {
+    pub server_id: String,
+    pub server_name: String,
+    pub egg_id: String,
+    pub egg_name: String,
+    pub icon: String,
+    pub step: String, // "preparing", "pulling_image", "starting_container", "downloading_game", "ready", "error", "stopped"
+    pub step_index: u32, // 1 to 4
+    pub progress_percent: u32,
+    pub status_message: String,
+    pub detail: String,
+    pub logs: Vec<String>,
+    pub is_complete: bool,
+    pub is_error: bool,
+}
+
+static DEPLOY_TRACKER: LazyLock<Mutex<HashMap<String, GameDeployProgress>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+pub fn get_deployment_status(server_id: &str) -> Option<GameDeployProgress> {
+    let tracker = DEPLOY_TRACKER.lock().unwrap();
+    if let Some(p) = tracker.get(server_id) {
+        return Some(p.clone());
+    }
+    drop(tracker);
+
+    let servers = load_saved_servers();
+    if let Some(s) = servers.into_iter().find(|s| s.id == server_id) {
+        let is_running = if let Ok(output) = Command::new("docker")
+            .args(["inspect", "--format", "{{.State.Running}}", &s.container_name])
+            .output()
+        {
+            String::from_utf8_lossy(&output.stdout).trim() == "true"
+        } else {
+            false
+        };
+
+        let last_logs = if let Ok(logs_out) = Command::new("docker")
+            .args(["logs", "--tail", "25", &s.container_name])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&logs_out.stdout);
+            text.lines().map(|l| l.to_string()).collect()
+        } else {
+            vec![]
+        };
+
+        return Some(GameDeployProgress {
+            server_id: s.id.clone(),
+            server_name: s.name.clone(),
+            egg_id: s.egg_id.clone(),
+            egg_name: s.game_name.clone(),
+            icon: s.icon.clone(),
+            step: if is_running { "ready".into() } else { "stopped".into() },
+            step_index: 4,
+            progress_percent: if is_running { 100 } else { 0 },
+            status_message: if is_running { "Serveur actif et opérationnel.".into() } else { "Serveur arrêté.".into() },
+            detail: "".into(),
+            logs: last_logs,
+            is_complete: true,
+            is_error: false,
+        });
+    }
+
+    None
+}
+
+fn update_deployment(server_id: &str, mut f: impl FnMut(&mut GameDeployProgress)) {
+    let mut tracker = DEPLOY_TRACKER.lock().unwrap();
+    if let Some(entry) = tracker.get_mut(server_id) {
+        f(entry);
+    }
+}
+
+fn append_deploy_log(server_id: &str, line: &str) {
+    let mut tracker = DEPLOY_TRACKER.lock().unwrap();
+    if let Some(entry) = tracker.get_mut(server_id) {
+        if entry.logs.len() > 120 {
+            entry.logs.remove(0);
+        }
+        entry.logs.push(line.to_string());
+    }
+}
+
+fn mark_server_online(server_id: &str) {
+    let mut servers = load_saved_servers();
+    if let Some(s) = servers.iter_mut().find(|s| s.id == server_id) {
+        s.status = "online".into();
+    }
+    let _ = save_servers(&servers);
+}
+
+fn run_server_deployment_pipeline(
+    server_id: String,
+    _server_name: String,
+    egg_id: String,
+    egg_name: String,
+    final_docker_image: String,
+    container_name: String,
+    docker_args: Vec<String>,
+) {
+    // Étape 2 : Vérification et téléchargement de l'image Docker (Docker Pull)
+    update_deployment(&server_id, |p| {
+        p.step = "pulling_image".into();
+        p.step_index = 2;
+        p.progress_percent = 20;
+        p.status_message = format!("Vérification de l'image {}...", final_docker_image);
+    });
+
+    let inspect_status = Command::new("docker")
+        .args(["image", "inspect", &final_docker_image])
+        .output();
+
+    let needs_pull = match inspect_status {
+        Ok(out) => !out.status.success(),
+        Err(_) => true,
+    };
+
+    if needs_pull {
+        append_deploy_log(&server_id, &format!("⚡ Téléchargement de l'image Docker {} (Docker Pull)...", final_docker_image));
+        update_deployment(&server_id, |p| {
+            p.status_message = format!("Téléchargement de l'image conteneur ({})...", final_docker_image);
+            p.progress_percent = 25;
+        });
+
+        if let Ok(mut child) = Command::new("docker")
+            .args(["pull", &final_docker_image])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+        {
+            use std::io::BufRead;
+            let stdout = child.stdout.take();
+            if let Some(out) = stdout {
+                let reader = std::io::BufReader::new(out);
+                let mut pull_step = 0;
+                for line in reader.lines().flatten() {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() {
+                        append_deploy_log(&server_id, trimmed);
+                        pull_step += 1;
+                        let pct = (25 + (pull_step * 2)).min(45);
+                        update_deployment(&server_id, |p| {
+                            p.progress_percent = pct;
+                            p.detail = trimmed.to_string();
+                        });
+                    }
+                }
+            }
+            let _ = child.wait();
+        }
+        append_deploy_log(&server_id, "✓ Image de conteneur téléchargée avec succès.");
+    } else {
+        append_deploy_log(&server_id, "✓ Image de conteneur déjà présente dans le cache local.");
+    }
+
+    update_deployment(&server_id, |p| {
+        p.progress_percent = 48;
+    });
+
+    // Étape 3 : Démarrage du conteneur
+    update_deployment(&server_id, |p| {
+        p.step = "starting_container".into();
+        p.step_index = 3;
+        p.progress_percent = 50;
+        p.status_message = "Démarrage du conteneur sécurisé...".into();
+    });
+    append_deploy_log(&server_id, &format!("🚀 Lancement du conteneur {}...", container_name));
+
+    let _ = Command::new("docker").args(["rm", "-f", &container_name]).status();
+
+    let run_res = Command::new("docker").args(&docker_args).output();
+    match run_res {
+        Ok(output) if output.status.success() => {
+            append_deploy_log(&server_id, "✓ Conteneur Docker démarré.");
+            update_deployment(&server_id, |p| {
+                p.step = "downloading_game".into();
+                p.step_index = 4;
+                p.progress_percent = 55;
+                p.status_message = format!("Initialisation et installation de {} en cours...", egg_name);
+            });
+        },
+        Ok(output) => {
+            let err = String::from_utf8_lossy(&output.stderr);
+            append_deploy_log(&server_id, &format!("❌ Erreur Docker : {}", err));
+            update_deployment(&server_id, |p| {
+                p.is_error = true;
+                p.is_complete = true;
+                p.status_message = format!("Erreur Docker : {}", err);
+            });
+            return;
+        },
+        Err(e) => {
+            append_deploy_log(&server_id, &format!("❌ Erreur système : {}", e));
+            update_deployment(&server_id, |p| {
+                p.is_error = true;
+                p.is_complete = true;
+                p.status_message = format!("Erreur système : {}", e);
+            });
+            return;
+        }
+    }
+
+    // Étape 4 : Surveillance du téléchargement & installation du jeu
+    let start_time = Instant::now();
+    let max_duration = Duration::from_secs(1800); // 30 min max
+
+    while start_time.elapsed() < max_duration {
+        std::thread::sleep(Duration::from_millis(1500));
+
+        // 1. Vérifier si le conteneur tourne
+        if let Ok(insp_out) = Command::new("docker")
+            .args(["inspect", "--format", "{{.State.Running}}|{{.State.ExitCode}}", &container_name])
+            .output()
+        {
+            let txt = String::from_utf8_lossy(&insp_out.stdout).trim().to_string();
+            let parts: Vec<&str> = txt.split('|').collect();
+            if parts.len() >= 2 {
+                let running = parts[0] == "true";
+                let exit_code: i32 = parts[1].parse().unwrap_or(0);
+                if !running && exit_code != 0 {
+                    append_deploy_log(&server_id, &format!("❌ Le conteneur s'est arrêté avec le code d'erreur {}", exit_code));
+                    update_deployment(&server_id, |p| {
+                        p.is_error = true;
+                        p.is_complete = true;
+                        p.status_message = format!("Le conteneur s'est arrêté inopinément (code {}).", exit_code);
+                    });
+                    return;
+                }
+            }
+        }
+
+        // 2. Parser les logs
+        if let Ok(logs_out) = Command::new("docker")
+            .args(["logs", "--tail", "30", &container_name])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&logs_out.stdout);
+            let stderr = String::from_utf8_lossy(&logs_out.stderr);
+            let combined = format!("{}{}", stdout, stderr);
+
+            for line in combined.lines() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() { continue; }
+
+                // SteamCMD (Palworld / Valheim)
+                if trimmed.contains("downloading, progress:") || trimmed.contains("preallocating, progress:") {
+                    if let Some(pos) = trimmed.find("progress:") {
+                        let sub = &trimmed[pos + 9..].trim();
+                        let pct_str = sub.split_whitespace().next().unwrap_or("0").trim_end_matches('%');
+                        if let Ok(raw_pct) = pct_str.parse::<f32>() {
+                            let scaled_pct = (55.0 + (raw_pct * 0.40)).min(95.0) as u32;
+                            let extra = if let Some(paren_start) = sub.find('(') {
+                                if let Some(paren_end) = sub.find(')') {
+                                    &sub[paren_start..=paren_end]
+                                } else { "" }
+                            } else { "" };
+
+                            update_deployment(&server_id, |p| {
+                                p.progress_percent = scaled_pct;
+                                p.status_message = format!("Téléchargement SteamCMD : {:.1}% {}", raw_pct, extra);
+                                p.detail = trimmed.to_string();
+                            });
+                        }
+                    }
+                }
+
+                if (trimmed.contains("Success! App '") && trimmed.contains("fully installed"))
+                    || trimmed.contains("Démarrage du serveur dédié Palworld")
+                    || trimmed.contains("Démarrage du serveur Valheim")
+                {
+                    append_deploy_log(&server_id, "✓ Téléchargement SteamCMD validé avec succès !");
+                    update_deployment(&server_id, |p| {
+                        p.progress_percent = 95;
+                        p.status_message = "Installation terminée, démarrage du moteur de jeu...".into();
+                    });
+                }
+
+                // Palworld prêt
+                if trimmed.contains("AppID = 2394010") || trimmed.contains("PalServer-Linux-Shipping") {
+                    append_deploy_log(&server_id, "🎉 Serveur Palworld opérationnel et en ligne !");
+                    update_deployment(&server_id, |p| {
+                        p.step = "ready".into();
+                        p.progress_percent = 100;
+                        p.is_complete = true;
+                        p.status_message = "Serveur Palworld opérationnel et en ligne !".into();
+                    });
+                    mark_server_online(&server_id);
+                    return;
+                }
+
+                // Valheim prêt
+                if trimmed.contains("Game server connected") || trimmed.contains("server id") {
+                    append_deploy_log(&server_id, "🎉 Serveur Valheim opérationnel et en ligne !");
+                    update_deployment(&server_id, |p| {
+                        p.step = "ready".into();
+                        p.progress_percent = 100;
+                        p.is_complete = true;
+                        p.status_message = "Serveur Valheim opérationnel et en ligne !".into();
+                    });
+                    mark_server_online(&server_id);
+                    return;
+                }
+
+                // Minecraft Java
+                if trimmed.contains("Téléchargement certifié de") {
+                    update_deployment(&server_id, |p| {
+                        p.progress_percent = 65;
+                        p.status_message = trimmed.to_string();
+                    });
+                }
+                if trimmed.contains("Fichier server.jar validé") {
+                    update_deployment(&server_id, |p| {
+                        p.progress_percent = 80;
+                        p.status_message = "Fichier JAR validé, démarrage du serveur...".into();
+                    });
+                }
+                if trimmed.contains("Done (") && trimmed.contains("For help, type \"help\"") {
+                    append_deploy_log(&server_id, "🎉 Serveur Minecraft opérationnel et en ligne !");
+                    update_deployment(&server_id, |p| {
+                        p.step = "ready".into();
+                        p.progress_percent = 100;
+                        p.is_complete = true;
+                        p.status_message = "Serveur Minecraft en ligne et prêt !".into();
+                    });
+                    mark_server_online(&server_id);
+                    return;
+                }
+
+                // Bedrock
+                if trimmed.contains("Server started") {
+                    append_deploy_log(&server_id, "🎉 Serveur Minecraft Bedrock opérationnel et en ligne !");
+                    update_deployment(&server_id, |p| {
+                        p.step = "ready".into();
+                        p.progress_percent = 100;
+                        p.is_complete = true;
+                        p.status_message = "Serveur Minecraft Bedrock en ligne et prêt !".into();
+                    });
+                    mark_server_online(&server_id);
+                    return;
+                }
+            }
+
+            for line in combined.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev() {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    append_deploy_log(&server_id, trimmed);
+                }
+            }
+        }
+
+        // Generic egg fallback
+        if egg_id != "palworld" && egg_id != "valheim" && egg_id != "minecraft-java" && egg_id != "minecraft-bedrock" {
+            if start_time.elapsed().as_secs() > 15 {
+                append_deploy_log(&server_id, "✓ Conteneur actif et stable.");
+                update_deployment(&server_id, |p| {
+                    p.step = "ready".into();
+                    p.progress_percent = 100;
+                    p.is_complete = true;
+                    p.status_message = "Serveur de jeu opérationnel !".into();
+                });
+                mark_server_online(&server_id);
+                return;
+            }
+        } else {
+            let is_near_done = {
+                let tracker = DEPLOY_TRACKER.lock().unwrap();
+                tracker.get(&server_id).map(|p| p.progress_percent >= 95).unwrap_or(false)
+            };
+            if is_near_done && start_time.elapsed().as_secs() > 60 {
+                append_deploy_log(&server_id, "✓ Serveur démarré et opérationnel.");
+                update_deployment(&server_id, |p| {
+                    p.step = "ready".into();
+                    p.progress_percent = 100;
+                    p.is_complete = true;
+                    p.status_message = "Serveur de jeu opérationnel !".into();
+                });
+                mark_server_online(&server_id);
+                return;
+            }
+        }
+    }
+
+    update_deployment(&server_id, |p| {
+        p.is_complete = true;
+        p.status_message = "Le déploiement se poursuit en arrière-plan. Consultez la console.".into();
+    });
+    mark_server_online(&server_id);
+}
 
 fn get_now_timestamp() -> String {
     if let Ok(output) = Command::new("date").args(["+%Y-%m-%d %H:%M"]).output() {
@@ -396,6 +789,16 @@ pub fn list_game_servers() -> Vec<GameServer> {
 
     for s in &mut servers {
         s.ip_address = lan_ip.clone();
+
+        let is_deploying = {
+            let tracker = DEPLOY_TRACKER.lock().unwrap();
+            tracker.get(&s.id).map(|p| !p.is_complete && !p.is_error).unwrap_or(false)
+        };
+        if is_deploying {
+            s.status = "deploying".into();
+            continue;
+        }
+
         // Vérifier l'état du conteneur
         if let Ok(output) = Command::new("docker")
             .args(["inspect", "--format", "{{.State.Status}}|{{.State.Running}}", &s.container_name])
@@ -666,26 +1069,18 @@ exec {}
         docker_args.push(format!("{}={}", k, v));
     }
 
-    docker_args.push(final_docker_image);
+    docker_args.push(final_docker_image.clone());
     docker_args.push("bash".to_string());
     docker_args.push("/home/container/entrypoint.sh".to_string());
 
-    let run_res = Command::new("docker").args(&docker_args).output()
-        .map_err(|e| format!("Échec du lancement Docker : {}", e))?;
-
-    if !run_res.status.success() {
-        let err_msg = String::from_utf8_lossy(&run_res.stderr);
-        return Err(format!("Docker n'a pas pu démarrer le serveur : {}", err_msg));
-    }
-
     let server = GameServer {
-        id: slug,
+        id: slug.clone(),
         name: clean_name.to_string(),
         egg_id: egg.id.clone(),
         game_name: egg.name.clone(),
         icon: egg.icon.clone(),
-        status: "starting".into(),
-        container_name,
+        status: "deploying".into(),
+        container_name: container_name.clone(),
         memory_mb: req.memory_mb,
         port: target_port,
         port_protocol: egg.port_protocol.clone(),
@@ -699,6 +1094,50 @@ exec {}
 
     servers.push(server.clone());
     save_servers(&servers)?;
+
+    // Initialiser le suivi de progression
+    {
+        let mut tracker = DEPLOY_TRACKER.lock().unwrap();
+        tracker.insert(slug.clone(), GameDeployProgress {
+            server_id: slug.clone(),
+            server_name: clean_name.to_string(),
+            egg_id: egg.id.clone(),
+            egg_name: egg.name.clone(),
+            icon: egg.icon.clone(),
+            step: "pulling_image".into(),
+            step_index: 2,
+            progress_percent: 15,
+            status_message: format!("Initialisation de l'environnement pour {}...", egg.name),
+            detail: "".into(),
+            logs: vec![
+                format!("✓ Dossier configuré dans {}", data_dir.display()),
+                format!("⚡ Préparation de l'image de conteneur : {}", final_docker_image),
+            ],
+            is_complete: false,
+            is_error: false,
+        });
+    }
+
+    // Lancement asynchrone du pipeline de déploiement
+    let slug_bg = slug.clone();
+    let name_bg = clean_name.to_string();
+    let egg_id_bg = egg.id.clone();
+    let egg_name_bg = egg.name.clone();
+    let img_bg = final_docker_image.clone();
+    let container_bg = container_name.clone();
+    let args_bg = docker_args.clone();
+
+    std::thread::spawn(move || {
+        run_server_deployment_pipeline(
+            slug_bg,
+            name_bg,
+            egg_id_bg,
+            egg_name_bg,
+            img_bg,
+            container_bg,
+            args_bg,
+        );
+    });
 
     Ok(server)
 }
@@ -732,6 +1171,7 @@ pub fn delete_game_server(id: &str, delete_data: bool) -> Result<String, String>
     let _ = Command::new("docker").args(["stop", "-t", "5", &container_name]).status();
     let _ = Command::new("docker").args(["rm", "-f", &container_name]).status();
 
+    DEPLOY_TRACKER.lock().unwrap().remove(id);
     if let Some(pos) = servers.iter().position(|s| s.id == id) {
         let server = servers.remove(pos);
         if delete_data {

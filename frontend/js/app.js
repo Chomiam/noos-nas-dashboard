@@ -9865,12 +9865,18 @@ function renderGameServers() {
   }
 
   grid.innerHTML = gameServersData.map(s => {
+    const isDeploying = s.status === "deploying" || s.status === "starting";
     const isOnline = s.status === "online";
-    const statusBadge = isOnline
-      ? `<span class="badge badge-success">🟢 En ligne</span>`
-      : `<span class="badge badge-secondary">🔴 Arrêté</span>`;
+    let statusBadge = "";
+    if (isDeploying) {
+      statusBadge = `<span class="badge" style="background:rgba(249,226,175,0.18); color:var(--yellow); border:1px solid rgba(249,226,175,0.3); font-weight:700;"><span class="spinner-inline">⏳</span> Déploiement...</span>`;
+    } else if (isOnline) {
+      statusBadge = `<span class="badge badge-success">🟢 En ligne</span>`;
+    } else {
+      statusBadge = `<span class="badge badge-secondary">🔴 Arrêté</span>`;
+    }
 
-    const ramUsageStr = isOnline ? `${s.memory_used_mb} Mo / ${s.memory_mb} Mo` : `0 / ${s.memory_mb} Mo`;
+    const ramUsageStr = isOnline ? `${s.memory_used_mb} Mo / ${s.memory_mb} Mo` : (isDeploying ? `Installation...` : `0 / ${s.memory_mb} Mo`);
     const cpuUsageStr = isOnline ? `${s.cpu_percent.toFixed(1)}%` : `0%`;
     const fullAddress = `${s.ip_address}:${s.port}`;
 
@@ -9916,24 +9922,40 @@ function renderGameServers() {
         </div>
 
         <div class="game-server-actions">
-          ${isOnline ? `
+          ${isDeploying ? `
+            <button type="button" class="btn btn-primary btn-xs" style="flex:1;" onclick="openGameDeployProgressModal('${s.id}', '${escapeHtml(s.name)}', '${escapeHtml(s.game_name)}', '${s.icon}')" title="Suivre le téléchargement et déploiement">
+              <span>📊</span> Progression
+            </button>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="openServerConsoleView('${s.id}')" title="Console en direct">
+              <span>🖥️</span>
+            </button>
+            <button type="button" class="btn btn-danger btn-xs" onclick="confirmDeleteGameServer('${s.id}', '${escapeHtml(s.name)}')" title="Annuler et supprimer">
+              <span>🗑️</span>
+            </button>
+          ` : (isOnline ? `
             <button type="button" class="btn btn-warning btn-xs" onclick="controlGameServerAction('${s.id}', 'restart')" title="Redémarrer le serveur">
               <span>🔄</span>
             </button>
             <button type="button" class="btn btn-danger btn-xs" onclick="controlGameServerAction('${s.id}', 'stop')" title="Arrêter le serveur">
               <span>⏹️</span>
             </button>
+            <button type="button" class="btn btn-primary btn-xs" style="flex:1;" onclick="openServerConsoleView('${s.id}')">
+              <span>🖥️</span> Console
+            </button>
+            <button type="button" class="btn btn-danger btn-xs" onclick="confirmDeleteGameServer('${s.id}', '${escapeHtml(s.name)}')" title="Supprimer le serveur">
+              <span>🗑️</span>
+            </button>
           ` : `
             <button type="button" class="btn btn-success btn-xs" onclick="controlGameServerAction('${s.id}', 'start')" title="Démarrer le serveur">
               <span>▶️</span> Démarrer
             </button>
-          `}
-          <button type="button" class="btn btn-primary btn-xs" style="flex:1;" onclick="openServerConsoleView('${s.id}')">
-            <span>🖥️</span> Console
-          </button>
-          <button type="button" class="btn btn-danger btn-xs" onclick="confirmDeleteGameServer('${s.id}', '${escapeHtml(s.name)}')" title="Supprimer le serveur">
-            <span>🗑️</span>
-          </button>
+            <button type="button" class="btn btn-primary btn-xs" style="flex:1;" onclick="openServerConsoleView('${s.id}')">
+              <span>🖥️</span> Console
+            </button>
+            <button type="button" class="btn btn-danger btn-xs" onclick="confirmDeleteGameServer('${s.id}', '${escapeHtml(s.name)}')" title="Supprimer le serveur">
+              <span>🗑️</span>
+            </button>
+          `)}
         </div>
       </div>
     `;
@@ -10268,10 +10290,10 @@ async function submitCreateGameServer() {
     });
     const json = await res.json();
     if (json.success && json.data) {
-      showToast(`🎉 Serveur '${json.data.name}' déployé avec succès !`, "success");
       closeCreateGameModal();
       switchGamesSubtab("servers");
-      await loadGameServers();
+      loadGameServers();
+      openGameDeployProgressModal(json.data.id, json.data.name, json.data.game_name, json.data.icon);
     } else {
       showToast(`Échec du déploiement : ${json.message || "Erreur serveur"}`, "error");
     }
@@ -10511,6 +10533,201 @@ async function submitImportEgg() {
     if (submitBtn) {
       submitBtn.disabled = false;
       submitBtn.innerHTML = origBtn;
+    }
+  }
+}
+
+// ================= PROGRESSION DU DÉPLOIEMENT DU SERVEUR DE JEU =================
+let activeGameDeployServerId = null;
+let gameDeployPollInterval = null;
+let isGameDeployModalMinimized = false;
+
+function openGameDeployProgressModal(serverId, serverName, eggName, eggIcon) {
+  activeGameDeployServerId = serverId;
+  isGameDeployModalMinimized = false;
+
+  const modal = document.getElementById("modal-game-deploy-progress");
+  const toast = document.getElementById("game-deploy-floating-toast");
+  if (toast) toast.style.display = "none";
+
+  const badge = document.getElementById("game-deploy-modal-badge");
+  const title = document.getElementById("game-deploy-modal-title");
+  const heroIcon = document.getElementById("game-deploy-hero-icon");
+  const heroName = document.getElementById("game-deploy-hero-name");
+  const heroStatus = document.getElementById("game-deploy-hero-status");
+  const heroPercent = document.getElementById("game-deploy-hero-percent-badge");
+  const barFill = document.getElementById("game-deploy-bar-fill");
+  const percentLabel = document.getElementById("game-deploy-percent-label");
+  const detailSubtext = document.getElementById("game-deploy-detail-subtext");
+  const logsBox = document.getElementById("game-deploy-logs-box");
+  const finishBtn = document.getElementById("btn-game-deploy-finish");
+  const toConsoleBtn = document.getElementById("btn-game-deploy-to-console");
+
+  if (badge) badge.textContent = (eggName || "SERVEUR").toUpperCase();
+  if (title) title.textContent = `Déploiement : ${serverName}`;
+  if (heroIcon) heroIcon.textContent = eggIcon || "🎮";
+  if (heroName) heroName.textContent = serverName;
+  if (heroStatus) {
+    heroStatus.textContent = "Initialisation du serveur...";
+    heroStatus.style.color = "var(--mauve)";
+  }
+  if (heroPercent) heroPercent.textContent = "15%";
+  if (percentLabel) percentLabel.textContent = "15%";
+  if (barFill) {
+    barFill.style.width = "15%";
+    barFill.style.background = "linear-gradient(90deg, var(--mauve), var(--blue))";
+  }
+  if (detailSubtext) detailSubtext.textContent = "Préparation des volumes et configurations...";
+  if (logsBox) logsBox.innerHTML = `<div style="color:var(--subtext0);">⚡ Connexion aux logs de déploiement en direct...</div>`;
+  if (finishBtn) finishBtn.innerHTML = `<span>Fermer</span>`;
+  if (toConsoleBtn) toConsoleBtn.style.display = "none";
+
+  updateGameDeployStepUI(2);
+
+  if (modal) modal.style.display = "flex";
+
+  if (gameDeployPollInterval) clearInterval(gameDeployPollInterval);
+  pollGameDeployStatus();
+  gameDeployPollInterval = setInterval(pollGameDeployStatus, 1500);
+}
+
+function updateGameDeployStepUI(activeIndex, isComplete = false, isError = false) {
+  for (let i = 1; i <= 4; i++) {
+    const el = document.getElementById(`game-deploy-step-${i}`);
+    if (!el) continue;
+    el.className = "game-deploy-step-card";
+    if (isError && i === activeIndex) {
+      el.classList.add("step-error");
+    } else if (isComplete || i < activeIndex) {
+      el.classList.add("step-done");
+    } else if (i === activeIndex) {
+      el.classList.add("step-active");
+    }
+  }
+}
+
+async function pollGameDeployStatus() {
+  if (!activeGameDeployServerId) return;
+
+  try {
+    const res = await fetch(`/api/games/${activeGameDeployServerId}/deploy-status`);
+    const json = await res.json();
+    if (!json.success || !json.data) return;
+
+    const d = json.data;
+    const pct = d.progress_percent || 15;
+    const stepIdx = d.step_index || 2;
+
+    const heroStatus = document.getElementById("game-deploy-hero-status");
+    const heroPercent = document.getElementById("game-deploy-hero-percent-badge");
+    const barFill = document.getElementById("game-deploy-bar-fill");
+    const percentLabel = document.getElementById("game-deploy-percent-label");
+    const detailSubtext = document.getElementById("game-deploy-detail-subtext");
+    const logsBox = document.getElementById("game-deploy-logs-box");
+    const finishBtn = document.getElementById("btn-game-deploy-finish");
+    const toConsoleBtn = document.getElementById("btn-game-deploy-to-console");
+
+    const toastTitle = document.getElementById("game-deploy-toast-title");
+    const toastDesc = document.getElementById("game-deploy-toast-desc");
+    const toastBar = document.getElementById("game-deploy-toast-bar");
+    const toastIcon = document.getElementById("game-deploy-toast-icon");
+
+    if (toastTitle) toastTitle.textContent = d.server_name || "Serveur";
+    if (toastDesc) toastDesc.textContent = `${pct}% - ${d.status_message}`;
+    if (toastBar) toastBar.style.width = `${pct}%`;
+    if (toastIcon) toastIcon.textContent = d.icon || "🎮";
+
+    if (heroPercent) heroPercent.textContent = `${pct}%`;
+    if (percentLabel) percentLabel.textContent = `${pct}%`;
+    if (barFill) barFill.style.width = `${pct}%`;
+    if (heroStatus) heroStatus.textContent = d.status_message;
+    if (detailSubtext) detailSubtext.textContent = d.detail || d.status_message;
+
+    if (logsBox && d.logs && d.logs.length > 0) {
+      const isScrolledToBottom = logsBox.scrollHeight - logsBox.clientHeight <= logsBox.scrollTop + 35;
+      logsBox.textContent = d.logs.join("\n");
+      if (isScrolledToBottom) {
+        logsBox.scrollTop = logsBox.scrollHeight;
+      }
+    }
+
+    updateGameDeployStepUI(stepIdx, d.is_complete && !d.is_error, d.is_error);
+
+    if (d.is_complete || d.is_error) {
+      if (gameDeployPollInterval) {
+        clearInterval(gameDeployPollInterval);
+        gameDeployPollInterval = null;
+      }
+
+      if (d.is_error) {
+        if (heroStatus) {
+          heroStatus.textContent = `❌ ${d.status_message}`;
+          heroStatus.style.color = "var(--red)";
+        }
+        if (barFill) barFill.style.background = "var(--red)";
+      } else {
+        if (heroStatus) {
+          heroStatus.textContent = `🎉 ${d.status_message || "Serveur prêt et opérationnel !"}`;
+          heroStatus.style.color = "var(--green)";
+        }
+        if (barFill) barFill.style.background = "linear-gradient(90deg, var(--green), #a6e3a1)";
+        if (finishBtn) finishBtn.innerHTML = `<span>🎉 Serveur Prêt !</span>`;
+        if (toConsoleBtn) toConsoleBtn.style.display = "inline-flex";
+      }
+
+      loadGameServers();
+    }
+  } catch (e) {
+    console.warn("Échec du polling deploy-status :", e);
+  }
+}
+
+function closeGameDeployProgressModal() {
+  const modal = document.getElementById("modal-game-deploy-progress");
+  if (modal) modal.style.display = "none";
+  if (gameDeployPollInterval) {
+    clearInterval(gameDeployPollInterval);
+    gameDeployPollInterval = null;
+  }
+  activeGameDeployServerId = null;
+  loadGameServers();
+}
+
+function minimizeGameDeployModal() {
+  const modal = document.getElementById("modal-game-deploy-progress");
+  const toast = document.getElementById("game-deploy-floating-toast");
+  if (modal) modal.style.display = "none";
+  if (toast) toast.style.display = "block";
+  isGameDeployModalMinimized = true;
+}
+
+function expandGameDeployModal() {
+  const modal = document.getElementById("modal-game-deploy-progress");
+  const toast = document.getElementById("game-deploy-floating-toast");
+  if (toast) toast.style.display = "none";
+  if (modal) modal.style.display = "flex";
+  isGameDeployModalMinimized = false;
+}
+
+function dismissGameDeployToast() {
+  const toast = document.getElementById("game-deploy-floating-toast");
+  if (toast) toast.style.display = "none";
+  if (gameDeployPollInterval) {
+    clearInterval(gameDeployPollInterval);
+    gameDeployPollInterval = null;
+  }
+  activeGameDeployServerId = null;
+}
+
+function jumpToGameConsole() {
+  const serverId = activeGameDeployServerId;
+  closeGameDeployProgressModal();
+  if (serverId) {
+    switchGamesSubtab("console");
+    const select = document.getElementById("game-console-server-select");
+    if (select) {
+      select.value = serverId;
+      onGameConsoleServerChange();
     }
   }
 }

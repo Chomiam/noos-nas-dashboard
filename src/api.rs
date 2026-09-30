@@ -109,6 +109,7 @@ pub fn api_routes() -> Router {
         .route("/games/:id/action", post(handle_games_action))
         .route("/games/:id/delete", post(handle_games_delete))
         .route("/games/:id/logs", get(handle_games_logs))
+        .route("/games/:id/deploy-status", get(handle_games_deploy_status))
         .route("/games/:id/command", post(handle_games_command))
         .route("/games/eggs/import", post(handle_games_import_egg))
         .route("/games/minecraft/loaders", get(handle_minecraft_loaders))
@@ -1678,6 +1679,24 @@ async fn handle_games_delete(
             success: false,
             data: None,
             message: Some(e.to_string()),
+        }),
+    }
+}
+
+async fn handle_games_deploy_status(
+    Path(id): Path<String>,
+) -> Json<ApiResponse<crate::games::GameDeployProgress>> {
+    let res = tokio::task::spawn_blocking(move || crate::games::get_deployment_status(&id)).await;
+    match res {
+        Ok(Some(progress)) => Json(ApiResponse {
+            success: true,
+            data: Some(progress),
+            message: None,
+        }),
+        _ => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some("Statut de déploiement introuvable.".into()),
         }),
     }
 }
