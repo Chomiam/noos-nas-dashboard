@@ -10824,14 +10824,45 @@ function renderEggCatalog() {
           </div>
         </div>
 
-        <div class="egg-card-footer">
-          <button type="button" class="btn btn-primary btn-sm" onclick="openCreateGameModal('${egg.id}')">
+        <div class="egg-card-footer" style="display:flex; gap:8px; align-items:center;">
+          <button type="button" class="btn btn-primary btn-sm" style="flex:1;" onclick="openCreateGameModal('${egg.id}')">
             <span>🚀</span> Déployer en 1-clic
           </button>
+          ${egg.is_custom ? `
+          <button type="button" class="btn btn-secondary btn-sm" onclick="deleteCustomEgg('${egg.id}', '${escapeHtml(egg.name)}')" title="Supprimer cet Egg personnalisé" style="color:var(--red); border-color:rgba(243,139,168,0.3); padding:6px 10px;">
+            <span>🗑️</span>
+          </button>
+          ` : ''}
         </div>
       </div>
     `;
   }).join('');
+}
+
+async function deleteCustomEgg(eggId, eggName) {
+  if (!confirm(`Supprimer définitivement l'Egg personnalisé "${eggName}" ?`)) {
+    return;
+  }
+  try {
+    const res = await fetch(`/api/games/eggs/${encodeURIComponent(eggId)}`, {
+      method: 'DELETE',
+    });
+    const json = await res.json();
+    if (json.success) {
+      if (typeof showToast === 'function') {
+        showToast('✓ Egg personnalisé supprimé avec succès', 'success');
+      }
+      await fetchGameCatalog();
+    } else {
+      if (typeof showToast === 'function') {
+        showToast(json.message || 'Erreur lors de la suppression', 'error');
+      }
+    }
+  } catch (err) {
+    if (typeof showToast === 'function') {
+      showToast('Erreur réseau lors de la suppression de l\'Egg', 'error');
+    }
+  }
 }
 
 

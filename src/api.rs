@@ -140,6 +140,7 @@ pub fn api_routes() -> Router {
         .route("/games/:id/deploy-status", get(handle_games_deploy_status))
         .route("/games/:id/command", post(handle_games_command))
         .route("/games/eggs/import", post(handle_games_import_egg))
+        .route("/games/eggs/:id", delete(handle_games_delete_egg))
         .route("/games/minecraft/loaders", get(handle_minecraft_loaders))
         .route("/games/minecraft/versions", get(handle_minecraft_versions))
         .route("/games/minecraft/resolve", post(handle_minecraft_resolve))
@@ -632,6 +633,29 @@ async fn handle_files_mkdir(Json(req): Json<MkdirRequest>) -> Json<ApiResponse<S
             success: true,
             data: Some(msg.clone()),
             message: Some(msg),
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
+        }),
+    }
+}
+
+async fn handle_games_delete_egg(
+    Path(id): Path<String>,
+) -> Json<ApiResponse<()>> {
+    let res = tokio::task::spawn_blocking(move || crate::games::delete_custom_egg(&id)).await;
+    match res {
+        Ok(Ok(_)) => Json(ApiResponse {
+            success: true,
+            data: None,
+            message: Some("Egg personnalisé supprimé avec succès ! ".into()),
         }),
         Ok(Err(err)) => Json(ApiResponse {
             success: false,

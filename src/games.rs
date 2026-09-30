@@ -1105,6 +1105,170 @@ pub fn get_default_eggs() -> Vec<Egg> {
             ],
             is_custom: false,
         },
+        Egg {
+            id: "enshrouded".into(),
+            name: "Enshrouded Dedicated Server".into(),
+            author: "Keen Games & SteamCMD".into(),
+            description: "Serveur dédié officiel Enshrouded via SteamCMD avec génération de monde persistant d'Embervale, physique de construction voxel avancée, progression coopérative jusqu'à 16 joueurs et combat d'action RPG.".into(),
+            category: "Survie / Action RPG".into(),
+            icon: "⚔️".into(),
+            icon_url: Some("https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/eggs/enshrouded/icon.png".into()),
+            banner_url: Some("https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/eggs/enshrouded/banner.jpg".into()),
+            tagline: Some("Explorez le royaume déchu d'Embervale dans ce RPG de survie voxel".into()),
+            banner_color: "linear-gradient(135deg, #b8860b, #4a2c00)".into(),
+            docker_image: "ghcr.io/parkervcp/steamcmd:proton".into(),
+            extra_ports: vec![
+                EggPort {
+                    port: 15637,
+                    protocol: "udp".into(),
+                    description: Some("Port de requête Steam Query".into()),
+                }
+            ],
+            steam_app_id: Some("2278520".into()),
+            default_port: 15636,
+            port_protocol: "udp".into(),
+            default_memory_mb: 8192,
+            min_memory_mb: 6144,
+            startup_cmd: "rm -f ./logs/enshrouded_server.log; proton run ./enshrouded_server.exe".into(),
+            variables: vec![
+                EggVariable {
+                    name: "Nom du serveur".into(),
+                    env_variable: "SERVER_NAME".into(),
+                    description: "Nom affiché dans la liste des serveurs Enshrouded".into(),
+                    default_value: "Serveur Enshrouded STEvE_OS".into(),
+                    input_type: "text".into(),
+                    options: None,
+                },
+                EggVariable {
+                    name: "Mot de passe Joueurs (Optionnel)".into(),
+                    env_variable: "SERVER_PASSWORD".into(),
+                    description: "Mot de passe requis pour rejoindre le monde (laisser vide si public)".into(),
+                    default_value: "".into(),
+                    input_type: "password".into(),
+                    options: None,
+                },
+                EggVariable {
+                    name: "Nombre maximum de joueurs".into(),
+                    env_variable: "MAX_PLAYERS".into(),
+                    description: "Nombre maximum de joueurs simultanés dans Embervale".into(),
+                    default_value: "16".into(),
+                    input_type: "number".into(),
+                    options: None,
+                },
+                EggVariable {
+                    name: "Dossier de sauvegarde".into(),
+                    env_variable: "SAVE_DIR".into(),
+                    description: "Répertoire local de persistance du monde".into(),
+                    default_value: "./savegame".into(),
+                    input_type: "text".into(),
+                    options: None,
+                },
+            ],
+            is_custom: false,
+        },
+        Egg {
+            id: "counter-strike-2".into(),
+            name: "Counter-Strike 2 Dedicated Server".into(),
+            author: "Valve Corporation & SteamCMD".into(),
+            description: "Serveur dédié officiel Counter-Strike 2 (CS2) propulsé par le moteur Source 2 et SteamCMD sous Linux 64-bit natif, tickrate adaptatif subtick, gestion des tokens GSLT et configuration compétitive/casual.".into(),
+            category: "FPS Compétitif".into(),
+            icon: "🎯".into(),
+            icon_url: Some("https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/eggs/counter-strike-2/icon.png".into()),
+            banner_url: Some("https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/eggs/counter-strike-2/banner.jpg".into()),
+            tagline: Some("Le summum du tir tactique et compétitif par Valve".into()),
+            banner_color: "linear-gradient(135deg, #de9b35, #1e293b)".into(),
+            docker_image: "ghcr.io/parkervcp/steamcmd:sniper".into(),
+            extra_ports: vec![
+                EggPort {
+                    port: 27020,
+                    protocol: "udp".into(),
+                    description: Some("Port SourceTV / GOTV".into()),
+                }
+            ],
+            steam_app_id: Some("730".into()),
+            default_port: 27015,
+            port_protocol: "both".into(),
+            default_memory_mb: 4096,
+            min_memory_mb: 2048,
+            startup_cmd: r#"./game/bin/linuxsteamrt64/cs2 -dedicated -ip 0.0.0.0 -port {{SERVER_PORT}} -tv_port 27020 -maxplayers {{MAX_PLAYERS}} +game_mode {{GAME_MODE}} +game_type {{GAME_TYPE}} +map {{SRCDS_MAP}} +hostname "{{SERVER_NAME}}" +sv_password "{{SERVER_PASSWORD}}" +rcon_password "{{RCON_PASSWORD}}" +sv_setsteamaccount {{STEAM_GSLT}}"#.into(),
+            variables: vec![
+                EggVariable {
+                    name: "Nom du serveur".into(),
+                    env_variable: "SERVER_NAME".into(),
+                    description: "Nom affiché dans la liste des serveurs communautaires CS2".into(),
+                    default_value: "Serveur CS2 STEvE_OS".into(),
+                    input_type: "text".into(),
+                    options: None,
+                },
+                EggVariable {
+                    name: "Carte de départ (Map)".into(),
+                    env_variable: "SRCDS_MAP".into(),
+                    description: "Carte initiale chargée au démarrage".into(),
+                    default_value: "de_dust2".into(),
+                    input_type: "select".into(),
+                    options: Some(vec![
+                        "de_dust2".into(),
+                        "de_mirage".into(),
+                        "de_inferno".into(),
+                        "de_nuke".into(),
+                        "de_anubis".into(),
+                        "de_ancient".into(),
+                        "de_vertigo".into(),
+                        "cs_office".into(),
+                        "cs_italy".into(),
+                    ]),
+                },
+                EggVariable {
+                    name: "Nombre maximum de joueurs".into(),
+                    env_variable: "MAX_PLAYERS".into(),
+                    description: "Nombre de slots joueurs autorisés".into(),
+                    default_value: "10".into(),
+                    input_type: "number".into(),
+                    options: None,
+                },
+                EggVariable {
+                    name: "Token GSLT Steam".into(),
+                    env_variable: "STEAM_GSLT".into(),
+                    description: "Jeton GSLT (Game Server Login Token) requis par Valve pour la liste publique".into(),
+                    default_value: "".into(),
+                    input_type: "password".into(),
+                    options: None,
+                },
+                EggVariable {
+                    name: "Mot de passe Joueurs (Optionnel)".into(),
+                    env_variable: "SERVER_PASSWORD".into(),
+                    description: "Mot de passe requis pour se connecter (vide pour public)".into(),
+                    default_value: "".into(),
+                    input_type: "password".into(),
+                    options: None,
+                },
+                EggVariable {
+                    name: "Mot de passe RCON".into(),
+                    env_variable: "RCON_PASSWORD".into(),
+                    description: "Mot de passe de télé-administration RCON console".into(),
+                    default_value: "SteveRconAdmin123!".into(),
+                    input_type: "password".into(),
+                    options: None,
+                },
+                EggVariable {
+                    name: "Type de jeu (Game Type)".into(),
+                    env_variable: "GAME_TYPE".into(),
+                    description: "Type de jeu (0=Classique, 1=Occasionnel/Gungame)".into(),
+                    default_value: "0".into(),
+                    input_type: "select".into(),
+                    options: Some(vec!["0".into(), "1".into()]),
+                },
+                EggVariable {
+                    name: "Mode de jeu (Game Mode)".into(),
+                    env_variable: "GAME_MODE".into(),
+                    description: "Mode de jeu (0=Casual, 1=Compétitif, 2=Course à l'armement)".into(),
+                    default_value: "1".into(),
+                    input_type: "select".into(),
+                    options: Some(vec!["0".into(), "1".into(), "2".into()]),
+                },
+            ],
+            is_custom: false,
+        },
     ]
 }
 
@@ -1165,6 +1329,27 @@ pub fn load_all_eggs() -> Vec<Egg> {
                 if let Ok(content) = fs::read_to_string(&path) {
                     if let Ok(mut custom_egg) = serde_json::from_str::<Egg>(&content) {
                         custom_egg.is_custom = true;
+
+                        // Déduplication intelligente : si un egg officiel certifié existe déjà
+                        // (ex: custom-projectzomboid vs project-zomboid, custom-7daystodie vs 7daystodie,
+                        // custom-enshrouded vs enshrouded, custom-counterstrike2 vs counter-strike-2),
+                        // on ignore le doublon custom non configuré pour afficher uniquement l'officiel avec bannière.
+                        let is_duplicate_of_official = eggs.iter().any(|e| {
+                            let off_id = e.id.trim().to_lowercase().replace(['-', '_', ' '], "");
+                            let cust_id = custom_egg.id.trim().to_lowercase().trim_start_matches("custom-").replace(['-', '_', ' '], "");
+                            let off_name = e.name.trim().to_lowercase().replace(['-', '_', ' '], "");
+                            let cust_name = custom_egg.name.trim().to_lowercase().replace(['-', '_', ' '], "");
+
+                            off_id == cust_id
+                                || off_name == cust_name
+                                || (cust_name.len() >= 4 && off_name.contains(&cust_name))
+                                || (off_name.len() >= 4 && cust_name.contains(&off_name))
+                        });
+
+                        if is_duplicate_of_official {
+                            continue;
+                        }
+
                         if let Some(pos) = eggs.iter().position(|e| e.id == custom_egg.id) {
                             eggs[pos] = custom_egg;
                         } else {
@@ -2094,4 +2279,28 @@ pub fn import_egg_file(req: ImportEggRequest) -> Result<Egg, String> {
     fs::write(&target_file, egg_json).map_err(|e| format!("Impossible d'enregistrer l'Egg : {}", e))?;
 
     Ok(egg)
+}
+
+pub fn delete_custom_egg(id: &str) -> Result<(), String> {
+    let custom_dir = get_custom_eggs_dir();
+    let clean_id = id.trim().trim_start_matches("custom-");
+    let candidates = [
+        custom_dir.join(format!("{}.json", id)),
+        custom_dir.join(format!("custom-{}.json", clean_id)),
+        custom_dir.join(format!("{}.json", clean_id)),
+    ];
+
+    let mut deleted = false;
+    for path in &candidates {
+        if path.exists() {
+            let _ = fs::remove_file(path);
+            deleted = true;
+        }
+    }
+
+    if deleted {
+        Ok(())
+    } else {
+        Err(format!("Egg personnalisé '{}' introuvable", id))
+    }
 }
