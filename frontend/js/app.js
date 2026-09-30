@@ -326,9 +326,13 @@ function renderUpdatesUI(status) {
     lastCheckedTime.textContent = `Vérifié à ${status.last_checked}`;
   }
 
-  const hasConfigUpdate = status.config_update_available;
-  const hasPkgUpdate = status.package_updates_available;
-  const hasAnyUpdate = hasConfigUpdate || hasPkgUpdate;
+  const hasConfigUpdate = !!status.config_update_available;
+  const hasDashboardUpdate = !!status.dashboard_update_available || (status.dashboard_telemetry && status.dashboard_telemetry.update_available);
+  const hasPkgUpdate = !!status.package_updates_available;
+  const hasAnyUpdate = hasConfigUpdate || hasDashboardUpdate || hasPkgUpdate;
+
+  let totalCount = (status.config_commits_behind || 0) + (status.package_updates_count || 0);
+  if (hasDashboardUpdate) totalCount += 1;
 
   // 1. Indicateurs Globaux (Header & Navbar)
   if (dot) {
@@ -345,6 +349,7 @@ function renderUpdatesUI(status) {
       pillText.textContent = "⚙️ Mise à jour en cours...";
     } else if (hasAnyUpdate) {
       const parts = [];
+      if (hasDashboardUpdate) parts.push("Dashboard");
       if (status.config_commits_behind > 0) parts.push(`${status.config_commits_behind} commit${status.config_commits_behind > 1 ? 's' : ''}`);
       if (status.package_updates_count > 0) parts.push(`${status.package_updates_count} paquet${status.package_updates_count > 1 ? 's' : ''}`);
       pillText.textContent = `⚡ Màj dispo (${parts.join(', ') || 'nouveau'})`;
@@ -356,7 +361,6 @@ function renderUpdatesUI(status) {
   if (navBadge) {
     if (hasAnyUpdate) {
       navBadge.style.display = "inline-block";
-      const totalCount = (status.config_commits_behind || 0) + (status.package_updates_count || 0);
       navBadge.textContent = totalCount > 0 ? totalCount : "!";
     } else {
       navBadge.style.display = "none";
@@ -369,12 +373,24 @@ function renderUpdatesUI(status) {
       heroBanner.classList.add("has-updates");
       if (heroIcon) heroIcon.textContent = "⚡";
       if (heroTitle) heroTitle.textContent = status.status_text;
-      if (heroSubtitle) heroSubtitle.textContent = "Une nouvelle version de STEvE_OS NAS Edition est prête à être déployée.";
+      const parts = [];
+      if (hasDashboardUpdate) {
+        const runV = status.dashboard_telemetry ? status.dashboard_telemetry.running_version : "";
+        const tgtV = status.dashboard_telemetry ? status.dashboard_telemetry.target_version : "";
+        parts.push(`⚡ Dashboard v${runV} → v${tgtV}`);
+      }
+      if (status.config_commits_behind > 0) {
+        parts.push(`🖥️ OS NixOS : ${status.config_commits_behind} commit(s) en attente`);
+      }
+      if (status.package_updates_count > 0) {
+        parts.push(`📦 ${status.package_updates_count} paquet(s) système`);
+      }
+      if (heroSubtitle) heroSubtitle.textContent = parts.join(" • ") || "Une nouvelle version de STEvE_OS NAS Edition est prête à être déployée.";
     } else {
       heroBanner.classList.remove("has-updates");
       if (heroIcon) heroIcon.textContent = "✨";
       if (heroTitle) heroTitle.textContent = "STEvE_OS NAS Edition est à jour";
-      if (heroSubtitle) heroSubtitle.textContent = "Votre système d'exploitation et tous vos services fonctionnent sur la dernière version.";
+      if (heroSubtitle) heroSubtitle.textContent = "Votre système d'exploitation et votre tableau de bord fonctionnent sur la dernière version.";
     }
   }
 
@@ -383,18 +399,39 @@ function renderUpdatesUI(status) {
     heroStatusIcon.textContent = status.is_updating ? "🔄" : (hasAnyUpdate ? "🚀" : "✨");
   }
   if (heroHeading) {
-    heroHeading.textContent = status.is_updating ? "Mise à jour de STEvE_OS en cours" : (hasAnyUpdate ? "Mise à jour disponible pour STEvE_OS" : "Votre système STEvE_OS est à jour");
+    if (status.is_updating) {
+      heroHeading.textContent = "Mise à jour de STEvE_OS en cours d'exécution";
+    } else if (hasConfigUpdate && hasDashboardUpdate) {
+      heroHeading.textContent = "Mise à jour globale STEvE_OS disponible (OS & Dashboard)";
+    } else if (hasDashboardUpdate) {
+      heroHeading.textContent = "Mise à jour du Dashboard STEvE_OS disponible";
+    } else if (hasConfigUpdate) {
+      heroHeading.textContent = "Mise à jour de la configuration NixOS disponible";
+    } else if (hasAnyUpdate) {
+      heroHeading.textContent = "Mises à jour système prêtes à être appliquées";
+    } else {
+      heroHeading.textContent = "Votre système STEvE_OS est parfaitement à jour";
+    }
   }
   if (heroSubheading) {
     if (status.is_updating) {
       heroSubheading.textContent = "Une opération de déploiement est en cours d'exécution. Suivez la progression ci-dessous.";
     } else if (hasAnyUpdate) {
       const summaryItems = [];
-      if (status.config_commits_behind > 0) summaryItems.push(`<b>${status.config_commits_behind}</b> nouveau${status.config_commits_behind > 1 ? 'x' : ''} commit${status.config_commits_behind > 1 ? 's' : ''} sur GitHub`);
-      if (status.package_updates_count > 0) summaryItems.push(`<b>${status.package_updates_count}</b> paquet${status.package_updates_count > 1 ? 's' : ''} système à mettre à niveau`);
+      if (hasDashboardUpdate) {
+        const runV = status.dashboard_telemetry ? status.dashboard_telemetry.running_version : "";
+        const tgtV = status.dashboard_telemetry ? status.dashboard_telemetry.target_version : "";
+        summaryItems.push(`⚡ Dashboard : <b>v${runV} → v${tgtV}</b>`);
+      }
+      if (status.config_commits_behind > 0) {
+        summaryItems.push(`🖥️ OS NixOS : <b>${status.config_commits_behind}</b> nouveau${status.config_commits_behind > 1 ? 'x' : ''} commit${status.config_commits_behind > 1 ? 's' : ''}`);
+      }
+      if (status.package_updates_count > 0) {
+        summaryItems.push(`📦 <b>${status.package_updates_count}</b> paquet${status.package_updates_count > 1 ? 's' : ''} système`);
+      }
       heroSubheading.innerHTML = summaryItems.join(" • ") || status.status_text;
     } else {
-      heroSubheading.textContent = "Tous les composants déclaratifs NixOS et la configuration GitHub sont synchronisés.";
+      heroSubheading.textContent = "Configuration déclarative NixOS et Dashboard Web sont synchronisés avec GitHub.";
     }
   }
 
@@ -406,12 +443,11 @@ function renderUpdatesUI(status) {
       if (btnSingleUpdateBadge) btnSingleUpdateBadge.style.display = "none";
     } else if (hasAnyUpdate) {
       if (btnSingleUpdateIcon) btnSingleUpdateIcon.textContent = "🚀";
-      const targetSha = status.config_remote_commit ? `vers ${status.config_remote_commit}` : "";
+      const targetSha = status.config_remote_commit ? `vers ${status.config_remote_commit}` : (hasDashboardUpdate ? `(Dashboard)` : "");
       if (btnSingleUpdateText) btnSingleUpdateText.textContent = `Mettre à jour STEvE_OS ${targetSha}`.trim();
       if (btnSingleUpdateBadge) {
         btnSingleUpdateBadge.style.display = "inline-block";
-        const count = (status.config_commits_behind || 0) + (status.package_updates_count || 0);
-        btnSingleUpdateBadge.textContent = count > 0 ? `${count} màj` : "Prêt";
+        btnSingleUpdateBadge.textContent = totalCount > 0 ? `${totalCount} màj` : "Prêt";
       }
     } else {
       if (btnSingleUpdateIcon) btnSingleUpdateIcon.textContent = "🔄";
@@ -420,51 +456,80 @@ function renderUpdatesUI(status) {
     }
   }
 
-  // 4. Cartes des Versions Locale & Distante
+  // 4. Double Télémétrie : Carte 1 - Configuration OS NixOS
   const localShaEl = document.getElementById("git-local-sha");
   const localGenEl = document.getElementById("version-local-gen");
-  const localDateEl = document.getElementById("git-local-date");
-  const localAuthorEl = document.getElementById("git-local-author");
+  const remoteShaEl = document.getElementById("git-remote-sha");
+  const remoteSyncEl = document.getElementById("git-sync-status");
+  const osBadgeEl = document.getElementById("version-os-badge");
   const localMsgEl = document.getElementById("git-local-msg");
 
-  if (localShaEl) localShaEl.textContent = status.config_local_commit || "--";
+  const osTel = status.os_telemetry || {};
+  const localCommit = osTel.local_commit || status.config_local_commit || "--";
+  const remoteCommit = osTel.remote_commit || status.config_remote_commit || localCommit;
+  const commitsBehind = osTel.commits_behind !== undefined ? osTel.commits_behind : (status.config_commits_behind || 0);
+
+  if (localShaEl) localShaEl.textContent = localCommit;
+  if (remoteShaEl) remoteShaEl.textContent = remoteCommit;
   if (localGenEl) {
     const gen = status.system_generation ? `Génération ${status.system_generation}` : "Génération active";
     localGenEl.textContent = `${gen} • NixOS 26.05`;
   }
-  if (localDateEl) localDateEl.textContent = status.last_checked ? `Vérifié récemment` : "--";
-  if (localAuthorEl) localAuthorEl.textContent = "STEvE_OS Team";
-  if (localMsgEl) {
-    localMsgEl.textContent = status.config_commit_message || "Dernière configuration validée sur le NAS.";
-  }
-
-  const remoteShaEl = document.getElementById("git-remote-sha");
-  const remoteSyncEl = document.getElementById("git-sync-status");
-  const remoteBadgeEl = document.getElementById("version-remote-badge");
-  const remoteMsgEl = document.getElementById("git-remote-msg");
-
-  if (remoteShaEl) remoteShaEl.textContent = status.config_remote_commit || status.config_local_commit || "--";
   if (remoteSyncEl) {
-    if (status.config_commits_behind > 0) {
-      remoteSyncEl.innerHTML = `<span style="color:var(--yellow); font-weight:700;">En retard de ${status.config_commits_behind} commit${status.config_commits_behind > 1 ? 's' : ''}</span>`;
+    if (commitsBehind > 0) {
+      remoteSyncEl.innerHTML = `<span style="color:var(--yellow); font-weight:700;">En retard de ${commitsBehind} commit${commitsBehind > 1 ? 's' : ''}</span>`;
     } else {
       remoteSyncEl.innerHTML = `<span style="color:var(--green); font-weight:700;">Aligné avec origin/main</span>`;
     }
   }
-  if (remoteBadgeEl) {
-    if (hasAnyUpdate) {
-      remoteBadgeEl.className = "badge badge-accent";
-      remoteBadgeEl.textContent = "Nouveauté prête";
+  if (osBadgeEl) {
+    if (hasConfigUpdate) {
+      osBadgeEl.className = "badge badge-accent";
+      osBadgeEl.textContent = `${commitsBehind || 1} màj dispo`;
     } else {
-      remoteBadgeEl.className = "badge badge-success";
-      remoteBadgeEl.textContent = "À jour";
+      osBadgeEl.className = "badge badge-success";
+      osBadgeEl.textContent = "À jour";
     }
   }
-  if (remoteMsgEl) {
+  if (localMsgEl) {
     if (status.config_pending_commits && status.config_pending_commits.length > 0) {
-      remoteMsgEl.textContent = `Dernier commit : ${status.config_pending_commits[0].message} (${status.config_pending_commits[0].author})`;
+      localMsgEl.textContent = `Dernier commit : ${status.config_pending_commits[0].message} (${status.config_pending_commits[0].author})`;
     } else {
-      remoteMsgEl.textContent = "Dépôt GitHub synchronisé avec la branche principale (main).";
+      localMsgEl.textContent = status.config_commit_message || "Configuration NixOS synchronisée avec la branche main.";
+    }
+  }
+
+  // 4. Double Télémétrie : Carte 2 - Dashboard Web & Moteurs
+  const dashRunningVerEl = document.getElementById("dashboard-running-ver");
+  const dashTargetVerEl = document.getElementById("dashboard-target-ver");
+  const dashTargetCommitEl = document.getElementById("dashboard-target-commit");
+  const dashBadgeEl = document.getElementById("version-dashboard-badge");
+  const dashMsgEl = document.getElementById("dashboard-status-msg");
+
+  const dashTel = status.dashboard_telemetry || {};
+  const runningVer = dashTel.running_version || "0.2.13";
+  const targetVer = dashTel.target_version || runningVer;
+  const targetCommit = dashTel.target_commit || "--";
+
+  if (dashRunningVerEl) dashRunningVerEl.textContent = `v${runningVer}`;
+  if (dashTargetVerEl) dashTargetVerEl.textContent = `v${targetVer}`;
+  if (dashTargetCommitEl) dashTargetCommitEl.textContent = targetCommit;
+
+  if (dashBadgeEl) {
+    if (hasDashboardUpdate) {
+      dashBadgeEl.className = "badge badge-accent";
+      dashBadgeEl.textContent = "Màj disponible";
+    } else {
+      dashBadgeEl.className = "badge badge-success";
+      dashBadgeEl.textContent = "Actif";
+    }
+  }
+
+  if (dashMsgEl) {
+    if (hasDashboardUpdate) {
+      dashMsgEl.textContent = `Nouvelle version v${targetVer} prête. Le déploiement compilera ou appliquera le nouveau binaire sans interrompre votre session.`;
+    } else {
+      dashMsgEl.textContent = `Tableau de bord STEvE_OS actif sur la version v${runningVer} (moteur asynchrone Rust Axum).`;
     }
   }
 
@@ -543,7 +608,7 @@ function renderUpdatesUI(status) {
 async function triggerSingleUpdate() {
   if (isUpdatingNow) return;
 
-  const hasAnyUpdate = lastUpdateStatus && (lastUpdateStatus.config_update_available || lastUpdateStatus.package_updates_available);
+  const hasAnyUpdate = lastUpdateStatus && (lastUpdateStatus.config_update_available || lastUpdateStatus.dashboard_update_available || (lastUpdateStatus.dashboard_telemetry && lastUpdateStatus.dashboard_telemetry.update_available) || lastUpdateStatus.package_updates_available);
   const promptMsg = hasAnyUpdate 
     ? "Voulez-vous lancer la mise à jour de STEvE_OS ?\nL'opération s'exécute en arrière-plan et survit aux rafraîchissements de page."
     : "Le système est déjà à jour. Souhaitez-vous forcer une synchronisation et une réévaluation complète de la configuration ?";

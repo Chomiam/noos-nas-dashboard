@@ -818,63 +818,71 @@
           </div>
         </div>
 
-        <!-- 2 CARTES DE VERSIONS COMPARATIVES -->
+        <!-- 2 CARTES DE VERSIONS COMPARATIVES : DOUBLE TÉLÉMÉTRIE -->
         <div class="version-cards-grid">
-          <!-- Carte Version Locale -->
-          <div class="version-card">
+          <!-- Carte 1 : Configuration OS NixOS (steve_os-nix) -->
+          <div class="version-card" id="card-telemetry-os">
             <div class="version-card-header">
               <div class="version-card-title-wrap">
                 <span class="version-card-icon">🖥️</span>
                 <div>
-                  <div class="version-card-title">Version Actuelle (Installée)</div>
-                  <div class="version-card-sub" id="version-local-gen">Génération active sur le NAS</div>
+                  <div class="version-card-title">Configuration Système NixOS</div>
+                  <div class="version-card-sub" id="version-local-gen">Dépôt steve_os-nix • Génération active</div>
                 </div>
               </div>
-              <span class="badge badge-success" id="version-local-badge">Actif</span>
+              <span class="badge badge-success" id="version-os-badge">À jour</span>
             </div>
             <div class="version-card-body">
               <div class="version-info-row">
-                <span class="info-label">Commit :</span>
+                <span class="info-label">Commit local (/etc/nixos) :</span>
                 <span class="info-value"><code id="git-local-sha">--</code></span>
               </div>
               <div class="version-info-row">
-                <span class="info-label">Date :</span>
-                <span class="info-value" id="git-local-date">--</span>
-              </div>
-              <div class="version-info-row">
-                <span class="info-label">Auteur :</span>
-                <span class="info-value" id="git-local-author">--</span>
-              </div>
-              <div class="version-commit-msg-box" id="git-local-msg">Chargement du message de commit...</div>
-            </div>
-          </div>
-
-          <!-- Carte Dernière Version Distante -->
-          <div class="version-card">
-            <div class="version-card-header">
-              <div class="version-card-title-wrap">
-                <span class="version-card-icon">🐙</span>
-                <div>
-                  <div class="version-card-title">Dernière Version (GitHub)</div>
-                  <div class="version-card-sub">Branche main • steve_os-nix</div>
-                </div>
-              </div>
-              <span class="badge badge-info" id="version-remote-badge">Vérification...</span>
-            </div>
-            <div class="version-card-body">
-              <div class="version-info-row">
-                <span class="info-label">Dernier Commit :</span>
+                <span class="info-label">Dernier commit GitHub :</span>
                 <span class="info-value"><code id="git-remote-sha">--</code></span>
               </div>
               <div class="version-info-row">
-                <span class="info-label">Statut GitHub :</span>
+                <span class="info-label">Statut de synchronisation :</span>
                 <span class="info-value" id="git-sync-status">--</span>
               </div>
               <div class="version-info-row">
                 <span class="info-label">Dépôt distant :</span>
                 <a href="https://github.com/Chomiam/steve_os-nix" target="_blank" class="info-link" style="color:var(--mauve); text-decoration:none; font-weight:600;">Chomiam/steve_os-nix ↗</a>
               </div>
-              <div class="version-commit-msg-box" id="git-remote-msg">Chargement du statut distant...</div>
+              <div class="version-commit-msg-box" id="git-local-msg">Chargement du statut de configuration...</div>
+            </div>
+          </div>
+
+          <!-- Carte 2 : Dashboard Web & Moteurs (steveos-nas-dashboard) -->
+          <div class="version-card" id="card-telemetry-dashboard">
+            <div class="version-card-header">
+              <div class="version-card-title-wrap">
+                <span class="version-card-icon">⚡</span>
+                <div>
+                  <div class="version-card-title">Tableau de Bord & Moteurs Web</div>
+                  <div class="version-card-sub">Dépôt steveos-nas-dashboard • Service Axum</div>
+                </div>
+              </div>
+              <span class="badge badge-success" id="version-dashboard-badge">Actif</span>
+            </div>
+            <div class="version-card-body">
+              <div class="version-info-row">
+                <span class="info-label">Version en cours d'exécution :</span>
+                <span class="info-value"><code id="dashboard-running-ver">--</code></span>
+              </div>
+              <div class="version-info-row">
+                <span class="info-label">Version cible disponible :</span>
+                <span class="info-value"><code id="dashboard-target-ver">--</code></span>
+              </div>
+              <div class="version-info-row">
+                <span class="info-label">Commit verrouillé (flake.lock) :</span>
+                <span class="info-value"><code id="dashboard-target-commit">--</code></span>
+              </div>
+              <div class="version-info-row">
+                <span class="info-label">Dépôt distant :</span>
+                <a href="https://github.com/Chomiam/steveos-nas-dashboard" target="_blank" class="info-link" style="color:var(--mauve); text-decoration:none; font-weight:600;">Chomiam/steveos-nas-dashboard ↗</a>
+              </div>
+              <div class="version-commit-msg-box" id="dashboard-status-msg">Moteur Rust asynchrone & interface réactive Catppuccin Mocha.</div>
             </div>
           </div>
         </div>
@@ -1821,7 +1829,7 @@
   <div class="toast-container" id="toast-container"></div>
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20260930_06"></script>
+  <script src="/js/app.js?v=20260930_07"></script>
   <!-- MENU CONTEXTUEL CLIC DROIT -->
   <div class="context-menu" id="files-context-menu">
     <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">

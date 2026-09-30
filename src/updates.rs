@@ -34,7 +34,38 @@ pub struct PackageUpdateItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OsTelemetry {
+    pub repo_name: String,
+    pub local_commit: String,
+    pub local_commit_full: String,
+    pub remote_commit: Option<String>,
+    pub remote_commit_full: Option<String>,
+    pub commit_message: Option<String>,
+    pub commits_behind: u32,
+    pub pending_commits: Vec<GitCommitItem>,
+    pub changed_files: Vec<String>,
+    pub git_status: String,
+    pub update_available: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardTelemetry {
+    pub repo_name: String,
+    pub running_version: String,
+    pub running_commit: Option<String>,
+    pub target_version: Option<String>,
+    pub target_commit: Option<String>,
+    pub remote_commit: Option<String>,
+    pub update_available: bool,
+    pub status_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateCheckStatus {
+    // Double Télémétrie
+    pub os_telemetry: OsTelemetry,
+    pub dashboard_telemetry: DashboardTelemetry,
+    pub dashboard_update_available: bool,
     // Configuration Git
     pub config_update_available: bool,
     pub config_local_commit: String,
@@ -537,7 +568,57 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
         "Modifications locales détectées (stash automatique)".to_string()
     };
 
-    // 3. Vérification des paquets Nixpkgs & Entrées Flake dans flake.lock
+    // 3. Télémétrie spécifique du Dashboard STEvE_OS (Double Télémétrie)
+    let running_dashboard_version = env!("CARGO_PKG_VERSION").to_string();
+    let mut dashboard_target_commit = None;
+    let mut dashboard_target_commit_full = None;
+    let mut dashboard_remote_commit = None;
+    let mut dashboard_remote_commit_full = None;
+    let mut dashboard_remote_version = None;
+    let mut dashboard_update_available = false;
+
+    let dashboard_git_url = "https://github.com/Chomiam/steveos-nas-dashboard.git";
+    if let Ok(ls_out) = Command::new(git_binary())
+        .args(["-c", "safe.directory=*", "ls-remote", dashboard_git_url, "refs/heads/main"])
+        .output()
+    {
+        if ls_out.status.success() {
+            let text = String::from_utf8_lossy(&ls_out.stdout);
+            if let Some(sha) = text.split_whitespace().next() {
+                dashboard_remote_commit_full = Some(sha.to_string());
+                dashboard_remote_commit = Some(sha[..7.min(sha.len())].to_string());
+            }
+        }
+    }
+
+    if let Ok(tags_out) = Command::new(git_binary())
+        .args(["-c", "safe.directory=*", "ls-remote", "--tags", dashboard_git_url])
+        .output()
+    {
+        if tags_out.status.success() {
+            let text = String::from_utf8_lossy(&tags_out.stdout);
+            let mut highest_tag: Option<String> = None;
+            for line in text.lines() {
+                for part in line.split_whitespace() {
+                    if let Some(tag) = part.strip_prefix("refs/tags/v") {
+                        let clean_tag = tag.trim_end_matches("^{}");
+                        if is_valid_semver(clean_tag) {
+                            if let Some(ref current) = highest_tag {
+                                if compare_semver(clean_tag, current) > 0 {
+                                    highest_tag = Some(clean_tag.to_string());
+                                }
+                            } else {
+                                highest_tag = Some(clean_tag.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            dashboard_remote_version = highest_tag;
+        }
+    }
+
+    // Vérification des paquets Nixpkgs & Entrées Flake dans flake.lock
     let mut package_updates_available = false;
     let mut package_updates_count = 0;
     let mut package_details = Vec::new();
@@ -569,6 +650,11 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
 
                     if locked_rev.is_empty() {
                         continue;
+                    }
+
+                    if node_name == "steveos-nas-dashboard" {
+                        dashboard_target_commit_full = Some(locked_rev.to_string());
+                        dashboard_target_commit = Some(locked_rev[..7.min(locked_rev.len())].to_string());
                     }
 
                     let owner = original.and_then(|o| o.get("owner")).and_then(|o| o.as_str()).unwrap_or("");
@@ -612,11 +698,55 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
         }
     }
 
+    let target_dashboard_version = dashboard_remote_version.clone().unwrap_or_else(|| running_dashboard_version.clone());
+
+    // Vérification de la disponibilité d'une mise à jour du Dashboard
+    if compare_semver(&target_dashboard_version, &running_dashboard_version) > 0 {
+        dashboard_update_available = true;
+    }
+    if let (Some(ref locked), Some(ref remote)) = (&dashboard_target_commit_full, &dashboard_remote_commit_full) {
+        if locked != remote {
+            dashboard_update_available = true;
+        }
+    }
+
+    let os_telemetry = OsTelemetry {
+        repo_name: "Chomiam/steve_os-nix".to_string(),
+        local_commit: local_commit.clone(),
+        local_commit_full: full_local_commit.clone(),
+        remote_commit: config_remote_commit.clone(),
+        remote_commit_full: config_remote_commit_full.clone(),
+        commit_message: config_commit_message.clone(),
+        commits_behind: config_commits_behind,
+        pending_commits: config_pending_commits.clone(),
+        changed_files: config_changed_files.clone(),
+        git_status: config_git_status.clone(),
+        update_available: config_update_available,
+    };
+
+    let dashboard_status_str = if dashboard_update_available {
+        format!("Mise à niveau prête : v{} (actuel : v{})", target_dashboard_version, running_dashboard_version)
+    } else {
+        format!("À jour (version v{} active)", running_dashboard_version)
+    };
+
+    let dashboard_telemetry = DashboardTelemetry {
+        repo_name: "Chomiam/steveos-nas-dashboard".to_string(),
+        running_version: running_dashboard_version.clone(),
+        running_commit: None,
+        target_version: Some(target_dashboard_version.clone()),
+        target_commit: dashboard_target_commit.clone(),
+        remote_commit: dashboard_remote_commit.clone(),
+        update_available: dashboard_update_available,
+        status_text: dashboard_status_str,
+    };
+
     // 4. Liste détaillée des paquets qui seront mis à jour / modifiés
     let package_updates_list = detect_package_updates_list(&config_dir, package_updates_available);
 
-    // 5. Détermination du type d'action requise
-    let update_type = match (config_update_available, package_updates_available || !package_updates_list.is_empty()) {
+    // 5. Détermination du type d'action requise (Double Télémétrie)
+    let has_pkg_or_dash = dashboard_update_available || package_updates_available || !package_updates_list.is_empty();
+    let update_type = match (config_update_available, has_pkg_or_dash) {
         (true, true) => UpdateType::Both,
         (true, false) => UpdateType::ConfigOnly,
         (false, true) => UpdateType::PackagesOnly,
@@ -624,13 +754,36 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
     };
 
     let status_text = match update_type {
-        UpdateType::Both => "⚡ Nouvelle configuration ET paquets disponibles !".to_string(),
-        UpdateType::ConfigOnly => "📥 Nouvelle configuration disponible sur GitHub".to_string(),
-        UpdateType::PackagesOnly => "📦 Mises à jour de paquets système prêtes à être appliquées".to_string(),
-        UpdateType::None => "✨ Système et configuration à jour".to_string(),
+        UpdateType::Both => {
+            if dashboard_update_available && config_commits_behind > 0 {
+                format!("⚡ Nouvelle configuration OS ({} commit(s)) ET Dashboard v{} disponibles !", config_commits_behind, target_dashboard_version)
+            } else if dashboard_update_available {
+                format!("⚡ Nouvelle configuration OS et Dashboard v{} disponibles !", target_dashboard_version)
+            } else {
+                "⚡ Nouvelle configuration OS et paquets disponibles !".to_string()
+            }
+        }
+        UpdateType::ConfigOnly => {
+            if config_commits_behind > 0 {
+                format!("📥 Nouvelle configuration disponible sur GitHub ({} nouveau(x) commit(s))", config_commits_behind)
+            } else {
+                "📥 Nouvelle configuration disponible sur GitHub".to_string()
+            }
+        }
+        UpdateType::PackagesOnly => {
+            if dashboard_update_available {
+                format!("⚡ Mise à jour du Dashboard STEvE_OS disponible (v{} → v{})", running_dashboard_version, target_dashboard_version)
+            } else {
+                "📦 Mises à jour de paquets système prêtes à être appliquées".to_string()
+            }
+        }
+        UpdateType::None => "✨ Système d'exploitation et Dashboard STEvE_OS à jour".to_string(),
     };
 
     let status = UpdateCheckStatus {
+        os_telemetry,
+        dashboard_telemetry,
+        dashboard_update_available,
         config_update_available,
         config_local_commit: local_commit,
         config_local_commit_full: full_local_commit,
@@ -744,6 +897,42 @@ fn split_pkg_name_and_version(s: &str) -> (&str, &str) {
     }
     (s, "dernière version")
 }
+
+pub fn parse_semver(s: &str) -> Option<(u32, u32, u32)> {
+    let parts: Vec<&str> = s.split('.').collect();
+    if parts.len() >= 3 {
+        let major = parts[0].parse().ok()?;
+        let minor = parts[1].parse().ok()?;
+        let patch = parts[2].parse().ok()?;
+        Some((major, minor, patch))
+    } else if parts.len() == 2 {
+        let major = parts[0].parse().ok()?;
+        let minor = parts[1].parse().ok()?;
+        Some((major, minor, 0))
+    } else {
+        None
+    }
+}
+
+pub fn compare_semver(a: &str, b: &str) -> i32 {
+    match (parse_semver(a), parse_semver(b)) {
+        (Some(sa), Some(sb)) => {
+            if sa.0 != sb.0 {
+                sa.0.cmp(&sb.0) as i32
+            } else if sa.1 != sb.1 {
+                sa.1.cmp(&sb.1) as i32
+            } else {
+                sa.2.cmp(&sb.2) as i32
+            }
+        }
+        _ => a.cmp(b) as i32,
+    }
+}
+
+pub fn is_valid_semver(s: &str) -> bool {
+    parse_semver(s).is_some()
+}
+
 
 pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<(), String> {
     log.push_str("--- [Étape 1/3] Sécurisation de l'espace de travail local ---\n");
@@ -986,7 +1175,34 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
 
     if let Ok(mut guard) = UPDATE_CACHE.lock() {
         let (short_c, full_c) = get_local_commit_from_fs(&config_dir);
+        let clean_os_telemetry = OsTelemetry {
+            repo_name: "Chomiam/steve_os-nix".to_string(),
+            local_commit: short_c.clone(),
+            local_commit_full: full_c.clone(),
+            remote_commit: Some(short_c.clone()),
+            remote_commit_full: Some(full_c.clone()),
+            commit_message: Some("Configuration système NixOS synchronisée.".to_string()),
+            commits_behind: 0,
+            pending_commits: vec![],
+            changed_files: vec![],
+            git_status: "Arbre de travail propre".to_string(),
+            update_available: false,
+        };
+        let clean_dash_ver = env!("CARGO_PKG_VERSION").to_string();
+        let clean_dashboard_telemetry = DashboardTelemetry {
+            repo_name: "Chomiam/steveos-nas-dashboard".to_string(),
+            running_version: clean_dash_ver.clone(),
+            running_commit: None,
+            target_version: Some(clean_dash_ver.clone()),
+            target_commit: None,
+            remote_commit: None,
+            update_available: false,
+            status_text: format!("À jour (version v{} active)", clean_dash_ver),
+        };
         let clean_status = UpdateCheckStatus {
+            os_telemetry: clean_os_telemetry,
+            dashboard_telemetry: clean_dashboard_telemetry,
+            dashboard_update_available: false,
             config_update_available: false,
             config_local_commit: short_c,
             config_local_commit_full: full_c,
