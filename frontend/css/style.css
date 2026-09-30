@@ -200,6 +200,18 @@ body {
   display: block;
 }
 
+/* Anti-flicker pre-rendering for tabs on refresh */
+html[data-initial-tab] #tab-overview { display: none !important; }
+html[data-initial-tab="tab-files"] #tab-files { display: block !important; }
+html[data-initial-tab="tab-storage"] #tab-storage { display: block !important; }
+html[data-initial-tab="tab-network"] #tab-network { display: block !important; }
+html[data-initial-tab="tab-containers"] #tab-containers { display: block !important; }
+html[data-initial-tab="tab-games"] #tab-games { display: block !important; }
+html[data-initial-tab="tab-vms"] #tab-vms { display: block !important; }
+html[data-initial-tab="tab-users"] #tab-users { display: block !important; }
+html[data-initial-tab="tab-logs"] #tab-logs { display: block !important; }
+html[data-initial-tab="tab-updates"] #tab-updates { display: block !important; }
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }

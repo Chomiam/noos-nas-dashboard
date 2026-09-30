@@ -34,7 +34,8 @@ function getAuthToken() {
       sessionStorage.setItem(AUTH_TOKEN_KEY, qToken);
       document.cookie = `steveos_token=${qToken}; path=/; max-age=604800; SameSite=Lax`;
       try {
-        window.history.replaceState({}, document.title, window.location.pathname);
+        const cleanUrl = window.location.pathname + (window.location.hash || "");
+        window.history.replaceState({}, document.title, cleanUrl);
       } catch (e) {}
       return qToken;
     }
@@ -158,31 +159,198 @@ window.fetch = async function(...args) {
   return response;
 };
 
+// --------------------------------------------------------------------------
+// PERSISTANCE & ROUTAGE DES ONGLETS & SOUS-ONGLETS
+// --------------------------------------------------------------------------
+const TAB_IDS = [
+  "tab-overview",
+  "tab-files",
+  "tab-storage",
+  "tab-network",
+  "tab-containers",
+  "tab-games",
+  "tab-vms",
+  "tab-users",
+  "tab-logs",
+  "tab-updates"
+];
+
 let activeTab = "tab-overview";
 let lastUpdateStatus = null;
 let isUpdatingNow = false;
 
+function parseHashRoute() {
+  const hash = window.location.hash.replace(/^#\/?/, "").trim();
+  if (!hash) return { tabId: null, subtab: null };
+
+  const parts = hash.split("/");
+  let rawTab = parts[0].toLowerCase();
+  const subtab = parts[1] ? parts[1].toLowerCase() : null;
+
+  if (rawTab.startsWith("tab-")) {
+    rawTab = rawTab.replace(/^tab-/, "");
+  }
+
+  // Alias usuels
+  if (rawTab === "docker") rawTab = "containers";
+  if (rawTab === "system" || rawTab === "home") rawTab = "overview";
+
+  const targetTabId = `tab-${rawTab}`;
+  if (TAB_IDS.includes(targetTabId)) {
+    return { tabId: targetTabId, subtab: subtab };
+  }
+
+  return { tabId: null, subtab: null };
+}
+
+function getStoredTabId() {
+  const route = parseHashRoute();
+  if (route.tabId) return route.tabId;
+
+  try {
+    const local = localStorage.getItem("steveos_active_tab");
+    if (local && TAB_IDS.includes(local)) return local;
+
+    const session = sessionStorage.getItem("steveos_active_tab");
+    if (session && TAB_IDS.includes(session)) return session;
+  } catch (e) {}
+
+  return "tab-overview";
+}
+
+function updateUrlHash(tabId, subtab = null) {
+  try {
+    const rawTab = tabId.replace(/^tab-/, "");
+    let newHash = `#${rawTab}`;
+    if (subtab) {
+      newHash += `/${subtab.replace(/^subtab-/, "")}`;
+    }
+    if (window.location.hash !== newHash) {
+      window.history.replaceState(null, "", newHash);
+    }
+  } catch (e) {}
+}
+
+function applyInitialTabStateEarly() {
+  try {
+    const targetTabId = getStoredTabId();
+    if (!targetTabId) return;
+
+    activeTab = targetTabId;
+
+    const updateHeaderBtn = document.getElementById("header-update-btn");
+    if (updateHeaderBtn) {
+      updateHeaderBtn.classList.toggle("active-view", targetTabId === "tab-updates");
+    }
+
+    document.querySelectorAll(".tab-btn").forEach(btn => {
+      btn.classList.toggle("active", btn.getAttribute("data-tab") === targetTabId);
+    });
+
+    document.querySelectorAll(".tab-pane").forEach(pane => {
+      pane.classList.toggle("active", pane.id === targetTabId);
+    });
+
+    document.documentElement.removeAttribute("data-initial-tab");
+  } catch (e) {}
+}
+
+function restoreStoredSubtabs(tabId) {
+  try {
+    if (tabId === "tab-network") {
+      const saved = localStorage.getItem("steveos_subtab_network");
+      if (saved) switchNetworkSubtab(saved, false);
+    } else if (tabId === "tab-containers") {
+      const saved = localStorage.getItem("steveos_subtab_containers");
+      if (saved) switchDockerSubTab(saved, false);
+    } else if (tabId === "tab-games") {
+      const saved = localStorage.getItem("steveos_subtab_games");
+      if (saved) switchGamesSubtab(saved, false);
+    } else if (tabId === "tab-updates") {
+      const saved = localStorage.getItem("steveos_subtab_updates");
+      if (saved) switchUpdateSubtab(saved, false);
+    } else if (tabId === "tab-users") {
+      const saved = localStorage.getItem("steveos_subtab_users");
+      if (saved) switchUsersSubtab(saved, false);
+    }
+  } catch (e) {}
+}
+
+function applySubtabRoute(tabId, subtab) {
+  if (!subtab) return;
+  if (tabId === "tab-network") {
+    const fullSubtab = subtab.startsWith("subtab-") ? subtab : `subtab-${subtab}`;
+    if (["subtab-vpn", "subtab-firewall", "subtab-samba", "subtab-sftp"].includes(fullSubtab)) {
+      switchNetworkSubtab(fullSubtab, false);
+    }
+  } else if (tabId === "tab-containers") {
+    const s = subtab === "list" ? "containers" : subtab;
+    if (["containers", "store", "images"].includes(s)) {
+      switchDockerSubTab(s, false);
+    }
+  } else if (tabId === "tab-games") {
+    if (["servers", "catalog", "console"].includes(subtab)) {
+      switchGamesSubtab(subtab, false);
+    }
+  } else if (tabId === "tab-updates") {
+    if (["commits", "packages", "generations"].includes(subtab)) {
+      switchUpdateSubtab(subtab, false);
+    }
+  } else if (tabId === "tab-users") {
+    if (["accounts", "groups", "audit", "sessions"].includes(subtab)) {
+      switchUsersSubtab(subtab, false);
+    }
+  }
+}
+
+function handleHashNavigation() {
+  const route = parseHashRoute();
+  const targetTab = route.tabId || "tab-overview";
+  if (targetTab !== activeTab) {
+    switchTab(targetTab, false);
+  }
+  if (route.subtab) {
+    applySubtabRoute(targetTab, route.subtab);
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  applyInitialTabStateEarly();
   checkAuthSession();
+});
+
+window.addEventListener("hashchange", () => {
+  handleHashNavigation();
 });
 
 function initApp() {
   try {
-    const savedTab = sessionStorage.getItem("steveos_active_tab");
-    if (savedTab && document.getElementById(savedTab) && savedTab !== "tab-overview") {
-      switchTab(savedTab);
-    }
-    if (new URLSearchParams(window.location.search).get("preview_reload") === "true") {
-    setTimeout(() => { triggerUpdateSuccessReload(true); }, 300);
-  }
+    const route = parseHashRoute();
+    const targetTab = getStoredTabId();
 
-  if (sessionStorage.getItem("steveos_just_updated") === "true") {
+    // Activer l'onglet déterminé
+    switchTab(targetTab, true);
+
+    // Appliquer le sous-onglet approprié
+    if (route.subtab) {
+      applySubtabRoute(targetTab, route.subtab);
+    } else {
+      restoreStoredSubtabs(targetTab);
+    }
+
+    if (new URLSearchParams(window.location.search).get("preview_reload") === "true") {
+      setTimeout(() => { triggerUpdateSuccessReload(true); }, 300);
+    }
+
+    if (sessionStorage.getItem("steveos_just_updated") === "true") {
       sessionStorage.removeItem("steveos_just_updated");
       setTimeout(() => {
         showToast("✨ Le tableau de bord a été actualisé avec succès !", "success");
       }, 700);
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error("Erreur initApp onglets :", e);
+  }
 
   refreshAll(false);
   updateSftpUri();
@@ -232,11 +400,17 @@ function setupPolling() {
 // --------------------------------------------------------------------------
 // GESTION DES ONGLETS
 // --------------------------------------------------------------------------
-function switchTab(tabId) {
+function switchTab(tabId, updateHash = true) {
+  if (!TAB_IDS.includes(tabId)) {
+    tabId = "tab-overview";
+  }
+
   activeTab = tabId;
   try {
+    localStorage.setItem("steveos_active_tab", tabId);
     sessionStorage.setItem("steveos_active_tab", tabId);
   } catch (e) {}
+
   const updateHeaderBtn = document.getElementById("header-update-btn");
   if (updateHeaderBtn) {
     updateHeaderBtn.classList.toggle("active-view", tabId === "tab-updates");
@@ -249,8 +423,34 @@ function switchTab(tabId) {
     pane.classList.toggle("active", pane.id === tabId);
   });
 
+  // Déterminer le sous-onglet actif pour la mise à jour du hash
+  let currentSub = null;
+  if (tabId === "tab-network") {
+    currentSub = activeNetworkSubtab ? activeNetworkSubtab.replace(/^subtab-/, "") : "vpn";
+  } else if (tabId === "tab-containers") {
+    currentSub = activeDockerSubTab || "containers";
+  } else if (tabId === "tab-games") {
+    currentSub = (typeof currentGamesSubtab !== "undefined" ? currentGamesSubtab : "servers");
+  } else if (tabId === "tab-updates") {
+    currentSub = (typeof updateSubtabCurrent !== "undefined" ? updateSubtabCurrent : "commits");
+  } else if (tabId === "tab-users") {
+    currentSub = (typeof activeUsersSubtab !== "undefined" ? activeUsersSubtab : "accounts");
+  }
+
+  if (updateHash) {
+    updateUrlHash(tabId, currentSub);
+  }
+
   if (tabId === "tab-overview") loadSystem();
-  if (tabId === "tab-files") navigateToPath(currentFolderPath);
+  if (tabId === "tab-files") {
+    try {
+      const savedPath = localStorage.getItem("steveos_files_path");
+      if (savedPath && savedPath !== currentFolderPath) {
+        currentFolderPath = savedPath;
+      }
+    } catch (e) {}
+    navigateToPath(currentFolderPath);
+  }
   if (tabId === "tab-updates") { checkForUpdates(false); loadGenerations(); }
   if (tabId === "tab-storage") loadStorage();
   if (tabId === "tab-network") {
@@ -364,8 +564,14 @@ async function loadSystem() {
 let updatePollingTimer = null;
 let updateSubtabCurrent = 'commits';
 
-function switchUpdateSubtab(tabName) {
+function switchUpdateSubtab(tabName, updateHash = true) {
   updateSubtabCurrent = tabName;
+  try {
+    localStorage.setItem("steveos_subtab_updates", tabName);
+  } catch (e) {}
+  if (updateHash && activeTab === "tab-updates") {
+    updateUrlHash("tab-updates", tabName);
+  }
   const btnCommits = document.getElementById("btn-subtab-commits");
   const btnPackages = document.getElementById("btn-subtab-packages");
   const btnGenerations = document.getElementById("btn-subtab-generations");
@@ -2473,6 +2679,9 @@ async function navigateToPath(targetPath) {
     currentFolderPath = data.current_path;
     currentFolderParent = data.parent_path;
     currentEntries = data.entries || [];
+    try {
+      localStorage.setItem("steveos_files_path", currentFolderPath);
+    } catch (e) {}
 
     updateFilesBreadcrumbs(currentFolderPath);
     updateSidebarNavActive(currentFolderPath);
@@ -7310,8 +7519,14 @@ let activeStoreCategory = "Tous";
 let currentStoreCatalog = null;
 let currentViewingContainerName = null;
 
-function switchDockerSubTab(subTab) {
+function switchDockerSubTab(subTab, updateHash = true) {
   activeDockerSubTab = subTab;
+  try {
+    localStorage.setItem("steveos_subtab_containers", subTab);
+  } catch (e) {}
+  if (updateHash && activeTab === "tab-containers") {
+    updateUrlHash("tab-containers", subTab);
+  }
   const btnContainers = document.getElementById("btn-subtab-containers");
   const btnStore = document.getElementById("btn-subtab-store");
   const btnImages = document.getElementById("btn-subtab-images");
@@ -8355,8 +8570,14 @@ let activeNetworkSubtab = "subtab-vpn";
 let cachedNetworkData = null;
 window.allFirewallPorts = [];
 
-function switchNetworkSubtab(subtabId) {
+function switchNetworkSubtab(subtabId, updateHash = true) {
   activeNetworkSubtab = subtabId;
+  try {
+    localStorage.setItem("steveos_subtab_network", subtabId);
+  } catch (e) {}
+  if (updateHash && activeTab === "tab-network") {
+    updateUrlHash("tab-network", subtabId);
+  }
   document.querySelectorAll(".network-subtab-btn").forEach(btn => {
     btn.classList.toggle("active", btn.getAttribute("data-subtab") === subtabId);
   });
@@ -10795,7 +11016,16 @@ let activeConsoleServerId = null;
 let gameConsoleRefreshInterval = null;
 let selectedEggForCreate = null;
 
-function switchGamesSubtab(subtab) {
+let currentGamesSubtab = "servers";
+
+function switchGamesSubtab(subtab, updateHash = true) {
+  currentGamesSubtab = subtab;
+  try {
+    localStorage.setItem("steveos_subtab_games", subtab);
+  } catch (e) {}
+  if (updateHash && activeTab === "tab-games") {
+    updateUrlHash("tab-games", subtab);
+  }
   const subtabs = ["servers", "catalog", "console"];
   subtabs.forEach(s => {
     const btn = document.getElementById(`subtab-btn-games-${s}`);
@@ -12969,8 +13199,14 @@ let userViewMode = (typeof localStorage !== 'undefined' && localStorage.getItem(
 let createUserStep = 1;
 let currentLoggedInUser = '';
 
-function switchUsersSubtab(subtabId) {
+function switchUsersSubtab(subtabId, updateHash = true) {
   activeUsersSubtab = subtabId;
+  try {
+    localStorage.setItem("steveos_subtab_users", subtabId);
+  } catch (e) {}
+  if (updateHash && activeTab === "tab-users") {
+    updateUrlHash("tab-users", subtabId);
+  }
   document.querySelectorAll('.users-subtab-btn').forEach(btn => {
     btn.classList.toggle('active', btn.id === `btn-users-subtab-${subtabId}`);
   });

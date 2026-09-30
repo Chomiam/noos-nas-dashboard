@@ -12,6 +12,24 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" media="print" onload="this.media='all'">
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"></noscript>
   <link rel="stylesheet" href="/css/style.css?v=20260930_33">
+  <script>
+    (function() {
+      try {
+        var h = window.location.hash.replace(/^#\/?/, '').split('/')[0].toLowerCase().replace(/^tab-/, '');
+        var valid = ['overview', 'files', 'storage', 'network', 'containers', 'docker', 'games', 'vms', 'users', 'logs', 'updates'];
+        var target = null;
+        if (valid.indexOf(h) !== -1) {
+          target = h === 'docker' ? 'tab-containers' : 'tab-' + h;
+        } else {
+          var saved = localStorage.getItem('steveos_active_tab') || sessionStorage.getItem('steveos_active_tab');
+          if (saved && saved.startsWith('tab-')) target = saved;
+        }
+        if (target && target !== 'tab-overview') {
+          document.documentElement.setAttribute('data-initial-tab', target);
+        }
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body class="not-authenticated">
 

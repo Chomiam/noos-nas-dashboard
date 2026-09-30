@@ -1,6 +1,6 @@
 [package]
 name = "steveos-nas-dashboard"
-version = "0.2.76"
+version = "0.2.77"
 edition = "2021"
 description = "Tableau de bord web en Rust & JS pour STEvE_OS NAS Edition (Catppuccin Mocha)"
 
