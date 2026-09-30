@@ -5646,6 +5646,17 @@ select.form-control option,
   background: var(--green);
 }
 
+.step-connector.active {
+  background: linear-gradient(90deg, var(--green) 0%, var(--mauve) 50%, var(--surface0) 100%);
+  background-size: 200% 100%;
+  animation: shimmerConnector 1.8s infinite linear;
+}
+
+@keyframes shimmerConnector {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
 .update-main-progress-track {
   width: 100%;
   height: 8px;

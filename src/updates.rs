@@ -1361,7 +1361,7 @@ pub fn run_detached_update_process(force_packages: bool) {
         state.stage = "git_pull".to_string();
         state.step_index = 1;
         state.total_steps = 4;
-        state.progress_percent = 15;
+        state.progress_percent = 8;
         state.status_title = "Synchronisation de la configuration...".to_string();
         state.status_detail = "Récupération des nouveautés depuis GitHub (steve_os-nix)...".to_string();
         save_update_progress(&state);
@@ -1384,7 +1384,7 @@ pub fn run_detached_update_process(force_packages: bool) {
     state.stage = "building".to_string();
     state.step_index = 2;
     state.total_steps = 4;
-    state.progress_percent = 35;
+    state.progress_percent = 28;
     state.status_title = "Construction & téléchargement du système...".to_string();
     state.status_detail = "Compilation des dérivations NixOS et téléchargement des paquets binaires...".to_string();
     save_update_progress(&state);
@@ -1447,6 +1447,7 @@ pub fn run_detached_update_process(force_packages: bool) {
                     if let Ok(n) = num_str.parse::<u32>() {
                         total_derivations = Some(n);
                         state.total_derivations = Some(n);
+                        state.progress_percent = 30.max(state.progress_percent);
                         state.status_detail = format!("{} dérivation(s) à compiler et assembler...", n);
                         save_update_progress(&state);
                     }
@@ -1478,12 +1479,13 @@ pub fn run_detached_update_process(force_packages: bool) {
 
                 if let Some(total) = total_derivations {
                     let ratio = (current_derivation_index as f32 / total.max(1) as f32).min(1.0);
-                    let calculated = 35 + (ratio * 47.0) as u32;
+                    // Échelle Étape 2 (Build NixOS) : de 30% à 68% (calibrée visuellement entre bulle 2 et bulle 3)
+                    let calculated = 30 + (ratio * 38.0) as u32;
                     state.progress_percent = calculated.max(state.progress_percent);
                     state.status_title = format!("Construction du système [{}/{}]", current_derivation_index, total);
                     state.status_detail = format!("Compilation de {}...", pkg_name);
                 } else {
-                    state.progress_percent = 65.max(state.progress_percent);
+                    state.progress_percent = 50.max(state.progress_percent);
                     state.status_detail = format!("Compilation de {}...", pkg_name);
                 }
                 save_update_progress(&state);
@@ -1499,31 +1501,39 @@ pub fn run_detached_update_process(force_packages: bool) {
                 } else {
                     state.status_detail = "Téléchargement des paquets binaires du système...".to_string();
                 }
-                state.progress_percent = 45.max(state.progress_percent);
+                state.progress_percent = 32.max(state.progress_percent);
                 save_update_progress(&state);
             }
 
             // 4. Comparatif de fermeture
             if line.starts_with("<<< /nix/store/") || line.starts_with(">>> /nix/store/") {
-                state.progress_percent = 84.max(state.progress_percent);
+                state.progress_percent = 70.max(state.progress_percent);
                 state.status_title = "Vérification des paquets modifiés...".to_string();
                 state.status_detail = "Comparaison de l'ancienne et de la nouvelle génération...".to_string();
                 save_update_progress(&state);
             }
 
-            // 5. Activation système
+            // 5. Activation système (Étape 3 : Activation)
             if line.contains("Activating configuration") || line.contains("switching to system configuration") || line.contains("setting up /etc") {
                 state.stage = "activating".to_string();
                 state.step_index = 3;
-                state.progress_percent = 88.max(state.progress_percent);
+                state.progress_percent = 75.max(state.progress_percent);
                 state.status_title = "Activation de la configuration...".to_string();
                 state.status_detail = "Mise à jour du bootloader et démarrage des services...".to_string();
                 save_update_progress(&state);
             }
 
-            // 6. Redémarrage dashboard
-            if line.contains("stopping the following units: steveos-nas-dashboard") || line.contains("unit-steveos-nas-dashboard.service") {
-                state.progress_percent = 95.max(state.progress_percent);
+            if state.step_index >= 3 && (line.contains("reloading the following units:") || line.contains("restarting the following units:") || line.contains("starting the following units:")) {
+                state.progress_percent = 85.max(state.progress_percent);
+                save_update_progress(&state);
+            }
+
+            // 6. Redémarrage dashboard (strictement pendant l'activation, jamais pendant le build .drv !)
+            if (state.step_index >= 3 || state.stage == "activating") &&
+               (line.contains("stopping the following units:") && line.contains("steveos-nas-dashboard") ||
+                line.contains("stopping steveos-nas-dashboard") ||
+                line.contains("restarting steveos-nas-dashboard")) {
+                state.progress_percent = 92.max(state.progress_percent);
                 state.dashboard_restarting = true;
                 state.status_title = "Redémarrage du Dashboard...".to_string();
                 state.status_detail = "Le nouveau service Web prend le relais...".to_string();

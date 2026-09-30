@@ -807,12 +807,19 @@ fn find_bin(candidates: &[&str]) -> String {
     candidates[0].to_string()
 }
 
+fn default_subfolder_true() -> bool {
+    true
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CompressRequest {
+    #[serde(alias = "items")]
     pub sources: Vec<String>,
+    #[serde(alias = "destination_dir")]
     pub dest_dir: String,
     pub archive_name: String,
     pub format: String,
+    #[serde(alias = "level")]
     pub compression_level: String,
     pub password: Option<String>,
 }
@@ -820,7 +827,9 @@ pub struct CompressRequest {
 #[derive(Debug, Deserialize)]
 pub struct ExtractRequest {
     pub archive_path: String,
+    #[serde(alias = "destination_dir")]
     pub dest_dir: String,
+    #[serde(default = "default_subfolder_true")]
     pub create_subfolder: bool,
     pub password: Option<String>,
 }

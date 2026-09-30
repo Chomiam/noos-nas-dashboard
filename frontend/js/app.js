@@ -770,7 +770,12 @@ function updateProgressView(data) {
       }
     }
     if (conn) {
-      conn.classList.toggle("completed", data.step_index > step || data.stage === "completed");
+      conn.classList.remove("completed", "active");
+      if (data.step_index > step || data.stage === "completed") {
+        conn.classList.add("completed");
+      } else if (data.step_index === step && data.is_running) {
+        conn.classList.add("active");
+      }
     }
   }
 
@@ -4363,15 +4368,25 @@ async function submitCompress() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        sources: items,
         items: items,
+        dest_dir: destDir,
         destination_dir: destDir,
         archive_name: archiveName,
         format: fmt,
+        compression_level: currentCompressLevel,
         level: currentCompressLevel,
         password: password
       })
     });
-    const json = await res.json();
+    let json;
+    try {
+      json = await res.json();
+    } catch (e) {
+      const errText = await res.text().catch(() => "");
+      showToast("Erreur serveur : " + (errText || "Réponse invalide"), "error");
+      return;
+    }
     if (json.success) {
       showToast(json.message || "Archive créée avec succès !", "success");
       closeCompressModal();
@@ -4493,12 +4508,20 @@ async function submitExtract() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         archive_path: archivePath,
+        dest_dir: destDir,
         destination_dir: destDir,
         create_subfolder: createSubfolder,
         password: password
       })
     });
-    const json = await res.json();
+    let json;
+    try {
+      json = await res.json();
+    } catch (e) {
+      const errText = await res.text().catch(() => "");
+      showToast("Erreur serveur : " + (errText || "Réponse invalide"), "error");
+      return;
+    }
     if (json.success) {
       showToast(json.message || "Archive extraite avec succès !", "success");
       closeExtractModal();
@@ -4547,12 +4570,20 @@ async function extractArchiveDirect(path, name) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         archive_path: path,
+        dest_dir: currentFolderPath,
         destination_dir: currentFolderPath,
         create_subfolder: true,
         password: null
       })
     });
-    const json = await res.json();
+    let json;
+    try {
+      json = await res.json();
+    } catch (e) {
+      const errText = await res.text().catch(() => "");
+      showToast("Erreur serveur : " + (errText || "Réponse invalide"), "error");
+      return;
+    }
     if (json.success) {
       showToast(json.message || `Archive ${name} extraite avec succès !`, "success");
       refreshCurrentFolder();
@@ -4612,12 +4643,20 @@ async function submitArchivePasswordPrompt() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         archive_path: archivePath,
+        dest_dir: destDir,
         destination_dir: destDir,
         create_subfolder: createSubfolder,
         password: password
       })
     });
-    const json = await res.json();
+    let json;
+    try {
+      json = await res.json();
+    } catch (e) {
+      const errText = await res.text().catch(() => "");
+      showToast("Erreur serveur : " + (errText || "Réponse invalide"), "error");
+      return;
+    }
     if (json.success) {
       showToast(json.message || "Archive déchiffrée et extraite avec succès !", "success");
       closeArchivePasswordModal();
