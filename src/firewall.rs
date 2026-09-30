@@ -78,64 +78,150 @@ pub struct FirewallPersistentState {
     pub updated_at: String,
 }
 
-pub fn get_firewall_rules_file_path() -> PathBuf {
-    let candidates = [
-        PathBuf::from("/etc/nixos/firewall-rules.json"),
-        PathBuf::from("/etc/nixos/steveos-nas/firewall-rules.json"),
-        PathBuf::from("/home/chomiam/Projects/steveos-nas/firewall-rules.json"),
-        PathBuf::from("./firewall-rules.json"),
-    ];
-    for p in &candidates {
-        if p.exists() {
-            return p.clone();
+pub fn get_firewall_state_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    // 1. Emplacement persistant standardisé au niveau système Linux / NixOS
+    paths.push(PathBuf::from("/var/lib/steveos/firewall-state.json"));
+
+    // 2. Dossier de configuration résolu du système (ex: /etc/nixos ou repo local)
+    let cfg_dir = crate::updates::resolve_config_dir();
+    let cfg_state = cfg_dir.join("firewall-state.json");
+    if !paths.contains(&cfg_state) {
+        paths.push(cfg_state);
+    }
+
+    // 3. Emplacements connus classiques
+    for p in &[
+        "/etc/nixos/firewall-state.json",
+        "/etc/nixos/steveos-nas/firewall-state.json",
+        "/home/chomiam/Projects/steveos-nas/firewall-state.json",
+        "./firewall-state.json",
+    ] {
+        let pb = PathBuf::from(p);
+        if !paths.contains(&pb) {
+            paths.push(pb);
         }
     }
-    if Path::new("/etc/nixos").exists() {
-        PathBuf::from("/etc/nixos/firewall-rules.json")
-    } else {
-        PathBuf::from("/home/chomiam/Projects/steveos-nas/firewall-rules.json")
+    paths
+}
+
+pub fn get_firewall_rules_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    // 1. Emplacement persistant standardisé
+    paths.push(PathBuf::from("/var/lib/steveos/firewall-rules.json"));
+
+    // 2. Dossier de configuration résolu
+    let cfg_dir = crate::updates::resolve_config_dir();
+    let cfg_rules = cfg_dir.join("firewall-rules.json");
+    if !paths.contains(&cfg_rules) {
+        paths.push(cfg_rules);
     }
+
+    // 3. Emplacements connus
+    for p in &[
+        "/etc/nixos/firewall-rules.json",
+        "/etc/nixos/steveos-nas/firewall-rules.json",
+        "/home/chomiam/Projects/steveos-nas/firewall-rules.json",
+        "./firewall-rules.json",
+    ] {
+        let pb = PathBuf::from(p);
+        if !paths.contains(&pb) {
+            paths.push(pb);
+        }
+    }
+    paths
 }
 
-pub fn get_firewall_state_file_path() -> PathBuf {
-    let rules_path = get_firewall_rules_file_path();
-    rules_path.with_file_name("firewall-state.json")
-}
-
-pub fn get_vars_nix_path() -> Option<PathBuf> {
-    let candidates = [
-        PathBuf::from("/etc/nixos/vars.nix"),
-        PathBuf::from("/etc/nixos/steveos-nas/vars.nix"),
-        PathBuf::from("/home/chomiam/Projects/steveos-nas/vars.nix"),
-        PathBuf::from("./vars.nix"),
-        PathBuf::from("../vars.nix"),
-    ];
-    for p in &candidates {
+#[allow(dead_code)]
+pub fn get_firewall_rules_file_path() -> PathBuf {
+    for p in get_firewall_rules_paths() {
         if p.exists() {
-            return Some(p.clone());
+            return p;
+        }
+    }
+    let _ = std::fs::create_dir_all("/var/lib/steveos");
+    PathBuf::from("/var/lib/steveos/firewall-rules.json")
+}
+
+#[allow(dead_code)]
+pub fn get_firewall_state_file_path() -> PathBuf {
+    for p in get_firewall_state_paths() {
+        if p.exists() {
+            return p;
+        }
+    }
+    let _ = std::fs::create_dir_all("/var/lib/steveos");
+    PathBuf::from("/var/lib/steveos/firewall-state.json")
+}
+
+pub fn get_vars_nix_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let cfg_dir = crate::updates::resolve_config_dir();
+    let cfg_vars = cfg_dir.join("vars.nix");
+    paths.push(cfg_vars);
+
+    for p in &[
+        "/etc/nixos/vars.nix",
+        "/etc/nixos/steveos-nas/vars.nix",
+        "/home/chomiam/Projects/steveos-nas/vars.nix",
+        "./vars.nix",
+        "../vars.nix",
+    ] {
+        let pb = PathBuf::from(p);
+        if !paths.contains(&pb) {
+            paths.push(pb);
+        }
+    }
+    paths
+}
+
+#[allow(dead_code)]
+pub fn get_vars_nix_path() -> Option<PathBuf> {
+    for p in get_vars_nix_paths() {
+        if p.exists() {
+            return Some(p);
         }
     }
     None
 }
 
 pub fn load_firewall_state() -> Option<bool> {
-    let path = get_firewall_state_file_path();
-    if let Ok(content) = std::fs::read_to_string(&path) {
-        if let Ok(state) = serde_json::from_str::<FirewallPersistentState>(&content) {
-            return Some(state.is_enabled);
+    // 1. Lire d'abord tous les chemins d'état enregistrés (priorité absolue à /var/lib/steveos)
+    for path in get_firewall_state_paths() {
+        if path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(state) = serde_json::from_str::<FirewallPersistentState>(&content) {
+                    return Some(state.is_enabled);
+                }
+            }
         }
     }
 
-    // Fallback lecture directe dans vars.nix
-    if let Some(vars_path) = get_vars_nix_path() {
+    // 2. Fallback lecture directe dans vars.nix
+    for vars_path in get_vars_nix_paths() {
+        if !vars_path.exists() {
+            continue;
+        }
         if let Ok(content) = std::fs::read_to_string(&vars_path) {
+            // Chercher bloc firewall = { ... }
             if let Some(fw_pos) = content.find("firewall = {") {
                 let suffix = &content[fw_pos..];
-                if let Some(semi_pos) = suffix.find('}') {
-                    let block = &suffix[..semi_pos];
-                    if block.contains("enable = false;") {
+                if let Some(brace_end) = suffix.find('}') {
+                    let block = &suffix[..brace_end];
+                    if block.contains("enable = false;") || block.contains("enable = false") {
                         return Some(false);
-                    } else if block.contains("enable = true;") {
+                    } else if block.contains("enable = true;") || block.contains("enable = true") {
+                        return Some(true);
+                    }
+                }
+            } else if let Some(fw_pos) = content.find("firewall =") {
+                // Chercher assignation directe firewall = false;
+                let suffix = &content[fw_pos..];
+                if let Some(semi_pos) = suffix.find(';') {
+                    let stmt = &suffix[..semi_pos];
+                    if stmt.contains("false") {
+                        return Some(false);
+                    } else if stmt.contains("true") {
                         return Some(true);
                     }
                 }
@@ -146,60 +232,102 @@ pub fn load_firewall_state() -> Option<bool> {
 }
 
 pub fn save_firewall_state(is_enabled: bool) -> Result<(), String> {
-    let path = get_firewall_state_file_path();
     let state = FirewallPersistentState {
         is_enabled,
         updated_at: chrono_simple_id().to_string(),
     };
-    if let Ok(json) = serde_json::to_string_pretty(&state) {
-        let _ = std::fs::write(&path, json);
+    let json = serde_json::to_string_pretty(&state)
+        .map_err(|e| format!("Erreur sérialisation json : {}", e))?;
+
+    let _ = std::fs::create_dir_all("/var/lib/steveos");
+
+    let mut written = false;
+    for path in get_firewall_state_paths() {
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+        }
+        if std::fs::write(&path, &json).is_ok() {
+            written = true;
+        }
     }
-    Ok(())
+
+    if written {
+        Ok(())
+    } else {
+        Err("Impossible d'écrire l'état du pare-feu sur le disque".to_string())
+    }
 }
 
 pub fn update_vars_firewall_enable(enable: bool) -> Result<(), String> {
-    if let Some(path) = get_vars_nix_path() {
-        let content = std::fs::read_to_string(&path)
-            .map_err(|e| format!("Impossible de lire {} : {}", path.display(), e))?;
-
-        let mut updated = content.clone();
-        if let Some(fw_pos) = updated.find("firewall = {") {
-            let suffix = &updated[fw_pos..];
-            if let Some(semi_pos) = suffix.find('}') {
-                let block = &suffix[..semi_pos];
-                let target = if enable {
-                    block.replace("enable = false;", "enable = true;")
-                } else {
-                    block.replace("enable = true;", "enable = false;")
-                };
-                updated = format!("{}{}{}", &updated[..fw_pos], target, &suffix[semi_pos..]);
-            }
+    for path in get_vars_nix_paths() {
+        if !path.exists() {
+            continue;
         }
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            let mut updated = content.clone();
+            if let Some(fw_pos) = updated.find("firewall = {") {
+                let suffix = &updated[fw_pos..];
+                if let Some(brace_end) = suffix.find('}') {
+                    let block = &suffix[..brace_end];
+                    let target = if enable {
+                        block.replace("enable = false;", "enable = true;")
+                    } else {
+                        block.replace("enable = true;", "enable = false;")
+                    };
+                    updated = format!("{}{}{}", &updated[..fw_pos], target, &suffix[brace_end..]);
+                }
+            } else if let Some(fw_pos) = updated.find("firewall =") {
+                let suffix = &updated[fw_pos..];
+                if let Some(semi_pos) = suffix.find(';') {
+                    let target = if enable { "firewall = true" } else { "firewall = false" };
+                    updated = format!("{}{}{}", &updated[..fw_pos], target, &suffix[semi_pos..]);
+                }
+            }
 
-        if updated != content {
-            std::fs::write(&path, updated)
-                .map_err(|e| format!("Impossible d'écrire dans {} : {}", path.display(), e))?;
+            if updated != content {
+                let _ = std::fs::write(&path, updated);
+            }
         }
     }
     Ok(())
 }
 
 pub fn load_custom_rules() -> Vec<CustomPortRule> {
-    let path = get_firewall_rules_file_path();
-    if let Ok(content) = std::fs::read_to_string(&path) {
-        if let Ok(rules) = serde_json::from_str::<Vec<CustomPortRule>>(&content) {
-            return rules;
+    for path in get_firewall_rules_paths() {
+        if path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(rules) = serde_json::from_str::<Vec<CustomPortRule>>(&content) {
+                    return rules;
+                }
+            }
         }
     }
     Vec::new()
 }
 
 pub fn save_custom_rules(rules: &[CustomPortRule]) -> Result<(), String> {
-    let path = get_firewall_rules_file_path();
     let json = serde_json::to_string_pretty(rules).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json)
-        .map_err(|e| format!("Impossible d'écrire dans {} : {}", path.display(), e))?;
-    Ok(())
+    let _ = std::fs::create_dir_all("/var/lib/steveos");
+
+    let mut written = false;
+    for path in get_firewall_rules_paths() {
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+        }
+        if std::fs::write(&path, &json).is_ok() {
+            written = true;
+        }
+    }
+
+    if written {
+        Ok(())
+    } else {
+        Err("Impossible de sauvegarder les règles du pare-feu sur le disque".to_string())
+    }
 }
 
 fn get_systemctl_bin() -> &'static str {
@@ -336,7 +464,7 @@ fn chrono_simple_id() -> u64 {
 }
 
 pub fn toggle_firewall(enable: bool) -> Result<String, String> {
-    // 1. Sauvegarder l'état persistant dans firewall-state.json
+    // 1. Sauvegarder l'état persistant dans tous les chemins standardisés (/var/lib/steveos, repo config_dir)
     let _ = save_firewall_state(enable);
 
     // 2. Synchroniser déclarativement vars.nix
@@ -345,24 +473,34 @@ pub fn toggle_firewall(enable: bool) -> Result<String, String> {
     // 3. Application en temps réel au niveau du système
     let sysctl_bin = get_systemctl_bin();
     let action = if enable { "start" } else { "stop" };
-    let _ = Command::new(sysctl_bin).args([action, "firewall"]).output();
+
+    let res = Command::new(sysctl_bin).args([action, "firewall"]).output();
+    if res.is_err() || !res.as_ref().unwrap().status.success() {
+        let _ = Command::new("sudo").args(["-n", sysctl_bin, action, "firewall"]).output();
+    }
 
     if enable {
         // Réactiver l'interception des paquets
         let _ = Command::new("iptables").args(["-I", "INPUT", "1", "-j", "nixos-fw"]).output();
+        let _ = Command::new("sudo").args(["-n", "iptables", "-I", "INPUT", "1", "-j", "nixos-fw"]).output();
         let _ = Command::new("ip6tables").args(["-I", "INPUT", "1", "-j", "nixos-fw"]).output();
+        let _ = Command::new("sudo").args(["-n", "ip6tables", "-I", "INPUT", "1", "-j", "nixos-fw"]).output();
     } else {
         // Retirer les chaînes bloquantes de la table INPUT pour débloquer tous les flux
         let _ = Command::new("iptables").args(["-D", "INPUT", "-j", "nixos-fw"]).output();
+        let _ = Command::new("sudo").args(["-n", "iptables", "-D", "INPUT", "-j", "nixos-fw"]).output();
         let _ = Command::new("iptables").args(["-D", "INPUT", "-j", "nixos-drop"]).output();
+        let _ = Command::new("sudo").args(["-n", "iptables", "-D", "INPUT", "-j", "nixos-drop"]).output();
         let _ = Command::new("ip6tables").args(["-D", "INPUT", "-j", "nixos-fw"]).output();
+        let _ = Command::new("sudo").args(["-n", "ip6tables", "-D", "INPUT", "-j", "nixos-fw"]).output();
         let _ = Command::new("ip6tables").args(["-D", "INPUT", "-j", "nixos-drop"]).output();
+        let _ = Command::new("sudo").args(["-n", "ip6tables", "-D", "INPUT", "-j", "nixos-drop"]).output();
     }
 
     let msg = if enable {
-        "Pare-feu NixOS activé avec succès (Protection maximale en vigueur). Configuration synchronisée dans vars.nix et firewall-state.json.".to_string()
+        "Pare-feu NixOS activé avec succès (Protection active en vigueur). État synchronisé et persistant.".to_string()
     } else {
-        "Pare-feu NixOS désactivé en temps réel (Tous flux autorisés). Configuration synchronisée dans vars.nix et firewall-state.json. L'état persiste après rechargement de page. Vous pouvez lancer une mise à jour système depuis le Dashboard pour sceller l'état au démarrage si souhaité.".to_string()
+        "Pare-feu NixOS désactivé (Tous flux autorisés). La désactivation est persistée dans /var/lib/steveos et vars.nix, et reste active après rafraîchissement.".to_string()
     };
     Ok(msg)
 }

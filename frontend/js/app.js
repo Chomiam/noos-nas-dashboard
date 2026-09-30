@@ -8003,6 +8003,17 @@ function switchNetworkSubtab(subtabId) {
     loadWireguardClients();
   }
   if (subtabId === "subtab-firewall") {
+    try {
+      const savedFwState = localStorage.getItem("steveos_firewall_state");
+      if (savedFwState === "disabled") {
+        const toggle = document.getElementById("firewall-global-toggle");
+        if (toggle) toggle.checked = false;
+        const toggleText = document.getElementById("firewall-toggle-text");
+        if (toggleText) toggleText.textContent = "Protection Inactive";
+        const heroCard = document.getElementById("firewall-hero-card");
+        if (heroCard) heroCard.classList.add("disabled-state");
+      }
+    } catch (e) {}
     startTrafficPolling();
     loadTrafficHistory();
   } else {
@@ -8102,6 +8113,11 @@ async function loadNetwork(showFeedback = false) {
     // --- 3. Pare-feu & Fail2ban ---
     const fw = net.firewall;
     window.currentFirewallOverview = fw;
+
+    // Sauvegarder dans localStorage pour persistance UI immédiate
+    try {
+      localStorage.setItem("steveos_firewall_state", fw.is_enabled ? "enabled" : "disabled");
+    } catch (e) {}
 
     // Mise à jour de la carte Héro Pare-feu
     const heroCard = document.getElementById("firewall-hero-card");
@@ -8365,6 +8381,24 @@ function confirmFirewallDisable() {
 
 async function executeFirewallToggle(enable) {
   showToast(enable ? "Activation du pare-feu NixOS..." : "Désactivation du pare-feu...", "info");
+
+  // Persistance préemptive immédiate côté client pour éviter tout clignotement ou rebond
+  try {
+    localStorage.setItem("steveos_firewall_state", enable ? "enabled" : "disabled");
+  } catch (e) {}
+
+  const fwToggle = document.getElementById("firewall-global-toggle");
+  if (fwToggle) fwToggle.checked = enable;
+  const fwToggleText = document.getElementById("firewall-toggle-text");
+  if (fwToggleText) fwToggleText.textContent = enable ? "Protection Active" : "Protection Inactive";
+  const heroCard = document.getElementById("firewall-hero-card");
+  if (heroCard) heroCard.classList.toggle("disabled-state", !enable);
+  const fwBadge = document.getElementById("firewall-status-badge");
+  if (fwBadge) {
+    fwBadge.textContent = enable ? "🟢 Protection Active" : "🔴 Protection Désactivée";
+    fwBadge.className = `badge ${enable ? "badge-success" : "badge-danger"}`;
+  }
+
   try {
     const res = await fetch("/api/firewall/toggle", {
       method: "POST",
@@ -8377,8 +8411,11 @@ async function executeFirewallToggle(enable) {
       loadNetwork();
     } else {
       showToast("Erreur : " + (json.message || "Échec de l'opération"), "error");
-      const toggle = document.getElementById("firewall-global-toggle");
-      if (toggle) toggle.checked = !enable;
+      if (fwToggle) fwToggle.checked = !enable;
+      try {
+        localStorage.setItem("steveos_firewall_state", (!enable) ? "enabled" : "disabled");
+      } catch (e) {}
+      loadNetwork();
     }
   } catch (e) {
     showToast("Erreur de communication : " + e, "error");
