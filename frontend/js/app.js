@@ -10500,14 +10500,32 @@ function renderGameServers() {
     const fullAddress = `${lanHost}:${s.port}`;
     const protoUpper = (s.port_protocol || "tcp").toUpperCase();
 
+    // Résolution de l'icône et bannière depuis le serveur ou le catalogue
+    const eggRef = Array.isArray(gameCatalogData) ? gameCatalogData.find(e => e.id === s.egg_id) : null;
+    const iconUrl = s.icon_url || (eggRef ? eggRef.icon_url : null);
+    const bannerUrl = s.banner_url || (eggRef ? eggRef.banner_url : null);
+
+    const cardIconHtml = iconUrl
+      ? `<img src="${iconUrl}" class="game-server-img-icon" alt="${escapeHtml(s.name)}" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';"><span class="game-server-emoji-fallback" style="display:none;">${s.icon || '🎮'}</span>`
+      : `<span class="game-server-emoji-fallback">${s.icon || '🎮'}</span>`;
+
+    const rowIconHtml = iconUrl
+      ? `<img src="${iconUrl}" class="row-server-img-icon" alt="${escapeHtml(s.name)}" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';"><span class="row-server-emoji-fallback" style="display:none;">${s.icon || '🎮'}</span>`
+      : `<span class="row-server-emoji-fallback">${s.icon || '🎮'}</span>`;
+
+    const cardBannerStyle = bannerUrl
+      ? `background: linear-gradient(180deg, rgba(17, 17, 27, 0.40) 0%, rgba(17, 17, 27, 0.92) 100%), url('${bannerUrl}') center/cover no-repeat;`
+      : ``;
+
     if (currentGamesViewMode === "list") {
       // MODE LIGNE / LISTE COMPACTE
       return `
         <div class="game-server-row ${isOnline ? "row-status-online" : (isDeploying ? "row-status-deploying" : "row-status-offline")}">
+          ${bannerUrl ? `<div class="row-banner-backdrop" style="background-image: url('${bannerUrl}');"></div>` : ""}
           
           <!-- Identité : Icône, Nom, Jeu, Port -->
           <div class="row-col-identity">
-            <div class="row-icon-badge">${s.icon || "🎮"}</div>
+            <div class="row-icon-badge">${rowIconHtml}</div>
             <div class="row-identity-meta">
               <div class="row-server-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</div>
               <div class="row-server-sub">
@@ -10579,7 +10597,7 @@ function renderGameServers() {
           <!-- Actions en ligne -->
           <div class="row-col-actions">
             ${isDeploying ? `
-              <button type="button" class="btn btn-warning btn-sm" onclick="openGameDeployProgressModal('${s.id}', '${escapeHtml(s.name)}', '${escapeHtml(s.game_name)}', '${s.icon}')" title="Suivre le déploiement">
+              <button type="button" class="btn btn-warning btn-sm" onclick="openGameDeployProgressModal('${s.id}', '${escapeHtml(s.name)}', '${escapeHtml(s.game_name)}', '${s.icon}', '${iconUrl || ""}')" title="Suivre le déploiement">
                 <span class="spinner-inline">⏳</span> Suivre
               </button>
               <button type="button" class="btn btn-secondary btn-sm" onclick="openServerConsoleView('${s.id}')" title="Console">
@@ -10629,9 +10647,9 @@ function renderGameServers() {
       <div class="game-server-card ${isOnline ? "card-status-online" : (isDeploying ? "card-status-deploying" : "card-status-offline")}">
         
         <!-- En-tête de carte avec Statut, Nom, Type et Suppression sécurisée -->
-        <div class="game-server-banner">
+        <div class="game-server-banner" style="${cardBannerStyle}">
           <div class="game-server-title-box">
-            <div class="game-server-icon-badge">${s.icon || "🎮"}</div>
+            <div class="game-server-icon-badge">${cardIconHtml}</div>
             <div class="game-server-meta-info">
               <div class="game-server-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</div>
               <div class="game-server-type">
@@ -10717,7 +10735,7 @@ function renderGameServers() {
         <!-- Panneau d'actions réaménagé, proéminent et ergonomique -->
         <div class="game-server-action-panel">
           ${isDeploying ? `
-            <button type="button" class="btn-action-primary btn-action-progress" onclick="openGameDeployProgressModal('${s.id}', '${escapeHtml(s.name)}', '${escapeHtml(s.game_name)}', '${s.icon}')">
+            <button type="button" class="btn-action-primary btn-action-progress" onclick="openGameDeployProgressModal('${s.id}', '${escapeHtml(s.name)}', '${escapeHtml(s.game_name)}', '${s.icon}', '${iconUrl || ""}')">
               <span class="spinner-inline">⏳</span> Suivre le déploiement
             </button>
             <button type="button" class="btn-action-secondary" onclick="openServerConsoleView('${s.id}')" title="Ouvrir la console">
@@ -11242,7 +11260,7 @@ async function submitCreateGameServer() {
       closeCreateGameModal();
       switchGamesSubtab("servers");
       loadGameServers();
-      openGameDeployProgressModal(json.data.id, json.data.name, json.data.game_name, json.data.icon);
+      openGameDeployProgressModal(json.data.id, json.data.name, json.data.game_name, json.data.icon, json.data.icon_url || "");
     } else {
       showToast(`Échec du déploiement : ${json.message || "Erreur serveur"}`, "error");
     }
@@ -11923,7 +11941,7 @@ let activeGameDeployServerId = null;
 let gameDeployPollInterval = null;
 let isGameDeployModalMinimized = false;
 
-function openGameDeployProgressModal(serverId, serverName, eggName, eggIcon) {
+function openGameDeployProgressModal(serverId, serverName, eggName, eggIcon, eggIconUrl) {
   activeGameDeployServerId = serverId;
   isGameDeployModalMinimized = false;
 
@@ -11948,7 +11966,13 @@ function openGameDeployProgressModal(serverId, serverName, eggName, eggIcon) {
   if (title) title.textContent = `Déploiement : ${serverName}`;
   const termTitle = document.getElementById("game-deploy-terminal-title");
   if (termTitle) termTitle.innerHTML = `<span>⚡</span> container@steveos-nas:~/games/${escapeHtml(serverId)}`;
-  if (heroIcon) heroIcon.textContent = eggIcon || "🎮";
+  if (heroIcon) {
+    if (eggIconUrl) {
+      heroIcon.innerHTML = `<img src="${eggIconUrl}" style="width:48px;height:48px;object-fit:contain;filter:drop-shadow(0 4px 10px rgba(0,0,0,0.6));">`;
+    } else {
+      heroIcon.textContent = eggIcon || "🎮";
+    }
+  }
   if (heroName) heroName.textContent = serverName;
   if (heroStatus) {
     heroStatus.textContent = "Initialisation du serveur...";

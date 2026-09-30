@@ -591,6 +591,10 @@ pub struct GameServer {
     pub egg_id: String,
     pub game_name: String,
     pub icon: String,
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    #[serde(default)]
+    pub banner_url: Option<String>,
     pub status: String, // "online", "offline", "starting"
     pub container_name: String,
     pub memory_mb: u64,
@@ -1563,7 +1567,22 @@ pub fn list_game_servers() -> Vec<GameServer> {
     let wg_ip = get_wireguard_ip();
     let pub_ip = get_public_ip();
 
+    let eggs_map: HashMap<String, (Option<String>, Option<String>)> = load_all_eggs()
+        .into_iter()
+        .map(|e| (e.id, (e.icon_url, e.banner_url)))
+        .collect();
+
     for s in &mut servers {
+        if s.icon_url.is_none() || s.banner_url.is_none() {
+            if let Some((icon, banner)) = eggs_map.get(&s.egg_id) {
+                if s.icon_url.is_none() {
+                    s.icon_url = icon.clone();
+                }
+                if s.banner_url.is_none() {
+                    s.banner_url = banner.clone();
+                }
+            }
+        }
         s.lan_ip = lan_ip.clone();
         s.wireguard_ip = wg_ip.clone();
         s.public_ip = pub_ip.clone();
@@ -2113,6 +2132,8 @@ exec {}
         egg_id: egg.id.clone(),
         game_name: egg.name.clone(),
         icon: egg.icon.clone(),
+        icon_url: egg.icon_url.clone(),
+        banner_url: egg.banner_url.clone(),
         status: "deploying".into(),
         container_name: container_name.clone(),
         memory_mb: req.memory_mb,
