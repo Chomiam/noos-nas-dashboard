@@ -1813,6 +1813,21 @@
 
       <!-- SOUS-ONGLET 1 : MES SERVEURS -->
       <div id="games-subtab-servers" class="games-subtab-pane">
+        <div class="games-servers-toolbar">
+          <div class="toolbar-title-group">
+            <h3 class="toolbar-title">Serveurs Déployés</h3>
+            <span class="toolbar-subtitle">Gérez vos instances de jeux, vos accès réseau et la console en direct</span>
+          </div>
+          <div class="toolbar-actions">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="loadGameServers(true)" title="Rafraîchir l'état des serveurs">
+              <span>🔄</span> Actualiser
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" onclick="switchGamesSubtab('catalog')">
+              <span>✨</span> Nouveau Serveur
+            </button>
+          </div>
+        </div>
+
         <div id="game-servers-grid" class="games-grid">
           <!-- Serveurs rendus dynamiquement en JS -->
         </div>

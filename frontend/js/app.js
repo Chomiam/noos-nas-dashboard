@@ -9868,18 +9868,21 @@ function renderGameServers() {
   grid.innerHTML = gameServersData.map(s => {
     const isDeploying = s.status === "deploying" || s.status === "starting";
     const isOnline = s.status === "online";
-    let statusBadge = "";
-    if (isDeploying) {
-      statusBadge = `<span class="badge" style="background:rgba(249,226,175,0.18); color:var(--yellow); border:1px solid rgba(249,226,175,0.3); font-weight:700;"><span class="spinner-inline">⏳</span> Déploiement...</span>`;
-    } else if (isOnline) {
-      statusBadge = `<span class="badge badge-success">🟢 En ligne</span>`;
-    } else {
-      statusBadge = `<span class="badge badge-secondary">🔴 Arrêté</span>`;
-    }
+    
+    // Calcul RAM et jauge
+    const totalMem = s.memory_mb || 1024;
+    const usedMem = isOnline ? (s.memory_used_mb || 0) : 0;
+    const ramPercent = Math.min(100, Math.max(0, Math.round((usedMem / totalMem) * 100)));
+    const ramUsageStr = isOnline ? `${usedMem} Mo / ${totalMem} Mo` : (isDeploying ? `Installation...` : `0 / ${totalMem} Mo`);
 
-    const ramUsageStr = isOnline ? `${s.memory_used_mb} Mo / ${s.memory_mb} Mo` : (isDeploying ? `Installation...` : `0 / ${s.memory_mb} Mo`);
-    const cpuUsageStr = isOnline ? `${s.cpu_percent.toFixed(1)}%` : `0%`;
-    const cpuTitleStr = isOnline && s.cpu_cores_used ? `Charge CPU : ${s.cpu_percent.toFixed(1)}% de l'hôte (~ ${s.cpu_cores_used.toFixed(1)} cœurs)` : (isOnline ? `Charge CPU : ${s.cpu_percent.toFixed(1)}%` : 'Serveur arrêté');
+    // CPU & Joueurs
+    const cpuUsageStr = isOnline ? `${(s.cpu_percent || 0).toFixed(1)}%` : `0%`;
+    const cpuTitleStr = isOnline && s.cpu_cores_used ? `Charge CPU normalisée : ${s.cpu_percent.toFixed(1)}% de la machine hôte (~ ${s.cpu_cores_used.toFixed(1)} cœurs)` : (isOnline ? `Charge CPU : ${s.cpu_percent.toFixed(1)}%` : "Serveur arrêté");
+    
+    const onlineCount = s.online_players || 0;
+    const playersDisplay = isOnline ? (s.max_players ? `${onlineCount} / ${s.max_players}` : `${onlineCount}`) : "--";
+
+    // Adresses
     let lanHost = s.lan_ip || s.ip_address;
     if (!lanHost || lanHost === "127.0.0.1" || lanHost === "0.0.0.0") {
       if (window.location.hostname && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
@@ -9889,100 +9892,135 @@ function renderGameServers() {
       }
     }
     const fullAddress = `${lanHost}:${s.port}`;
+    const protoUpper = (s.port_protocol || "tcp").toUpperCase();
 
     return `
-      <div class="game-server-card">
+      <div class="game-server-card ${isOnline ? "card-status-online" : (isDeploying ? "card-status-deploying" : "card-status-offline")}">
+        
+        <!-- En-tête de carte avec Statut, Nom, Type et Suppression sécurisée -->
         <div class="game-server-banner">
           <div class="game-server-title-box">
-            <span class="game-server-icon">${s.icon || '🎮'}</span>
-            <div>
+            <div class="game-server-icon-badge">${s.icon || "🎮"}</div>
+            <div class="game-server-meta-info">
               <div class="game-server-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</div>
-              <div class="game-server-type">${escapeHtml(s.game_name)}</div>
-            </div>
-          </div>
-          <div>${statusBadge}</div>
-        </div>
-
-        <div class="game-server-body">
-          <div class="game-server-address-box">
-            <div style="flex:1; min-width:0;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
-                <span style="font-size:0.68rem; color:var(--subtext0); font-weight:700;">🏠 ADRESSE LOCALE (LAN)</span>
-                <span style="font-size:0.65rem; color:var(--mauve); font-weight:700;">${(s.port_protocol || 'tcp').toUpperCase()}</span>
+              <div class="game-server-type">
+                <span>${escapeHtml(s.game_name)}</span>
+                <span class="game-server-dot-sep">•</span>
+                <span class="game-server-port-tag">${s.port} / ${protoUpper}</span>
               </div>
-              <span class="game-server-ip">${fullAddress}</span>
-              ${s.wireguard_ip || s.public_ip ? `
-                <div style="display:flex; flex-wrap:wrap; gap:5px; margin-top:4px; font-size:0.7rem;">
-                  ${s.wireguard_ip ? `<span style="background:rgba(166,227,161,0.15); color:var(--green); border-radius:4px; padding:1px 5px;" title="WireGuard VPN">🛡️ ${s.wireguard_ip}:${s.port}</span>` : ''}
-                  ${s.public_ip ? `<span style="background:rgba(250,179,135,0.15); color:var(--peach); border-radius:4px; padding:1px 5px;" title="IPv4 Publique WAN">🌍 ${s.public_ip}:${s.port}</span>` : ''}
-                </div>
-              ` : ''}
             </div>
-            <button type="button" class="btn btn-secondary btn-xs" onclick="copyGameServerAddress('${fullAddress}')" title="Copier l'adresse de connexion LAN">
-              📋 Copier
+          </div>
+
+          <div class="game-server-banner-right">
+            <div class="game-server-status-pill ${isOnline ? "status-online" : (isDeploying ? "status-deploying" : "status-offline")}">
+              <span class="status-beacon"></span>
+              <span class="status-label">${isDeploying ? "Déploiement" : (isOnline ? "En ligne" : "Arrêté")}</span>
+            </div>
+            <button type="button" class="btn-card-delete" onclick="confirmDeleteGameServer('${s.id}', '${escapeHtml(s.name)}')" title="Supprimer définitivement ce serveur">
+              <span>🗑️</span>
             </button>
-          </div>
-
-          <div class="game-server-stats-grid">
-            <div class="game-server-stat-item">
-              <span class="game-server-stat-label">RAM Allouée</span>
-              <span class="game-server-stat-val">${ramUsageStr}</span>
-            </div>
-            <div class="game-server-stat-item">
-              <span class="game-server-stat-label">CPU Utilisé</span>
-              <span class="game-server-stat-val" title="${cpuTitleStr}">${cpuUsageStr}</span>
-            </div>
-            <div class="game-server-stat-item">
-              <span class="game-server-stat-label">Joueurs</span>
-              <span class="game-server-stat-val" style="color:var(--green);">${isOnline ? (s.online_players || 0) + (s.max_players ? "/" + s.max_players : "") : "--"}</span>
-            </div>
-          </div>
-
-          <div style="font-size:0.75rem; color:var(--subtext0); display:flex; justify-content:space-between;">
-            <span>Créé le ${s.created_at || '--'}</span>
-            <a href="#" onclick="openServerFolderInFiles('${escapeHtml(s.data_dir)}'); return false;" style="color:var(--mauve); text-decoration:none;">📁 Ouvrir les fichiers</a>
           </div>
         </div>
 
-        <div class="game-server-actions">
+        <!-- Corps de la carte -->
+        <div class="game-server-body">
+          
+          <!-- Adresses de connexion rapides -->
+          <div class="game-server-endpoints">
+            <div class="endpoint-chip endpoint-lan" title="Adresse sur votre réseau local (LAN)">
+              <span class="endpoint-tag tag-lan">🏠 Local</span>
+              <span class="endpoint-ip">${fullAddress}</span>
+              <button type="button" class="endpoint-copy-btn" onclick="copyGameServerAddress('${fullAddress}')" title="Copier l'adresse locale">📋</button>
+            </div>
+
+            ${s.wireguard_ip ? `
+              <div class="endpoint-chip endpoint-wg" title="Adresse sécurisée VPN WireGuard">
+                <span class="endpoint-tag tag-wg">🛡️ VPN</span>
+                <span class="endpoint-ip">${s.wireguard_ip}:${s.port}</span>
+                <button type="button" class="endpoint-copy-btn" onclick="copyGameServerAddress('${s.wireguard_ip}:${s.port}')" title="Copier l'adresse WireGuard">📋</button>
+              </div>
+            ` : ""}
+
+            ${s.public_ip ? `
+              <div class="endpoint-chip endpoint-wan" title="Adresse IPv4 publique WAN">
+                <span class="endpoint-tag tag-public">🌍 WAN</span>
+                <span class="endpoint-ip">${s.public_ip}:${s.port}</span>
+                <button type="button" class="endpoint-copy-btn" onclick="copyGameServerAddress('${s.public_ip}:${s.port}')" title="Copier l'adresse publique">📋</button>
+              </div>
+            ` : ""}
+          </div>
+
+          <!-- Télémétrie avec jauge de RAM & métriques -->
+          <div class="game-server-metrics-box">
+            <div class="metric-item">
+              <div class="metric-header">
+                <span class="metric-label">MÉMOIRE VIVE (${ramPercent}%)</span>
+                <span class="metric-value font-mono">${ramUsageStr}</span>
+              </div>
+              <div class="metric-bar-track">
+                <div class="metric-bar-fill fill-ram" style="width: ${ramPercent}%;"></div>
+              </div>
+            </div>
+
+            <div class="metric-row-duo">
+              <div class="metric-sub-item">
+                <span class="metric-label">CHARGE CPU</span>
+                <span class="metric-sub-val font-mono" title="${cpuTitleStr}">⚡ ${cpuUsageStr}</span>
+              </div>
+              <div class="metric-sub-item">
+                <span class="metric-label">JOUEURS</span>
+                <span class="metric-sub-val ${isOnline && onlineCount > 0 ? "text-green" : ""}">👥 ${playersDisplay}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Raccourcis et métadonnées secondaires -->
+          <div class="game-server-footer-info">
+            <span class="text-subtext">📅 ${s.created_at || "Actif"}</span>
+            <button type="button" class="btn-link-files" onclick="openServerFolderInFiles('${escapeHtml(s.data_dir)}')" title="Explorer les fichiers du serveur">
+              <span>📁</span> Parcourir les fichiers
+            </button>
+          </div>
+        </div>
+
+        <!-- Panneau d'actions réaménagé, proéminent et ergonomique -->
+        <div class="game-server-action-panel">
           ${isDeploying ? `
-            <button type="button" class="btn btn-primary btn-xs" style="flex:1;" onclick="openGameDeployProgressModal('${s.id}', '${escapeHtml(s.name)}', '${escapeHtml(s.game_name)}', '${s.icon}')" title="Suivre le téléchargement et déploiement">
-              <span>📊</span> Progression
+            <button type="button" class="btn-action-primary btn-action-progress" onclick="openGameDeployProgressModal('${s.id}', '${escapeHtml(s.name)}', '${escapeHtml(s.game_name)}', '${s.icon}')">
+              <span class="spinner-inline">⏳</span> Suivre le déploiement
             </button>
-            <button type="button" class="btn btn-secondary btn-xs" onclick="openServerConsoleView('${s.id}')" title="Console en direct">
-              <span>🖥️</span>
-            </button>
-            <button type="button" class="btn btn-danger btn-xs" onclick="confirmDeleteGameServer('${s.id}', '${escapeHtml(s.name)}')" title="Annuler et supprimer">
-              <span>🗑️</span>
+            <button type="button" class="btn-action-secondary" onclick="openServerConsoleView('${s.id}')" title="Ouvrir la console">
+              <span>🖥️</span> Console
             </button>
           ` : (isOnline ? `
-            <button type="button" class="btn btn-warning btn-xs" onclick="controlGameServerAction('${s.id}', 'restart')" title="Redémarrer le serveur">
-              <span>🔄</span>
-            </button>
-            <button type="button" class="btn btn-danger btn-xs" onclick="controlGameServerAction('${s.id}', 'stop')" title="Arrêter le serveur">
-              <span>⏹️</span>
-            </button>
-            <button type="button" class="btn btn-primary btn-xs" style="flex:1;" onclick="openServerConsoleView('${s.id}')">
-              <span>🖥️</span> Console
-            </button>
-            <button type="button" class="btn btn-danger btn-xs" onclick="confirmDeleteGameServer('${s.id}', '${escapeHtml(s.name)}')" title="Supprimer le serveur">
-              <span>🗑️</span>
-            </button>
+            <div class="action-btn-group">
+              <button type="button" class="btn-action-primary btn-action-console" onclick="openServerConsoleView('${s.id}')">
+                <span>🖥️</span> Console & Logs
+              </button>
+              <div class="action-power-group">
+                <button type="button" class="btn-action-power btn-power-restart" onclick="controlGameServerAction('${s.id}', 'restart')" title="Redémarrer le serveur de jeu">
+                  <span>🔄</span> Redémarrer
+                </button>
+                <button type="button" class="btn-action-power btn-power-stop" onclick="controlGameServerAction('${s.id}', 'stop')" title="Arrêter le serveur de jeu">
+                  <span>⏹️</span> Arrêter
+                </button>
+              </div>
+            </div>
           ` : `
-            <button type="button" class="btn btn-success btn-xs" onclick="controlGameServerAction('${s.id}', 'start')" title="Démarrer le serveur">
-              <span>▶️</span> Démarrer
-            </button>
-            <button type="button" class="btn btn-primary btn-xs" style="flex:1;" onclick="openServerConsoleView('${s.id}')">
-              <span>🖥️</span> Console
-            </button>
-            <button type="button" class="btn btn-danger btn-xs" onclick="confirmDeleteGameServer('${s.id}', '${escapeHtml(s.name)}')" title="Supprimer le serveur">
-              <span>🗑️</span>
-            </button>
+            <div class="action-btn-group">
+              <button type="button" class="btn-action-primary btn-power-start" onclick="controlGameServerAction('${s.id}', 'start')">
+                <span>▶️</span> Démarrer le serveur
+              </button>
+              <button type="button" class="btn-action-secondary" onclick="openServerConsoleView('${s.id}')" title="Voir la console et les logs">
+                <span>🖥️</span> Console
+              </button>
+            </div>
           `)}
         </div>
+
       </div>
     `;
-  }).join('');
+  }).join("");
 }
 
 function copyGameServerAddress(addr) {
