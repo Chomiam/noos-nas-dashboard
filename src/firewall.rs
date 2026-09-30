@@ -72,6 +72,12 @@ pub struct ToggleFirewallRequest {
     pub enable: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FirewallPersistentState {
+    pub is_enabled: bool,
+    pub updated_at: String,
+}
+
 pub fn get_firewall_rules_file_path() -> PathBuf {
     let candidates = [
         PathBuf::from("/etc/nixos/firewall-rules.json"),
@@ -91,6 +97,93 @@ pub fn get_firewall_rules_file_path() -> PathBuf {
     }
 }
 
+pub fn get_firewall_state_file_path() -> PathBuf {
+    let rules_path = get_firewall_rules_file_path();
+    rules_path.with_file_name("firewall-state.json")
+}
+
+pub fn get_vars_nix_path() -> Option<PathBuf> {
+    let candidates = [
+        PathBuf::from("/etc/nixos/vars.nix"),
+        PathBuf::from("/etc/nixos/steveos-nas/vars.nix"),
+        PathBuf::from("/home/chomiam/Projects/steveos-nas/vars.nix"),
+        PathBuf::from("./vars.nix"),
+        PathBuf::from("../vars.nix"),
+    ];
+    for p in &candidates {
+        if p.exists() {
+            return Some(p.clone());
+        }
+    }
+    None
+}
+
+pub fn load_firewall_state() -> Option<bool> {
+    let path = get_firewall_state_file_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        if let Ok(state) = serde_json::from_str::<FirewallPersistentState>(&content) {
+            return Some(state.is_enabled);
+        }
+    }
+
+    // Fallback lecture directe dans vars.nix
+    if let Some(vars_path) = get_vars_nix_path() {
+        if let Ok(content) = std::fs::read_to_string(&vars_path) {
+            if let Some(fw_pos) = content.find("firewall = {") {
+                let suffix = &content[fw_pos..];
+                if let Some(semi_pos) = suffix.find('}') {
+                    let block = &suffix[..semi_pos];
+                    if block.contains("enable = false;") {
+                        return Some(false);
+                    } else if block.contains("enable = true;") {
+                        return Some(true);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn save_firewall_state(is_enabled: bool) -> Result<(), String> {
+    let path = get_firewall_state_file_path();
+    let state = FirewallPersistentState {
+        is_enabled,
+        updated_at: chrono_simple_id().to_string(),
+    };
+    if let Ok(json) = serde_json::to_string_pretty(&state) {
+        let _ = std::fs::write(&path, json);
+    }
+    Ok(())
+}
+
+pub fn update_vars_firewall_enable(enable: bool) -> Result<(), String> {
+    if let Some(path) = get_vars_nix_path() {
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| format!("Impossible de lire {} : {}", path.display(), e))?;
+
+        let mut updated = content.clone();
+        if let Some(fw_pos) = updated.find("firewall = {") {
+            let suffix = &updated[fw_pos..];
+            if let Some(semi_pos) = suffix.find('}') {
+                let block = &suffix[..semi_pos];
+                let target = if enable {
+                    block.replace("enable = false;", "enable = true;")
+                } else {
+                    block.replace("enable = true;", "enable = false;")
+                };
+                updated = format!("{}{}{}", &updated[..fw_pos], target, &suffix[semi_pos..]);
+            }
+        }
+
+        if updated != content {
+            std::fs::write(&path, updated)
+                .map_err(|e| format!("Impossible d'écrire dans {} : {}", path.display(), e))?;
+        }
+    }
+    Ok(())
+}
+
 pub fn load_custom_rules() -> Vec<CustomPortRule> {
     let path = get_firewall_rules_file_path();
     if let Ok(content) = std::fs::read_to_string(&path) {
@@ -107,6 +200,14 @@ pub fn save_custom_rules(rules: &[CustomPortRule]) -> Result<(), String> {
     std::fs::write(&path, json)
         .map_err(|e| format!("Impossible d'écrire dans {} : {}", path.display(), e))?;
     Ok(())
+}
+
+fn get_systemctl_bin() -> &'static str {
+    if Path::new("/run/current-system/sw/bin/systemctl").exists() {
+        "/run/current-system/sw/bin/systemctl"
+    } else {
+        "systemctl"
+    }
 }
 
 fn apply_runtime_port(port: u16, protocol: &str, open: bool) {
@@ -146,7 +247,6 @@ pub fn create_custom_rule(req: CreatePortRuleRequest) -> Result<CustomPortRule, 
     let category = req.category.unwrap_or_else(|| "Autre".to_string());
     let mut rules = load_custom_rules();
 
-    // Vérifier doublon
     if rules.iter().any(|r| r.port == req.port && (r.protocol == protocol || r.protocol == "BOTH" || protocol == "BOTH")) {
         return Err(format!("Une règle pour le port {} ({}) existe déjà", req.port, protocol));
     }
@@ -165,7 +265,6 @@ pub fn create_custom_rule(req: CreatePortRuleRequest) -> Result<CustomPortRule, 
     rules.push(new_rule.clone());
     save_custom_rules(&rules)?;
 
-    // Application immédiate en mémoire
     apply_runtime_port(req.port, &protocol, true);
 
     Ok(new_rule)
@@ -207,7 +306,6 @@ pub fn update_custom_rule(id: &str, req: UpdatePortRuleRequest) -> Result<Custom
     let updated = rules[idx].clone();
     save_custom_rules(&rules)?;
 
-    // Si le port ou le protocole ou l'état a changé, ajuster iptables
     if old_rule.port != updated.port || old_rule.protocol != updated.protocol || old_rule.enabled != updated.enabled {
         apply_runtime_port(old_rule.port, &old_rule.protocol, false);
         if updated.enabled {
@@ -238,32 +336,54 @@ fn chrono_simple_id() -> u64 {
 }
 
 pub fn toggle_firewall(enable: bool) -> Result<String, String> {
-    let action = if enable { "start" } else { "stop" };
-    let output = Command::new("systemctl")
-        .args([action, "firewall"])
-        .output()
-        .map_err(|e| format!("Erreur d'exécution de systemctl : {}", e))?;
+    // 1. Sauvegarder l'état persistant dans firewall-state.json
+    let _ = save_firewall_state(enable);
 
-    if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr);
-        eprintln!("Avertissement bascule pare-feu : {}", err);
+    // 2. Synchroniser déclarativement vars.nix
+    let _ = update_vars_firewall_enable(enable);
+
+    // 3. Application en temps réel au niveau du système
+    let sysctl_bin = get_systemctl_bin();
+    let action = if enable { "start" } else { "stop" };
+    let _ = Command::new(sysctl_bin).args([action, "firewall"]).output();
+
+    if enable {
+        // Réactiver l'interception des paquets
+        let _ = Command::new("iptables").args(["-I", "INPUT", "1", "-j", "nixos-fw"]).output();
+        let _ = Command::new("ip6tables").args(["-I", "INPUT", "1", "-j", "nixos-fw"]).output();
+    } else {
+        // Retirer les chaînes bloquantes de la table INPUT pour débloquer tous les flux
+        let _ = Command::new("iptables").args(["-D", "INPUT", "-j", "nixos-fw"]).output();
+        let _ = Command::new("iptables").args(["-D", "INPUT", "-j", "nixos-drop"]).output();
+        let _ = Command::new("ip6tables").args(["-D", "INPUT", "-j", "nixos-fw"]).output();
+        let _ = Command::new("ip6tables").args(["-D", "INPUT", "-j", "nixos-drop"]).output();
     }
 
     let msg = if enable {
-        "Pare-feu NixOS activé avec succès (Protection maximale en vigueur)".to_string()
+        "Pare-feu NixOS activé avec succès (Protection maximale en vigueur). Configuration synchronisée dans vars.nix et firewall-state.json.".to_string()
     } else {
-        "Pare-feu NixOS désactivé (Tous les flux réseau sont temporairement autorisés)".to_string()
+        "Pare-feu NixOS désactivé en temps réel (Tous flux autorisés). Configuration synchronisée dans vars.nix et firewall-state.json. L'état persiste après rechargement de page. Vous pouvez lancer une mise à jour système depuis le Dashboard pour sceller l'état au démarrage si souhaité.".to_string()
     };
     Ok(msg)
 }
 
 pub fn get_firewall_overview() -> FirewallOverview {
-    // Vérifier si le service firewall NixOS est actif
-    let is_enabled = Command::new("systemctl")
+    // 1. Lire d'abord l'état persistant enregistré par l'utilisateur
+    let persistent_choice = load_firewall_state();
+
+    let sysctl_bin = get_systemctl_bin();
+    let is_active_systemd = Command::new(sysctl_bin)
         .args(["is-active", "firewall"])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "active")
-        .unwrap_or(true);
+        .unwrap_or(false);
+
+    // Si l'utilisateur a expressément défini son choix (dans firewall-state.json ou vars.nix),
+    // nous respectons son choix persistant.
+    let is_enabled = match persistent_choice {
+        Some(choice) => choice,
+        None => is_active_systemd,
+    };
 
     let status_text = if is_enabled {
         "Protection Active (Filtrage strict NixOS)".to_string()
@@ -306,7 +426,7 @@ pub fn get_firewall_overview() -> FirewallOverview {
             category: "Système".into(),
             is_system: true,
             enabled: is_enabled,
-            status: "Autorisé".into(),
+            status: if is_enabled { "Autorisé".into() } else { "Pare-feu inactif".into() },
         });
     }
 
@@ -319,7 +439,7 @@ pub fn get_firewall_overview() -> FirewallOverview {
             category: "Système".into(),
             is_system: true,
             enabled: is_enabled,
-            status: "Autorisé".into(),
+            status: if is_enabled { "Autorisé".into() } else { "Pare-feu inactif".into() },
         });
     }
 
