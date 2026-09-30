@@ -363,6 +363,7 @@ fn run_server_deployment_pipeline(
                 if (trimmed.contains("Success! App '") && trimmed.contains("fully installed"))
                     || trimmed.contains("Démarrage du serveur dédié Palworld")
                     || trimmed.contains("Démarrage du serveur Valheim")
+                    || trimmed.contains("Démarrage de 7 Days to Die")
                 {
                     append_deploy_log(&server_id, "✓ Téléchargement SteamCMD validé avec succès !");
                     update_deployment(&server_id, |p| {
@@ -392,6 +393,23 @@ fn run_server_deployment_pipeline(
                         p.progress_percent = 100;
                         p.is_complete = true;
                         p.status_message = "Serveur Valheim opérationnel et en ligne !".into();
+                    });
+                    mark_server_online(&server_id);
+                    return;
+                }
+
+                // 7 Days to Die prêt
+                if trimmed.contains("StartGame done")
+                    || trimmed.contains("Connected with 7DTD server")
+                    || trimmed.contains("Telnet server started")
+                    || trimmed.contains("NET: LiteNetLib server started")
+                {
+                    append_deploy_log(&server_id, "🎉 Serveur 7 Days to Die opérationnel et en ligne !");
+                    update_deployment(&server_id, |p| {
+                        p.step = "ready".into();
+                        p.progress_percent = 100;
+                        p.is_complete = true;
+                        p.status_message = "Serveur 7 Days to Die opérationnel et en ligne !".into();
                     });
                     mark_server_online(&server_id);
                     return;
@@ -458,7 +476,13 @@ fn run_server_deployment_pipeline(
         }
 
         // Generic egg fallback
-        if egg_id != "palworld" && egg_id != "valheim" && egg_id != "minecraft-java" && egg_id != "minecraft-bedrock" {
+        let is_known_heavy_game = egg_id == "palworld"
+            || egg_id == "valheim"
+            || egg_id == "minecraft-java"
+            || egg_id == "minecraft-bedrock"
+            || egg_id == "7daystodie"
+            || egg_id.contains("7day");
+        if !is_known_heavy_game {
             if start_time.elapsed().as_secs() > 15 {
                 append_deploy_log(&server_id, "✓ Conteneur actif et stable.");
                 update_deployment(&server_id, |p| {
@@ -937,6 +961,101 @@ pub fn get_default_eggs() -> Vec<Egg> {
             ],
             is_custom: false,
         },
+        Egg {
+            id: "7daystodie".into(),
+            name: "7 Days to Die Dedicated Server".into(),
+            author: "The Fun Pimps & SteamCMD".into(),
+            description: "Serveur dédié officiel 7 Days to Die (V1.0+ / Alpha) avec support SteamCMD automatique, persistance du monde de survie et configuration optimisée.".into(),
+            category: "Survie / Post-Apocalyptique".into(),
+            icon: "🧟".into(),
+            banner_color: "linear-gradient(135deg, #b71c1c, #4a148c)".into(),
+            docker_image: "ghcr.io/parkervcp/steamcmd:debian".into(),
+            default_port: 26900,
+            port_protocol: "both".into(),
+            default_memory_mb: 8192,
+            min_memory_mb: 4096,
+            startup_cmd: "./7DaysToDieServer.x86_64 -logfile /home/container/logs/latest.log -quit -batchmode -nographics -dedicated -configfile=serverconfig.xml".into(),
+            variables: vec![
+                EggVariable {
+                    name: "Nom du serveur".into(),
+                    env_variable: "SERVER_NAME".into(),
+                    description: "Nom affiché dans la liste des serveurs multijoueur 7DTD".into(),
+                    default_value: "Serveur 7 Days to Die STEvE_OS".into(),
+                    input_type: "text".into(),
+                    options: None,
+                },
+                EggVariable {
+                    name: "Mot de passe Joueurs (Optionnel)".into(),
+                    env_variable: "SERVER_PASSWORD".into(),
+                    description: "Mot de passe requis pour rejoindre (laisser vide si public)".into(),
+                    default_value: "".into(),
+                    input_type: "password".into(),
+                    options: None,
+                },
+                EggVariable {
+                    name: "Mot de passe Administrateur (Telnet)".into(),
+                    env_variable: "ADMIN_PASSWORD".into(),
+                    description: "Mot de passe de gestion console / Telnet".into(),
+                    default_value: "SteveAdminPass123!".into(),
+                    input_type: "password".into(),
+                    options: None,
+                },
+                EggVariable {
+                    name: "Monde de jeu (Game World)".into(),
+                    env_variable: "GAME_WORLD".into(),
+                    description: "Monde officiel ou génération procédurale RWG".into(),
+                    default_value: "Navezgane".into(),
+                    input_type: "select".into(),
+                    options: Some(vec![
+                        "Navezgane".into(),
+                        "PREGEN01".into(),
+                        "PREGEN02".into(),
+                        "PREGEN03".into(),
+                        "RWG".into(),
+                    ]),
+                },
+                EggVariable {
+                    name: "Nom de la sauvegarde (Game Name)".into(),
+                    env_variable: "GAME_NAME".into(),
+                    description: "Nom unique du dossier de sauvegarde de la partie".into(),
+                    default_value: "SteveWorld".into(),
+                    input_type: "text".into(),
+                    options: None,
+                },
+                EggVariable {
+                    name: "Nombre maximum de joueurs".into(),
+                    env_variable: "MAX_PLAYERS".into(),
+                    description: "Nombre maximum de joueurs simultanés".into(),
+                    default_value: "8".into(),
+                    input_type: "number".into(),
+                    options: None,
+                },
+                EggVariable {
+                    name: "Difficulté (0-5)".into(),
+                    env_variable: "GAME_DIFFICULTY".into(),
+                    description: "0=Pillard, 1=Aventurier, 2=Nomade (Normal), 3=Guerrier, 4=Survivaliste, 5=Dément".into(),
+                    default_value: "2".into(),
+                    input_type: "select".into(),
+                    options: Some(vec![
+                        "0".into(),
+                        "1".into(),
+                        "2".into(),
+                        "3".into(),
+                        "4".into(),
+                        "5".into(),
+                    ]),
+                },
+                EggVariable {
+                    name: "Port Telnet (Console)".into(),
+                    env_variable: "TELNET_PORT".into(),
+                    description: "Port de gestion Telnet local".into(),
+                    default_value: "8081".into(),
+                    input_type: "number".into(),
+                    options: None,
+                },
+            ],
+            is_custom: false,
+        },
     ]
 }
 
@@ -990,6 +1109,21 @@ fn detect_online_players(container_name: &str, data_dir: &str) -> (u32, Option<u
             if let Some((k, v)) = line.split_once('=') {
                 if k.trim() == "max-players" {
                     max_players = v.trim().parse().ok();
+                }
+            }
+        }
+    }
+    let cfg_path = PathBuf::from(data_dir).join("serverconfig.xml");
+    if max_players.is_none() {
+        if let Ok(content) = fs::read_to_string(&cfg_path) {
+            for line in content.lines() {
+                if line.contains("ServerMaxPlayerCount") {
+                    if let Some(pos) = line.find("value=\"") {
+                        let sub = &line[pos + 7..];
+                        if let Some(end) = sub.find('"') {
+                            max_players = sub[..end].parse().ok();
+                        }
+                    }
                 }
             }
         }
@@ -1197,6 +1331,18 @@ pub fn create_game_server(req: CreateGameServerRequest) -> Result<GameServer, St
 
     env_map.insert("SERVER_PORT".into(), target_port.to_string());
     env_map.insert("SERVER_MEMORY".into(), req.memory_mb.to_string());
+
+    if egg.id == "7daystodie" || egg.startup_cmd.contains("7DaysToDieServer") || egg.id.contains("7day") {
+        if let Some(admin_pwd) = env_map.get("ADMIN_PASSWORD").cloned() {
+            env_map.entry("PASSWORD".into()).or_insert(admin_pwd);
+        }
+        if let Some(pwd) = env_map.get("PASSWORD").cloned() {
+            env_map.entry("ADMIN_PASSWORD".into()).or_insert(pwd);
+        }
+        env_map.entry("TELNET_PORT".into()).or_insert("8081".into());
+        env_map.entry("SERVER_DISABLED_NETWORK_PROTOCOLS".into()).or_insert("".into());
+    }
+
     let mut final_docker_image = egg.docker_image.clone();
 
     // Scripts de configuration initiaux personnalisés par jeu
@@ -1389,11 +1535,78 @@ echo "🚀 Démarrage du serveur Valheim..."
 exec ./valheim_server.x86_64 -name "${SERVER_NAME}" -port ${SERVER_PORT} -world "${WORLD_NAME}" -password "${SERVER_PASSWORD}" -public 1
 "#;
         let _ = fs::write(data_dir.join("entrypoint.sh"), entrypoint);
+    } else if egg.id == "7daystodie" || egg.startup_cmd.contains("7DaysToDieServer") || egg.id.contains("7day") {
+        let is_custom_egg = egg.id != "7daystodie" && !egg.startup_cmd.is_empty();
+        let mut final_cmd = if is_custom_egg {
+            egg.startup_cmd.clone()
+        } else {
+            "./7DaysToDieServer.x86_64 -logfile /home/container/logs/latest.log -quit -batchmode -nographics -dedicated -configfile=serverconfig.xml".to_string()
+        };
+
+        for (k, v) in &env_map {
+            final_cmd = final_cmd.replace(&format!("{{{{{}}}}}", k), v);
+        }
+
+        let entrypoint = format!(r#"#!/bin/bash
+set -e
+cd /home/container
+
+# 1. Téléchargement et installation initiale de SteamCMD si absent
+mkdir -p /home/container/steamcmd /home/container/steamapps /home/container/logs /home/container/7DaysToDieServer_Data /home/container/Saves
+if [ ! -f /home/container/steamcmd/steamcmd.sh ]; then
+  echo "⚡ Téléchargement et initialisation de SteamCMD..."
+  curl -sSL -o /tmp/steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
+  tar -xzf /tmp/steamcmd.tar.gz -C /home/container/steamcmd
+  rm -f /tmp/steamcmd.tar.gz
+  chmod +x /home/container/steamcmd/steamcmd.sh /home/container/steamcmd/linux32/steamcmd 2>/dev/null || true
+  ln -sf /home/container/steamcmd/steamcmd.sh /home/container/steamcmd/steamcmd 2>/dev/null || true
+fi
+export PATH="/home/container/steamcmd:$PATH"
+export HOME=/home/container
+
+# 2. Liens et bibliothèques Steam SDK
+mkdir -p /home/container/.steam/sdk32 /home/container/.steam/sdk64
+cp -f /home/container/steamcmd/linux32/steamclient.so /home/container/.steam/sdk32/steamclient.so 2>/dev/null || true
+cp -f /home/container/steamcmd/linux64/steamclient.so /home/container/.steam/sdk64/steamclient.so 2>/dev/null || true
+export LD_LIBRARY_PATH=".:./7DaysToDieServer_Data/Plugins/x86_64:/home/container/.steam/sdk64:$LD_LIBRARY_PATH"
+export SteamAppId=294420
+
+# 3. Téléchargement / Mise à jour de 7 Days to Die via SteamCMD (App 294420)
+if [ ! -f /home/container/7DaysToDieServer.x86_64 ] || [ "${{AUTO_UPDATE}}" = "1" ]; then
+  echo "⚡ Téléchargement de 7 Days to Die Dedicated Server via SteamCMD (App 294420)..."
+  /home/container/steamcmd/steamcmd.sh +force_install_dir /home/container +login anonymous +app_update 294420 validate +quit
+  chmod +x /home/container/7DaysToDieServer.x86_64 /home/container/startserver.sh 2>/dev/null || true
+fi
+
+# 4. Configuration déclarative serverconfig.xml si présent
+if [ -f /home/container/serverconfig.xml ]; then
+  [ -n "${{SERVER_NAME}}" ] && sed -i -E 's/(<property name="ServerName"\s+value=")[^"]*(")/ \1'"${{SERVER_NAME}}"'/\2/' /home/container/serverconfig.xml 2>/dev/null || true
+  [ -n "${{SERVER_PORT}}" ] && sed -i -E 's/(<property name="ServerPort"\s+value=")[^"]*(")/ \1'"${{SERVER_PORT}}"'/\2/' /home/container/serverconfig.xml 2>/dev/null || true
+  [ -n "${{SERVER_PASSWORD}}" ] && sed -i -E 's/(<property name="ServerPassword"\s+value=")[^"]*(")/ \1'"${{SERVER_PASSWORD}}"'/\2/' /home/container/serverconfig.xml 2>/dev/null || true
+  [ -n "${{MAX_PLAYERS}}" ] && sed -i -E 's/(<property name="ServerMaxPlayerCount"\s+value=")[^"]*(")/ \1'"${{MAX_PLAYERS}}"'/\2/' /home/container/serverconfig.xml 2>/dev/null || true
+  [ -n "${{GAME_WORLD}}" ] && sed -i -E 's/(<property name="GameWorld"\s+value=")[^"]*(")/ \1'"${{GAME_WORLD}}"'/\2/' /home/container/serverconfig.xml 2>/dev/null || true
+  [ -n "${{GAME_NAME}}" ] && sed -i -E 's/(<property name="GameName"\s+value=")[^"]*(")/ \1'"${{GAME_NAME}}"'/\2/' /home/container/serverconfig.xml 2>/dev/null || true
+  [ -n "${{GAME_DIFFICULTY}}" ] && sed -i -E 's/(<property name="GameDifficulty"\s+value=")[^"]*(")/ \1'"${{GAME_DIFFICULTY}}"'/\2/' /home/container/serverconfig.xml 2>/dev/null || true
+  [ -n "${{TELNET_PORT}}" ] && sed -i -E 's/(<property name="TelnetPort"\s+value=")[^"]*(")/ \1'"${{TELNET_PORT}}"'/\2/' /home/container/serverconfig.xml 2>/dev/null || true
+  [ -n "${{ADMIN_PASSWORD}}" ] && sed -i -E 's/(<property name="TelnetPassword"\s+value=")[^"]*(")/ \1'"${{ADMIN_PASSWORD}}"'/\2/' /home/container/serverconfig.xml 2>/dev/null || true
+fi
+
+# 5. Démarrage avec streaming des journaux
+touch /home/container/logs/latest.log
+tail -n 0 -F /home/container/logs/latest.log &
+TAIL_PID=$!
+
+trap "kill $TAIL_PID 2>/dev/null || true" EXIT
+
+echo "🚀 Démarrage de 7 Days to Die Dedicated Server..."
+exec {}
+"#, final_cmd);
+        let _ = fs::write(data_dir.join("entrypoint.sh"), entrypoint);
     } else {
         let is_steam = egg.docker_image.contains("steamcmd") || egg.startup_cmd.contains("steamcmd");
         let steam_setup = if is_steam {
             r#"
-mkdir -p /home/container/steamcmd /home/container/steamapps
+mkdir -p /home/container/steamcmd /home/container/steamapps /home/container/logs
 if [ ! -f /home/container/steamcmd/steamcmd.sh ]; then
   echo "⚡ Téléchargement et initialisation de SteamCMD..."
   curl -sSL -o /tmp/steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
@@ -1407,10 +1620,23 @@ export HOME=/home/container
 mkdir -p /home/container/.steam/sdk32 /home/container/.steam/sdk64
 cp -f /home/container/steamcmd/linux32/steamclient.so /home/container/.steam/sdk32/steamclient.so 2>/dev/null || true
 cp -f /home/container/steamcmd/linux64/steamclient.so /home/container/.steam/sdk64/steamclient.so 2>/dev/null || true
+
+# Téléchargement automatique de l'application Steam si APPID spécifié
+STEAM_APP="${SRCDS_APPID:-${STEAM_APP_ID:-${APP_ID:-${STEAMCMD_APP:-}}}}"
+if [ -n "$STEAM_APP" ]; then
+  echo "⚡ Téléchargement et validation de l'application Steam (App $STEAM_APP)..."
+  /home/container/steamcmd/steamcmd.sh +force_install_dir /home/container +login "${STEAM_USER:-anonymous}" "${STEAM_PASS:-}" +app_update "$STEAM_APP" validate +quit || true
+fi
 "#
         } else {
             ""
         };
+
+        let mut final_startup_cmd = egg.startup_cmd.clone();
+        for (k, v) in &env_map {
+            final_startup_cmd = final_startup_cmd.replace(&format!("{{{{{}}}}}", k), v);
+        }
+
         let entrypoint = format!(
             r#"#!/bin/bash
 set -e
@@ -1419,7 +1645,7 @@ cd /home/container
 echo "🚀 Démarrage du conteneur de jeu..."
 exec {}
 "#,
-            steam_setup, egg.startup_cmd
+            steam_setup, final_startup_cmd
         );
         let _ = fs::write(data_dir.join("entrypoint.sh"), entrypoint);
     }
@@ -1449,7 +1675,25 @@ exec {}
     ];
 
     // Ports
-    if egg.port_protocol == "udp" {
+    let is_7dtd = egg.id == "7daystodie" || egg.startup_cmd.contains("7DaysToDieServer") || egg.id.contains("7day");
+
+    if is_7dtd {
+        docker_args.push("-p".to_string());
+        docker_args.push(format!("{}:{}/tcp", target_port, target_port));
+        docker_args.push("-p".to_string());
+        docker_args.push(format!("{}:{}/udp", target_port, target_port));
+        docker_args.push("-p".to_string());
+        docker_args.push(format!("{}:{}/udp", target_port + 1, target_port + 1));
+        docker_args.push("-p".to_string());
+        docker_args.push(format!("{}:{}/udp", target_port + 2, target_port + 2));
+
+        if let Some(telnet_port) = env_map.get("TELNET_PORT").and_then(|p| p.parse::<u16>().ok()) {
+            if telnet_port != target_port && telnet_port != target_port + 1 && telnet_port != target_port + 2 {
+                docker_args.push("-p".to_string());
+                docker_args.push(format!("{}:{}/tcp", telnet_port, telnet_port));
+            }
+        }
+    } else if egg.port_protocol == "udp" {
         docker_args.push("-p".to_string());
         docker_args.push(format!("{}:{}/udp", target_port, target_port));
         if egg.id == "valheim" {
