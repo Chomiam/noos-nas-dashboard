@@ -983,40 +983,114 @@ exec ./bedrock_server
         let _ = fs::write(data_dir.join("entrypoint.sh"), entrypoint);
     } else if egg.id == "palworld" {
         let entrypoint = r#"#!/bin/bash
+set -e
 cd /home/container
-if [ ! -f PalServer.sh ]; then
-  echo "⚡ Installation / Mise à jour de Palworld via SteamCMD..."
-  steamcmd +force_install_dir /home/container +login anonymous +app_update 2394010 validate +quit || true
-  chmod +x PalServer.sh || true
+
+# 1. Téléchargement et installation initiale de SteamCMD si absent
+mkdir -p /home/container/steamcmd /home/container/steamapps
+if [ ! -f /home/container/steamcmd/steamcmd.sh ]; then
+  echo "⚡ Téléchargement et initialisation de SteamCMD..."
+  curl -sSL -o /tmp/steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
+  tar -xzf /tmp/steamcmd.tar.gz -C /home/container/steamcmd
+  rm -f /tmp/steamcmd.tar.gz
+  chmod +x /home/container/steamcmd/steamcmd.sh /home/container/steamcmd/linux32/steamcmd 2>/dev/null || true
+  ln -sf /home/container/steamcmd/steamcmd.sh /home/container/steamcmd/steamcmd 2>/dev/null || true
 fi
+export PATH="/home/container/steamcmd:$PATH"
+export HOME=/home/container
+
+# 2. Liens et bibliothèques Steam SDK
+mkdir -p /home/container/.steam/sdk32 /home/container/.steam/sdk64
+cp -f /home/container/steamcmd/linux32/steamclient.so /home/container/.steam/sdk32/steamclient.so 2>/dev/null || true
+cp -f /home/container/steamcmd/linux64/steamclient.so /home/container/.steam/sdk64/steamclient.so 2>/dev/null || true
+
+# 3. Téléchargement / Mise à jour de Palworld via SteamCMD
+if [ ! -f PalServer.sh ]; then
+  echo "⚡ Téléchargement de Palworld Dedicated Server via SteamCMD (App 2394010)..."
+  /home/container/steamcmd/steamcmd.sh +force_install_dir /home/container +login anonymous +app_update 2394010 validate +quit
+  chmod +x PalServer.sh ./Pal/Binaries/Linux/PalServer-Linux-Shipping 2>/dev/null || true
+fi
+
+# 4. Configuration par défaut si non initialisée
+if [ ! -f "/home/container/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini" ]; then
+  mkdir -p /home/container/Pal/Saved/Config/LinuxServer
+  if [ -f "/home/container/DefaultPalWorldSettings.ini" ]; then
+    cp /home/container/DefaultPalWorldSettings.ini /home/container/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini
+  fi
+fi
+
 echo "🚀 Démarrage du serveur dédié Palworld..."
 exec ./PalServer.sh -useperfthreads -NoAsyncLoadingThread -UseMultithreadForDS -port=${SERVER_PORT} -players=${MAX_PLAYERS}
 "#;
         let _ = fs::write(data_dir.join("entrypoint.sh"), entrypoint);
     } else if egg.id == "valheim" {
         let entrypoint = r#"#!/bin/bash
+set -e
 cd /home/container
-if [ ! -f valheim_server.x86_64 ]; then
-  echo "⚡ Installation / Mise à jour de Valheim via SteamCMD..."
-  steamcmd +force_install_dir /home/container +login anonymous +app_update 896660 validate +quit || true
-  chmod +x valheim_server.x86_64 || true
+
+# 1. Téléchargement et installation initiale de SteamCMD si absent
+mkdir -p /home/container/steamcmd /home/container/steamapps
+if [ ! -f /home/container/steamcmd/steamcmd.sh ]; then
+  echo "⚡ Téléchargement et initialisation de SteamCMD..."
+  curl -sSL -o /tmp/steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
+  tar -xzf /tmp/steamcmd.tar.gz -C /home/container/steamcmd
+  rm -f /tmp/steamcmd.tar.gz
+  chmod +x /home/container/steamcmd/steamcmd.sh /home/container/steamcmd/linux32/steamcmd 2>/dev/null || true
+  ln -sf /home/container/steamcmd/steamcmd.sh /home/container/steamcmd/steamcmd 2>/dev/null || true
 fi
+export PATH="/home/container/steamcmd:$PATH"
+export HOME=/home/container
+
+# 2. Liens et bibliothèques Steam SDK
+mkdir -p /home/container/.steam/sdk64
+cp -f /home/container/steamcmd/linux64/steamclient.so /home/container/.steam/sdk64/steamclient.so 2>/dev/null || true
+
+# 3. Téléchargement / Mise à jour de Valheim via SteamCMD
+if [ ! -f valheim_server.x86_64 ]; then
+  echo "⚡ Téléchargement de Valheim Dedicated Server via SteamCMD (App 896660)..."
+  /home/container/steamcmd/steamcmd.sh +force_install_dir /home/container +login anonymous +app_update 896660 validate +quit
+  chmod +x valheim_server.x86_64 2>/dev/null || true
+fi
+
 export templdpath=$LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=./linux64:$LD_LIBRARY_PATH
 export SteamAppId=892970
+
 echo "🚀 Démarrage du serveur Valheim..."
 exec ./valheim_server.x86_64 -name "${SERVER_NAME}" -port ${SERVER_PORT} -world "${WORLD_NAME}" -password "${SERVER_PASSWORD}" -public 1
 "#;
         let _ = fs::write(data_dir.join("entrypoint.sh"), entrypoint);
     } else {
-        // Egg générique / importé
+        let is_steam = egg.docker_image.contains("steamcmd") || egg.startup_cmd.contains("steamcmd");
+        let steam_setup = if is_steam {
+            r#"
+mkdir -p /home/container/steamcmd /home/container/steamapps
+if [ ! -f /home/container/steamcmd/steamcmd.sh ]; then
+  echo "⚡ Téléchargement et initialisation de SteamCMD..."
+  curl -sSL -o /tmp/steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
+  tar -xzf /tmp/steamcmd.tar.gz -C /home/container/steamcmd
+  rm -f /tmp/steamcmd.tar.gz
+  chmod +x /home/container/steamcmd/steamcmd.sh /home/container/steamcmd/linux32/steamcmd 2>/dev/null || true
+  ln -sf /home/container/steamcmd/steamcmd.sh /home/container/steamcmd/steamcmd 2>/dev/null || true
+fi
+export PATH="/home/container/steamcmd:$PATH"
+export HOME=/home/container
+mkdir -p /home/container/.steam/sdk32 /home/container/.steam/sdk64
+cp -f /home/container/steamcmd/linux32/steamclient.so /home/container/.steam/sdk32/steamclient.so 2>/dev/null || true
+cp -f /home/container/steamcmd/linux64/steamclient.so /home/container/.steam/sdk64/steamclient.so 2>/dev/null || true
+"#
+        } else {
+            ""
+        };
         let entrypoint = format!(
             r#"#!/bin/bash
+set -e
 cd /home/container
+{}
 echo "🚀 Démarrage du conteneur de jeu..."
 exec {}
 "#,
-            egg.startup_cmd
+            steam_setup, egg.startup_cmd
         );
         let _ = fs::write(data_dir.join("entrypoint.sh"), entrypoint);
     }
