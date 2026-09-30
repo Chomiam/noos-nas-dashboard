@@ -1407,35 +1407,171 @@
 
       <!-- SOUS-ONGLET 2 : PARE-FEU & SÉCURITÉ -->
       <div id="subtab-firewall" class="network-subpane">
-        <div class="section-card">
-          <div class="section-header">
-            <div class="section-title-wrap">
-              <div class="section-icon-box">🛡️</div>
-              <div>
-                <div class="section-title">Ports Réseau Autorisés (Pare-feu NixOS)</div>
-                <div class="section-subtitle">Chaque service déclare et ouvre automatiquement ses ports d'écoute</div>
+
+        <!-- 1. CARTE HÉRO : CONTRÔLE GLOBAL DU PARE-FEU -->
+        <div class="firewall-hero-banner" id="firewall-hero-card">
+          <div class="firewall-hero-left">
+            <div class="firewall-shield-box" id="firewall-shield-box">
+              <span class="firewall-shield-icon" id="firewall-shield-icon">🛡️</span>
+              <div class="shield-pulse-ring" id="firewall-pulse-ring"></div>
+            </div>
+            <div>
+              <div class="firewall-hero-title-row">
+                <h3 class="firewall-hero-title">Protection Pare-feu STEvE_OS</h3>
+                <span class="badge badge-success" id="firewall-status-badge">🟢 Protection Active</span>
+              </div>
+              <p class="firewall-hero-subtitle" id="firewall-status-desc">
+                Le pare-feu NixOS filtre les flux réseau entrants. Seuls les services autorisés et les règles déclarées sont accessibles.
+              </p>
+              <div class="firewall-metrics-chips">
+                <span class="fw-chip"><span class="fw-chip-icon">🔓</span> <strong id="fw-open-ports-count">0</strong> ports autorisés</span>
+                <span class="fw-chip"><span class="fw-chip-icon">⚙️</span> <strong id="fw-custom-rules-count">0</strong> règles personnalisées</span>
+                <span class="fw-chip"><span class="fw-chip-icon">🔒</span> <strong id="fw-fail2ban-count">0</strong> IP bloquées</span>
               </div>
             </div>
-            <div style="display:flex; align-items:center; gap:10px;">
-              <input type="text" id="firewall-search-input" class="custom-input" placeholder="🔍 Filtrer un port ou service..." oninput="filterFirewallPorts()" style="width:220px; font-size:0.85rem; padding:6px 12px;">
-              <span class="badge badge-success" id="firewall-status-badge">🟢 Pare-feu Actif</span>
+          </div>
+          <div class="firewall-hero-actions">
+            <div class="firewall-toggle-control">
+              <span class="firewall-toggle-label" id="firewall-toggle-text">Protection Active</span>
+              <label class="catppuccin-switch">
+                <input type="checkbox" id="firewall-global-toggle" checked onchange="onFirewallToggleChange(this.checked)">
+                <span class="catppuccin-slider"></span>
+              </label>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm firewall-add-btn" onclick="openCreatePortModal()">
+              <span>➕</span> <span>Ouvrir un Port</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. SECTION SURVEILLANCE DU TRAFIC RÉSEAU EN TEMPS RÉEL -->
+        <div class="section-card traffic-monitor-card">
+          <div class="section-header" style="flex-wrap:wrap; gap:12px;">
+            <div class="section-title-wrap">
+              <div class="section-icon-box" style="background:rgba(137,180,250,0.15); color:var(--blue);">📊</div>
+              <div>
+                <div class="section-title">Surveillance du Trafic Réseau en Temps Réel</div>
+                <div class="section-subtitle">Débits instantanés en direct (/proc/net/dev) et cumul historique via vnStat</div>
+              </div>
+            </div>
+            <div class="traffic-toolbar-right">
+              <div class="traffic-iface-selector" id="traffic-iface-pills">
+                <button type="button" class="btn-iface-pill active" onclick="selectTrafficInterface('all')">Toutes</button>
+              </div>
+              <span class="badge badge-info" id="traffic-source-badge" style="font-size:0.75rem;">📡 Live Kernel</span>
             </div>
           </div>
 
-          <table class="custom-table">
-            <thead>
-              <tr>
-                <th>Port</th>
-                <th>Protocole</th>
-                <th>Service Associé</th>
-                <th>Statut</th>
-              </tr>
-            </thead>
-            <tbody id="firewall-tbody"></tbody>
-          </table>
+          <!-- CARTES DE DÉBIT INSTANTANÉ -->
+          <div class="traffic-gauges-grid">
+            <!-- JAUGE RX (DOWNLOAD) -->
+            <div class="traffic-gauge-box rx-box">
+              <div class="gauge-header">
+                <div class="gauge-label-wrap">
+                  <span class="gauge-arrow rx-arrow">⬇️</span>
+                  <div>
+                    <div class="gauge-label">TÉLÉCHARGEMENT (RX)</div>
+                    <div class="gauge-sublabel">Flux entrant sur le NAS</div>
+                  </div>
+                </div>
+                <div class="gauge-speed-val rx-speed" id="traffic-rx-speed">0 Ko/s</div>
+              </div>
+              <div class="gauge-meter-track">
+                <div class="gauge-meter-fill rx-fill" id="traffic-rx-meter" style="width: 2%;"></div>
+              </div>
+              <div class="gauge-footer">
+                <span>Total session reçu : <strong id="traffic-rx-total" style="color:var(--text);">0 Mo</strong></span>
+                <span class="pulse-dot rx-dot"></span>
+              </div>
+            </div>
+
+            <!-- JAUGE TX (UPLOAD) -->
+            <div class="traffic-gauge-box tx-box">
+              <div class="gauge-header">
+                <div class="gauge-label-wrap">
+                  <span class="gauge-arrow tx-arrow">⬆️</span>
+                  <div>
+                    <div class="gauge-label">ÉMISSION (TX)</div>
+                    <div class="gauge-sublabel">Flux sortant de la machine</div>
+                  </div>
+                </div>
+                <div class="gauge-speed-val tx-speed" id="traffic-tx-speed">0 Ko/s</div>
+              </div>
+              <div class="gauge-meter-track">
+                <div class="gauge-meter-fill tx-fill" id="traffic-tx-meter" style="width: 2%;"></div>
+              </div>
+              <div class="gauge-footer">
+                <span>Total session émis : <strong id="traffic-tx-total" style="color:var(--text);">0 Mo</strong></span>
+                <span class="pulse-dot tx-dot"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- SYNTHÈSE HISTORIQUE VNSTAT -->
+          <div class="traffic-history-bar" id="traffic-history-bar">
+            <div class="traffic-hist-item">
+              <span class="hist-label">📅 Aujourd'hui :</span>
+              <strong id="traffic-today-total">--</strong>
+              <span class="hist-details" id="traffic-today-detail">(RX: -- | TX: --)</span>
+            </div>
+            <div class="traffic-hist-divider"></div>
+            <div class="traffic-hist-item">
+              <span class="hist-label">🗓️ Ce mois-ci :</span>
+              <strong id="traffic-month-total">--</strong>
+              <span class="hist-details" id="traffic-month-detail">(RX: -- | TX: --)</span>
+            </div>
+            <div class="traffic-hist-divider"></div>
+            <div class="traffic-hist-item">
+              <span class="hist-label">📈 Service vnStat :</span>
+              <span class="badge badge-success" id="traffic-vnstat-badge">Actif</span>
+            </div>
+          </div>
         </div>
 
-        <!-- Fail2ban Security -->
+        <!-- 3. SECTION PORTS AUTORISÉS & RÈGLES DE PARE-FEU -->
+        <div class="section-card">
+          <div class="section-header" style="flex-wrap:wrap; gap:12px;">
+            <div class="section-title-wrap">
+              <div class="section-icon-box" style="background:rgba(203,166,247,0.15); color:var(--mauve);">🛡️</div>
+              <div>
+                <div class="section-title">Gestion des Ports & Règles d'Accès</div>
+                <div class="section-subtitle">Services système déclaratifs et règles personnalisées ouvertes sur le NAS</div>
+              </div>
+            </div>
+            <div class="firewall-table-controls">
+              <input type="text" id="firewall-search-input" class="custom-input" placeholder="🔍 Filtrer port, libellé, service..." oninput="filterFirewallPorts()" style="width:230px; font-size:0.85rem; padding:7px 12px;">
+              <div class="filter-pills-row" id="firewall-filter-pills">
+                <button type="button" class="btn-filter-pill active" onclick="setFirewallFilter('all')">Tous</button>
+                <button type="button" class="btn-filter-pill" onclick="setFirewallFilter('custom')">Personnalisés</button>
+                <button type="button" class="btn-filter-pill" onclick="setFirewallFilter('system')">Système</button>
+                <button type="button" class="btn-filter-pill" onclick="setFirewallFilter('tcp')">TCP</button>
+                <button type="button" class="btn-filter-pill" onclick="setFirewallFilter('udp')">UDP</button>
+              </div>
+              <button type="button" class="btn btn-primary btn-sm" onclick="openCreatePortModal()">
+                ➕ Ouvrir un Port
+              </button>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="custom-table firewall-ports-table">
+              <thead>
+                <tr>
+                  <th style="width: 110px;">Port</th>
+                  <th style="width: 100px;">Protocole</th>
+                  <th>Libellé / Service Associé</th>
+                  <th style="width: 130px;">Catégorie</th>
+                  <th style="width: 140px;">Origine</th>
+                  <th style="width: 130px;">Statut</th>
+                  <th style="width: 120px; text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="firewall-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 4. SÉCURITÉ FAIL2BAN -->
         <div class="section-card">
           <div class="section-header">
             <div class="section-title-wrap">
@@ -1452,6 +1588,7 @@
             <div id="banned-ips-list" style="display:flex; flex-wrap:wrap; gap:10px;"></div>
           </div>
         </div>
+
       </div>
 
       <!-- SOUS-ONGLET 3 : SAMBA (SMB / CIFS) -->
@@ -4675,6 +4812,131 @@
         <button type="button" class="btn btn-secondary" onclick="closeImportEggModal()">Annuler</button>
         <button type="button" class="btn btn-primary" id="btn-submit-import-egg" onclick="submitImportEgg()">
           <span>📥</span> Importer l'Egg
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- MODAL : OUVRIR / MODIFIER UN PORT PARE-FEU -->
+  <div class="file-modal-overlay" id="modal-port-rule" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-port-rule')">
+    <div class="file-modal-window" style="max-width: 580px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(203, 166, 247, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-purple" style="font-size:0.75rem; font-weight:800;">PARE-FEU NIXOS</span>
+          <span class="file-modal-title" id="modal-port-rule-title">Ouvrir un Port Réseau</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closePortRuleModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:22px;">
+        <input type="hidden" id="port-rule-id" value="">
+
+        <!-- PRÉRÉGLAGES RAPIDES 1-CLIC -->
+        <div style="margin-bottom:18px;">
+          <label class="form-label" style="font-weight:600; font-size:0.85rem; color:var(--subtext1); margin-bottom:8px; display:block;">
+            ⚡ Préréglages Rapides (1-clic) :
+          </label>
+          <div class="port-presets-grid">
+            <button type="button" class="btn-port-preset" onclick="applyPortPreset(25565, 'TCP', 'Serveur Minecraft (Paper/Fabric)', 'Jeux')">
+              🎮 Minecraft (25565 TCP)
+            </button>
+            <button type="button" class="btn-port-preset" onclick="applyPortPreset(8211, 'UDP', 'Serveur Palworld Dedicated', 'Jeux')">
+              🎮 Palworld (8211 UDP)
+            </button>
+            <button type="button" class="btn-port-preset" onclick="applyPortPreset(2456, 'UDP', 'Serveur Valheim', 'Jeux')">
+              🎮 Valheim (2456 UDP)
+            </button>
+            <button type="button" class="btn-port-preset" onclick="applyPortPreset(27015, 'UDP', 'Serveur Steam / Source', 'Jeux')">
+              🎮 SteamCMD (27015 UDP)
+            </button>
+            <button type="button" class="btn-port-preset" onclick="applyPortPreset(32400, 'TCP', 'Plex Media Server', 'Multimédia')">
+              🍿 Plex (32400 TCP)
+            </button>
+            <button type="button" class="btn-port-preset" onclick="applyPortPreset(80, 'TCP', 'Serveur Web HTTP (Nginx)', 'Web')">
+              🌐 Web HTTP (80 TCP)
+            </button>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin-bottom:14px;">
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600;">Numéro de Port :</label>
+            <input type="number" id="port-rule-number" class="form-input" placeholder="ex: 25565" min="1" max="65535" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600;">Protocole :</label>
+            <div class="segmented-control" id="port-protocol-segmented">
+              <button type="button" class="btn-segment active" data-proto="TCP" onclick="selectPortProtocol('TCP')">TCP</button>
+              <button type="button" class="btn-segment" data-proto="UDP" onclick="selectPortProtocol('UDP')">UDP</button>
+              <button type="button" class="btn-segment" data-proto="BOTH" onclick="selectPortProtocol('BOTH')">Les 2</button>
+            </div>
+            <input type="hidden" id="port-rule-protocol" value="TCP">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:14px;">
+          <label class="form-label" style="font-weight:600;">Libellé / Nom du Service :</label>
+          <input type="text" id="port-rule-label" class="form-input" placeholder="ex: Serveur Palworld, Application Node.js..." required>
+        </div>
+
+        <div class="form-group" style="margin-bottom:14px;">
+          <label class="form-label" style="font-weight:600;">Catégorie :</label>
+          <select id="port-rule-category" class="form-input custom-select">
+            <option value="Jeux">🎮 Serveurs de Jeux</option>
+            <option value="Web">🌐 Web & API</option>
+            <option value="Multimédia">🍿 Multimédia & Streaming</option>
+            <option value="Partage">📁 Partage & Stockage</option>
+            <option value="VPN">🔒 VPN & Accès Distant</option>
+            <option value="Autre" selected>⚙️ Autre / Personnalisé</option>
+          </select>
+        </div>
+
+        <div style="background:var(--mantle); border:1px solid rgba(255,255,255,0.06); padding:12px 14px; border-radius:var(--radius-md); display:flex; align-items:center; justify-content:space-between;">
+          <div>
+            <div style="font-weight:600; font-size:0.85rem; color:var(--text);">Activer immédiatement cette règle</div>
+            <div style="font-size:0.75rem; color:var(--subtext0);">Injectée dans iptables et persistée dans firewall-rules.json</div>
+          </div>
+          <label class="catppuccin-switch">
+            <input type="checkbox" id="port-rule-enabled" checked>
+            <span class="catppuccin-slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 22px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn btn-secondary" onclick="closePortRuleModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-port-rule" onclick="submitPortRule()">
+          <span>💾</span> Enregistrer la règle
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL DE CONFIRMATION SÉCURISÉE : DÉSACTIVATION DU PARE-FEU -->
+  <div class="file-modal-overlay" id="modal-firewall-confirm" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-firewall-confirm')">
+    <div class="file-modal-window" style="max-width: 480px; border-color: rgba(243, 139, 168, 0.4);">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(243, 139, 168, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-danger" style="font-size:0.75rem; font-weight:800;">ATTENTION</span>
+          <span class="file-modal-title" style="color:var(--red);">Désactiver le Pare-feu ?</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="cancelFirewallToggle()">&times;</button>
+      </div>
+      <div class="storage-wizard-body" style="padding:22px;">
+        <div style="background:rgba(243, 139, 168, 0.1); border:1px solid rgba(243, 139, 168, 0.25); border-radius:var(--radius-md); padding:14px; margin-bottom:16px;">
+          <p style="font-size:0.88rem; color:var(--text); line-height:1.5; margin:0;">
+            ⚠️ En désactivant le pare-feu, <strong>tous les ports d'écoute</strong> de la machine seront accessibles sans restriction depuis le réseau.
+          </p>
+        </div>
+        <p style="font-size:0.85rem; color:var(--subtext1); margin:0;">
+          Cette opération est recommandée uniquement pour des diagnostics réseau temporaires. Confirmez-vous la désactivation ?
+        </p>
+      </div>
+      <div class="file-modal-footer" style="padding:14px 22px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn btn-secondary" onclick="cancelFirewallToggle()">Garder Protégé</button>
+        <button type="button" class="btn btn-danger" onclick="confirmFirewallDisable()">
+          <span>🔴</span> Désactiver le Pare-feu
         </button>
       </div>
     </div>

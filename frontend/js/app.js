@@ -8002,6 +8002,12 @@ function switchNetworkSubtab(subtabId) {
   if (subtabId === "subtab-vpn") {
     loadWireguardClients();
   }
+  if (subtabId === "subtab-firewall") {
+    startTrafficPolling();
+    loadTrafficHistory();
+  } else {
+    stopTrafficPolling();
+  }
 }
 
 async function loadNetwork(showFeedback = false) {
@@ -8095,10 +8101,30 @@ async function loadNetwork(showFeedback = false) {
 
     // --- 3. Pare-feu & Fail2ban ---
     const fw = net.firewall;
+    window.currentFirewallOverview = fw;
+
+    // Mise à jour de la carte Héro Pare-feu
+    const heroCard = document.getElementById("firewall-hero-card");
+    if (heroCard) {
+      heroCard.classList.toggle("disabled-state", !fw.is_enabled);
+    }
+
+    const shieldIcon = document.getElementById("firewall-shield-icon");
+    if (shieldIcon) {
+      shieldIcon.textContent = fw.is_enabled ? "🛡️" : "⚠️";
+    }
+
     const fwBadge = document.getElementById("firewall-status-badge");
     if (fwBadge) {
-      fwBadge.textContent = fw.is_enabled ? "🟢 Pare-feu Actif" : "🔴 Pare-feu Désactivé";
+      fwBadge.textContent = fw.is_enabled ? "🟢 Protection Active" : "🔴 Protection Désactivée";
       fwBadge.className = `badge ${fw.is_enabled ? "badge-success" : "badge-danger"}`;
+    }
+
+    const fwDesc = document.getElementById("firewall-status-desc");
+    if (fwDesc) {
+      fwDesc.textContent = fw.is_enabled
+        ? "Le pare-feu NixOS filtre les flux réseau entrants. Seuls les services autorisés et les règles déclarées sont accessibles."
+        : "⚠️ Attention : le pare-feu est désactivé. Tous les ports d'écoute de la machine sont exposés et accessibles sans restriction.";
     }
 
     const badgeFw = document.getElementById("badge-subtab-firewall");
@@ -8107,8 +8133,28 @@ async function loadNetwork(showFeedback = false) {
       badgeFw.className = `subtab-pill-badge ${fw.is_enabled ? "badge-success" : "badge-danger"}`;
     }
 
-    window.allFirewallPorts = [...fw.tcp_ports, ...fw.udp_ports];
-    renderFirewallPorts(window.allFirewallPorts);
+    const fwToggle = document.getElementById("firewall-global-toggle");
+    if (fwToggle) {
+      fwToggle.checked = !!fw.is_enabled;
+    }
+    const fwToggleText = document.getElementById("firewall-toggle-text");
+    if (fwToggleText) {
+      fwToggleText.textContent = fw.is_enabled ? "Protection Active" : "Protection Inactive";
+    }
+
+    // Compteurs métriques
+    const openPortsCountEl = document.getElementById("fw-open-ports-count");
+    if (openPortsCountEl) openPortsCountEl.textContent = fw.total_open_ports || (fw.rules ? fw.rules.length : 0);
+
+    const customRulesCountEl = document.getElementById("fw-custom-rules-count");
+    if (customRulesCountEl) customRulesCountEl.textContent = fw.custom_rules_count || 0;
+
+    const fail2banCountEl = document.getElementById("fw-fail2ban-count");
+    if (fail2banCountEl) fail2banCountEl.textContent = (fw.banned_ips || []).length;
+
+    // Règles de ports unifiées
+    window.allFirewallRules = fw.rules || [];
+    renderFirewallPorts(window.allFirewallRules);
 
     // Fail2ban
     const bannedWrap = document.getElementById("banned-ips-list");
@@ -8184,40 +8230,428 @@ async function loadNetwork(showFeedback = false) {
   }
 }
 
-function renderFirewallPorts(ports) {
+// =========================================================================
+// 🛡️ CONTRÔLEUR DE PORTS & PARE-FEU STEvE_OS
+// =========================================================================
+
+window.firewallFilter = "all";
+window.allFirewallRules = [];
+window.selectedTrafficIface = "all";
+window.trafficPollingTimer = null;
+window.cachedTrafficData = null;
+
+function setFirewallFilter(filter) {
+  window.firewallFilter = filter;
+  document.querySelectorAll("#firewall-filter-pills .btn-filter-pill").forEach(btn => {
+    btn.classList.toggle("active", btn.textContent.toLowerCase().includes(filter) || (filter === "all" && btn.textContent === "Tous"));
+  });
+  filterFirewallPorts();
+}
+
+function renderFirewallPorts(rules) {
   const tbody = document.getElementById("firewall-tbody");
   if (!tbody) return;
 
-  if (ports.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--subtext0); padding:16px;">Aucun port correspondant.</td></tr>`;
+  if (!rules || rules.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--subtext0); padding:24px;">Aucun port ou règle correspondant.</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = ports.map(p => `
-    <tr>
-      <td><strong style="font-family:var(--font-mono); color:var(--mauve);">${p.port}</strong></td>
-      <td><span class="badge badge-info">${escapeHtml(p.protocol)}</span></td>
-      <td>${escapeHtml(p.service_name)}</td>
-      <td><span class="badge badge-success">🟢 ${escapeHtml(p.status)}</span></td>
-    </tr>
-  `).join("");
+  tbody.innerHTML = rules.map(r => {
+    const isTcp = r.protocol === "TCP";
+    const isUdp = r.protocol === "UDP";
+    const isBoth = r.protocol === "BOTH";
+
+    const protoBadgeClass = isTcp ? "proto-badge-tcp" : (isUdp ? "proto-badge-udp" : "proto-badge-both");
+    const protoLabel = isBoth ? "TCP / UDP" : escapeHtml(r.protocol);
+
+    const originBadge = r.is_system
+      ? `<span class="origin-badge-system" title="Déclaré nativement par les modules NixOS">🔒 Système (NixOS)</span>`
+      : `<span class="origin-badge-custom" title="Règle personnalisée persistée dans firewall-rules.json">⚙️ Personnalisé</span>`;
+
+    const statusBadge = r.enabled
+      ? `<span class="badge badge-success">🟢 ${escapeHtml(r.status || "Autorisé")}</span>`
+      : `<span class="badge badge-secondary">⏸ ${escapeHtml(r.status || "Désactivé")}</span>`;
+
+    const categoryIcon = getCategoryIcon(r.category);
+
+    const actionsHtml = r.is_system
+      ? `<span title="Ce port est géré par la configuration déclarative NixOS" style="font-size:0.75rem; color:var(--subtext0); cursor:help;">🔒 Immuable</span>`
+      : `
+        <button type="button" class="btn btn-secondary btn-xs" onclick="openEditPortModal('${escapeHtml(r.id)}')" title="Modifier la règle" style="padding:4px 8px;">✏️ Modifier</button>
+        <button type="button" class="btn btn-danger btn-xs" onclick="deletePortRule('${escapeHtml(r.id)}', ${r.port})" title="Supprimer la règle" style="padding:4px 8px;">🗑️</button>
+      `;
+
+    return `
+      <tr>
+        <td><strong class="port-number-cell">${r.port}</strong></td>
+        <td><span class="badge ${protoBadgeClass}">${protoLabel}</span></td>
+        <td>
+          <div style="font-weight:600; color:var(--text);">${escapeHtml(r.label || "Service")}</div>
+        </td>
+        <td><span class="category-pill">${categoryIcon} ${escapeHtml(r.category || "Autre")}</span></td>
+        <td>${originBadge}</td>
+        <td>${statusBadge}</td>
+        <td style="text-align:right;"><div class="action-btns-cell">${actionsHtml}</div></td>
+      </tr>
+    `;
+  }).join("");
+}
+
+function getCategoryIcon(cat) {
+  switch ((cat || "").toLowerCase()) {
+    case "jeux": return "🎮";
+    case "web": return "🌐";
+    case "multimédia": return "🍿";
+    case "partage": return "📁";
+    case "vpn": return "🔒";
+    default: return "⚙️";
+  }
 }
 
 function filterFirewallPorts() {
   const input = document.getElementById("firewall-search-input");
   const query = input ? input.value.trim().toLowerCase() : "";
-  if (!query) {
-    renderFirewallPorts(window.allFirewallPorts || []);
+
+  let list = window.allFirewallRules || [];
+
+  // Filtrage par pilule
+  if (window.firewallFilter === "custom") {
+    list = list.filter(r => !r.is_system);
+  } else if (window.firewallFilter === "system") {
+    list = list.filter(r => r.is_system);
+  } else if (window.firewallFilter === "tcp") {
+    list = list.filter(r => r.protocol === "TCP" || r.protocol === "BOTH");
+  } else if (window.firewallFilter === "udp") {
+    list = list.filter(r => r.protocol === "UDP" || r.protocol === "BOTH");
+  }
+
+  // Filtrage par recherche
+  if (query) {
+    list = list.filter(r => {
+      return r.port.toString().includes(query) ||
+             (r.protocol || "").toLowerCase().includes(query) ||
+             (r.label || "").toLowerCase().includes(query) ||
+             (r.category || "").toLowerCase().includes(query);
+    });
+  }
+
+  renderFirewallPorts(list);
+}
+
+// --- Bascule Globale du Pare-feu ---
+function onFirewallToggleChange(checked) {
+  if (!checked) {
+    // Demander confirmation sécurisée avant de désactiver
+    const modal = document.getElementById("modal-firewall-confirm");
+    if (modal) modal.style.display = "flex";
+  } else {
+    executeFirewallToggle(true);
+  }
+}
+
+function cancelFirewallToggle() {
+  const modal = document.getElementById("modal-firewall-confirm");
+  if (modal) modal.style.display = "none";
+  const toggle = document.getElementById("firewall-global-toggle");
+  if (toggle) toggle.checked = true;
+}
+
+function confirmFirewallDisable() {
+  const modal = document.getElementById("modal-firewall-confirm");
+  if (modal) modal.style.display = "none";
+  executeFirewallToggle(false);
+}
+
+async function executeFirewallToggle(enable) {
+  showToast(enable ? "Activation du pare-feu NixOS..." : "Désactivation du pare-feu...", "info");
+  try {
+    const res = await fetch("/api/firewall/toggle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enable })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.message || "Statut du pare-feu mis à jour avec succès", "success");
+      loadNetwork();
+    } else {
+      showToast("Erreur : " + (json.message || "Échec de l'opération"), "error");
+      const toggle = document.getElementById("firewall-global-toggle");
+      if (toggle) toggle.checked = !enable;
+    }
+  } catch (e) {
+    showToast("Erreur de communication : " + e, "error");
+  }
+}
+
+// --- Modale d'ouverture & édition de port ---
+function openCreatePortModal() {
+  const modal = document.getElementById("modal-port-rule");
+  if (!modal) return;
+
+  document.getElementById("modal-port-rule-title").textContent = "Ouvrir un Port Réseau";
+  document.getElementById("port-rule-id").value = "";
+  document.getElementById("port-rule-number").value = "";
+  document.getElementById("port-rule-label").value = "";
+  document.getElementById("port-rule-category").value = "Autre";
+  document.getElementById("port-rule-enabled").checked = true;
+  selectPortProtocol("TCP");
+
+  modal.style.display = "flex";
+}
+
+function openEditPortModal(ruleId) {
+  const rule = (window.allFirewallRules || []).find(r => r.id === ruleId);
+  if (!rule) {
+    showToast("Règle introuvable", "error");
     return;
   }
 
-  const filtered = (window.allFirewallPorts || []).filter(p => {
-    return p.port.toString().includes(query) ||
-           p.protocol.toLowerCase().includes(query) ||
-           p.service_name.toLowerCase().includes(query);
-  });
-  renderFirewallPorts(filtered);
+  const modal = document.getElementById("modal-port-rule");
+  if (!modal) return;
+
+  document.getElementById("modal-port-rule-title").textContent = `Modifier le Port ${rule.port}`;
+  document.getElementById("port-rule-id").value = rule.id;
+  document.getElementById("port-rule-number").value = rule.port;
+  document.getElementById("port-rule-label").value = rule.label;
+  document.getElementById("port-rule-category").value = rule.category || "Autre";
+  document.getElementById("port-rule-enabled").checked = !!rule.enabled;
+  selectPortProtocol(rule.protocol || "TCP");
+
+  modal.style.display = "flex";
 }
+
+function closePortRuleModal() {
+  const modal = document.getElementById("modal-port-rule");
+  if (modal) modal.style.display = "none";
+}
+
+function selectPortProtocol(proto) {
+  document.getElementById("port-rule-protocol").value = proto;
+  document.querySelectorAll("#port-protocol-segmented .btn-segment").forEach(btn => {
+    btn.classList.toggle("active", btn.getAttribute("data-proto") === proto);
+  });
+}
+
+function applyPortPreset(port, proto, label, cat) {
+  document.getElementById("port-rule-number").value = port;
+  selectPortProtocol(proto);
+  document.getElementById("port-rule-label").value = label;
+  document.getElementById("port-rule-category").value = cat;
+  showToast(`Préréglage appliqué : ${label} (${port} ${proto})`, "info");
+}
+
+async function submitPortRule() {
+  const id = document.getElementById("port-rule-id").value;
+  const port = parseInt(document.getElementById("port-rule-number").value, 10);
+  const protocol = document.getElementById("port-rule-protocol").value || "TCP";
+  const label = document.getElementById("port-rule-label").value.trim();
+  const category = document.getElementById("port-rule-category").value;
+  const enabled = document.getElementById("port-rule-enabled").checked;
+
+  if (isNaN(port) || port < 1 || port > 65535) {
+    showToast("Veuillez renseigner un numéro de port valide (1 - 65535)", "warning");
+    return;
+  }
+  if (!label) {
+    showToast("Veuillez saisir un libellé pour ce port", "warning");
+    return;
+  }
+
+  const isEdit = !!id;
+  const url = isEdit ? `/api/firewall/rules/${encodeURIComponent(id)}` : "/api/firewall/rules";
+  const method = isEdit ? "PUT" : "POST";
+  const payload = isEdit
+    ? { port, protocol, label, category, enabled }
+    : { port, protocol, label, category };
+
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(isEdit ? `Port ${port} mis à jour avec succès !` : `Port ${port} ouvert avec succès !`, "success");
+      closePortRuleModal();
+      loadNetwork();
+    } else {
+      showToast("Erreur : " + (json.message || "Impossible d'enregistrer la règle"), "error");
+    }
+  } catch (e) {
+    showToast("Erreur lors de l'enregistrement : " + e, "error");
+  }
+}
+
+async function deletePortRule(id, port) {
+  if (!confirm(`Confirmer la fermeture et la suppression de la règle pour le port ${port} ?`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/firewall/rules/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || `Port ${port} supprimé avec succès !`, "success");
+      loadNetwork();
+    } else {
+      showToast("Erreur lors de la suppression : " + (json.message || "Échec"), "error");
+    }
+  } catch (e) {
+    showToast("Erreur : " + e, "error");
+  }
+}
+
+// =========================================================================
+// 📊 SURVEILLANCE DU TRAFIC RÉSEAU EN TEMPS RÉEL
+// =========================================================================
+
+function startTrafficPolling() {
+  if (window.trafficPollingTimer) return;
+  fetchLiveTraffic();
+  window.trafficPollingTimer = setInterval(fetchLiveTraffic, 2500);
+}
+
+function stopTrafficPolling() {
+  if (window.trafficPollingTimer) {
+    clearInterval(window.trafficPollingTimer);
+    window.trafficPollingTimer = null;
+  }
+}
+
+async function fetchLiveTraffic() {
+  try {
+    const res = await fetch("/api/network/traffic/live");
+    const json = await res.json();
+    if (!json.success || !json.data) return;
+
+    const data = json.data;
+    window.cachedTrafficData = data;
+    renderTrafficMetrics(data);
+  } catch (e) {
+    console.warn("Erreur fetch /api/network/traffic/live:", e);
+  }
+}
+
+function selectTrafficInterface(iface) {
+  window.selectedTrafficIface = iface;
+  document.querySelectorAll("#traffic-iface-pills .btn-iface-pill").forEach(btn => {
+    btn.classList.toggle("active", btn.textContent === iface || (iface === "all" && btn.textContent === "Toutes"));
+  });
+  if (window.cachedTrafficData) {
+    renderTrafficMetrics(window.cachedTrafficData);
+  }
+}
+
+function renderTrafficMetrics(data) {
+  // Mettre à jour les pilules d'interfaces si nécessaire
+  const pillsWrap = document.getElementById("traffic-iface-pills");
+  if (pillsWrap && data.interfaces) {
+    const currentPills = Array.from(pillsWrap.querySelectorAll(".btn-iface-pill")).map(b => b.textContent);
+    const needed = ["Toutes", ...data.interfaces.map(i => i.name)];
+    if (currentPills.join(",") !== needed.join(",")) {
+      pillsWrap.innerHTML = needed.map(name => {
+        const val = name === "Toutes" ? "all" : name;
+        const isActive = window.selectedTrafficIface === val;
+        return `<button type="button" class="btn-iface-pill ${isActive ? "active" : ""}" onclick="selectTrafficInterface('${val}')">${escapeHtml(name)}</button>`;
+      }).join("");
+    }
+  }
+
+  let rxSpeed = data.total_rx_speed_human;
+  let txSpeed = data.total_tx_speed_human;
+  let rxBytesSec = data.total_rx_sec;
+  let txBytesSec = data.total_tx_sec;
+  let rxTotalHuman = "--";
+  let txTotalHuman = "--";
+
+  if (window.selectedTrafficIface !== "all") {
+    const target = (data.interfaces || []).find(i => i.name === window.selectedTrafficIface);
+    if (target) {
+      rxSpeed = target.rx_speed_human;
+      txSpeed = target.tx_speed_human;
+      rxBytesSec = target.rx_bytes_sec;
+      txBytesSec = target.tx_bytes_sec;
+      rxTotalHuman = target.total_rx_human;
+      txTotalHuman = target.total_tx_human;
+    }
+  } else if (data.interfaces && data.interfaces.length > 0) {
+    let totRx = 0;
+    let totTx = 0;
+    data.interfaces.forEach(i => {
+      totRx += (i.total_rx_bytes || 0);
+      totTx += (i.total_tx_bytes || 0);
+    });
+    rxTotalHuman = formatBytesJs(totRx);
+    txTotalHuman = formatBytesJs(totTx);
+  }
+
+  // Mettre à jour les compteurs
+  const rxSpeedEl = document.getElementById("traffic-rx-speed");
+  if (rxSpeedEl) rxSpeedEl.textContent = rxSpeed;
+
+  const txSpeedEl = document.getElementById("traffic-tx-speed");
+  if (txSpeedEl) txSpeedEl.textContent = txSpeed;
+
+  const rxTotalEl = document.getElementById("traffic-rx-total");
+  if (rxTotalEl) rxTotalEl.textContent = rxTotalHuman;
+
+  const txTotalEl = document.getElementById("traffic-tx-total");
+  if (txTotalEl) txTotalEl.textContent = txTotalHuman;
+
+  // Jauges visuelles (échelle relative max 50 Mo/s)
+  const maxRef = 50 * 1024 * 1024;
+  const rxPct = Math.min(100, Math.max(3, Math.round((rxBytesSec / maxRef) * 100)));
+  const txPct = Math.min(100, Math.max(3, Math.round((txBytesSec / maxRef) * 100)));
+
+  const rxMeter = document.getElementById("traffic-rx-meter");
+  if (rxMeter) rxMeter.style.width = `${rxPct}%`;
+
+  const txMeter = document.getElementById("traffic-tx-meter");
+  if (txMeter) txMeter.style.width = `${txPct}%`;
+}
+
+function formatBytesJs(bytes) {
+  if (!bytes || bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "Ko", "Mo", "Go", "To"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+}
+
+async function loadTrafficHistory() {
+  try {
+    const res = await fetch("/api/network/traffic/history");
+    const json = await res.json();
+    if (!json.success || !json.data) return;
+
+    const hist = json.data;
+    const todayEl = document.getElementById("traffic-today-total");
+    if (todayEl) todayEl.textContent = hist.today_total_human || "--";
+
+    const todayDetailEl = document.getElementById("traffic-today-detail");
+    if (todayDetailEl) todayDetailEl.textContent = `(RX: ${hist.today_rx_human || "--"} | TX: ${hist.today_tx_human || "--"})`;
+
+    const monthEl = document.getElementById("traffic-month-total");
+    if (monthEl) monthEl.textContent = hist.month_total_human || "--";
+
+    const monthDetailEl = document.getElementById("traffic-month-detail");
+    if (monthDetailEl) monthDetailEl.textContent = `(RX: ${hist.month_rx_human || "--"} | TX: ${hist.month_tx_human || "--"})`;
+
+    const vnstatBadge = document.getElementById("traffic-vnstat-badge");
+    if (vnstatBadge) {
+      vnstatBadge.textContent = hist.has_vnstat ? "Actif (vnStat)" : "Noyau Linux";
+      vnstatBadge.className = `badge ${hist.has_vnstat ? "badge-success" : "badge-secondary"}`;
+    }
+  } catch (e) {
+    console.warn("Erreur fetch /api/network/traffic/history:", e);
+  }
+}
+
 
 async function unbanFirewallIp(ip) {
   if (!confirm(`Confirmer le déblocage immédiat de l'adresse IP ${ip} ?`)) return;

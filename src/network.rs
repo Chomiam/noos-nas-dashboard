@@ -292,3 +292,230 @@ fn get_sftp_section() -> SftpSection {
         fail2ban_protected,
     }
 }
+
+// =========================================================================
+// 🚀 SURVEILLANCE DU TRAFIC RÉSEAU EN TEMPS RÉEL & HISTORIQUE
+// =========================================================================
+
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::Instant;
+
+static LAST_TRAFFIC_SAMPLE: Mutex<Option<(Instant, HashMap<String, (u64, u64)>)>> = Mutex::new(None);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiveTrafficOverview {
+    pub total_rx_sec: u64,
+    pub total_tx_sec: u64,
+    pub total_rx_speed_human: String,
+    pub total_tx_speed_human: String,
+    pub interfaces: Vec<InterfaceTraffic>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InterfaceTraffic {
+    pub name: String,
+    pub is_up: bool,
+    pub rx_bytes_sec: u64,
+    pub tx_bytes_sec: u64,
+    pub rx_speed_human: String,
+    pub tx_speed_human: String,
+    pub total_rx_bytes: u64,
+    pub total_tx_bytes: u64,
+    pub total_rx_human: String,
+    pub total_tx_human: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrafficHistoryOverview {
+    pub today_rx_human: String,
+    pub today_tx_human: String,
+    pub today_total_human: String,
+    pub month_rx_human: String,
+    pub month_tx_human: String,
+    pub month_total_human: String,
+    pub source: String,
+    pub has_vnstat: bool,
+}
+
+pub fn format_bytes(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = 1024 * KB;
+    const GB: u64 = 1024 * MB;
+    const TB: u64 = 1024 * GB;
+
+    if bytes >= TB {
+        format!("{:.2} To", bytes as f64 / TB as f64)
+    } else if bytes >= GB {
+        format!("{:.2} Go", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.1} Mo", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.0} Ko", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+pub fn format_speed(bytes_per_sec: u64) -> String {
+    format!("{}/s", format_bytes(bytes_per_sec))
+}
+
+fn read_proc_net_dev() -> HashMap<String, (u64, u64)> {
+    let mut map = HashMap::new();
+    if let Ok(content) = std::fs::read_to_string("/proc/net/dev") {
+        for line in content.lines().skip(2) {
+            if let Some((iface, data)) = line.split_once(':') {
+                let iface_name = iface.trim().to_string();
+                let parts: Vec<&str> = data.split_whitespace().collect();
+                if parts.len() >= 9 {
+                    let rx_bytes = parts[0].parse::<u64>().unwrap_or(0);
+                    let tx_bytes = parts[8].parse::<u64>().unwrap_or(0);
+                    map.insert(iface_name, (rx_bytes, tx_bytes));
+                }
+            }
+        }
+    }
+    map
+}
+
+pub fn get_live_traffic() -> LiveTrafficOverview {
+    let now = Instant::now();
+    let current_map = read_proc_net_dev();
+
+    let mut last_guard = LAST_TRAFFIC_SAMPLE.lock().unwrap();
+    let (delta_secs, prev_map) = match last_guard.take() {
+        Some((last_instant, prev)) => {
+            let secs = now.duration_since(last_instant).as_secs_f64();
+            (if secs > 0.05 { secs } else { 1.0 }, prev)
+        }
+        None => (1.0, HashMap::new()),
+    };
+
+    *last_guard = Some((now, current_map.clone()));
+
+    let mut interfaces = Vec::new();
+    let mut sum_rx_sec = 0u64;
+    let mut sum_tx_sec = 0u64;
+
+    for (iface, (rx_tot, tx_tot)) in &current_map {
+        if iface == "lo" {
+            continue;
+        }
+
+        let is_up = std::fs::read_to_string(format!("/sys/class/net/{}/operstate", iface))
+            .map(|s| s.trim() != "down")
+            .unwrap_or(true);
+
+        let (prev_rx, prev_tx) = prev_map.get(iface).copied().unwrap_or((*rx_tot, *tx_tot));
+
+        let rx_delta = rx_tot.saturating_sub(prev_rx);
+        let tx_delta = tx_tot.saturating_sub(prev_tx);
+
+        let rx_rate = (rx_delta as f64 / delta_secs) as u64;
+        let tx_rate = (tx_delta as f64 / delta_secs) as u64;
+
+        sum_rx_sec += rx_rate;
+        sum_tx_sec += tx_rate;
+
+        interfaces.push(InterfaceTraffic {
+            name: iface.clone(),
+            is_up,
+            rx_bytes_sec: rx_rate,
+            tx_bytes_sec: tx_rate,
+            rx_speed_human: format_speed(rx_rate),
+            tx_speed_human: format_speed(tx_rate),
+            total_rx_bytes: *rx_tot,
+            total_tx_bytes: *tx_tot,
+            total_rx_human: format_bytes(*rx_tot),
+            total_tx_human: format_bytes(*tx_tot),
+        });
+    }
+
+    interfaces.sort_by(|a, b| {
+        let a_score = if a.name.starts_with("en") || a.name.starts_with("eth") { 0 }
+            else if a.name.starts_with("wl") { 1 }
+            else if a.name.starts_with("wg") { 2 }
+            else { 3 };
+        let b_score = if b.name.starts_with("en") || b.name.starts_with("eth") { 0 }
+            else if b.name.starts_with("wl") { 1 }
+            else if b.name.starts_with("wg") { 2 }
+            else { 3 };
+        a_score.cmp(&b_score).then_with(|| a.name.cmp(&b.name))
+    });
+
+    LiveTrafficOverview {
+        total_rx_sec: sum_rx_sec,
+        total_tx_sec: sum_tx_sec,
+        total_rx_speed_human: format_speed(sum_rx_sec),
+        total_tx_speed_human: format_speed(sum_tx_sec),
+        interfaces,
+    }
+}
+
+pub fn get_traffic_history() -> TrafficHistoryOverview {
+    if let Ok(output) = Command::new("vnstat").args(["--json", "d", "1"]).output() {
+        if output.status.success() {
+            if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                if let Some(interfaces) = val.get("interfaces").and_then(|i| i.as_array()) {
+                    let mut today_rx = 0u64;
+                    let mut today_tx = 0u64;
+                    let mut month_rx = 0u64;
+                    let mut month_tx = 0u64;
+
+                    for iface in interfaces {
+                        if let Some(traffic) = iface.get("traffic") {
+                            if let Some(days) = traffic.get("day").and_then(|d| d.as_array()) {
+                                if let Some(last_day) = days.last() {
+                                    today_rx += last_day.get("rx").and_then(|v| v.as_u64()).unwrap_or(0);
+                                    today_tx += last_day.get("tx").and_then(|v| v.as_u64()).unwrap_or(0);
+                                }
+                            }
+                            if let Some(months) = traffic.get("month").and_then(|m| m.as_array()) {
+                                if let Some(last_month) = months.last() {
+                                    month_rx += last_month.get("rx").and_then(|v| v.as_u64()).unwrap_or(0);
+                                    month_tx += last_month.get("tx").and_then(|v| v.as_u64()).unwrap_or(0);
+                                }
+                            }
+                        }
+                    }
+
+                    if today_rx > 0 || today_tx > 0 || month_rx > 0 || month_tx > 0 {
+                        return TrafficHistoryOverview {
+                            today_rx_human: format_bytes(today_rx),
+                            today_tx_human: format_bytes(today_tx),
+                            today_total_human: format_bytes(today_rx + today_tx),
+                            month_rx_human: format_bytes(month_rx),
+                            month_tx_human: format_bytes(month_tx),
+                            month_total_human: format_bytes(month_rx + month_tx),
+                            source: "vnStat".to_string(),
+                            has_vnstat: true,
+                        };
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: cumul total depuis le boot (/proc/net/dev)
+    let current_map = read_proc_net_dev();
+    let mut total_rx = 0u64;
+    let mut total_tx = 0u64;
+    for (iface, (rx, tx)) in &current_map {
+        if iface != "lo" {
+            total_rx += rx;
+            total_tx += tx;
+        }
+    }
+
+    TrafficHistoryOverview {
+        today_rx_human: format_bytes(total_rx),
+        today_tx_human: format_bytes(total_tx),
+        today_total_human: format_bytes(total_rx + total_tx),
+        month_rx_human: format_bytes(total_rx),
+        month_tx_human: format_bytes(total_tx),
+        month_total_human: format_bytes(total_rx + total_tx),
+        source: "Noyau Linux (Total session)".to_string(),
+        has_vnstat: false,
+    }
+}

@@ -8703,3 +8703,561 @@ select.form-control option,
 .docker-image-row:last-child td {
   border-bottom: none;
 }
+
+/* =========================================================================
+   🛡️ PARE-FEU NIXOS & SURVEILLANCE DU TRAFIC RÉSEAU (CATPPUCCIN MOCHA)
+   ========================================================================= */
+
+/* 1. Carte Héro Pare-feu */
+.firewall-hero-banner {
+  background: linear-gradient(135deg, rgba(30, 30, 46, 0.95), rgba(24, 24, 37, 0.98));
+  border: 1px solid rgba(166, 227, 161, 0.25);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.firewall-hero-banner.disabled-state {
+  border-color: rgba(243, 139, 168, 0.35);
+  background: linear-gradient(135deg, rgba(30, 30, 46, 0.95), rgba(40, 20, 30, 0.9));
+}
+
+.firewall-hero-left {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex: 1;
+}
+
+.firewall-shield-box {
+  width: 68px;
+  height: 68px;
+  border-radius: 20px;
+  background: rgba(166, 227, 161, 0.12);
+  border: 1px solid rgba(166, 227, 161, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  flex-shrink: 0;
+  transition: all 0.3s ease;
+}
+
+.firewall-hero-banner.disabled-state .firewall-shield-box {
+  background: rgba(243, 139, 168, 0.12);
+  border-color: rgba(243, 139, 168, 0.3);
+}
+
+.firewall-shield-icon {
+  font-size: 2.2rem;
+  z-index: 2;
+}
+
+.shield-pulse-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 24px;
+  animation: shieldPulse 2.5s infinite;
+  pointer-events: none;
+}
+
+.firewall-hero-banner.disabled-state .shield-pulse-ring {
+  animation: shieldPulseDanger 2s infinite;
+}
+
+@keyframes shieldPulse {
+  0% { transform: scale(0.96); box-shadow: 0 0 0 0 rgba(166, 227, 161, 0.4); }
+  70% { transform: scale(1.02); box-shadow: 0 0 0 14px rgba(166, 227, 161, 0); }
+  100% { transform: scale(0.96); box-shadow: 0 0 0 0 rgba(166, 227, 161, 0); }
+}
+
+@keyframes shieldPulseDanger {
+  0% { transform: scale(0.96); box-shadow: 0 0 0 0 rgba(243, 139, 168, 0.4); }
+  70% { transform: scale(1.02); box-shadow: 0 0 0 14px rgba(243, 139, 168, 0); }
+  100% { transform: scale(0.96); box-shadow: 0 0 0 0 rgba(243, 139, 168, 0); }
+}
+
+.firewall-hero-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.firewall-hero-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.3px;
+}
+
+.firewall-hero-subtitle {
+  margin: 0 0 12px 0;
+  font-size: 0.88rem;
+  color: var(--subtext0);
+  line-height: 1.45;
+  max-width: 580px;
+}
+
+.firewall-metrics-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fw-chip {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  color: var(--subtext1);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fw-chip strong {
+  color: var(--mauve);
+}
+
+.firewall-hero-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 14px;
+}
+
+.firewall-toggle-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(17, 17, 27, 0.5);
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.firewall-toggle-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Switch Toggle Catppuccin */
+.catppuccin-switch {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 26px;
+  margin: 0;
+}
+
+.catppuccin-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.catppuccin-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: rgba(255, 255, 255, 0.15);
+  transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.catppuccin-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: #cdd6f4;
+  transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.catppuccin-switch input:checked + .catppuccin-slider {
+  background-color: var(--green);
+}
+
+.catppuccin-switch input:checked + .catppuccin-slider:before {
+  transform: translateX(22px);
+  background-color: #11111b;
+}
+
+.firewall-add-btn {
+  padding: 9px 18px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 14px rgba(203, 166, 247, 0.25);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 2. Surveillance du Trafic Réseau en Temps Réel */
+.traffic-monitor-card {
+  margin-bottom: 24px;
+}
+
+.traffic-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.traffic-iface-selector {
+  display: flex;
+  background: rgba(17, 17, 27, 0.5);
+  padding: 3px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  gap: 2px;
+}
+
+.btn-iface-pill {
+  background: transparent;
+  border: none;
+  color: var(--subtext0);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-iface-pill:hover {
+  color: var(--text);
+}
+
+.btn-iface-pill.active {
+  background: var(--mauve);
+  color: #11111b;
+  font-weight: 700;
+}
+
+.traffic-gauges-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-top: 16px;
+}
+
+.traffic-gauge-box {
+  background: rgba(17, 17, 27, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.traffic-gauge-box:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.traffic-gauge-box.rx-box {
+  border-left: 3px solid var(--teal);
+}
+
+.traffic-gauge-box.tx-box {
+  border-left: 3px solid var(--peach);
+}
+
+.gauge-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gauge-label-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gauge-arrow {
+  font-size: 1.3rem;
+}
+
+.gauge-label {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--subtext1);
+}
+
+.gauge-sublabel {
+  font-size: 0.72rem;
+  color: var(--subtext0);
+}
+
+.gauge-speed-val {
+  font-family: var(--font-mono);
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.gauge-speed-val.rx-speed {
+  color: var(--teal);
+  text-shadow: 0 0 12px rgba(148, 226, 213, 0.25);
+}
+
+.gauge-speed-val.tx-speed {
+  color: var(--peach);
+  text-shadow: 0 0 12px rgba(250, 179, 135, 0.25);
+}
+
+.gauge-meter-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.gauge-meter-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.gauge-meter-fill.rx-fill {
+  background: linear-gradient(90deg, var(--blue), var(--teal));
+}
+
+.gauge-meter-fill.tx-fill {
+  background: linear-gradient(90deg, var(--peach), var(--red));
+}
+
+.gauge-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.76rem;
+  color: var(--subtext0);
+}
+
+.pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.rx-dot {
+  background: var(--teal);
+  box-shadow: 0 0 8px var(--teal);
+}
+
+.tx-dot {
+  background: var(--peach);
+  box-shadow: 0 0 8px var(--peach);
+}
+
+.traffic-history-bar {
+  margin-top: 14px;
+  padding: 12px 16px;
+  background: rgba(17, 17, 27, 0.35);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.traffic-hist-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--subtext1);
+}
+
+.traffic-hist-item strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+
+.traffic-hist-details {
+  font-size: 0.72rem;
+  color: var(--subtext0);
+}
+
+.traffic-hist-divider {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* 3. Table des Ports & Mode Édition */
+.firewall-table-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.firewall-ports-table td {
+  padding: 14px 18px;
+}
+
+.port-number-cell {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--mauve);
+}
+
+.proto-badge-tcp {
+  background: rgba(137, 180, 250, 0.15);
+  color: var(--blue);
+  border: 1px solid rgba(137, 180, 250, 0.3);
+}
+
+.proto-badge-udp {
+  background: rgba(250, 179, 135, 0.15);
+  color: var(--peach);
+  border: 1px solid rgba(250, 179, 135, 0.3);
+}
+
+.proto-badge-both {
+  background: rgba(203, 166, 247, 0.15);
+  color: var(--mauve);
+  border: 1px solid rgba(203, 166, 247, 0.3);
+}
+
+.category-pill {
+  font-size: 0.75rem;
+  color: var(--subtext0);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.origin-badge-system {
+  background: rgba(166, 227, 161, 0.1);
+  color: var(--green);
+  border: 1px solid rgba(166, 227, 161, 0.25);
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.origin-badge-custom {
+  background: rgba(203, 166, 247, 0.12);
+  color: var(--mauve);
+  border: 1px solid rgba(203, 166, 247, 0.3);
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.action-btns-cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* 4. Modal de Port & Presets */
+.port-presets-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.btn-port-preset {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  color: var(--text);
+  font-size: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-port-preset:hover {
+  background: rgba(203, 166, 247, 0.12);
+  border-color: rgba(203, 166, 247, 0.35);
+  color: var(--mauve);
+  transform: translateY(-1px);
+}
+
+.segmented-control {
+  display: flex;
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  gap: 2px;
+}
+
+.btn-segment {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--subtext0);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-segment:hover {
+  color: var(--text);
+}
+
+.btn-segment.active {
+  background: var(--mauve);
+  color: #11111b;
+  font-weight: 800;
+}
+
+@media (max-width: 768px) {
+  .firewall-hero-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .firewall-hero-actions {
+    align-items: flex-start;
+    width: 100%;
+  }
+  .traffic-gauges-grid {
+    grid-template-columns: 1fr;
+  }
+  .port-presets-grid {
+    grid-template-columns: 1fr;
+  }
+}

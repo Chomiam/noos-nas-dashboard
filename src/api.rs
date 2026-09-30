@@ -6,7 +6,7 @@ use crate::vms::{
 use axum::{
     extract::{Path, Query},
     response::Json,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Router,
 };
 use serde::{Deserialize, Serialize};
@@ -29,8 +29,15 @@ use crate::files::{
     copy_item, create_directory, delete_item, get_image_info, get_image_preview_path, list_directory, move_item, rename_item,
     ActionRequest, DeleteRequest, DirectoryListing, ImageInfoResponse, ListQuery, MkdirRequest, RenameRequest,
 };
-use crate::firewall::{get_firewall_overview, unban_ip, FirewallOverview};
-use crate::network::{get_network_overview, NetworkOverview};
+use crate::firewall::{
+    create_custom_rule, delete_custom_rule, get_firewall_overview, toggle_firewall, unban_ip,
+    update_custom_rule, CreatePortRuleRequest, CustomPortRule, FirewallOverview,
+    ToggleFirewallRequest, UpdatePortRuleRequest,
+};
+use crate::network::{
+    get_live_traffic, get_network_overview, get_traffic_history, LiveTrafficOverview,
+    NetworkOverview, TrafficHistoryOverview,
+};
 use crate::services::{control_service, get_service_logs, get_services_overview, ServicesOverview};
 use crate::storage::{create_raid, format_disk, get_raid_sync_progress, get_storage_overview, mount_volume, repair_path_permissions, trigger_disk_spindown, umount_volume, CreateRaidRequest, FormatDiskRequest, MountVolumeRequest, RaidSyncProgress, RepairPermissionsRequest, StorageOverview, UmountVolumeRequest};
 use crate::generations;
@@ -120,7 +127,12 @@ pub fn api_routes() -> Router {
         .route("/games/minecraft/versions", get(handle_minecraft_versions))
         .route("/games/minecraft/resolve", post(handle_minecraft_resolve))
         .route("/network", get(handle_network))
+        .route("/network/traffic/live", get(handle_network_traffic_live))
+        .route("/network/traffic/history", get(handle_network_traffic_history))
         .route("/firewall", get(handle_firewall))
+        .route("/firewall/toggle", post(handle_firewall_toggle))
+        .route("/firewall/rules", post(handle_firewall_create_rule))
+        .route("/firewall/rules/:id", put(handle_firewall_update_rule).delete(handle_firewall_delete_rule))
         .route("/firewall/unban", post(handle_firewall_unban))
         .route("/logs", get(handle_logs))
         .route("/updates/status", get(handle_updates_status))
@@ -1295,6 +1307,86 @@ async fn handle_network() -> Json<ApiResponse<NetworkOverview>> {
     Json(ApiResponse {
         success: true,
         data: Some(get_network_overview()),
+        message: None,
+    })
+}
+
+
+async fn handle_firewall_toggle(Json(payload): Json<ToggleFirewallRequest>) -> Json<ApiResponse<String>> {
+    match toggle_firewall(payload.enable) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg.clone()),
+            message: Some(msg),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_firewall_create_rule(Json(payload): Json<CreatePortRuleRequest>) -> Json<ApiResponse<CustomPortRule>> {
+    match create_custom_rule(payload) {
+        Ok(rule) => Json(ApiResponse {
+            success: true,
+            data: Some(rule),
+            message: Some("Règle de pare-feu créée avec succès".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_firewall_update_rule(
+    Path(id): Path<String>,
+    Json(payload): Json<UpdatePortRuleRequest>,
+) -> Json<ApiResponse<CustomPortRule>> {
+    match update_custom_rule(&id, payload) {
+        Ok(rule) => Json(ApiResponse {
+            success: true,
+            data: Some(rule),
+            message: Some("Règle de pare-feu mise à jour avec succès".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_firewall_delete_rule(Path(id): Path<String>) -> Json<ApiResponse<String>> {
+    match delete_custom_rule(&id) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg.clone()),
+            message: Some(msg),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_network_traffic_live() -> Json<ApiResponse<LiveTrafficOverview>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(get_live_traffic()),
+        message: None,
+    })
+}
+
+async fn handle_network_traffic_history() -> Json<ApiResponse<TrafficHistoryOverview>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(get_traffic_history()),
         message: None,
     })
 }
