@@ -8,7 +8,7 @@
 ## 🚫 Règle n°1 : Pas de build lourd sur la machine locale
 - **Ne jamais lancer de compilation complète ou lourde (`nix build`, recompilation d'ISO, etc.) sur la machine locale.**
 - La machine locale de travail ne doit exécuter que des vérifications syntaxiques ultra-rapides (`cargo check`, vérification node) et l'écriture de code.
-- La compilation binaire et la mise en cache Nix sont obligatoirement déléguées aux serveurs distants via **GitHub Actions** (`.github/workflows/cachix.yml`), qui pousse automatiquement les artefacts compilés sur Cachix (`chomiamos`).
+- La compilation binaire est obligatoirement déléguée aux serveurs distants via **GitHub Actions** (`.github/workflows/build.yml`).
 
 ---
 
