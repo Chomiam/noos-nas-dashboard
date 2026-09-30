@@ -849,8 +849,6 @@ fn detect_package_updates_list(config_dir: &Path, inputs_have_updates: bool) -> 
         "build",
         &target_attr,
         "--dry-run",
-        "--recreate-lock-file",
-        "--no-write-lock-file",
     ];
 
     if let Ok(out) = Command::new(nix_binary()).args(&args).output() {
@@ -1391,10 +1389,11 @@ pub fn run_detached_update_process(force_packages: bool) {
 
     let nixos_rebuild = nixos_rebuild_binary();
     let mut args = vec!["switch", "--flake", &dir_str];
-    let update_inputs = update_type == UpdateType::PackagesOnly || update_type == UpdateType::Both;
-    if update_inputs {
-        args.push("--recreate-lock-file");
-        args.push("--no-write-lock-file");
+    // Ne jamais écraser flake.lock avec --recreate-lock-file :
+    // 1. flake.lock a été validé ou mis à jour via Git.
+    // 2. --recreate-lock-file est déprécié et provoque un contournement vers le cache tarball Nix (~/.cache/nix/tarballs).
+    if force_packages {
+        args.push("--refresh");
     }
     let mut cmd = create_switch_command(&nixos_rebuild, &args, &config_dir);
     cmd.stdout(std::process::Stdio::piped());
@@ -1567,6 +1566,11 @@ pub fn run_detached_update_process(force_packages: bool) {
 
     if switch_success {
         let cur_gen = get_current_system_generation();
+        // S'assurer que le service steveos-nas-dashboard est bien relancé avec le nouveau binaire
+        let _ = Command::new("/run/current-system/sw/bin/systemctl")
+            .args(["try-restart", "steveos-nas-dashboard.service"])
+            .status();
+
         state.is_running = false;
         state.stage = "completed".to_string();
         state.step_index = 4;
@@ -1616,8 +1620,7 @@ fn run_switch_command(config_dir: &Path, update_inputs: bool) -> (bool, String) 
     let nixos_rebuild = nixos_rebuild_binary();
     let mut args = vec!["switch", "--flake", &dir_str];
     if update_inputs {
-        args.push("--recreate-lock-file");
-        args.push("--no-write-lock-file");
+        args.push("--refresh");
     }
     let mut cmd = create_switch_command(&nixos_rebuild, &args, config_dir);
     cmd.stdout(std::process::Stdio::piped());
