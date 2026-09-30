@@ -4377,14 +4377,11 @@ async function submitCompress() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sources: items,
-        items: items,
         dest_dir: destDir,
-        destination_dir: destDir,
         archive_name: archiveName,
         format: fmt,
         compression_level: currentCompressLevel,
-        level: currentCompressLevel,
-        password: password
+        password: password || null
       })
     });
     const rawText = await res.text();
@@ -4517,9 +4514,8 @@ async function submitExtract() {
       body: JSON.stringify({
         archive_path: archivePath,
         dest_dir: destDir,
-        destination_dir: destDir,
         create_subfolder: createSubfolder,
-        password: password
+        password: password || null
       })
     });
     const rawText = await res.text();
@@ -4579,7 +4575,6 @@ async function extractArchiveDirect(path, name) {
       body: JSON.stringify({
         archive_path: path,
         dest_dir: currentFolderPath,
-        destination_dir: currentFolderPath,
         create_subfolder: true,
         password: null
       })
@@ -4652,9 +4647,8 @@ async function submitArchivePasswordPrompt() {
       body: JSON.stringify({
         archive_path: archivePath,
         dest_dir: destDir,
-        destination_dir: destDir,
         create_subfolder: createSubfolder,
-        password: password
+        password: password || null
       })
     });
     const rawText = await res.text();
@@ -7847,8 +7841,7 @@ async function handleLoginSubmit(event) {
       body: JSON.stringify({
         username: username,
         password: password,
-        remember: remember,
-        remember_me: remember
+        remember: remember
       })
     });
 
