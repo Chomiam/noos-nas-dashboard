@@ -38,7 +38,6 @@ mod documents;
 mod youtube;
 mod docker_store;
 mod games;
-mod hardware_thermal;
 mod minecraft;
 mod vms;
 mod generations;
@@ -92,7 +91,6 @@ async fn main() {
 
     updates::start_background_checker();
     trash::start_background_pruner();
-    hardware_thermal::start_thermal_daemon();
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
