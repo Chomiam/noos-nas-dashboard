@@ -7043,7 +7043,6 @@ select.form-control option,
   font-size: 0.78rem;
   line-height: 1.55;
   color: #cdd6f4;
-  scroll-behavior: smooth;
   background: #0b0c13;
 }
 .deploy-log-empty {
@@ -7532,7 +7531,6 @@ select.form-control option,
   line-height: 1.6;
   background: #0d0e17;
   color: #cdd6f4;
-  scroll-behavior: smooth;
 }
 
 .game-terminal-welcome {

@@ -10354,6 +10354,8 @@ async function confirmDeleteGameServer(id, name) {
 // --------------------------------------------------------------------------
 let gameConsoleAutoScrollEnabled = true;
 let isGameConsoleExpanded = false;
+let isGameConsoleProgrammaticScrolling = false;
+let lastGameConsoleRawMap = {};
 
 function updateGameConsoleSelectOptions() {
   const sel = document.getElementById("game-console-server-select");
@@ -10424,6 +10426,10 @@ function onGameConsoleServerChange() {
   const sel = document.getElementById("game-console-server-select");
   if (sel) {
     activeConsoleServerId = sel.value;
+    delete lastGameConsoleRawMap[activeConsoleServerId];
+    gameConsoleAutoScrollEnabled = true;
+    const dot = document.getElementById("game-console-autoscroll-dot");
+    if (dot) dot.className = "terminal-status-dot active";
     const current = gameServersData.find(s => s.id === activeConsoleServerId);
     updateConsoleHeaderStats(current);
     fetchGameConsoleLogs();
@@ -10436,18 +10442,28 @@ function toggleGameConsoleAutoScroll() {
   if (dot) dot.className = `terminal-status-dot ${gameConsoleAutoScrollEnabled ? 'active' : ''}`;
   if (gameConsoleAutoScrollEnabled) {
     const box = document.getElementById("game-terminal-output");
-    if (box) box.scrollTop = box.scrollHeight;
+    if (box) {
+      isGameConsoleProgrammaticScrolling = true;
+      box.scrollTop = box.scrollHeight;
+      setTimeout(() => { isGameConsoleProgrammaticScrolling = false; }, 80);
+    }
   }
 }
 
 function handleGameConsoleTerminalScroll() {
+  if (isGameConsoleProgrammaticScrolling) return;
   const box = document.getElementById("game-terminal-output");
   if (!box) return;
-  const isNearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+
+  const isNearBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) <= 60;
+  const dot = document.getElementById("game-console-autoscroll-dot");
+
   if (!isNearBottom && gameConsoleAutoScrollEnabled) {
     gameConsoleAutoScrollEnabled = false;
-    const dot = document.getElementById("game-console-autoscroll-dot");
     if (dot) dot.className = "terminal-status-dot";
+  } else if (isNearBottom && !gameConsoleAutoScrollEnabled) {
+    gameConsoleAutoScrollEnabled = true;
+    if (dot) dot.className = "terminal-status-dot active";
   }
 }
 
@@ -10493,7 +10509,11 @@ function toggleExpandGameConsoleTerminal() {
 
   const box = document.getElementById("game-terminal-output");
   if (box && gameConsoleAutoScrollEnabled) {
-    setTimeout(() => { box.scrollTop = box.scrollHeight; }, 100);
+    isGameConsoleProgrammaticScrolling = true;
+    setTimeout(() => {
+      box.scrollTop = box.scrollHeight;
+      setTimeout(() => { isGameConsoleProgrammaticScrolling = false; }, 80);
+    }, 120);
   }
 }
 
@@ -10566,6 +10586,19 @@ async function fetchGameConsoleLogs() {
       const outputEl = document.getElementById("game-terminal-output");
       if (outputEl) {
         const rawText = json.data || "";
+        const cacheKey = `${activeConsoleServerId}_${linesCount}`;
+
+        if (lastGameConsoleRawMap[cacheKey] === rawText && outputEl.children.length > 0) {
+          if (gameConsoleAutoScrollEnabled) {
+            isGameConsoleProgrammaticScrolling = true;
+            outputEl.scrollTop = outputEl.scrollHeight;
+            setTimeout(() => { isGameConsoleProgrammaticScrolling = false; }, 80);
+          }
+          return;
+        }
+
+        lastGameConsoleRawMap[cacheKey] = rawText;
+
         const rawLines = rawText.split("\n");
         let html = "";
         let lineIdx = 1;
@@ -10587,11 +10620,22 @@ async function fetchGameConsoleLogs() {
         } else {
           html += `<div class="game-term-line"><span class="game-term-num"></span><span class="game-term-text"><span class="terminal-cursor"></span></span></div>`;
         }
+
+        isGameConsoleProgrammaticScrolling = true;
         outputEl.innerHTML = html;
 
         if (gameConsoleAutoScrollEnabled) {
           outputEl.scrollTop = outputEl.scrollHeight;
         }
+
+        requestAnimationFrame(() => {
+          if (gameConsoleAutoScrollEnabled) {
+            outputEl.scrollTop = outputEl.scrollHeight;
+          }
+          setTimeout(() => {
+            isGameConsoleProgrammaticScrolling = false;
+          }, 80);
+        });
       }
     }
   } catch (e) {
