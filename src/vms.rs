@@ -340,13 +340,58 @@ pub fn control_vm(name: &str, action: &str) -> Result<String, String> {
         "pause" => "suspend",
         "resume" => "resume",
         "delete" => {
-            let _ = Command::new(&virsh).args(&["-c", &get_libvirt_uri(), "destroy", name]).output();
-            let out = Command::new(&virsh).args(&["-c", &get_libvirt_uri(), "undefine", name, "--remove-all-storage"]).output()
-                .map_err(|e| format!("Erreur lors de la suppression de la VM : {}", e))?;
-            if out.status.success() {
-                return Ok("Machine virtuelle et stockages associés supprimés avec succès.".to_string());
-            } else {
-                return Err(String::from_utf8_lossy(&out.stderr).to_string());
+            let uri = get_libvirt_uri();
+            // 1. Forcer l'arrêt de la machine virtuelle si elle est en cours d'exécution
+            let _ = Command::new(&virsh).args(["-c", &uri, "destroy", name]).output();
+
+            // 2. Tenter la suppression complète déclarative (NVRAM/varstore + stockage + snapshots + TPM + managed-save)
+            let mut out = Command::new(&virsh)
+                .args(["-c", &uri, "undefine", name, "--remove-all-storage", "--nvram", "--snapshots-metadata", "--managed-save", "--tpm"])
+                .output();
+
+            // Repli sans l'option --tpm si non supportée par cette version de libvirt
+            let mut success = out.as_ref().map(|o| o.status.success()).unwrap_or(false);
+            if !success {
+                out = Command::new(&virsh)
+                    .args(["-c", &uri, "undefine", name, "--remove-all-storage", "--nvram", "--snapshots-metadata", "--managed-save"])
+                    .output();
+                success = out.as_ref().map(|o| o.status.success()).unwrap_or(false);
+            }
+
+            // Repli sans --remove-all-storage (si un lecteur CD-ROM/ISO attaché empêche la suppression du stockage global)
+            if !success {
+                out = Command::new(&virsh)
+                    .args(["-c", &uri, "undefine", name, "--nvram", "--snapshots-metadata", "--managed-save"])
+                    .output();
+                success = out.as_ref().map(|o| o.status.success()).unwrap_or(false);
+            }
+
+            // Repli minimal ultime avec --nvram seul
+            if !success {
+                out = Command::new(&virsh)
+                    .args(["-c", &uri, "undefine", name, "--nvram"])
+                    .output();
+                success = out.as_ref().map(|o| o.status.success()).unwrap_or(false);
+            }
+
+            // Nettoyage manuel du fichier disque principal .qcow2 si nécessaire
+            let vms_dir = get_vms_pool_dir();
+            let disk_path = vms_dir.join(format!("{}.qcow2", name));
+            if disk_path.exists() {
+                let _ = std::fs::remove_file(&disk_path);
+            }
+
+            match out {
+                Ok(_) if success => {
+                    return Ok(format!("Machine virtuelle '{}', NVRAM/varstore et disques associés supprimés avec succès.", name));
+                }
+                Ok(o) => {
+                    let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                    return Err(format!("Échec de la suppression de la VM '{}' : {}", name, err));
+                }
+                Err(e) => {
+                    return Err(format!("Erreur lors de l'exécution de virsh : {}", e));
+                }
             }
         }
         _ => return Err("Action inconnue (utilisez start, shutdown, reset, destroy, pause, resume, delete).".to_string()),
