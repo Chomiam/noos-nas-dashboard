@@ -299,8 +299,13 @@ pub fn git_binary() -> String {
     find_bin(&["/run/current-system/sw/bin/git", "git", "/nix/var/nix/profiles/default/bin/git", "/usr/bin/git"])
 }
 
-pub fn nh_binary() -> String {
-    find_bin(&["/run/current-system/sw/bin/nh", "nh", "/nix/var/nix/profiles/default/bin/nh", "/usr/bin/nh"])
+pub fn nixos_rebuild_binary() -> String {
+    find_bin(&[
+        "/run/current-system/sw/bin/nixos-rebuild",
+        "nixos-rebuild",
+        "/nix/var/nix/profiles/default/bin/nixos-rebuild",
+        "/usr/bin/nixos-rebuild",
+    ])
 }
 
 pub fn nix_binary() -> String {
@@ -945,6 +950,9 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
 
     let dir_str = config_dir.display().to_string();
 
+    // Aligner préventivement flake.lock avec le dépôt Git
+    let _ = git_cmd(&dir_str).args(["checkout", "--", "flake.lock"]).output();
+
     // 1. Sauvegarde automatique du commit courant
     let current_sha = git_cmd(&dir_str)
         .args(["rev-parse", "HEAD"])
@@ -1117,9 +1125,9 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
                 };
             }
 
-            // 2. nh os switch
-            steps_executed.push("Déploiement système : nh os switch".into());
-            output_log.push_str("\n--- Exécution de nh os switch ---\n");
+            // 2. nixos-rebuild switch
+            steps_executed.push("Déploiement système : nixos-rebuild switch".into());
+            output_log.push_str("\n--- Exécution de nixos-rebuild switch ---\n");
             let res = run_switch_command(&config_dir, false);
             output_log.push_str(&res.1);
             if !res.0 {
@@ -1127,15 +1135,15 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
                     success: false,
                     steps_executed,
                     output_log,
-                    error: Some("Échec de nh os switch".into()),
+                    error: Some("Échec de nixos-rebuild switch".into()),
                 };
             }
         }
 
         UpdateType::PackagesOnly => {
-            // 1. nh os switch -u directement
-            steps_executed.push("Mise à jour des paquets : nh os switch -u".into());
-            output_log.push_str("--- Exécution de nh os switch -u ---\n");
+            // 1. nixos-rebuild switch -u directement
+            steps_executed.push("Mise à jour des paquets : nixos-rebuild switch -u".into());
+            output_log.push_str("--- Exécution de nixos-rebuild switch -u ---\n");
             let res = run_switch_command(&config_dir, true);
             output_log.push_str(&res.1);
             if !res.0 {
@@ -1143,7 +1151,7 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
                     success: false,
                     steps_executed,
                     output_log,
-                    error: Some("Échec de nh os switch -u".into()),
+                    error: Some("Échec de nixos-rebuild switch -u".into()),
                 };
             }
         }
@@ -1160,9 +1168,9 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
                 };
             }
 
-            // 2. Ensuite nh os switch -u
-            steps_executed.push("2. Déploiement système : nh os switch".into());
-            output_log.push_str("\n--- Exécution de nh os switch -u (Configuration + Paquets) ---\n");
+            // 2. Ensuite nixos-rebuild switch -u
+            steps_executed.push("2. Déploiement système : nixos-rebuild switch".into());
+            output_log.push_str("\n--- Exécution de nixos-rebuild switch -u (Configuration + Paquets) ---\n");
             let res = run_switch_command(&config_dir, false);
             output_log.push_str(&res.1);
             if !res.0 {
@@ -1170,7 +1178,7 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
                     success: false,
                     steps_executed,
                     output_log,
-                    error: Some("Échec de nh os switch -u".into()),
+                    error: Some("Échec de nixos-rebuild switch -u".into()),
                 };
             }
         }
@@ -1356,7 +1364,7 @@ pub fn run_detached_update_process(force_packages: bool) {
         state.log_tail.push_str(&pull_log);
     }
 
-    // --- Étape 2 : Déploiement système (nh os switch) ---
+    // --- Étape 2 : Déploiement système (nixos-rebuild switch) ---
     state.stage = "building".to_string();
     state.step_index = 2;
     state.total_steps = 4;
@@ -1365,39 +1373,14 @@ pub fn run_detached_update_process(force_packages: bool) {
     state.status_detail = "Compilation des dérivations NixOS et téléchargement des paquets binaires...".to_string();
     save_update_progress(&state);
 
-    let nh_bin = nh_binary();
-    let sudo_b = sudo_binary();
-    let is_root = is_root_process();
-    // Ne jamais forcer -u ou --commit-lock-file si une configuration Git est mise à jour (Both ou ConfigOnly)
-    let update_inputs = update_type == UpdateType::PackagesOnly;
-
-    let (bin, args) = if Path::new(&nh_bin).exists() {
-        let mut a = vec!["os", "switch", "--no-nom"];
-        if is_root {
-            a.push("--bypass-root-check");
-            a.push("-e");
-            a.push("none");
-        } else {
-            a.push("-e");
-            a.push(&sudo_b);
-        }
-        if update_inputs {
-            a.push("-u");
-            a.push("--commit-lock-file");
-        }
-        a.push(&dir_str);
-        (nh_bin, a)
-    } else {
-        if update_inputs {
-            let nix_b = nix_binary();
-            let mut update_cmd = create_switch_command(&nix_b, &["flake", "update", "--flake", &dir_str], &config_dir);
-            let _ = update_cmd.output();
-        }
-        ("nixos-rebuild".to_string(), vec!["switch", "--flake", &dir_str])
-    };
-
-    let mut cmd = create_switch_command(&bin, &args, &config_dir);
-    cmd.current_dir(&config_dir);
+    let nixos_rebuild = nixos_rebuild_binary();
+    let mut args = vec!["switch", "--flake", &dir_str];
+    let update_inputs = update_type == UpdateType::PackagesOnly || update_type == UpdateType::Both;
+    if update_inputs {
+        args.push("--recreate-lock-file");
+        args.push("--no-write-lock-file");
+    }
+    let mut cmd = create_switch_command(&nixos_rebuild, &args, &config_dir);
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
@@ -1510,36 +1493,13 @@ pub fn create_switch_command(bin: &str, args: &[&str], config_dir: &Path) -> Com
 fn run_switch_command(config_dir: &Path, update_inputs: bool) -> (bool, String) {
     let dir_str = config_dir.display().to_string();
 
-    let nh_bin = nh_binary();
-    let sudo_b = sudo_binary();
-    let is_root = is_root_process();
-    let (bin, args) = if Path::new(&nh_bin).exists() {
-        let mut a = vec!["os", "switch", "--no-nom"];
-        if is_root {
-            a.push("--bypass-root-check");
-            a.push("-e");
-            a.push("none");
-        } else {
-            a.push("-e");
-            a.push(&sudo_b);
-        }
-        if update_inputs {
-            a.push("-u");
-            a.push("--commit-lock-file");
-        }
-        a.push(&dir_str);
-        (nh_bin, a)
-    } else {
-        if update_inputs {
-            let nix_b = nix_binary();
-            let mut update_cmd = create_switch_command(&nix_b, &["flake", "update", "--flake", &dir_str], config_dir);
-            let _ = update_cmd.output();
-        }
-        ("nixos-rebuild".to_string(), vec!["switch", "--flake", &dir_str])
-    };
-
-    let mut cmd = create_switch_command(&bin, &args, config_dir);
-    cmd.current_dir(config_dir);
+    let nixos_rebuild = nixos_rebuild_binary();
+    let mut args = vec!["switch", "--flake", &dir_str];
+    if update_inputs {
+        args.push("--recreate-lock-file");
+        args.push("--no-write-lock-file");
+    }
+    let mut cmd = create_switch_command(&nixos_rebuild, &args, config_dir);
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
@@ -1586,7 +1546,7 @@ fn run_switch_command(config_dir: &Path, update_inputs: bool) -> (bool, String) 
             let cleaned = sanitize_terminal_output(&combined);
             (status, cleaned)
         }
-        Err(e) => (false, format!("Impossible d'exécuter {} : {}", bin, e)),
+        Err(e) => (false, format!("Impossible d'exécuter {} : {}", nixos_rebuild, e)),
     }
 }
 
