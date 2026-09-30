@@ -1046,7 +1046,11 @@ pub fn start_detached_update(force_packages: bool) -> Result<(), String> {
     };
     save_update_progress(&initial_state);
 
-    let exe = env::current_exe().unwrap_or_else(|_| PathBuf::from("/proc/self/exe"));
+    let exe = if Path::new("/run/current-system/sw/bin/steveos-nas-dashboard").exists() {
+        PathBuf::from("/run/current-system/sw/bin/steveos-nas-dashboard")
+    } else {
+        env::current_exe().unwrap_or_else(|_| PathBuf::from("/proc/self/exe"))
+    };
     let exe_str = exe.display().to_string();
 
     let mut extra_args = vec![];
@@ -1060,7 +1064,6 @@ pub fn start_detached_update(force_packages: bool) -> Result<(), String> {
         let mut cmd = Command::new(systemd_run);
         cmd.args([
             "--unit=steveos-system-update",
-            "--remain-after-exit=no",
             "--property=KillMode=process",
             "--description=STEvE_OS System Update Runner",
             "--",
@@ -1070,13 +1073,14 @@ pub fn start_detached_update(force_packages: bool) -> Result<(), String> {
         for a in &extra_args {
             cmd.arg(a);
         }
-        if let Ok(mut child) = cmd.spawn() {
-            let _ = child.wait();
-            return Ok(());
+        if let Ok(status) = cmd.status() {
+            if status.success() {
+                return Ok(());
+            }
         }
     }
 
-    // 2. Fallback thread indépendant
+    // 2. Fallback thread indépendant si systemd-run a échoué
     std::thread::spawn(move || {
         run_detached_update_process(force_packages);
     });
