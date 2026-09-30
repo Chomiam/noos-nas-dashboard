@@ -84,6 +84,8 @@
                 gnused
                 findutils
                 util-linux
+                shadow
+                samba
                 procps
                 which
                 mdadm

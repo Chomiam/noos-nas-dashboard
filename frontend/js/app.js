@@ -12228,8 +12228,20 @@ function switchUsersSubtab(subtabId) {
 async function loadUsersAndGroups(showNotice = false) {
   try {
     const [usersRes, groupsRes] = await Promise.all([
-      fetch('/api/users').then(r => r.json()),
-      fetch('/api/groups').then(r => r.json())
+      fetch('/api/users').then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          throw new Error(data.error || data.message || `Erreur HTTP ${r.status}`);
+        }
+        return data;
+      }),
+      fetch('/api/groups').then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          throw new Error(data.error || data.message || `Erreur HTTP ${r.status}`);
+        }
+        return data;
+      })
     ]);
 
     if (usersRes && usersRes.success) {
@@ -12253,9 +12265,7 @@ async function loadUsersAndGroups(showNotice = false) {
     }
   } catch (err) {
     console.error("Erreur lors du chargement des utilisateurs/groupes :", err);
-    if (showNotice) {
-      showToast("Erreur réseau lors de l'actualisation", "error");
-    }
+    showToast(err.message || "Erreur lors de l'actualisation des utilisateurs", "error");
   }
 }
 

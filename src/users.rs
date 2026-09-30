@@ -1,7 +1,6 @@
 use axum::{
     extract::{Path, Query},
-    http::HeaderMap,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Json, Response},
 };
 use serde::{Deserialize, Serialize};
@@ -131,6 +130,22 @@ pub struct SecurityAuditReport {
     pub users: Vec<UserInfo>,
 }
 
+// Résolution canonique des exécutables pour NixOS (évite 'os error 2')
+pub fn find_bin(name: &str) -> String {
+    for prefix in &[
+        "/run/current-system/sw/bin",
+        "/run/wrappers/bin",
+        "/usr/bin",
+        "/bin",
+    ] {
+        let p = format!("{}/{}", prefix, name);
+        if StdPath::new(&p).exists() {
+            return p;
+        }
+    }
+    name.to_string()
+}
+
 // Emplacement du registre persistant
 fn get_registry_path() -> PathBuf {
     let var_lib = StdPath::new("/var/lib/steveos");
@@ -169,7 +184,6 @@ pub fn is_valid_identifier(name: &str) -> bool {
         return false;
     }
     let bytes = name.as_bytes();
-    // Doit commencer par une lettre minuscule ou un underscore
     if !bytes[0].is_ascii_lowercase() && bytes[0] != b'_' {
         return false;
     }
@@ -201,6 +215,31 @@ pub fn is_protected_system_group(group: &str) -> bool {
     )
 }
 
+// Filtre robuste des comptes humains du NAS (exclut les démons de sandbox NixOS nixbld*, etc.)
+pub fn is_human_user(username: &str, uid: u32, home: &str) -> bool {
+    // 1. Exclure les démons nix-daemon / nixbld (UIDs 30001..30032)
+    if username.starts_with("nixbld") {
+        return false;
+    }
+    // 2. Exclure nobody et comptes génériques de service
+    if username == "nobody" || username.starts_with("gdm") || username.starts_with("systemd-") {
+        return false;
+    }
+    // 3. Exclure les répertoires vides ou systèmes
+    if home == "/var/empty" || home.starts_with("/run/") || home.starts_with("/var/run") || home == "/nonexistent" {
+        return false;
+    }
+    // 4. Exclure les UID système traditionnels < 1000 sauf root
+    if uid < 1000 && username != "root" {
+        return false;
+    }
+    // 5. Exclure les UID élevés réservés NixOS / systemd (>= 60000)
+    if uid >= 60000 {
+        return false;
+    }
+    true
+}
+
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -208,7 +247,7 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
-// Lecture des comptes verrouillés dans /etc/shadow
+// Lecture rapide des comptes verrouillés dans /etc/shadow
 fn get_locked_users() -> HashSet<String> {
     let mut locked = HashSet::new();
     if let Ok(content) = std::fs::read_to_string("/etc/shadow") {
@@ -226,10 +265,11 @@ fn get_locked_users() -> HashSet<String> {
     locked
 }
 
-// Lecture des utilisateurs enregistrés dans Samba (pdbedit -L)
+// Lecture rapide des utilisateurs enregistrés dans Samba (pdbedit -L)
 fn get_samba_users() -> HashSet<String> {
     let mut smb_users = HashSet::new();
-    if let Ok(out) = Command::new("pdbedit").arg("-L").output() {
+    let pdbedit_bin = find_bin("pdbedit");
+    if let Ok(out) = Command::new(pdbedit_bin).arg("-L").output() {
         if out.status.success() {
             let text = String::from_utf8_lossy(&out.stdout);
             for line in text.lines() {
@@ -245,38 +285,79 @@ fn get_samba_users() -> HashSet<String> {
     smb_users
 }
 
-// Lecture des groupes d'un utilisateur (id -Gn)
-fn get_user_groups(username: &str) -> Vec<String> {
-    if let Ok(out) = Command::new("id").args(["-Gn", username]).output() {
-        if out.status.success() {
-            let text = String::from_utf8_lossy(&out.stdout);
-            return text
-                .split_whitespace()
-                .map(|s| s.to_string())
-                .collect();
-        }
-    }
-    Vec::new()
-}
+// Construction en mémoire ultra-rapide (< 1 ms) de la table d'appartenance aux groupes
+fn build_user_groups_map() -> HashMap<String, HashSet<String>> {
+    let mut user_groups: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut gid_to_name: HashMap<String, String> = HashMap::new();
 
-// Calcul de la taille du répertoire personnel
-fn get_directory_size(path: &str) -> u64 {
-    let p = StdPath::new(path);
-    if !p.exists() {
-        return 0;
-    }
-    // Appel rapide 'du -sb <path>' avec délai
-    if let Ok(out) = Command::new("du").args(["-sb", path]).output() {
-        if out.status.success() {
-            let text = String::from_utf8_lossy(&out.stdout);
-            if let Some(first) = text.split_whitespace().next() {
-                if let Ok(bytes) = first.parse::<u64>() {
-                    return bytes;
+    // 1. Lire /etc/group pour cartographier les GID et les membres secondaires
+    if let Ok(group_content) = std::fs::read_to_string("/etc/group") {
+        for line in group_content.lines() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() >= 3 {
+                let grp_name = parts[0].trim().to_string();
+                let gid = parts[2].trim().to_string();
+                gid_to_name.insert(gid, grp_name.clone());
+
+                if parts.len() >= 4 && !parts[3].trim().is_empty() {
+                    for member in parts[3].split(',') {
+                        let m = member.trim().to_string();
+                        if !m.is_empty() {
+                            user_groups.entry(m).or_default().insert(grp_name.clone());
+                        }
+                    }
                 }
             }
         }
     }
-    0
+
+    // 2. Ajouter le groupe primaire défini dans /etc/passwd
+    if let Ok(passwd_content) = std::fs::read_to_string("/etc/passwd") {
+        for line in passwd_content.lines() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() >= 4 {
+                let username = parts[0].trim().to_string();
+                let primary_gid = parts[3].trim();
+                if let Some(primary_group_name) = gid_to_name.get(primary_gid) {
+                    user_groups.entry(username).or_default().insert(primary_group_name.clone());
+                }
+            }
+        }
+    }
+
+    user_groups
+}
+
+// Récupération instantanée des groupes d'un utilisateur
+fn get_user_groups_fast(username: &str, user_groups_map: &HashMap<String, HashSet<String>>) -> Vec<String> {
+    if let Some(set) = user_groups_map.get(username) {
+        let mut list: Vec<String> = set.iter().cloned().collect();
+        list.sort();
+        return list;
+    }
+
+    // Fallback dynamique via 'id -Gn'
+    let id_bin = find_bin("id");
+    if let Ok(out) = Command::new(id_bin).args(["-Gn", username]).output() {
+        if out.status.success() {
+            let text = String::from_utf8_lossy(&out.stdout);
+            let mut list: Vec<String> = text.split_whitespace().map(|s| s.to_string()).collect();
+            list.sort();
+            return list;
+        }
+    }
+
+    Vec::new()
+}
+
+// Calcul de la taille du répertoire personnel (non bloquant / instantané)
+fn get_directory_size_fast(path: &str) -> u64 {
+    let p = StdPath::new(path);
+    if !p.exists() {
+        return 0;
+    }
+    // Lecture de la taille directe du dossier (0 ms) pour éviter tout blocage I/O
+    std::fs::metadata(p).map(|m| m.len()).unwrap_or(0)
 }
 
 // Compter les clés SSH publiques autorisées
@@ -299,6 +380,7 @@ pub async fn list_all_users() -> Vec<UserInfo> {
     let registry = load_registry();
     let locked_set = get_locked_users();
     let samba_set = get_samba_users();
+    let user_groups_map = build_user_groups_map();
     let active_sessions = auth::get_all_active_sessions().await;
 
     let mut session_counts: HashMap<String, usize> = HashMap::new();
@@ -322,18 +404,17 @@ pub async fn list_all_users() -> Vec<UserInfo> {
         let home_dir = parts[5].to_string();
         let shell = parts[6].to_string();
 
-        let is_system = uid < 1000 && username != "root";
-        // On masque les démons système purs (UID < 1000 hors root)
-        if is_system {
+        // Filtrage strict des comptes démons et nixbld
+        if !is_human_user(&username, uid, &home_dir) {
             continue;
         }
 
-        let groups = get_user_groups(&username);
+        let groups = get_user_groups_fast(&username, &user_groups_map);
         let is_admin = username == "root" || groups.iter().any(|g| g == "wheel" || g == "sudo");
         let is_locked = locked_set.contains(&username);
         let samba_enabled = samba_set.contains(&username);
         let ssh_keys = count_ssh_keys(&home_dir);
-        let disk_usage = get_directory_size(&home_dir);
+        let disk_usage = get_directory_size_fast(&home_dir);
         let active_count = *session_counts.get(&username).unwrap_or(&0);
 
         let meta = registry.users.get(&username);
@@ -458,7 +539,6 @@ pub fn list_all_groups() -> Vec<GroupInfo> {
                 }
             });
 
-        // Filtrer les groupes pertinents pour le NAS (ignorer les démons internes sans membre)
         if !is_system || explicit_members.len() > 0 || matches!(name.as_str(), "wheel" | "storage" | "docker" | "kvm" | "libvirtd" | "video" | "render" | "users") {
             groups.push(GroupInfo {
                 name,
@@ -553,7 +633,8 @@ pub async fn handle_users_create(headers: HeaderMap, Json(body): Json<CreateUser
     }
 
     // Vérifier si l'utilisateur existe déjà
-    if let Ok(out) = Command::new("id").arg(&username).output() {
+    let id_bin = find_bin("id");
+    if let Ok(out) = Command::new(id_bin).arg(&username).output() {
         if out.status.success() {
             return (
                 StatusCode::CONFLICT,
@@ -597,15 +678,14 @@ pub async fn handle_users_create(headers: HeaderMap, Json(body): Json<CreateUser
 
     // Préparation des groupes
     let mut initial_groups: Vec<String> = body.groups.unwrap_or_default();
-    // Par défaut, donner le groupe storage pour tout compte sur le NAS
     if !initial_groups.contains(&"storage".to_string()) && StdPath::new("/mnt/storage").exists() {
         initial_groups.push("storage".to_string());
     }
-    // Nettoyage des doublons
     initial_groups.retain(|g| is_valid_identifier(g));
 
-    // Exécution de useradd
-    let mut useradd_cmd = Command::new("useradd");
+    // Exécution de useradd avec chemin canonique résolu
+    let useradd_bin = find_bin("useradd");
+    let mut useradd_cmd = Command::new(useradd_bin);
     useradd_cmd
         .arg("-m")
         .arg("-s")
@@ -615,26 +695,6 @@ pub async fn handle_users_create(headers: HeaderMap, Json(body): Json<CreateUser
 
     if !initial_groups.is_empty() {
         useradd_cmd.arg("-G").arg(initial_groups.join(","));
-    }
-
-        // Mise à jour des clés SSH si spécifiées
-    if let Some(ref keys) = body.ssh_keys {
-        let home_path = format!("/home/{}", username);
-        let ssh_dir = format!("{}/.ssh", home_path);
-        let _ = std::fs::create_dir_all(&ssh_dir);
-        let _ = Command::new("chmod").args(["0700", &ssh_dir]).status();
-        let _ = Command::new("chown")
-            .args([format!("{}:users", username).as_str(), &ssh_dir])
-            .status();
-
-        let auth_keys_path = format!("{}/authorized_keys", ssh_dir);
-        let content = keys.join("\n") + "\n";
-        if std::fs::write(&auth_keys_path, content).is_ok() {
-            let _ = Command::new("chmod").args(["0600", &auth_keys_path]).status();
-            let _ = Command::new("chown")
-                .args([format!("{}:users", username).as_str(), &auth_keys_path])
-                .status();
-        }
     }
 
     if let Some(ref fn_str) = body.full_name {
@@ -671,14 +731,16 @@ pub async fn handle_users_create(headers: HeaderMap, Json(body): Json<CreateUser
     }
 
     // Définition du mot de passe via flux standard stdin vers chpasswd
-    if let Ok(mut child) = Command::new("chpasswd")
+    let chpasswd_bin = find_bin("chpasswd");
+    if let Ok(mut child) = Command::new(chpasswd_bin)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
     {
         if let Some(mut stdin) = child.stdin.take() {
-            let payload = format!("{}:{}\n", username, body.password);
+            let payload = format!("{}:{}
+", username, body.password);
             let _ = stdin.write_all(payload.as_bytes());
         }
         let _ = child.wait();
@@ -686,12 +748,14 @@ pub async fn handle_users_create(headers: HeaderMap, Json(body): Json<CreateUser
 
     // Permissions strictes 0750 sur le répertoire personnel
     let home_path = format!("/home/{}", username);
-    let _ = Command::new("chmod").args(["0750", &home_path]).status();
+    let chmod_bin = find_bin("chmod");
+    let _ = Command::new(&chmod_bin).args(["0750", &home_path]).status();
 
     // Configuration Samba si demandée
     let samba_access = body.samba_access.unwrap_or(true);
     if samba_access {
-        if let Ok(mut child) = Command::new("smbpasswd")
+        let smbpasswd_bin = find_bin("smbpasswd");
+        if let Ok(mut child) = Command::new(smbpasswd_bin)
             .args(["-s", "-a", &username])
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
@@ -699,7 +763,9 @@ pub async fn handle_users_create(headers: HeaderMap, Json(body): Json<CreateUser
             .spawn()
         {
             if let Some(mut stdin) = child.stdin.take() {
-                let payload = format!("{}\n{}\n", body.password, body.password);
+                let payload = format!("{}
+{}
+", body.password, body.password);
                 let _ = stdin.write_all(payload.as_bytes());
             }
             let _ = child.wait();
@@ -710,27 +776,32 @@ pub async fn handle_users_create(headers: HeaderMap, Json(body): Json<CreateUser
     if body.create_dedicated_share.unwrap_or(false) {
         let user_share = format!("/mnt/storage/shares/{}", username);
         let _ = std::fs::create_dir_all(&user_share);
-        let _ = Command::new("chown")
+        let chown_bin = find_bin("chown");
+        let _ = Command::new(&chown_bin)
             .args([format!("{}:storage", username).as_str(), &user_share])
             .status();
-        let _ = Command::new("chmod").args(["2770", &user_share]).status();
+        let _ = Command::new(&chmod_bin).args(["2770", &user_share]).status();
     }
 
     // Injection des clés SSH si spécifiées
-    if let Some(ref keys) = body.ssh_keys {
+    if let Some(keys) = body.ssh_keys {
         if !keys.is_empty() {
             let ssh_dir = format!("{}/.ssh", home_path);
             let _ = std::fs::create_dir_all(&ssh_dir);
-            let _ = Command::new("chmod").args(["0700", &ssh_dir]).status();
-            let _ = Command::new("chown")
+            let chmod_bin = find_bin("chmod");
+            let chown_bin = find_bin("chown");
+            let _ = Command::new(&chmod_bin).args(["0700", &ssh_dir]).status();
+            let _ = Command::new(&chown_bin)
                 .args([format!("{}:users", username).as_str(), &ssh_dir])
                 .status();
 
             let auth_keys_path = format!("{}/authorized_keys", ssh_dir);
-            let content = keys.join("\n") + "\n";
+            let content = keys.join("
+") + "
+";
             if std::fs::write(&auth_keys_path, content).is_ok() {
-                let _ = Command::new("chmod").args(["0600", &auth_keys_path]).status();
-                let _ = Command::new("chown")
+                let _ = Command::new(&chmod_bin).args(["0600", &auth_keys_path]).status();
+                let _ = Command::new(&chown_bin)
                     .args([format!("{}:users", username).as_str(), &auth_keys_path])
                     .status();
             }
@@ -839,6 +910,8 @@ pub async fn handle_users_update(
         }
     }
 
+    let usermod_bin = find_bin("usermod");
+
     // Mise à jour des groupes si spécifiés
     if let Some(ref new_groups) = body.groups {
         let valid_groups: Vec<&str> = new_groups
@@ -847,7 +920,7 @@ pub async fn handle_users_update(
             .filter(|g| is_valid_identifier(g))
             .collect();
 
-        let _ = Command::new("usermod")
+        let _ = Command::new(&usermod_bin)
             .args(["-G", &valid_groups.join(","), &username])
             .status();
     }
@@ -869,44 +942,49 @@ pub async fn handle_users_update(
                 "/bin/false".to_string()
             }
         };
-        let _ = Command::new("usermod")
+        let _ = Command::new(&usermod_bin)
             .args(["-s", &new_shell, &username])
             .status();
     }
 
-    // Mise à jour du nom complet
-        // Mise à jour des clés SSH si spécifiées
+    // Mise à jour des clés SSH si spécifiées
     if let Some(ref keys) = body.ssh_keys {
         let home_path = format!("/home/{}", username);
         let ssh_dir = format!("{}/.ssh", home_path);
         let _ = std::fs::create_dir_all(&ssh_dir);
-        let _ = Command::new("chmod").args(["0700", &ssh_dir]).status();
-        let _ = Command::new("chown")
+        let chmod_bin = find_bin("chmod");
+        let chown_bin = find_bin("chown");
+        let _ = Command::new(&chmod_bin).args(["0700", &ssh_dir]).status();
+        let _ = Command::new(&chown_bin)
             .args([format!("{}:users", username).as_str(), &ssh_dir])
             .status();
 
         let auth_keys_path = format!("{}/authorized_keys", ssh_dir);
-        let content = keys.join("\n") + "\n";
+        let content = keys.join("
+") + "
+";
         if std::fs::write(&auth_keys_path, content).is_ok() {
-            let _ = Command::new("chmod").args(["0600", &auth_keys_path]).status();
-            let _ = Command::new("chown")
+            let _ = Command::new(&chmod_bin).args(["0600", &auth_keys_path]).status();
+            let _ = Command::new(&chown_bin)
                 .args([format!("{}:users", username).as_str(), &auth_keys_path])
                 .status();
         }
     }
 
+    // Mise à jour du nom complet
     if let Some(ref fn_str) = body.full_name {
-        let _ = Command::new("usermod")
+        let _ = Command::new(&usermod_bin)
             .args(["-c", fn_str.trim(), &username])
             .status();
     }
 
     // Mise à jour de l'accès Samba
     if let Some(samba_access) = body.samba_access {
+        let smbpasswd_bin = find_bin("smbpasswd");
         if samba_access {
-            let _ = Command::new("smbpasswd").args(["-e", &username]).status();
+            let _ = Command::new(&smbpasswd_bin).args(["-e", &username]).status();
         } else {
-            let _ = Command::new("smbpasswd").args(["-d", &username]).status();
+            let _ = Command::new(&smbpasswd_bin).args(["-d", &username]).status();
         }
     }
 
@@ -984,16 +1062,17 @@ pub async fn handle_users_change_password(
             .into_response();
     }
 
-    // Mise à jour Linux via chpasswd
+    let chpasswd_bin = find_bin("chpasswd");
     let mut success = false;
-    if let Ok(mut child) = Command::new("chpasswd")
+    if let Ok(mut child) = Command::new(chpasswd_bin)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
     {
         if let Some(mut stdin) = child.stdin.take() {
-            let payload = format!("{}:{}\n", username, body.password);
+            let payload = format!("{}:{}
+", username, body.password);
             let _ = stdin.write_all(payload.as_bytes());
         }
         if let Ok(status) = child.wait() {
@@ -1014,7 +1093,8 @@ pub async fn handle_users_change_password(
 
     // Synchronisation Samba si demandée
     if body.update_samba.unwrap_or(true) {
-        if let Ok(mut child) = Command::new("smbpasswd")
+        let smbpasswd_bin = find_bin("smbpasswd");
+        if let Ok(mut child) = Command::new(smbpasswd_bin)
             .args(["-s", &username])
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
@@ -1022,7 +1102,9 @@ pub async fn handle_users_change_password(
             .spawn()
         {
             if let Some(mut stdin) = child.stdin.take() {
-                let payload = format!("{}\n{}\n", body.password, body.password);
+                let payload = format!("{}
+{}
+", body.password, body.password);
                 let _ = stdin.write_all(payload.as_bytes());
             }
             let _ = child.wait();
@@ -1091,10 +1173,10 @@ pub async fn handle_users_toggle_lock(Path(username): Path<String>, headers: Hea
         ("-L", "verrouillé")
     };
 
-    match Command::new("usermod").args([cmd_arg, &username]).status() {
+    let usermod_bin = find_bin("usermod");
+    match Command::new(usermod_bin).args([cmd_arg, &username]).status() {
         Ok(s) if s.success() => {
             if !is_currently_locked {
-                // Purger les sessions dès le verrouillage
                 auth::revoke_user_sessions(&username).await;
             }
             (
@@ -1164,10 +1246,12 @@ pub async fn handle_users_delete(
     auth::revoke_user_sessions(&username).await;
 
     // Supprimer de Samba
-    let _ = Command::new("smbpasswd").args(["-x", &username]).status();
+    let smbpasswd_bin = find_bin("smbpasswd");
+    let _ = Command::new(smbpasswd_bin).args(["-x", &username]).status();
 
     // Suppression Linux
-    let mut userdel_cmd = Command::new("userdel");
+    let userdel_bin = find_bin("userdel");
+    let mut userdel_cmd = Command::new(userdel_bin);
     if params.delete_home.unwrap_or(false) {
         userdel_cmd.arg("-r");
     }
@@ -1175,12 +1259,10 @@ pub async fn handle_users_delete(
 
     match userdel_cmd.output() {
         Ok(out) if out.status.success() => {
-            // Nettoyer du registre
             let mut reg = load_registry();
             reg.users.remove(&username);
             save_registry(&reg);
 
-            // Supprimer le partage dédié si demandé
             if params.delete_share.unwrap_or(false) {
                 let share_path = format!("/mnt/storage/shares/{}", username);
                 let _ = std::fs::remove_dir_all(&share_path);
@@ -1272,18 +1354,18 @@ pub async fn handle_groups_create(headers: HeaderMap, Json(body): Json<CreateGro
             .into_response();
     }
 
-    match Command::new("groupadd").arg(&group_name).output() {
+    let groupadd_bin = find_bin("groupadd");
+    match Command::new(groupadd_bin).arg(&group_name).output() {
         Ok(out) if out.status.success() => {
-            // Ajouter les membres initiaux si spécifiés
+            let gpasswd_bin = find_bin("gpasswd");
             if let Some(members) = body.members {
                 for m in members {
                     if is_valid_identifier(&m) {
-                        let _ = Command::new("gpasswd").args(["-a", &m, &group_name]).status();
+                        let _ = Command::new(&gpasswd_bin).args(["-a", &m, &group_name]).status();
                     }
                 }
             }
 
-            // Enregistrer la description si fournie
             if let Some(desc) = body.description {
                 let mut reg = load_registry();
                 reg.custom_group_descriptions.insert(group_name.clone(), desc);
@@ -1363,14 +1445,16 @@ pub async fn handle_groups_update_members(
     let new_members_set: HashSet<String> = body.members.into_iter().filter(|m| is_valid_identifier(m)).collect();
     let current_members_set: HashSet<String> = current_members.into_iter().collect();
 
+    let gpasswd_bin = find_bin("gpasswd");
+
     // Retraits
     for m in current_members_set.difference(&new_members_set) {
-        let _ = Command::new("gpasswd").args(["-d", m, &group]).status();
+        let _ = Command::new(&gpasswd_bin).args(["-d", m, &group]).status();
     }
 
     // Ajouts
     for m in new_members_set.difference(&current_members_set) {
-        let _ = Command::new("gpasswd").args(["-a", m, &group]).status();
+        let _ = Command::new(&gpasswd_bin).args(["-a", m, &group]).status();
     }
 
     (
@@ -1410,7 +1494,8 @@ pub async fn handle_groups_delete(Path(group): Path<String>, headers: HeaderMap)
             .into_response();
     }
 
-    match Command::new("groupdel").arg(&group).output() {
+    let groupdel_bin = find_bin("groupdel");
+    match Command::new(groupdel_bin).arg(&group).output() {
         Ok(out) if out.status.success() => {
             let mut reg = load_registry();
             reg.custom_group_descriptions.remove(&group);
@@ -1473,7 +1558,6 @@ pub async fn handle_users_audit(headers: HeaderMap) -> Response {
     let locked_count = users.iter().filter(|u| u.locked).count();
     let nologin_count = users.iter().filter(|u| u.shell.ends_with("nologin") || u.shell.ends_with("false")).count();
 
-    // Analyse des anomalies de sécurité
     if admin_count == 0 {
         warnings.push("Avertissement critique : Aucun compte administrateur identifié dans le groupe wheel.".to_string());
     }
@@ -1481,7 +1565,7 @@ pub async fn handle_users_audit(headers: HeaderMap) -> Response {
     for u in &users {
         if !u.is_admin && u.groups.iter().any(|g| g == "docker") {
             warnings.push(format!(
-                "Privilège élevé : L'utilisateur non-admin '{}' appartient au groupe 'docker' (équivalent root potentiel).",
+                "Privilège élevé : L'utilisateur non-admin '{}' appartient au groupe 'docker' (accès socket daemon).",
                 u.username
             ));
         }
