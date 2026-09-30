@@ -554,6 +554,8 @@ pub struct GameServer {
     pub data_dir: String,
     pub ip_address: String,
     pub cpu_percent: f32,
+    #[serde(default)]
+    pub cpu_cores_used: f32,
     pub memory_used_mb: u64,
     pub created_at: String,
     pub env: HashMap<String, String>,
@@ -855,12 +857,26 @@ pub fn save_servers(servers: &[GameServer]) -> Result<(), String> {
     Ok(())
 }
 
+fn get_host_cpu_count() -> usize {
+    if let Ok(count) = std::thread::available_parallelism() {
+        return count.get().max(1);
+    }
+    if let Ok(cpuinfo) = fs::read_to_string("/proc/cpuinfo") {
+        let count = cpuinfo.lines().filter(|l| l.starts_with("processor")).count();
+        if count > 0 {
+            return count;
+        }
+    }
+    1
+}
+
 pub fn list_game_servers() -> Vec<GameServer> {
     let mut servers = load_saved_servers();
     let lan_ip = get_lan_ip();
+    let host_cpus = get_host_cpu_count() as f32;
 
-    // Récupérer les stats en un seul appel rapide
-    let mut stats_map: HashMap<String, (f32, u64)> = HashMap::new();
+    // Récupérer les stats en un seul appel rapide (avec normalisation multicœur)
+    let mut stats_map: HashMap<String, (f32, f32, u64)> = HashMap::new(); // (normalized_cpu, cores_used, mem_mb)
     if let Ok(output) = Command::new("docker")
         .args(["stats", "--no-stream", "--format", "{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}"])
         .output()
@@ -870,8 +886,13 @@ pub fn list_game_servers() -> Vec<GameServer> {
             let parts: Vec<&str> = line.split('|').collect();
             if parts.len() >= 3 {
                 let name = parts[0].trim();
-                let cpu_str = parts[1].trim().trim_end_matches('%');
-                let cpu: f32 = cpu_str.parse().unwrap_or(0.0);
+                let raw_cpu_str = parts[1].trim().trim_end_matches('%');
+                let raw_cpu: f32 = raw_cpu_str.parse().unwrap_or(0.0);
+
+                // Normalisation : docker stats rapporte CPUPerc cumulé (100% = 1 cœur).
+                // Exemple : 509.6% sur un hôte à 16 cœurs -> 5.1 cœurs -> 31.85% de la machine hôte.
+                let normalized_cpu = (raw_cpu / host_cpus).clamp(0.0, 100.0);
+                let cores_used = (raw_cpu / 100.0).max(0.0);
 
                 let mem_part = parts[2].split('/').next().unwrap_or("0").trim();
                 let mem_mb: u64 = if mem_part.to_lowercase().ends_with("gib") {
@@ -883,7 +904,7 @@ pub fn list_game_servers() -> Vec<GameServer> {
                 } else {
                     0
                 };
-                stats_map.insert(name.to_string(), (cpu, mem_mb));
+                stats_map.insert(name.to_string(), (normalized_cpu, cores_used, mem_mb));
             }
         }
     }
@@ -909,17 +930,22 @@ pub fn list_game_servers() -> Vec<GameServer> {
             let parts: Vec<&str> = text.split('|').collect();
             if parts.len() >= 2 && parts[1] == "true" {
                 s.status = "online".into();
-                if let Some(&(cpu, mem)) = stats_map.get(&s.container_name) {
+                if let Some(&(cpu, cores, mem)) = stats_map.get(&s.container_name) {
                     s.cpu_percent = cpu;
+                    s.cpu_cores_used = cores;
                     s.memory_used_mb = mem;
                 }
             } else {
                 s.status = "offline".into();
                 s.cpu_percent = 0.0;
+                s.cpu_cores_used = 0.0;
                 s.memory_used_mb = 0;
             }
         } else {
             s.status = "offline".into();
+            s.cpu_percent = 0.0;
+            s.cpu_cores_used = 0.0;
+            s.memory_used_mb = 0;
         }
     }
 
@@ -1262,6 +1288,7 @@ exec {}
         data_dir: data_dir.display().to_string(),
         ip_address: get_lan_ip(),
         cpu_percent: 0.0,
+        cpu_cores_used: 0.0,
         memory_used_mb: 0,
         created_at: get_now_timestamp(),
         env: env_map,

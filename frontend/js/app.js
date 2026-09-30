@@ -9878,6 +9878,7 @@ function renderGameServers() {
 
     const ramUsageStr = isOnline ? `${s.memory_used_mb} Mo / ${s.memory_mb} Mo` : (isDeploying ? `Installation...` : `0 / ${s.memory_mb} Mo`);
     const cpuUsageStr = isOnline ? `${s.cpu_percent.toFixed(1)}%` : `0%`;
+    const cpuTitleStr = isOnline && s.cpu_cores_used ? `Charge CPU : ${s.cpu_percent.toFixed(1)}% de l'hôte (~ ${s.cpu_cores_used.toFixed(1)} cœurs)` : (isOnline ? `Charge CPU : ${s.cpu_percent.toFixed(1)}%` : 'Serveur arrêté');
     const fullAddress = `${s.ip_address}:${s.port}`;
 
     return `
@@ -9911,7 +9912,7 @@ function renderGameServers() {
             </div>
             <div class="game-server-stat-item">
               <span class="game-server-stat-label">CPU Utilisé</span>
-              <span class="game-server-stat-val">${cpuUsageStr}</span>
+              <span class="game-server-stat-val" title="${cpuTitleStr}">${cpuUsageStr}</span>
             </div>
           </div>
 
@@ -10405,7 +10406,13 @@ function updateConsoleHeaderStats(server) {
     statusText.textContent = isOnline ? 'EN LIGNE' : 'ARRÊTÉ';
   }
   if (cpuVal) {
-    cpuVal.textContent = `${(server.cpu_percent || 0).toFixed(1)}%`;
+    const pct = (server.cpu_percent || 0).toFixed(1);
+    const cores = server.cpu_cores_used ? ` (~ ${server.cpu_cores_used.toFixed(1)} cœurs)` : '';
+    cpuVal.textContent = `${pct}%`;
+    const cpuChip = document.getElementById("chip-console-cpu");
+    if (cpuChip) {
+      cpuChip.title = `Utilisation CPU normalisée : ${pct}% de la machine hôte${cores}`;
+    }
   }
   if (ramVal) {
     ramVal.textContent = `${server.memory_used_mb || 0} Mo / ${server.memory_mb || 0} Mo`;
