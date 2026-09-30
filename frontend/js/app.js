@@ -199,7 +199,7 @@ function switchTab(tabId) {
 
   if (tabId === "tab-overview") loadSystem();
   if (tabId === "tab-files") navigateToPath(currentFolderPath);
-  if (tabId === "tab-updates") checkForUpdates(false);
+  if (tabId === "tab-updates") { checkForUpdates(false); loadGenerations(); }
   if (tabId === "tab-storage") loadStorage();
   if (tabId === "tab-network") {
     loadNetwork();
@@ -228,6 +228,7 @@ async function refreshAll(showFeedback = false) {
       loadServices(),
       loadNetwork(),
       checkForUpdates(false),
+      loadGenerations(),
       loadHardwareInfo(),
       loadSmartInfo(),
       loadLatestSpeedtest()
@@ -661,6 +662,16 @@ function renderUpdatesUI(status) {
         `;
       });
       packagesTbody.innerHTML = rows;
+    }
+  }
+
+  // 7. Compteur de Générations Système
+  const countSystemGenEl = document.getElementById("count-system-generations");
+  if (countSystemGenEl) {
+    if (status.system_generations_count !== undefined && status.system_generations_count !== null) {
+      countSystemGenEl.textContent = status.system_generations_count;
+    } else if (generationsData && generationsData.total_count !== undefined) {
+      countSystemGenEl.textContent = generationsData.total_count;
     }
   }
 }

@@ -675,7 +675,7 @@ checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
 
 [[package]]
 name = "steveos-nas-dashboard"
-version = "0.2.63"
+version = "0.2.64"
 dependencies = [
  "axum",
  "serde",

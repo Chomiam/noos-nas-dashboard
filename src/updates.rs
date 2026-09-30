@@ -92,6 +92,8 @@ pub struct UpdateCheckStatus {
     pub last_checked: String,
     pub is_updating: bool,
     pub system_generation: Option<String>,
+    #[serde(default)]
+    pub system_generations_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,6 +187,17 @@ pub fn get_current_system_generation() -> Option<String> {
         return Some(name.to_string());
     }
     None
+}
+
+pub fn get_system_generations_count() -> u32 {
+    if let Ok(entries) = fs::read_dir("/nix/var/nix/profiles") {
+        entries.flatten().filter(|e| {
+            let fname = e.file_name().to_string_lossy().to_string();
+            fname.starts_with("system-") && fname.ends_with("-link")
+        }).count() as u32
+    } else {
+        0
+    }
 }
 
 pub fn get_update_state_file_path() -> PathBuf {
@@ -840,6 +853,7 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
         last_checked: current_time_formatted(),
         is_updating: is_updating(),
         system_generation: get_current_system_generation(),
+        system_generations_count: get_system_generations_count(),
     };
 
     if let Ok(mut guard) = UPDATE_CACHE.lock() {
@@ -1260,6 +1274,7 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
             last_checked: current_time_formatted(),
             is_updating: false,
             system_generation: get_current_system_generation(),
+            system_generations_count: get_system_generations_count(),
         };
         *guard = Some((Instant::now(), clean_status));
     }
