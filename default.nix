@@ -2,7 +2,7 @@
 
 pkgs.rustPlatform.buildRustPackage rec {
   pname = "steveos-nas-dashboard";
-  version = "0.2.8";
+  version = "0.2.10";
 
   src = ./.;
 

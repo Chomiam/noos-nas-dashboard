@@ -7,6 +7,16 @@ let currentUserSession = null;
 let isAppInitialized = false;
 
 function getAuthToken() {
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const qToken = urlParams.get("token");
+    if (qToken) {
+      localStorage.setItem(AUTH_TOKEN_KEY, qToken);
+      sessionStorage.setItem(AUTH_TOKEN_KEY, qToken);
+      document.cookie = `steveos_token=${qToken}; path=/; max-age=604800`;
+      return qToken;
+    }
+  } catch (e) {}
   return sessionStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(AUTH_TOKEN_KEY);
 }
 
