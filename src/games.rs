@@ -533,11 +533,19 @@ if [ ! -s server.jar ] && [ ! -f .installed ]; then
   echo "⚡ Téléchargement certifié de {loader_name} {version}..."
   curl -f -s -L -A "STEvE_OS/1.0" -o {target_jar} "{download_url}"
 
-  if ! unzip -t {target_jar} >/dev/null 2>&1; then
-    echo "❌ Erreur critique : Le fichier téléchargé est corrompu ou invalide !"
+  if command -v jar >/dev/null 2>&1; then
+    if ! jar -tf {target_jar} >/dev/null 2>&1; then
+      echo "❌ Erreur : Le fichier téléchargé est corrompu !"
+      rm -f {target_jar}
+      exit 1
+    fi
+  elif [ ! -s {target_jar} ]; then
+    echo "❌ Erreur : Le fichier téléchargé est vide !"
     rm -f {target_jar}
     exit 1
   fi
+  echo "✓ Fichier {target_jar} validé avec succès."
+
 
   {install_step}
 fi
