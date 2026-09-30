@@ -247,8 +247,6 @@ async function loadSystem() {
 // --------------------------------------------------------------------------
 // MISES À JOUR INTELLIGENTES (STEvE_OS RESILIENT UPDATE ENGINE)
 // --------------------------------------------------------------------------
-let lastUpdateStatus = null;
-let isUpdatingNow = false;
 let updatePollingTimer = null;
 let updateSubtabCurrent = 'commits';
 
