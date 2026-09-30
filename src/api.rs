@@ -132,6 +132,7 @@ pub fn api_routes() -> Router {
         // Game Servers & Egg Engine
         .route("/games/servers", get(handle_games_servers))
         .route("/games/catalog", get(handle_games_catalog))
+        .route("/games/catalog/sync", post(handle_games_catalog_sync))
         .route("/games/create", post(handle_games_create))
         .route("/games/:id/action", post(handle_games_action))
         .route("/games/:id/delete", post(handle_games_delete))
@@ -1717,6 +1718,15 @@ async fn handle_games_catalog() -> Json<ApiResponse<Vec<crate::games::Egg>>> {
         success: true,
         data: Some(eggs),
         message: None,
+    })
+}
+
+async fn handle_games_catalog_sync() -> Json<ApiResponse<Vec<crate::games::Egg>>> {
+    let eggs = tokio::task::spawn_blocking(crate::games::sync_and_load_all_eggs).await.unwrap_or_default();
+    Json(ApiResponse {
+        success: true,
+        data: Some(eggs),
+        message: Some("Catalogue synchronisé avec succès depuis GitHub !".into()),
     })
 }
 

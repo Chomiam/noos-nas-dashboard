@@ -2059,6 +2059,24 @@
 
       <!-- SOUS-ONGLET 2 : CATALOGUE D'EGGS -->
       <div id="games-subtab-catalog" class="games-subtab-pane" style="display:none;">
+        <div class="games-catalog-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; flex-wrap:wrap; gap:12px; background:var(--surface0); padding:16px 20px; border-radius:var(--radius-md); border:1px solid rgba(255,255,255,0.06);">
+          <div>
+            <h3 style="margin:0; font-size:1.15rem; font-weight:700; color:var(--text); display:flex; align-items:center; gap:8px;">
+              <span>🥚</span> Store Officiel d'Eggs STEvE_OS
+            </h3>
+            <p style="margin:4px 0 0 0; font-size:0.82rem; color:var(--subtext0);">
+              Déployez en 1-clic vos serveurs de jeux préconfigurés, synchronisés en direct depuis le dépôt GitHub <a href="https://github.com/Chomiam/steve_nas_eggs" target="_blank" rel="noopener noreferrer" style="color:var(--mauve, #cba6f7); text-decoration:none; font-weight:600;">Chomiam/steve_nas_eggs</a>.
+            </p>
+          </div>
+          <div style="display:flex; gap:10px;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="syncEggCatalog(true)" title="Forcer la synchronisation avec le dépôt GitHub steve_nas_eggs">
+              <span id="sync-eggs-spinner">🔄</span> Actualiser le Store
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" onclick="openImportEggModal()">
+              <span>📥</span> Importer un Egg
+            </button>
+          </div>
+        </div>
         <div id="egg-catalog-grid" class="games-grid">
           <!-- Cartes du catalogue rendues en JS -->
         </div>

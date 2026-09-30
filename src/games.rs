@@ -546,6 +546,14 @@ pub struct EggVariable {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EggPort {
+    pub port: u16,
+    pub protocol: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Egg {
     pub id: String,
     pub name: String,
@@ -553,15 +561,27 @@ pub struct Egg {
     pub description: String,
     pub category: String,
     pub icon: String,
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    #[serde(default)]
+    pub banner_url: Option<String>,
+    #[serde(default)]
+    pub tagline: Option<String>,
+    #[serde(default)]
     pub banner_color: String,
     pub docker_image: String,
     pub default_port: u16,
     pub port_protocol: String, // "tcp", "udp", "both"
+    #[serde(default)]
+    pub extra_ports: Vec<EggPort>,
     pub default_memory_mb: u64,
     pub min_memory_mb: u64,
     pub startup_cmd: String,
     pub variables: Vec<EggVariable>,
+    #[serde(default)]
     pub is_custom: bool,
+    #[serde(default)]
+    pub steam_app_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -776,8 +796,13 @@ pub fn get_default_eggs() -> Vec<Egg> {
             description: "Serveur Minecraft Java haute performance propulsé par PaperMC 1.21. Supporte les plugins Spigot/Paper, l'optimisation G1GC et l'EULA automatique.".into(),
             category: "Bac à sable / Survie".into(),
             icon: "⛏️".into(),
+            icon_url: Some("https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/eggs/minecraft-java/icon.png".into()),
+            banner_url: Some("https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/eggs/minecraft-java/banner.png".into()),
+            tagline: Some("Serveur Minecraft Java haute performance propulsé par PaperMC".into()),
             banner_color: "linear-gradient(135deg, #2e7d32, #1b5e20)".into(),
             docker_image: "ghcr.io/pterodactyl/yolks:java_21".into(),
+            extra_ports: vec![],
+            steam_app_id: None,
             default_port: 25565,
             port_protocol: "both".into(),
             default_memory_mb: 4096,
@@ -834,8 +859,13 @@ pub fn get_default_eggs() -> Vec<Egg> {
             description: "Serveur officiel Mojang BDS pour consoles (Switch, PS5, Xbox), smartphones (iOS, Android) et Windows 10/11.".into(),
             category: "Bac à sable / Survie".into(),
             icon: "🧱".into(),
+            icon_url: Some("https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/eggs/minecraft-bedrock/icon.svg".into()),
+            banner_url: Some("https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/eggs/minecraft-bedrock/banner.png".into()),
+            tagline: Some("Serveur officiel Mojang BDS pour consoles, smartphones et Windows 10/11".into()),
             banner_color: "linear-gradient(135deg, #1565c0, #0d47a1)".into(),
             docker_image: "ghcr.io/parkervcp/yolks:ubuntu".into(),
+            extra_ports: vec![],
+            steam_app_id: None,
             default_port: 19132,
             port_protocol: "udp".into(),
             default_memory_mb: 2048,
@@ -876,8 +906,13 @@ pub fn get_default_eggs() -> Vec<Egg> {
             description: "Serveur dédié Palworld officiel via SteamCMD avec optimisation multithread, gestion de sauvegarde automatique et support jusqu'à 32 joueurs.".into(),
             category: "Aventure / Survie".into(),
             icon: "🐾".into(),
+            icon_url: Some("https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/eggs/palworld/icon.png".into()),
+            banner_url: Some("https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/eggs/palworld/banner.jpg".into()),
+            tagline: Some("Serveur multijoueur Palworld avec multithreading et persistance".into()),
             banner_color: "linear-gradient(135deg, #0288d1, #01579b)".into(),
             docker_image: "ghcr.io/parkervcp/steamcmd:debian".into(),
+            extra_ports: vec![],
+            steam_app_id: Some("2394010".into()),
             default_port: 8211,
             port_protocol: "udp".into(),
             default_memory_mb: 8192,
@@ -926,8 +961,13 @@ pub fn get_default_eggs() -> Vec<Egg> {
             description: "Serveur dédié Valheim viking multijoueur persistant avec téléchargement automatique des mises à jour Steam et génération de monde procédural.".into(),
             category: "Survie Mythologique".into(),
             icon: "⚔️".into(),
+            icon_url: Some("https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/eggs/valheim/icon.png".into()),
+            banner_url: Some("https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/eggs/valheim/banner.jpg".into()),
+            tagline: Some("Serveur dédié viking persistant dans un monde procédural nordique".into()),
             banner_color: "linear-gradient(135deg, #d84315, #bf360c)".into(),
             docker_image: "ghcr.io/parkervcp/steamcmd:debian".into(),
+            extra_ports: vec![EggPort { port: 2457, protocol: "udp".into(), description: Some("Port de requête Steam Query".into()) }],
+            steam_app_id: Some("896660".into()),
             default_port: 2456,
             port_protocol: "udp".into(),
             default_memory_mb: 4096,
@@ -968,8 +1008,17 @@ pub fn get_default_eggs() -> Vec<Egg> {
             description: "Serveur dédié officiel 7 Days to Die (V1.0+ / Alpha) avec support SteamCMD automatique, persistance du monde de survie et configuration optimisée.".into(),
             category: "Survie / Post-Apocalyptique".into(),
             icon: "🧟".into(),
+            icon_url: Some("https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/eggs/7daystodie/icon.png".into()),
+            banner_url: Some("https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/eggs/7daystodie/banner.jpg".into()),
+            tagline: Some("Survivez à la horde du 7ème jour dans un monde voxel hostile".into()),
             banner_color: "linear-gradient(135deg, #b71c1c, #4a148c)".into(),
             docker_image: "ghcr.io/parkervcp/steamcmd:debian".into(),
+            extra_ports: vec![
+                EggPort { port: 26901, protocol: "udp".into(), description: Some("Port de requête Steam Query 1".into()) },
+                EggPort { port: 26902, protocol: "udp".into(), description: Some("Port de requête Steam Query 2".into()) },
+                EggPort { port: 8081, protocol: "tcp".into(), description: Some("Port Telnet d'administration".into()) },
+            ],
+            steam_app_id: Some("294420".into()),
             default_port: 26900,
             port_protocol: "both".into(),
             default_memory_mb: 8192,
@@ -1059,8 +1108,54 @@ pub fn get_default_eggs() -> Vec<Egg> {
     ]
 }
 
+#[derive(Debug, Deserialize)]
+struct RemoteCatalogResponse {
+    #[serde(default)]
+    eggs: Vec<Egg>,
+}
+
+pub fn sync_remote_eggs() -> Option<Vec<Egg>> {
+    let output = Command::new("curl")
+        .args([
+            "-s",
+            "--connect-timeout", "4",
+            "--max-time", "8",
+            "https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/catalog.json",
+        ])
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout);
+        if let Ok(catalog) = serde_json::from_str::<RemoteCatalogResponse>(&text) {
+            if !catalog.eggs.is_empty() {
+                let cache_file = get_games_base_dir().join("catalog_cache.json");
+                let _ = fs::write(&cache_file, text.as_bytes());
+                return Some(catalog.eggs);
+            }
+        }
+    }
+    None
+}
+
+pub fn sync_and_load_all_eggs() -> Vec<Egg> {
+    let _ = sync_remote_eggs();
+    load_all_eggs()
+}
+
 pub fn load_all_eggs() -> Vec<Egg> {
-    let mut eggs = get_default_eggs();
+    let cache_file = get_games_base_dir().join("catalog_cache.json");
+    let base_eggs = if cache_file.exists() {
+        fs::read_to_string(&cache_file)
+            .ok()
+            .and_then(|t| serde_json::from_str::<RemoteCatalogResponse>(&t).ok().map(|c| c.eggs))
+            .filter(|e| !e.is_empty())
+            .unwrap_or_else(|| sync_remote_eggs().unwrap_or_else(get_default_eggs))
+    } else {
+        sync_remote_eggs().unwrap_or_else(get_default_eggs)
+    };
+
+    let mut eggs = base_eggs;
     let custom_dir = get_custom_eggs_dir();
 
     if let Ok(entries) = fs::read_dir(custom_dir) {
@@ -1070,7 +1165,11 @@ pub fn load_all_eggs() -> Vec<Egg> {
                 if let Ok(content) = fs::read_to_string(&path) {
                     if let Ok(mut custom_egg) = serde_json::from_str::<Egg>(&content) {
                         custom_egg.is_custom = true;
-                        eggs.push(custom_egg);
+                        if let Some(pos) = eggs.iter().position(|e| e.id == custom_egg.id) {
+                            eggs[pos] = custom_egg;
+                        } else {
+                            eggs.push(custom_egg);
+                        }
                     }
                 }
             }
@@ -1332,6 +1431,11 @@ pub fn create_game_server(req: CreateGameServerRequest) -> Result<GameServer, St
     env_map.insert("SERVER_PORT".into(), target_port.to_string());
     env_map.insert("SERVER_MEMORY".into(), req.memory_mb.to_string());
 
+    if let Some(app_id) = &egg.steam_app_id {
+        env_map.entry("STEAM_APP_ID".into()).or_insert_with(|| app_id.clone());
+        env_map.entry("SRCDS_APPID".into()).or_insert_with(|| app_id.clone());
+    }
+
     if egg.id == "7daystodie" || egg.startup_cmd.contains("7DaysToDieServer") || egg.id.contains("7day") {
         if let Some(admin_pwd) = env_map.get("ADMIN_PASSWORD").cloned() {
             env_map.entry("PASSWORD".into()).or_insert(admin_pwd);
@@ -1535,6 +1639,26 @@ echo "🚀 Démarrage du serveur Valheim..."
 exec ./valheim_server.x86_64 -name "${SERVER_NAME}" -port ${SERVER_PORT} -world "${WORLD_NAME}" -password "${SERVER_PASSWORD}" -public 1
 "#;
         let _ = fs::write(data_dir.join("entrypoint.sh"), entrypoint);
+    } else if egg.id == "terraria" {
+        let entrypoint = format!(r#"#!/bin/bash
+set -e
+cd /home/container
+
+if [ ! -f TerrariaServer.exe ] && [ ! -f TerrariaServer.bin.x86_64 ]; then
+  echo "⚡ Téléchargement officiel du serveur Terraria..."
+  curl -s -L -A "Mozilla/5.0" -o terraria.zip https://terraria.org/api/download/pc-dedicated-server/terraria-server-1449.zip || true
+  if [ -f terraria.zip ]; then
+    unzip -q -o terraria.zip
+    cp -rf 1449/Linux/* . 2>/dev/null || true
+    rm -rf 1449 terraria.zip
+    chmod +x TerrariaServer.bin.x86_64 TerrariaServer.exe 2>/dev/null || true
+  fi
+fi
+
+echo "🚀 Démarrage du serveur Terraria..."
+exec {}
+"#, egg.startup_cmd);
+        let _ = fs::write(data_dir.join("entrypoint.sh"), entrypoint);
     } else if egg.id == "7daystodie" || egg.startup_cmd.contains("7DaysToDieServer") || egg.id.contains("7day") {
         let is_custom_egg = egg.id != "7daystodie" && !egg.startup_cmd.is_empty();
         let mut final_cmd = if is_custom_egg {
@@ -1708,6 +1832,22 @@ exec {}
     } else {
         docker_args.push("-p".to_string());
         docker_args.push(format!("{}:{}/tcp", target_port, target_port));
+    }
+
+    // Mappage automatique des ports supplémentaires définis dans l'Egg
+    for ep in &egg.extra_ports {
+        let port_flag = format!("{}:{}/{}", ep.port, ep.port, ep.protocol);
+        let mut already_mapped = false;
+        for i in 0..docker_args.len() {
+            if docker_args[i] == "-p" && i + 1 < docker_args.len() && docker_args[i+1] == port_flag {
+                already_mapped = true;
+                break;
+            }
+        }
+        if !already_mapped {
+            docker_args.push("-p".to_string());
+            docker_args.push(port_flag);
+        }
     }
 
     // Variables d'environnement
@@ -1933,15 +2073,20 @@ pub fn import_egg_file(req: ImportEggRequest) -> Result<Egg, String> {
         description,
         category: "Communauté / Custom".into(),
         icon: "🎮".into(),
+        icon_url: None,
+        banner_url: None,
+        tagline: None,
         banner_color: "linear-gradient(135deg, #6c5ce7, #a29bfe)".into(),
         docker_image,
         default_port: 25565,
         port_protocol: "both".into(),
+        extra_ports: vec![],
         default_memory_mb: 4096,
         min_memory_mb: 2048,
         startup_cmd,
         variables,
         is_custom: true,
+        steam_app_id: None,
     };
 
     let target_file = get_custom_eggs_dir().join(format!("{}.json", egg_id));

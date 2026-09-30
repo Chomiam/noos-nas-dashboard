@@ -10743,6 +10743,29 @@ async function loadEggCatalog() {
   }
 }
 
+async function syncEggCatalog(showToastNotice = true) {
+  const spin = document.getElementById("sync-eggs-spinner");
+  if (spin) spin.classList.add("fa-spin");
+  try {
+    const res = await fetch("/api/games/catalog/sync", { method: "POST" });
+    const json = await res.json();
+    if (json.success && json.data) {
+      gameCatalogData = json.data;
+      renderEggCatalog();
+      if (showToastNotice && typeof showToast === "function") {
+        showToast("✓ Catalogue d'Eggs synchronisé avec succès depuis GitHub !", "success");
+      }
+    }
+  } catch (e) {
+    console.error("Erreur de synchronisation du catalogue :", e);
+    if (typeof showToast === "function") {
+      showToast("❌ Erreur lors de la synchronisation du catalogue.", "error");
+    }
+  } finally {
+    if (spin) spin.classList.remove("fa-spin");
+  }
+}
+
 function renderEggCatalog() {
   const grid = document.getElementById("egg-catalog-grid") || document.getElementById("games-catalog-grid");
   if (!grid) return;
@@ -10764,23 +10787,40 @@ function renderEggCatalog() {
   }
 
   grid.innerHTML = gameCatalogData.map(egg => {
+    const bannerStyle = egg.banner_url
+      ? `background: linear-gradient(180deg, rgba(17, 17, 27, 0.45) 0%, rgba(17, 17, 27, 0.90) 100%), url('${egg.banner_url}') center/cover no-repeat;`
+      : `background:${egg.banner_color || 'var(--surface1)'};`;
+
+    const iconHtml = egg.icon_url
+      ? `<img src="${egg.icon_url}" class="egg-card-img-icon" alt="${escapeHtml(egg.name)}" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';"><span class="egg-card-icon" style="display:none;">${egg.icon || '🎮'}</span>`
+      : `<span class="egg-card-icon">${egg.icon || '🎮'}</span>`;
+
+    const taglineHtml = egg.tagline
+      ? `<div class="egg-card-tagline">${escapeHtml(egg.tagline)}</div>`
+      : '';
+
+    const authorHtml = egg.author
+      ? `<span class="egg-spec-pill" title="Auteur de l'Egg">👤 ${escapeHtml(egg.author.split('&')[0].trim())}</span>`
+      : '';
+
     return `
       <div class="egg-card">
-        <div class="egg-card-banner" style="background:${egg.banner_color || 'var(--surface1)'};">
-          <span class="egg-card-icon">${egg.icon || '🎮'}</span>
-          <div>
+        <div class="egg-card-banner" style="${bannerStyle}">
+          ${iconHtml}
+          <div class="egg-card-banner-meta">
             <div class="egg-card-title">${escapeHtml(egg.name)}</div>
             <div class="egg-card-category">${escapeHtml(egg.category)}</div>
           </div>
         </div>
 
         <div class="egg-card-body">
+          ${taglineHtml}
           <div class="egg-card-desc">${escapeHtml(egg.description)}</div>
 
           <div class="egg-card-specs">
             <span class="egg-spec-pill">Port : ${egg.default_port} (${egg.port_protocol.toUpperCase()})</span>
             <span class="egg-spec-pill">RAM min : ${egg.min_memory_mb / 1024} Go</span>
-            <span class="egg-spec-pill">${egg.docker_image.split('/').pop().split(':')[0]}</span>
+            ${authorHtml}
           </div>
         </div>
 
