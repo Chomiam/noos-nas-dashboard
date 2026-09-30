@@ -4379,12 +4379,12 @@ async function submitCompress() {
         password: password
       })
     });
+    const rawText = await res.text();
     let json;
     try {
-      json = await res.json();
+      json = JSON.parse(rawText);
     } catch (e) {
-      const errText = await res.text().catch(() => "");
-      showToast("Erreur serveur : " + (errText || "Réponse invalide"), "error");
+      showToast("Erreur serveur : " + (rawText || "Réponse invalide"), "error");
       return;
     }
     if (json.success) {
@@ -4514,12 +4514,12 @@ async function submitExtract() {
         password: password
       })
     });
+    const rawText = await res.text();
     let json;
     try {
-      json = await res.json();
+      json = JSON.parse(rawText);
     } catch (e) {
-      const errText = await res.text().catch(() => "");
-      showToast("Erreur serveur : " + (errText || "Réponse invalide"), "error");
+      showToast("Erreur serveur : " + (rawText || "Réponse invalide"), "error");
       return;
     }
     if (json.success) {
@@ -4576,12 +4576,12 @@ async function extractArchiveDirect(path, name) {
         password: null
       })
     });
+    const rawText = await res.text();
     let json;
     try {
-      json = await res.json();
+      json = JSON.parse(rawText);
     } catch (e) {
-      const errText = await res.text().catch(() => "");
-      showToast("Erreur serveur : " + (errText || "Réponse invalide"), "error");
+      showToast("Erreur serveur : " + (rawText || "Réponse invalide"), "error");
       return;
     }
     if (json.success) {
@@ -4649,12 +4649,12 @@ async function submitArchivePasswordPrompt() {
         password: password
       })
     });
+    const rawText = await res.text();
     let json;
     try {
-      json = await res.json();
+      json = JSON.parse(rawText);
     } catch (e) {
-      const errText = await res.text().catch(() => "");
-      showToast("Erreur serveur : " + (errText || "Réponse invalide"), "error");
+      showToast("Erreur serveur : " + (rawText || "Réponse invalide"), "error");
       return;
     }
     if (json.success) {

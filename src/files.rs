@@ -966,7 +966,7 @@ pub fn compress_items(req: CompressRequest) -> Result<String, String> {
 
     let level_num = match req.compression_level.as_str() {
         "fast" => "1",
-        "max" => "9",
+        "max" | "maximum" => "9",
         _ => "6",
     };
 
