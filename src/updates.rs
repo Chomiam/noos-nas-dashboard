@@ -1161,9 +1161,9 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
             }
 
             // 2. Ensuite nh os switch -u
-            steps_executed.push("2. Déploiement & mise à jour des paquets : nh os switch -u".into());
+            steps_executed.push("2. Déploiement système : nh os switch".into());
             output_log.push_str("\n--- Exécution de nh os switch -u (Configuration + Paquets) ---\n");
-            let res = run_switch_command(&config_dir, true);
+            let res = run_switch_command(&config_dir, false);
             output_log.push_str(&res.1);
             if !res.0 {
                 return ApplyUpdateResult {
@@ -1367,10 +1367,20 @@ pub fn run_detached_update_process(force_packages: bool) {
 
     let nh_bin = nh_binary();
     let sudo_b = sudo_binary();
-    let update_inputs = update_type == UpdateType::PackagesOnly || update_type == UpdateType::Both;
+    let is_root = is_root_process();
+    // Ne jamais forcer -u ou --commit-lock-file si une configuration Git est mise à jour (Both ou ConfigOnly)
+    let update_inputs = update_type == UpdateType::PackagesOnly;
 
     let (bin, args) = if Path::new(&nh_bin).exists() {
-        let mut a = vec!["os", "switch", "--no-nom", "-e", &sudo_b];
+        let mut a = vec!["os", "switch", "--no-nom"];
+        if is_root {
+            a.push("--bypass-root-check");
+            a.push("-e");
+            a.push("none");
+        } else {
+            a.push("-e");
+            a.push(&sudo_b);
+        }
         if update_inputs {
             a.push("-u");
             a.push("--commit-lock-file");
@@ -1380,14 +1390,13 @@ pub fn run_detached_update_process(force_packages: bool) {
     } else {
         if update_inputs {
             let nix_b = nix_binary();
-            let mut update_cmd = create_user_command(&nix_b, &["flake", "update", "--flake", &dir_str]);
-            update_cmd.current_dir(&config_dir);
+            let mut update_cmd = create_switch_command(&nix_b, &["flake", "update", "--flake", &dir_str], &config_dir);
             let _ = update_cmd.output();
         }
         ("nixos-rebuild".to_string(), vec!["switch", "--flake", &dir_str])
     };
 
-    let mut cmd = create_user_command(&bin, &args);
+    let mut cmd = create_switch_command(&bin, &args, &config_dir);
     cmd.current_dir(&config_dir);
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
@@ -1476,13 +1485,44 @@ pub fn run_detached_update_process(force_packages: bool) {
     }
 }
 
+
+pub fn create_switch_command(bin: &str, args: &[&str], config_dir: &Path) -> Command {
+    let is_root = is_root_process();
+    let complete_path = "/run/wrappers/bin:/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/usr/bin:/bin";
+    if is_root {
+        let mut cmd = Command::new(bin);
+        cmd.args(args);
+        cmd.current_dir(config_dir);
+        cmd.env("PATH", complete_path);
+        cmd.env("HOME", "/root");
+        cmd.env("USER", "root");
+        cmd.env("NH_FLAKE", config_dir.display().to_string());
+        cmd.env("NH_BYPASS_ROOT_CHECK", "1");
+        cmd.env("NH_ELEVATION_STRATEGY", "none");
+        cmd
+    } else {
+        let mut cmd = create_user_command(bin, args);
+        cmd.current_dir(config_dir);
+        cmd
+    }
+}
+
 fn run_switch_command(config_dir: &Path, update_inputs: bool) -> (bool, String) {
     let dir_str = config_dir.display().to_string();
 
     let nh_bin = nh_binary();
     let sudo_b = sudo_binary();
+    let is_root = is_root_process();
     let (bin, args) = if Path::new(&nh_bin).exists() {
-        let mut a = vec!["os", "switch", "--no-nom", "-e", &sudo_b];
+        let mut a = vec!["os", "switch", "--no-nom"];
+        if is_root {
+            a.push("--bypass-root-check");
+            a.push("-e");
+            a.push("none");
+        } else {
+            a.push("-e");
+            a.push(&sudo_b);
+        }
         if update_inputs {
             a.push("-u");
             a.push("--commit-lock-file");
@@ -1492,14 +1532,13 @@ fn run_switch_command(config_dir: &Path, update_inputs: bool) -> (bool, String) 
     } else {
         if update_inputs {
             let nix_b = nix_binary();
-            let mut update_cmd = create_user_command(&nix_b, &["flake", "update", "--flake", &dir_str]);
-            update_cmd.current_dir(config_dir);
+            let mut update_cmd = create_switch_command(&nix_b, &["flake", "update", "--flake", &dir_str], config_dir);
             let _ = update_cmd.output();
         }
         ("nixos-rebuild".to_string(), vec!["switch", "--flake", &dir_str])
     };
 
-    let mut cmd = create_user_command(&bin, &args);
+    let mut cmd = create_switch_command(&bin, &args, config_dir);
     cmd.current_dir(config_dir);
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
