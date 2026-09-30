@@ -284,7 +284,7 @@ pub fn list_vms() -> Vec<VirtualMachine> {
 
         if let Ok(xml_out) = Command::new(&virsh).args(&["-c", &get_libvirt_uri(), "dumpxml", name]).output() {
             let xml = String::from_utf8_lossy(&xml_out.stdout);
-            if xml.contains("bridge='br0'") {
+            if xml.contains("bridge='br0'") || xml.contains("type='direct'") || xml.contains("mode='bridge'") {
                 vm.network_type = "bridge".to_string();
             } else if xml.contains("network='default'") {
                 vm.network_type = "nat".to_string();
@@ -362,6 +362,32 @@ pub fn control_vm(name: &str, action: &str) -> Result<String, String> {
     }
 }
 
+fn get_bridge_network_target() -> String {
+    // 1. Si un pont Linux br0 physique existe déjà sur l'hôte
+    if StdPath::new("/sys/class/net/br0").exists() {
+        return "bridge=br0,model=virtio".to_string();
+    }
+
+    // 2. Détecter l'interface physique active (ex: enp8s0) et utiliser un pont direct macvtap
+    if let Ok(out) = Command::new("ip").args(["route", "show", "default"]).output() {
+        if out.status.success() {
+            let text = String::from_utf8_lossy(&out.stdout);
+            let words: Vec<&str> = text.split_whitespace().collect();
+            for i in 0..words.len() {
+                if words[i] == "dev" && i + 1 < words.len() {
+                    let iface = words[i + 1];
+                    if !iface.starts_with("virbr") && !iface.starts_with("docker") && !iface.starts_with("wg") {
+                        return format!("type=direct,source={},source_mode=bridge,model=virtio", iface);
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Repli automatique sur le réseau NAT par défaut si aucune carte physique n'est trouvée
+    "network=default,model=virtio".to_string()
+}
+
 pub fn create_vm(req: CreateVmRequest) -> Result<String, String> {
     ensure_default_nat_network();
     let name = req.name.trim();
@@ -420,7 +446,7 @@ pub fn create_vm(req: CreateVmRequest) -> Result<String, String> {
 
     if req.network_type == "bridge" {
         args.push("--network".to_string());
-        args.push("bridge=br0,model=virtio".to_string());
+        args.push(get_bridge_network_target());
     } else {
         args.push("--network".to_string());
         args.push("network=default,model=virtio".to_string());

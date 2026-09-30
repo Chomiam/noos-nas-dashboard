@@ -1821,7 +1821,7 @@
   <div class="toast-container" id="toast-container"></div>
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20260930_03"></script>
+  <script src="/js/app.js?v=20260930_04"></script>
   <!-- MENU CONTEXTUEL CLIC DROIT -->
   <div class="context-menu" id="files-context-menu">
     <div class="context-menu-item" onclick="triggerFileAction('open')" id="ctx-open">
@@ -3174,7 +3174,7 @@
             <label style="border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:10px; cursor:pointer; background:var(--mantle); display:block;">
               <div style="display:flex; align-items:center; gap:8px; font-weight:600; font-size:0.85rem; color:var(--text);">
                 <input type="radio" name="vm-network-type" value="nat" checked>
-                NAT Isolé (virbr0)
+                NAT Isolé (virbr0 - Recommandé)
               </div>
               <div style="font-size:0.75rem; color:var(--subtext0); margin-top:4px;">Sous-réseau privé 192.168.122.X avec accès Internet sortant.</div>
             </label>
@@ -3182,7 +3182,7 @@
             <label style="border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:10px; cursor:pointer; background:var(--mantle); display:block;">
               <div style="display:flex; align-items:center; gap:8px; font-weight:600; font-size:0.85rem; color:var(--text);">
                 <input type="radio" name="vm-network-type" value="bridge">
-                Pont LAN (br0)
+                Pont LAN Direct (Macvtap / Box)
               </div>
               <div style="font-size:0.75rem; color:var(--subtext0); margin-top:4px;">IP directe sur votre box locale (192.168.1.X), joignable par tout le réseau.</div>
             </label>
