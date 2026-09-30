@@ -1539,7 +1539,10 @@
               </div>
             </div>
             <div class="firewall-table-controls">
-              <input type="text" id="firewall-search-input" class="custom-input" placeholder="🔍 Filtrer port, libellé, service..." oninput="filterFirewallPorts()" style="width:230px; font-size:0.85rem; padding:7px 12px;">
+              <div class="firewall-search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="firewall-search-input" class="firewall-search-input" placeholder="Filtrer port, libellé, service..." oninput="filterFirewallPorts()">
+              </div>
               <div class="filter-pills-row" id="firewall-filter-pills">
                 <button type="button" class="btn-filter-pill active" onclick="setFirewallFilter('all')">Tous</button>
                 <button type="button" class="btn-filter-pill" onclick="setFirewallFilter('custom')">Personnalisés</button>

@@ -9118,8 +9118,83 @@ select.form-control option,
 .firewall-table-controls {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
+}
+
+.firewall-search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.firewall-search-box .search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--subtext0);
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.firewall-search-input {
+  background: rgba(17, 17, 27, 0.65) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: var(--radius-sm) !important;
+  color: var(--text) !important;
+  font-family: var(--font-sans) !important;
+  font-size: 0.85rem !important;
+  padding: 8px 14px 8px 36px !important;
+  width: 250px !important;
+  transition: all 0.2s ease !important;
+  outline: none !important;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2) !important;
+}
+
+.firewall-search-input:hover {
+  border-color: rgba(203, 166, 247, 0.35) !important;
+  background: rgba(24, 24, 37, 0.8) !important;
+}
+
+.firewall-search-input:focus {
+  border-color: var(--mauve) !important;
+  box-shadow: 0 0 0 3px rgba(203, 166, 247, 0.2), inset 0 1px 2px rgba(0, 0, 0, 0.2) !important;
+  background: rgba(30, 30, 46, 0.95) !important;
+}
+
+.firewall-search-input::placeholder {
+  color: var(--subtext0) !important;
+}
+
+.filter-pills-row {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(17, 17, 27, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  gap: 3px;
+}
+
+.custom-input {
+  background: rgba(17, 17, 27, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-sans);
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.custom-input:focus {
+  border-color: var(--mauve);
+  box-shadow: 0 0 0 3px rgba(203, 166, 247, 0.2);
+  background: rgba(30, 30, 46, 0.95);
+}
+
+.custom-input::placeholder {
+  color: var(--subtext0);
 }
 
 .firewall-ports-table td {
