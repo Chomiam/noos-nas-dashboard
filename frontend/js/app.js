@@ -8353,16 +8353,105 @@ function setFirewallFilter(filter) {
   filterFirewallPorts();
 }
 
+window.isSystemPortsCollapsed = (localStorage.getItem("steveos_fw_system_collapsed") === "true");
+
+function toggleSystemPortsCollapse() {
+  window.isSystemPortsCollapsed = !window.isSystemPortsCollapsed;
+  try {
+    localStorage.setItem("steveos_fw_system_collapsed", window.isSystemPortsCollapsed ? "true" : "false");
+  } catch (_) {}
+  filterFirewallPorts();
+}
+
 function renderFirewallPorts(rules) {
   const tbody = document.getElementById("firewall-tbody");
   if (!tbody) return;
 
   if (!rules || rules.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--subtext0); padding:24px;">Aucun port ou règle correspondant.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--subtext0); padding:28px;">Aucun port ou règle correspondant.</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = rules.map(r => {
+  const queryInput = document.getElementById("firewall-search-input");
+  const query = queryInput ? queryInput.value.trim() : "";
+
+  // Si on filtre par pilule spécifique ("custom" ou "system")
+  if (window.firewallFilter === "custom") {
+    tbody.innerHTML = renderRuleRows(rules.filter(r => !r.is_system));
+    return;
+  }
+  if (window.firewallFilter === "system") {
+    tbody.innerHTML = renderRuleRows(rules.filter(r => r.is_system));
+    return;
+  }
+
+  const customRules = rules.filter(r => !r.is_system);
+  const systemRules = rules.filter(r => r.is_system);
+
+  // L'accordéon n'est replié que si pas de recherche textuelle active
+  const isCollapsed = window.isSystemPortsCollapsed && !query;
+
+  let html = "";
+
+  // 1. Groupe Utilisateur
+  if (customRules.length > 0 || window.firewallFilter === "all") {
+    html += `
+      <tr class="fw-group-header fw-group-user">
+        <td colspan="7">
+          <div class="fw-group-title">
+            <span>👤 Ports Personnalisés (Utilisateur)</span>
+            <span class="badge badge-accent">${customRules.length} règle${customRules.length > 1 ? 's' : ''}</span>
+          </div>
+        </td>
+      </tr>
+    `;
+    if (customRules.length === 0) {
+      html += `
+        <tr class="fw-empty-row">
+          <td colspan="7" style="text-align:center; padding:16px; color:var(--subtext0); font-size:0.85rem;">
+            Aucun port personnalisé ouvert. Cliquez sur <b>➕ Ouvrir un Port</b> pour autoriser un nouveau service.
+          </td>
+        </tr>
+      `;
+    } else {
+      html += renderRuleRows(customRules);
+    }
+  }
+
+  // 2. Groupe Système NixOS
+  if (systemRules.length > 0) {
+    html += `
+      <tr class="fw-group-header fw-group-system">
+        <td colspan="7">
+          <div class="fw-group-title-collapsible" onclick="toggleSystemPortsCollapse()">
+            <div class="fw-group-title-left">
+              <span>🔒 Ports Système Déclaratifs (NixOS)</span>
+              <span class="badge badge-success">${systemRules.length} port${systemRules.length > 1 ? 's' : ''}</span>
+              <span class="fw-group-hint">${isCollapsed ? "(Cliquez pour afficher les ports)" : "(Cliquez pour réduire la liste)"}</span>
+            </div>
+            <button type="button" class="btn-toggle-fw-group">
+              <span>${isCollapsed ? "Afficher les ports" : "Réduire"}</span>
+              <span class="fw-chevron ${isCollapsed ? 'collapsed' : ''}">▼</span>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+
+    if (!isCollapsed) {
+      html += renderRuleRows(systemRules);
+    }
+  }
+
+  tbody.innerHTML = html;
+}
+
+function renderRuleRows(ruleList) {
+  if (ruleList.length === 0) {
+    return `<tr><td colspan="7" style="text-align:center; color:var(--subtext0); padding:20px;">Aucun port dans cette catégorie.</td></tr>`;
+  }
+
+  return ruleList.map(r => {
     const isTcp = r.protocol === "TCP";
     const isUdp = r.protocol === "UDP";
     const isBoth = r.protocol === "BOTH";
@@ -8371,8 +8460,8 @@ function renderFirewallPorts(rules) {
     const protoLabel = isBoth ? "TCP / UDP" : escapeHtml(r.protocol);
 
     const originBadge = r.is_system
-      ? `<span class="origin-badge-system" title="Déclaré nativement par les modules NixOS">🔒 Système (NixOS)</span>`
-      : `<span class="origin-badge-custom" title="Règle personnalisée persistée dans firewall-rules.json">⚙️ Personnalisé</span>`;
+      ? `<span class="origin-badge-system" title="Déclaré nativement par les modules NixOS"><span class="badge-dot"></span>NixOS Système</span>`
+      : `<span class="origin-badge-custom" title="Règle personnalisée persistée dans firewall-rules.json"><span class="badge-dot-user"></span>Utilisateur</span>`;
 
     const statusBadge = r.enabled
       ? `<span class="badge badge-success">🟢 ${escapeHtml(r.status || "Autorisé")}</span>`
@@ -8388,7 +8477,7 @@ function renderFirewallPorts(rules) {
       `;
 
     return `
-      <tr>
+      <tr class="${r.is_system ? 'row-origin-system' : 'row-origin-user'}">
         <td><strong class="port-number-cell">${r.port}</strong></td>
         <td><span class="badge ${protoBadgeClass}">${protoLabel}</span></td>
         <td>
