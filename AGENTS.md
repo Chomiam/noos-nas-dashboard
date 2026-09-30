@@ -40,17 +40,18 @@
 
 ---
 
-## 🏷️ Règle n°5 : Traçabilité des Anomalies & Identifiant Unique de Résolution (Bug Tracking)
+## 🏷️ Règle n°5 : Traçabilité des Anomalies & Création Obligatoire de GitHub Issue (Bug Tracking)
 - **Déclenchement systématique dès qu'un problème, dysfonctionnement ou bug est identifié** :
-  1. **Établissement préalable d'un Rapport d'Incident avec Identifiant Unique :**
-     - Format standardisé de l'identifiant : `[BUG-YYYYMMDD-XX]` (ex: `[BUG-20260930-01]`).
-     - Ce rapport consigne :
+  1. **Création obligatoire préalable d'une GitHub Issue :**
+     - Ouvrir une GitHub Issue sur le dépôt concerné (via `gh issue create` ou l'interface web GitHub).
+     - Format du titre de l'Issue : `[BUG-YYYYMMDD-XX]: Résumé synthétique de l'anomalie` (ex: `[BUG-20260930-01]`).
+     - Le corps de l'Issue consigne obligatoirement :
        - **Symptôme & Contexte** : Message d'erreur exact, comportement anormal, logs.
        - **Composant(s) impacté(s)** : Backend Rust, routes Axum, composants Frontend (JS/CSS/HTML).
-       - **Cause racine (RCA)** : Analyse technique de l'origine du bug.
+       - **Cause racine (RCA)** : Analyse technique de l'origine de la défaillance.
        - **Stratégie de résolution** : Correctifs appliqués et tests de validation syntaxique.
   2. **Traçabilité obligatoire dans les Commits :**
-     - Le commit de correction doit impérativement reprendre cet identifiant :
-       - Dans l'entête : `fix(scope)[BUG-YYYYMMDD-XX]: description du correctif`
-       - Dans le corps explicatif du commit : référence explicite au rapport d'incident.
-  3. **Objectif :** Corrélation directe et sans équivoque entre signalements d'anomalies, rapports et correctifs dans l'historique Git.
+     - Le commit de correction doit impérativement reprendre cet identifiant et le numéro d'Issue :
+       - Dans l'entête : `fix(scope)[BUG-YYYYMMDD-XX]: description du correctif (#num_issue)`
+       - Dans le corps explicatif du commit : référence explicite et fermeture de la GitHub Issue (`Closes #num_issue` ou `Fixes #num_issue`).
+  3. **Objectif :** Corrélation directe et traçabilité absolue entre GitHub Issues, rapports techniques et historique Git.
