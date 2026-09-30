@@ -61,6 +61,29 @@
     </div>
   </div>
 
+  <!-- OVERLAY DE TRANSITION BLUR & FONDUE POST-MISE À JOUR -->
+  <div id="update-reload-overlay" class="update-reload-overlay" style="display: none;">
+    <div class="update-reload-backdrop"></div>
+    <div class="update-reload-card">
+      <div class="update-reload-glow"></div>
+      <div class="update-reload-icon-wrap">
+        <span class="update-reload-icon">✨</span>
+        <div class="update-reload-pulse-ring"></div>
+      </div>
+      <h2 class="update-reload-title">Mise à jour STEvE_OS appliquée !</h2>
+      <p class="update-reload-subtitle" id="update-reload-subtitle">Actualisation et synchronisation du tableau de bord...</p>
+      
+      <div class="update-reload-progress-track">
+        <div class="update-reload-progress-bar" id="update-reload-progress-bar"></div>
+      </div>
+
+      <div class="update-reload-badges">
+        <span class="badge badge-success">✔ Système à jour</span>
+        <span class="badge badge-mauve">⚡ Redémarrage transparent</span>
+      </div>
+    </div>
+  </div>
+
   <!-- CONTENEUR PRINCIPAL DU DASHBOARD (Masqué tant que non authentifié) -->
   <div id="app-shell" class="app-shell">
 

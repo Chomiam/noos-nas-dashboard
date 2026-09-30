@@ -167,6 +167,23 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function initApp() {
+  try {
+    const savedTab = sessionStorage.getItem("steveos_active_tab");
+    if (savedTab && document.getElementById(savedTab) && savedTab !== "tab-overview") {
+      switchTab(savedTab);
+    }
+    if (new URLSearchParams(window.location.search).get("preview_reload") === "true") {
+    setTimeout(() => { triggerUpdateSuccessReload(true); }, 300);
+  }
+
+  if (sessionStorage.getItem("steveos_just_updated") === "true") {
+      sessionStorage.removeItem("steveos_just_updated");
+      setTimeout(() => {
+        showToast("✨ Le tableau de bord a été actualisé avec succès !", "success");
+      }, 700);
+    }
+  } catch (e) {}
+
   refreshAll(false);
   updateSftpUri();
   checkForUpdates(false);
@@ -217,6 +234,9 @@ function setupPolling() {
 // --------------------------------------------------------------------------
 function switchTab(tabId) {
   activeTab = tabId;
+  try {
+    sessionStorage.setItem("steveos_active_tab", tabId);
+  } catch (e) {}
   const updateHeaderBtn = document.getElementById("header-update-btn");
   if (updateHeaderBtn) {
     updateHeaderBtn.classList.toggle("active-view", tabId === "tab-updates");
@@ -955,6 +975,7 @@ function updateProgressView(data) {
       clearInterval(updatePollingTimer);
       updatePollingTimer = null;
     }
+    const wasUpdating = isUpdatingNow;
     isUpdatingNow = false;
 
     if (panelSpinner) panelSpinner.textContent = "✅";
@@ -967,11 +988,14 @@ function updateProgressView(data) {
     const btnSingle = document.getElementById("btn-single-update");
     if (btnSingle) btnSingle.disabled = false;
 
-    // Actualiser les données
-    setTimeout(() => {
-      checkForUpdates(false);
-      loadSystem();
-    }, 1500);
+    if (wasUpdating) {
+      triggerUpdateSuccessReload();
+    } else {
+      setTimeout(() => {
+        checkForUpdates(false);
+        loadSystem();
+      }, 1500);
+    }
   } else if (data.stage === "failed") {
     if (updatePollingTimer) {
       clearInterval(updatePollingTimer);
@@ -989,6 +1013,50 @@ function updateProgressView(data) {
     if (btnSingle) btnSingle.disabled = false;
   }
 }
+
+let isReloadingAfterUpdate = false;
+
+function triggerUpdateSuccessReload(skipReload = false) {
+  if (isReloadingAfterUpdate && !skipReload) return;
+  isReloadingAfterUpdate = true;
+
+  try {
+    sessionStorage.setItem("steveos_active_tab", activeTab || "tab-overview");
+    sessionStorage.setItem("steveos_just_updated", "true");
+  } catch (e) {}
+
+  // Appliquer le flou et l'atténuation sur toute l'interface
+  document.body.classList.add("app-updating-reload");
+
+  // Activer l'overlay de chargement stylisé Catppuccin
+  const overlay = document.getElementById("update-reload-overlay");
+  if (overlay) {
+    overlay.style.display = "flex";
+    void overlay.offsetWidth; // Reflow pour transition CSS
+    overlay.classList.add("active");
+
+    const bar = document.getElementById("update-reload-progress-bar");
+    if (bar) {
+      bar.style.width = "0%";
+      setTimeout(() => {
+        bar.style.width = "100%";
+      }, 50);
+    }
+  }
+
+  if (skipReload) return;
+
+  // Recharger le tableau de bord après 2.6 secondes
+  setTimeout(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("trigger_reload");
+    url.searchParams.delete("preview_reload");
+    url.searchParams.set("_v", Date.now().toString());
+    window.location.replace(url.toString());
+  }, 2600);
+}
+
+window.triggerUpdateSuccessReload = triggerUpdateSuccessReload;
 
 async function dismissUpdateToast() {
   const floatingToast = document.getElementById("update-floating-toast");
@@ -14026,3 +14094,5 @@ async function deleteGroup(groupName) {
     showToast("Erreur réseau", "error");
   }
 }
+
+
