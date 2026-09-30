@@ -28,11 +28,17 @@ function setAuthToken(token, remember) {
     sessionStorage.setItem(AUTH_TOKEN_KEY, token);
     localStorage.removeItem(AUTH_TOKEN_KEY);
   }
+  try {
+    document.cookie = `steveos_token=${token}; path=/; max-age=604800; SameSite=Lax`;
+  } catch (e) {}
 }
 
 function clearAuthToken() {
   sessionStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(AUTH_TOKEN_KEY);
+  try {
+    document.cookie = "steveos_token=; path=/; max-age=0";
+  } catch (e) {}
   currentUserSession = null;
 }
 
