@@ -22,10 +22,21 @@ pub struct GameDeployProgress {
     pub logs: Vec<String>,
     pub is_complete: bool,
     pub is_error: bool,
+    #[serde(default)]
+    pub is_cancelled: bool,
 }
 
 static DEPLOY_TRACKER: LazyLock<Mutex<HashMap<String, GameDeployProgress>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+pub fn is_deployment_active(server_id: &str) -> bool {
+    let tracker = DEPLOY_TRACKER.lock().unwrap();
+    if let Some(entry) = tracker.get(server_id) {
+        !entry.is_cancelled
+    } else {
+        false
+    }
+}
 
 pub fn get_deployment_status(server_id: &str) -> Option<GameDeployProgress> {
     let tracker = DEPLOY_TRACKER.lock().unwrap();
@@ -69,6 +80,7 @@ pub fn get_deployment_status(server_id: &str) -> Option<GameDeployProgress> {
             logs: last_logs,
             is_complete: true,
             is_error: false,
+            is_cancelled: false,
         });
     }
 
@@ -159,6 +171,10 @@ fn run_server_deployment_pipeline(
     container_name: String,
     docker_args: Vec<String>,
 ) {
+    if !is_deployment_active(&server_id) {
+        return;
+    }
+
     // Étape 2 : Vérification et téléchargement de l'image Docker (Docker Pull)
     update_deployment(&server_id, |p| {
         p.step = "pulling_image".into();
@@ -195,6 +211,10 @@ fn run_server_deployment_pipeline(
                 let reader = std::io::BufReader::new(out);
                 let mut pull_step = 0;
                 for line in reader.lines().flatten() {
+                    if !is_deployment_active(&server_id) {
+                        let _ = child.kill();
+                        return;
+                    }
                     let trimmed = line.trim();
                     if !trimmed.is_empty() {
                         append_deploy_log(&server_id, trimmed);
@@ -217,6 +237,10 @@ fn run_server_deployment_pipeline(
     update_deployment(&server_id, |p| {
         p.progress_percent = 48;
     });
+
+    if !is_deployment_active(&server_id) {
+        return;
+    }
 
     // Étape 3 : Démarrage du conteneur
     update_deployment(&server_id, |p| {
@@ -266,7 +290,17 @@ fn run_server_deployment_pipeline(
     let max_duration = Duration::from_secs(1800); // 30 min max
 
     while start_time.elapsed() < max_duration {
+        if !is_deployment_active(&server_id) {
+            let _ = Command::new("docker").args(["stop", "-t", "2", &container_name]).status();
+            let _ = Command::new("docker").args(["rm", "-f", &container_name]).status();
+            return;
+        }
         std::thread::sleep(Duration::from_millis(1500));
+        if !is_deployment_active(&server_id) {
+            let _ = Command::new("docker").args(["stop", "-t", "2", &container_name]).status();
+            let _ = Command::new("docker").args(["rm", "-f", &container_name]).status();
+            return;
+        }
 
         // 1. Vérifier si le conteneur tourne
         if let Ok(insp_out) = Command::new("docker")
@@ -452,6 +486,10 @@ fn run_server_deployment_pipeline(
                 return;
             }
         }
+    }
+
+    if !is_deployment_active(&server_id) {
+        return;
     }
 
     update_deployment(&server_id, |p| {
@@ -1252,6 +1290,7 @@ exec {}
             ],
             is_complete: false,
             is_error: false,
+            is_cancelled: false,
         });
     }
 
@@ -1305,10 +1344,19 @@ pub fn delete_game_server(id: &str, delete_data: bool) -> Result<String, String>
     let mut servers = load_saved_servers();
     let container_name = format!("steveos-game-{}", id);
 
-    let _ = Command::new("docker").args(["stop", "-t", "5", &container_name]).status();
+    {
+        let mut tracker = DEPLOY_TRACKER.lock().unwrap();
+        if let Some(entry) = tracker.get_mut(id) {
+            entry.is_cancelled = true;
+            entry.is_complete = true;
+            entry.status_message = "Déploiement annulé et supprimé.".into();
+        }
+        tracker.remove(id);
+    }
+
+    let _ = Command::new("docker").args(["stop", "-t", "2", &container_name]).status();
     let _ = Command::new("docker").args(["rm", "-f", &container_name]).status();
 
-    DEPLOY_TRACKER.lock().unwrap().remove(id);
     if let Some(pos) = servers.iter().position(|s| s.id == id) {
         let server = servers.remove(pos);
         if delete_data {
@@ -1318,6 +1366,11 @@ pub fn delete_game_server(id: &str, delete_data: bool) -> Result<String, String>
             }
         }
         save_servers(&servers)?;
+    } else if delete_data {
+        let p = get_games_base_dir().join(id);
+        if p.exists() {
+            let _ = fs::remove_dir_all(&p);
+        }
     }
 
     Ok("Serveur supprimé avec succès.".into())

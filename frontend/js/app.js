@@ -10648,6 +10648,12 @@ function openGameDeployProgressModal(serverId, serverName, eggName, eggIcon) {
   if (logsBox) logsBox.innerHTML = `<div style="color:var(--subtext0);">⚡ Connexion aux logs de déploiement en direct...</div>`;
   if (finishBtn) finishBtn.innerHTML = `<span>Fermer</span>`;
   if (toConsoleBtn) toConsoleBtn.style.display = "none";
+  const cancelBtn = document.getElementById("btn-cancel-game-deploy");
+  if (cancelBtn) {
+    cancelBtn.style.display = "inline-flex";
+    cancelBtn.disabled = false;
+    cancelBtn.innerHTML = `<span>🗑️</span> Annuler et supprimer`;
+  }
 
   updateGameDeployStepUI(2);
 
@@ -10745,12 +10751,17 @@ async function pollGameDeployStatus() {
         gameDeployPollInterval = null;
       }
 
+      const cancelBtn = document.getElementById("btn-cancel-game-deploy");
       if (d.is_error) {
         if (heroStatus) {
           heroStatus.textContent = `❌ ${d.status_message}`;
           heroStatus.style.color = "var(--red)";
         }
         if (barFill) barFill.style.background = "var(--red)";
+        if (cancelBtn) {
+          cancelBtn.style.display = "inline-flex";
+          cancelBtn.innerHTML = `<span>🗑️</span> Supprimer le serveur en erreur`;
+        }
       } else {
         if (heroStatus) {
           heroStatus.textContent = `🎉 ${d.status_message || "Serveur prêt et opérationnel !"}`;
@@ -10759,6 +10770,7 @@ async function pollGameDeployStatus() {
         if (barFill) barFill.style.background = "linear-gradient(90deg, var(--green), #a6e3a1)";
         if (finishBtn) finishBtn.innerHTML = `<span>🎉 Serveur Prêt !</span>`;
         if (toConsoleBtn) toConsoleBtn.style.display = "inline-flex";
+        if (cancelBtn) cancelBtn.style.display = "none";
       }
 
       loadGameServers();
@@ -10833,6 +10845,44 @@ function dismissGameDeployToast() {
     gameDeployPollInterval = null;
   }
   activeGameDeployServerId = null;
+}
+
+async function cancelAndRemoveGameDeployment() {
+  if (!activeGameDeployServerId) return;
+
+  const serverId = activeGameDeployServerId;
+  const ok = confirm("Voulez-vous vraiment annuler le déploiement et supprimer ce serveur de jeu ainsi que toutes ses données ?");
+  if (!ok) return;
+
+  const cancelBtn = document.getElementById("btn-cancel-game-deploy");
+  if (cancelBtn) {
+    cancelBtn.disabled = true;
+    cancelBtn.innerHTML = `<span>⏳</span> Annulation en cours...`;
+  }
+
+  try {
+    const res = await fetch(`/api/games/${encodeURIComponent(serverId)}/delete?delete_data=true`, {
+      method: "POST"
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast("Déploiement annulé et serveur supprimé avec succès.", "success");
+    } else {
+      showToast("Erreur lors de la suppression : " + (json.message || "inconnue"), "error");
+    }
+  } catch (err) {
+    console.error("Erreur annulation déploiement :", err);
+    showToast("Erreur lors de l'annulation du déploiement.", "error");
+  } finally {
+    closeGameDeployProgressModal();
+    const toast = document.getElementById("game-deploy-floating-toast");
+    if (toast) toast.style.display = "none";
+    if (cancelBtn) {
+      cancelBtn.disabled = false;
+      cancelBtn.innerHTML = `<span>🗑️</span> Annuler et supprimer`;
+    }
+    loadGameServers();
+  }
 }
 
 function jumpToGameConsole() {
