@@ -712,6 +712,46 @@ function updateProgressView(data) {
   if (toastBar) toastBar.style.width = `${pct}%`;
   if (percentLabel) percentLabel.textContent = `${pct}%`;
 
+  // Activité détaillée (Badge [X/N] et nom du paquet en cours)
+  const liveActivity = document.getElementById("update-live-activity");
+  const badgeDerivation = document.getElementById("update-badge-derivation");
+  const currentPackage = document.getElementById("update-current-package");
+  const logTerminal = document.getElementById("build-log-terminal");
+
+  if (data.is_running && data.step_index === 2) {
+    if (liveActivity) liveActivity.style.display = "flex";
+    if (data.total_derivations && data.total_derivations > 0) {
+      if (badgeDerivation) {
+        badgeDerivation.style.display = "inline-block";
+        badgeDerivation.textContent = `[${data.current_derivation_index || 0}/${data.total_derivations}]`;
+      }
+    } else {
+      if (badgeDerivation) badgeDerivation.style.display = "none";
+    }
+
+    if (currentPackage) {
+      if (data.current_package_name) {
+        currentPackage.textContent = `⚙ ${data.current_package_name}`;
+      } else {
+        currentPackage.textContent = data.status_detail || "Compilation en cours...";
+      }
+    }
+  } else if (!data.is_running) {
+    if (liveActivity && data.stage !== "completed" && data.stage !== "failed") {
+      liveActivity.style.display = "none";
+    }
+  }
+
+  // Journal de construction dans l'accordéon
+  if (logTerminal && data.log_tail) {
+    logTerminal.textContent = data.log_tail;
+    // Auto-scroll vers le bas si l'accordéon est visible
+    const acc = document.getElementById("build-log-accordion");
+    if (acc && acc.style.display !== "none") {
+      acc.scrollTop = acc.scrollHeight;
+    }
+  }
+
   if (panelTitle) panelTitle.textContent = data.status_title || "Mise à jour STEvE_OS";
   if (panelDetail) panelDetail.textContent = data.status_detail || "Exécution des étapes de déploiement...";
   if (toastTitle) toastTitle.textContent = data.status_title || "Mise à jour STEvE_OS";
@@ -8415,4 +8455,18 @@ async function showGpuInfoModal() {
 function closeGpuInfoModal() {
   const modal = document.getElementById("modal-gpu-info");
   if (modal) modal.style.display = "none";
+}
+
+function toggleBuildLogAccordion() {
+  const accordion = document.getElementById("build-log-accordion");
+  const arrow = document.getElementById("build-log-arrow");
+  if (!accordion) return;
+  if (accordion.style.display === "none") {
+    accordion.style.display = "block";
+    if (arrow) arrow.textContent = "▲";
+    accordion.scrollTop = accordion.scrollHeight;
+  } else {
+    accordion.style.display = "none";
+    if (arrow) arrow.textContent = "▼";
+  }
 }

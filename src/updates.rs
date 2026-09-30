@@ -111,6 +111,12 @@ pub struct UpdateProgressState {
     pub generation_after: Option<String>,
     pub dashboard_restarting: bool,
     pub log_tail: String,
+    #[serde(default)]
+    pub total_derivations: Option<u32>,
+    #[serde(default)]
+    pub current_derivation_index: Option<u32>,
+    #[serde(default)]
+    pub current_package_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -215,6 +221,9 @@ pub fn get_update_progress() -> UpdateProgressState {
         generation_after: None,
         dashboard_restarting: false,
         log_tail: String::new(),
+        total_derivations: None,
+        current_derivation_index: None,
+        current_package_name: None,
     }
 }
 
@@ -224,6 +233,9 @@ pub fn dismiss_update_progress() {
     state.stage = "idle".to_string();
     state.progress_percent = 0;
     state.error = None;
+    state.total_derivations = None;
+    state.current_derivation_index = None;
+    state.current_package_name = None;
     save_update_progress(&state);
 }
 
@@ -1272,7 +1284,11 @@ pub fn start_detached_update(force_packages: bool) -> Result<(), String> {
         generation_before: cur_gen,
         generation_after: None,
         dashboard_restarting: false,
-        log_tail: "🚀 Démarrage de la mise à jour STEvE_OS...\n".to_string(),
+        log_tail: "🚀 Démarrage de la mise à jour STEvE_OS...
+".to_string(),
+        total_derivations: None,
+        current_derivation_index: None,
+        current_package_name: None,
     };
     save_update_progress(&initial_state);
 
@@ -1392,38 +1408,126 @@ pub fn run_detached_update_process(force_packages: bool) {
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
 
-        let mut lines = Vec::new();
+        use std::sync::mpsc;
+        let (tx, rx) = mpsc::channel::<String>();
 
+        let tx_out = tx.clone();
         if let Some(out) = stdout {
-            let reader = std::io::BufReader::new(out);
-            for line in reader.lines().flatten() {
-                lines.push(line.clone());
-                append_live_log(&format!("{}\n", line));
-                if line.contains("fetching") || line.contains("copying path") || line.contains("paths will be fetched") {
-                    state.progress_percent = 50.max(state.progress_percent);
-                    state.status_detail = "Téléchargement des paquets binaires du système...".to_string();
-                    save_update_progress(&state);
-                } else if line.contains("building") || line.contains("derivations will be built") {
-                    state.progress_percent = 65.max(state.progress_percent);
-                    state.status_detail = "Construction et assemblage de la dérivation NixOS...".to_string();
-                    save_update_progress(&state);
-                } else if line.contains("Activating configuration") || line.contains("switching to system configuration") {
-                    state.stage = "activating".to_string();
-                    state.step_index = 3;
-                    state.progress_percent = 85;
-                    state.dashboard_restarting = true;
-                    state.status_title = "Activation de la configuration...".to_string();
-                    state.status_detail = "Application des services et redémarrage du tableau de bord...".to_string();
-                    save_update_progress(&state);
+            std::thread::spawn(move || {
+                let reader = std::io::BufReader::new(out);
+                for line in reader.lines().flatten() {
+                    let _ = tx_out.send(line);
                 }
-            }
+            });
         }
 
+        let tx_err = tx.clone();
         if let Some(err) = stderr {
-            let reader = std::io::BufReader::new(err);
-            for line in reader.lines().flatten() {
-                lines.push(line.clone());
-                append_live_log(&format!("{}\n", line));
+            std::thread::spawn(move || {
+                let reader = std::io::BufReader::new(err);
+                for line in reader.lines().flatten() {
+                    let _ = tx_err.send(line);
+                }
+            });
+        }
+        drop(tx);
+
+        let mut lines = Vec::new();
+        let mut total_derivations: Option<u32> = None;
+        let mut current_derivation_index: u32 = 0;
+
+        for line in rx {
+            lines.push(line.clone());
+            append_live_log(&format!("{}
+", line));
+
+            // 1. Détection du nombre total de dérivations
+            if line.contains("derivations will be built") {
+                if let Some(num_str) = line.split_whitespace().nth(1) {
+                    if let Ok(n) = num_str.parse::<u32>() {
+                        total_derivations = Some(n);
+                        state.total_derivations = Some(n);
+                        state.status_detail = format!("{} dérivation(s) à compiler et assembler...", n);
+                        save_update_progress(&state);
+                    }
+                }
+            }
+
+            // 2. Détection de compilation unitaire
+            if line.contains("building '") && line.contains(".drv'") {
+                current_derivation_index += 1;
+                state.current_derivation_index = Some(current_derivation_index);
+
+                let pkg_name = if let Some(start) = line.find("/nix/store/") {
+                    let sub = &line[start + 11..];
+                    if let Some(dash) = sub.find('-') {
+                        let after_dash = &sub[dash + 1..];
+                        if let Some(end) = after_dash.find(".drv") {
+                            after_dash[..end].to_string()
+                        } else {
+                            after_dash.to_string()
+                        }
+                    } else {
+                        sub.to_string()
+                    }
+                } else {
+                    line.clone()
+                };
+
+                state.current_package_name = Some(pkg_name.clone());
+
+                if let Some(total) = total_derivations {
+                    let ratio = (current_derivation_index as f32 / total.max(1) as f32).min(1.0);
+                    let calculated = 35 + (ratio * 47.0) as u32;
+                    state.progress_percent = calculated.max(state.progress_percent);
+                    state.status_title = format!("Construction du système [{}/{}]", current_derivation_index, total);
+                    state.status_detail = format!("Compilation de {}...", pkg_name);
+                } else {
+                    state.progress_percent = 65.max(state.progress_percent);
+                    state.status_detail = format!("Compilation de {}...", pkg_name);
+                }
+                save_update_progress(&state);
+            }
+
+            // 3. Détection de téléchargement binaire
+            if line.contains("copying path '") || line.contains("paths will be fetched") {
+                if let Some(start) = line.find("/nix/store/") {
+                    let sub = &line[start + 11..];
+                    let pkg_name = sub.split('-').nth(1).unwrap_or(sub);
+                    let clean_pkg = pkg_name.trim_end_matches('\'').trim_end_matches("...");
+                    state.status_detail = format!("Téléchargement du paquet binaire {}...", clean_pkg);
+                } else {
+                    state.status_detail = "Téléchargement des paquets binaires du système...".to_string();
+                }
+                state.progress_percent = 45.max(state.progress_percent);
+                save_update_progress(&state);
+            }
+
+            // 4. Comparatif de fermeture
+            if line.starts_with("<<< /nix/store/") || line.starts_with(">>> /nix/store/") {
+                state.progress_percent = 84.max(state.progress_percent);
+                state.status_title = "Vérification des paquets modifiés...".to_string();
+                state.status_detail = "Comparaison de l'ancienne et de la nouvelle génération...".to_string();
+                save_update_progress(&state);
+            }
+
+            // 5. Activation système
+            if line.contains("Activating configuration") || line.contains("switching to system configuration") || line.contains("setting up /etc") {
+                state.stage = "activating".to_string();
+                state.step_index = 3;
+                state.progress_percent = 88.max(state.progress_percent);
+                state.status_title = "Activation de la configuration...".to_string();
+                state.status_detail = "Mise à jour du bootloader et démarrage des services...".to_string();
+                save_update_progress(&state);
+            }
+
+            // 6. Redémarrage dashboard
+            if line.contains("stopping the following units: steveos-nas-dashboard") || line.contains("unit-steveos-nas-dashboard.service") {
+                state.progress_percent = 95.max(state.progress_percent);
+                state.dashboard_restarting = true;
+                state.status_title = "Redémarrage du Dashboard...".to_string();
+                state.status_detail = "Le nouveau service Web prend le relais...".to_string();
+                save_update_progress(&state);
             }
         }
 
@@ -1439,7 +1543,13 @@ pub fn run_detached_update_process(force_packages: bool) {
             }
         }
 
-        let full_output = lines.join("\n");
+        let full_output = if lines.len() > 80 {
+            lines[lines.len() - 80..].join("
+")
+        } else {
+            lines.join("
+")
+        };
         state.log_tail = full_output;
     } else {
         switch_err = "Impossible de lancer la commande de déploiement.".to_string();

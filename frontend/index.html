@@ -816,6 +816,22 @@
           <div class="update-main-progress-track">
             <div class="update-main-progress-bar" id="update-main-progress-bar" style="width: 0%;"></div>
           </div>
+
+          <!-- Ligne d'activité en temps réel sous la barre (style épuré) -->
+          <div class="update-live-activity" id="update-live-activity" style="display:none;">
+            <div class="update-live-info">
+              <span class="badge-derivation" id="update-badge-derivation" style="display:none;">0/0</span>
+              <span class="current-package-name" id="update-current-package">En attente...</span>
+            </div>
+            <button type="button" class="btn-toggle-build-log" id="btn-toggle-build-log" onclick="toggleBuildLogAccordion()">
+              <span>Journal de construction</span> <span id="build-log-arrow">▼</span>
+            </button>
+          </div>
+
+          <!-- Console de logs accordéon -->
+          <div class="build-log-accordion" id="build-log-accordion" style="display:none;">
+            <pre class="build-log-terminal" id="build-log-terminal">Initialisation des logs de construction...</pre>
+          </div>
         </div>
 
         <!-- 2 CARTES DE VERSIONS COMPARATIVES : DOUBLE TÉLÉMÉTRIE -->

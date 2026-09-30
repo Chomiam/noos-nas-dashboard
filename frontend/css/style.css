@@ -5920,3 +5920,79 @@ select.form-control option,
 .btn-toast-close:hover {
   color: var(--red);
 }
+
+/* Ligne d'activité détaillée sous la barre (style épuré) */
+.update-live-activity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  font-size: 0.85rem;
+  color: var(--subtext0);
+}
+
+.update-live-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge-derivation {
+  background: rgba(203, 166, 247, 0.2);
+  color: #cba6f7;
+  border: 1px solid rgba(203, 166, 247, 0.4);
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 0.75rem;
+  font-family: monospace;
+}
+
+.current-package-name {
+  color: var(--text);
+  font-weight: 600;
+  font-family: monospace;
+}
+
+.btn-toggle-build-log {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--subtext0);
+  font-size: 0.78rem;
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-toggle-build-log:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  border-color: rgba(203, 166, 247, 0.4);
+}
+
+.build-log-accordion {
+  margin-top: 12px;
+  background: rgba(17, 17, 27, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 12px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.build-log-terminal {
+  margin: 0;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+  font-size: 0.75rem;
+  color: #a6adc8;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.45;
+}
