@@ -545,11 +545,16 @@ async fn handle_me(req: Request) -> Response {
     }
 
     // 2. Vérification sur disque si absent de la mémoire (ex: redémarrage service)
-    let disk_sessions = load_sessions_from_disk();
-    if let Some(session) = disk_sessions.get(&token) {
+    let disk_session = {
+        let disk_sessions = load_sessions_from_disk();
+        disk_sessions.get(&token).cloned()
+    };
+    if let Some(session) = disk_session {
         if session.expires_at > now {
-            let mut sessions = sessions_lock.write().await;
-            sessions.insert(token.clone(), session.clone());
+            {
+                let mut sessions = sessions_lock.write().await;
+                sessions.insert(token.clone(), session.clone());
+            }
             return (
                 StatusCode::OK,
                 Json(MeResponse {
@@ -590,21 +595,27 @@ pub async fn auth_middleware(req: Request, next: Next) -> Response {
         let sessions_lock = get_sessions();
         
         // 1. Vérification en mémoire (instantanée)
-        {
+        // Le verrou de lecture DOIT être libéré avant tout appel à next.run() pour éviter l'interblocage
+        let is_valid_in_memory = {
             let sessions = sessions_lock.read().await;
-            if let Some(session) = sessions.get(&token) {
-                if session.expires_at > now {
-                    return next.run(req).await;
-                }
-            }
+            sessions.get(&token).map(|s| s.expires_at > now).unwrap_or(false)
+        };
+        if is_valid_in_memory {
+            return next.run(req).await;
         }
 
         // 2. Si non trouvé en mémoire (ex: service redémarré après une mise à jour), vérifier sur disque
-        let disk_sessions = load_sessions_from_disk();
-        if let Some(session) = disk_sessions.get(&token) {
+        let disk_session = {
+            let disk_sessions = load_sessions_from_disk();
+            disk_sessions.get(&token).cloned()
+        };
+        if let Some(session) = disk_session {
             if session.expires_at > now {
-                let mut sessions = sessions_lock.write().await;
-                sessions.insert(token.clone(), session.clone());
+                {
+                    let mut sessions = sessions_lock.write().await;
+                    sessions.insert(token.clone(), session);
+                }
+                // Le verrou d'écriture DOIT être libéré avant next.run() sous peine d'interblocage immédiat !
                 return next.run(req).await;
             }
         }
@@ -676,12 +687,18 @@ pub async fn get_session_from_headers(headers: &axum::http::HeaderMap) -> Option
             }
         }
     }
-    let disk_sessions = load_sessions_from_disk();
-    if let Some(session) = disk_sessions.get(&token) {
+    let disk_session = {
+        let disk_sessions = load_sessions_from_disk();
+        disk_sessions.get(&token).cloned()
+    };
+    if let Some(session) = disk_session {
         if session.expires_at > now {
-            let mut sessions = sessions_lock.write().await;
-            sessions.insert(token.clone(), session.clone());
-            return Some(session.clone());
+            let session_clone = session.clone();
+            {
+                let mut sessions = sessions_lock.write().await;
+                sessions.insert(token, session_clone);
+            }
+            return Some(session);
         }
     }
     None
