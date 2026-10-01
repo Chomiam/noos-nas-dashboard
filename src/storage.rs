@@ -1120,11 +1120,17 @@ fn parse_mdstat_sync() -> Option<RaidSyncProgress> {
         let lines: Vec<&str> = content.lines().collect();
         for (idx, line) in lines.iter().enumerate() {
             if line.contains("resync") || line.contains("recovery") || line.contains("check") {
-                let md_name = if idx > 0 {
-                    lines[idx - 1].split_whitespace().next().unwrap_or("md0")
-                } else {
-                    "md0"
-                };
+                // Remonter en arrière pour trouver la ligne du périphérique md (ex: "md127 : active...")
+                let mut md_name = "md0";
+                for prev in lines[..idx].iter().rev() {
+                    let trimmed = prev.trim();
+                    if trimmed.starts_with("md") && trimmed.contains(':') {
+                        if let Some(name) = trimmed.split(':').next() {
+                            md_name = name.trim();
+                            break;
+                        }
+                    }
+                }
                 return parse_sync_line(md_name, line);
             }
         }
@@ -1133,7 +1139,7 @@ fn parse_mdstat_sync() -> Option<RaidSyncProgress> {
 }
 
 fn parse_sync_line(array_name: &str, line: &str) -> Option<RaidSyncProgress> {
-    // Exemple : [>....................]  resync =  1.2% (140648256/11720684544) finish=1198.4min speed=161048K/sec
+    // Exemple : [=================>...]  resync = 88.8% (3471048704/3906886144) finish=145.3min speed=49992K/sec
     let action = if line.contains("recovery") {
         "Reconstruction".to_string()
     } else if line.contains("check") {
@@ -1142,11 +1148,13 @@ fn parse_sync_line(array_name: &str, line: &str) -> Option<RaidSyncProgress> {
         "Synchronisation initiale".to_string()
     };
 
+    // Extraire le pourcentage en isolant le token numérique précédant le caractère '%'
+    // Ne JAMAIS faire .split('=') car la barre de progression ASCII [=======>...] contient des '=' !
     let percent = line
-        .split('=')
-        .nth(1)
-        .and_then(|p| p.split('%').next())
-        .and_then(|s| s.trim().parse::<f32>().ok())
+        .split('%')
+        .next()
+        .and_then(|before_pct| before_pct.split_whitespace().last())
+        .and_then(|s| s.parse::<f32>().ok())
         .unwrap_or(0.0);
 
     let finish_minutes = line

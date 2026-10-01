@@ -1961,7 +1961,7 @@ function updateRaidSyncBanner(syncData) {
     const bar = document.getElementById("raid-sync-bar");
 
     if (title) title.textContent = `${syncData.action} de la grappe ${syncData.array} en cours`;
-    if (details) details.textContent = `Vitesse : ${syncData.speed_mb_s} Mo/s &bull; Fin estimée : ${syncData.finish_human}`;
+    if (details) details.textContent = `Vitesse : ${syncData.speed_mb_s} Mo/s • Fin estimée : ${syncData.finish_human}`;
     if (badge) badge.textContent = `${syncData.percent.toFixed(1)}%`;
     if (bar) bar.style.width = `${Math.min(syncData.percent, 100)}%`;
 
