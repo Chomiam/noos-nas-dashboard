@@ -10558,6 +10558,9 @@ function switchNetworkSubtab(subtabId, updateHash = true) {
   if (subtabId === "subtab-samba") {
     loadSambaData();
   }
+  if (subtabId === "subtab-sftp") {
+    loadSftpData();
+  }
   if (subtabId === "subtab-firewall") {
     try {
       const savedFwState = localStorage.getItem("steveos_firewall_state");
@@ -10800,6 +10803,12 @@ async function loadNetwork(showFeedback = false) {
           </tr>
         `).join("");
       }
+    }
+
+    // Charger sFTP si le sous-onglet sFTP est actif
+    const sftpSubpane = document.getElementById("subtab-sftp");
+    if (activeNetworkSubtab === "subtab-sftp" || (sftpSubpane && sftpSubpane.classList.contains("active"))) {
+      loadSftpData();
     }
 
     // Charger Samba si le sous-onglet Samba est actif
@@ -18102,6 +18111,634 @@ async function disconnectSambaSession(pid) {
     await loadSambaData();
   } catch (err) {
     console.error("Erreur déconnexion session:", err);
+    showToast("Erreur : " + err.message, "error");
+  }
+}
+
+
+// =========================================================================
+// 🚀 GESTIONNAIRE COMPLET sFTP (SSH / CHROOT) — STEvE_OS CATPPUCCIN MOCHA
+// =========================================================================
+
+let currentSftpData = null;
+
+async function loadSftpData(showFeedback = false) {
+  try {
+    const res = await fetch("/api/sftp");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    if (!json.success || !json.data) throw new Error(json.error || "Données indisponibles");
+
+    const data = json.data;
+    currentSftpData = data;
+
+    // 1. En-tête et Badges d'état
+    const statusBadge = document.getElementById("sftp-status-badge");
+    const portBadge = document.getElementById("sftp-port-badge");
+    const fail2banBadge = document.getElementById("sftp-fail2ban-badge");
+    const pulseDot = document.getElementById("sftp-hero-pulse-dot");
+
+    if (statusBadge) {
+      statusBadge.textContent = data.is_active ? "● OpenSSH En Ligne" : "● Inactif";
+      statusBadge.className = `sftp-status-tag ${data.is_active ? "active" : "inactive"}`;
+    }
+    if (portBadge) {
+      portBadge.textContent = `Port ${data.port} TCP`;
+    }
+    if (fail2banBadge) {
+      if (data.fail2ban_active) {
+        fail2banBadge.textContent = data.fail2ban_banned_count > 0 
+          ? `🛡️ Fail2ban (${data.fail2ban_banned_count} IP bannie${data.fail2ban_banned_count > 1 ? "s" : ""})`
+          : "🛡️ Fail2ban Actif";
+        fail2banBadge.style.color = "var(--green)";
+      } else {
+        fail2banBadge.textContent = "🛡️ Fail2ban Inactif";
+        fail2banBadge.style.color = "var(--subtext0)";
+      }
+    }
+    if (pulseDot) {
+      pulseDot.style.display = data.is_active ? "block" : "none";
+    }
+
+    // Badge sous-onglet dans la navigation
+    const navBadge = document.getElementById("badge-subtab-sftp");
+    if (navBadge) {
+      navBadge.textContent = data.is_active ? `Port ${data.port}` : "Inactif";
+      navBadge.className = `subtab-pill-badge ${data.is_active ? "badge-success" : "badge-secondary"}`;
+    }
+
+    // 2. Adresses de connexion rapide
+    const uriClient = document.getElementById("sftp-uri-val-client");
+    const uriCli = document.getElementById("sftp-uri-val-cli");
+    const uriSshfs = document.getElementById("sftp-uri-val-sshfs");
+
+    const ip = data.primary_lan_ip || window.location.hostname;
+    const primaryUser = (data.allowed_users && data.allowed_users[0]?.username) || "chomiam";
+
+    if (uriClient) uriClient.textContent = `sftp://${primaryUser}@${ip}:${data.port}`;
+    if (uriCli) uriCli.textContent = `sftp -P ${data.port} ${primaryUser}@${ip}`;
+    if (uriSshfs) uriSshfs.textContent = `sshfs -p ${data.port} ${primaryUser}@${ip}:/ /mnt/nas`;
+
+    // 3. Mise à jour des KPIs
+    const kpiPortVal = document.getElementById("sftp-kpi-port-val");
+    const kpiPortSub = document.getElementById("sftp-kpi-port-sub");
+    const kpiSharesCount = document.getElementById("sftp-kpi-shares-count");
+    const kpiSharesSub = document.getElementById("sftp-kpi-shares-sub");
+    const kpiUsersCount = document.getElementById("sftp-kpi-users-count");
+    const kpiUsersSub = document.getElementById("sftp-kpi-users-sub");
+    const kpiSecVal = document.getElementById("sftp-kpi-security-val");
+    const kpiSecSub = document.getElementById("sftp-kpi-security-sub");
+
+    const shares = data.shares || [];
+    const users = data.allowed_users || [];
+    const sessions = data.active_sessions || [];
+
+    const chrootCount = shares.filter(s => s.chroot_enforced).length;
+    const rwCount = shares.filter(s => !s.read_only).length;
+    const keyUsersCount = users.filter(u => u.has_ssh_keys).length;
+
+    if (kpiPortVal) kpiPortVal.textContent = `Port ${data.port}`;
+    if (kpiPortSub) kpiPortSub.textContent = data.is_active ? "OpenSSH 10.5 Chiffré" : "Serveur arrêté";
+
+    if (kpiSharesCount) kpiSharesCount.textContent = shares.length;
+    if (kpiSharesSub) kpiSharesSub.textContent = `${rwCount} en écriture, ${shares.length - rwCount} lecture seule`;
+
+    if (kpiUsersCount) kpiUsersCount.textContent = users.length;
+    if (kpiUsersSub) kpiUsersSub.textContent = `${keyUsersCount} avec clés SSH, ${users.length - keyUsersCount} mdp`;
+
+    if (kpiSecVal) kpiSecVal.textContent = chrootCount > 0 ? "Prison Chroot" : "Accès Standard";
+    if (kpiSecSub) kpiSecSub.textContent = data.fail2ban_active 
+      ? `Fail2ban Actif (${data.fail2ban_banned_count} IP bannie${data.fail2ban_banned_count > 1 ? "s" : ""})`
+      : "Fail2ban Inactif";
+
+    // 4. Rendu de la liste des partages sFTP
+    renderSftpSharesList(shares);
+
+    // 5. Rendu du tableau des utilisateurs autorisés SSH
+    renderSftpUsersTable(users);
+
+    // 6. Rendu des sessions actives
+    renderSftpSessionsTable(sessions);
+
+    // 7. Rendu des logs de sécurité
+    renderSftpLogsTable(data.recent_logs || []);
+
+    if (showFeedback) {
+      showToast("Données sFTP actualisées avec succès !", "success");
+    }
+  } catch (err) {
+    console.error("Erreur chargement sFTP:", err);
+    if (showFeedback) {
+      showToast("Erreur lors du chargement de sFTP : " + err.message, "error");
+    }
+  }
+}
+
+function renderSftpSharesList(shares) {
+  const container = document.getElementById("sftp-shares-list");
+  if (!container) return;
+
+  if (!shares || shares.length === 0) {
+    container.innerHTML = `
+      <div style="padding:40px; text-align:center; background:var(--mantle); border-radius:var(--radius-md); border:1px dashed rgba(255,255,255,0.1);">
+        <div style="font-size:2.5rem; margin-bottom:12px;">📁</div>
+        <div style="font-size:1.1rem; font-weight:700; color:var(--text); margin-bottom:6px;">Aucun point d'accès sFTP configuré</div>
+        <div style="font-size:0.85rem; color:var(--subtext0); max-width:440px; margin:0 auto 16px auto;">
+          Créez un partage sFTP pour permettre à vos utilisateurs SSH de transférer des fichiers en toute sécurité avec isolation Chroot.
+        </div>
+        <button type="button" class="btn btn-primary" onclick="openCreateSftpShareModal()">
+          <span>➕</span> Créer un Partage sFTP
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  const primaryIp = currentSftpData?.primary_lan_ip || window.location.hostname;
+  const port = currentSftpData?.port || 22;
+
+  container.innerHTML = shares.map(share => {
+    let cardClass = "";
+    if (share.chroot_enforced) {
+      cardClass = "chroot";
+    } else if (share.read_only) {
+      cardClass = "readonly";
+    }
+
+    const badges = [];
+    if (share.chroot_enforced) {
+      badges.push(`<span class="badge" style="background:rgba(148,226,213,0.15); color:var(--teal); border:1px solid rgba(148,226,213,0.3);" title="Confinement strict : l'utilisateur ne peut pas remonter au-dessus de ce dossier">🏰 Prison Chroot</span>`);
+    } else {
+      badges.push(`<span class="badge badge-secondary" title="Accès système standard">🌐 Accès Système</span>`);
+    }
+
+    if (share.read_only) {
+      badges.push(`<span class="badge badge-warning" title="Upload interdit">🔒 Lecture Seule (-R)</span>`);
+    } else {
+      badges.push(`<span class="badge badge-success" title="Envoi et modification de fichiers autorisés">✏️ Lecture / Écriture</span>`);
+    }
+
+    let usersDisplay = `<span style="color:var(--subtext0); font-style:italic;">Aucun utilisateur restreint</span>`;
+    if (share.allowed_users && share.allowed_users.length > 0) {
+      usersDisplay = share.allowed_users.map(u => {
+        const canWrite = !share.read_only && share.write_users && share.write_users.includes(u);
+        return `<span class="badge ${canWrite ? "badge-primary" : "badge-secondary"}" style="font-size:0.75rem;">👤 ${escapeHtml(u)} ${canWrite ? "(RW)" : "(RO)"}</span>`;
+      }).join(" ");
+    }
+
+    const firstUser = (share.allowed_users && share.allowed_users[0]) || "chomiam";
+    const sftpUri = `sftp://${firstUser}@${primaryIp}:${port}${share.path}`;
+
+    return `
+      <div class="sftp-share-card ${cardClass}" id="sftp-card-${escapeHtml(share.id)}">
+        <div class="sftp-share-header">
+          <div class="sftp-share-title-group">
+            <div class="sftp-share-badge-icon">📁</div>
+            <div>
+              <div class="sftp-share-name">${escapeHtml(share.name)}</div>
+              <div class="sftp-share-comment">${escapeHtml(share.comment || "Point d'accès sFTP sécurisé")}</div>
+            </div>
+          </div>
+
+          <div class="sftp-share-badges">
+            ${badges.join(" ")}
+          </div>
+
+          <div class="sftp-share-actions">
+            <button type="button" class="btn btn-secondary btn-xs" onclick="copyTextToClipboard('${sftpUri}', 'URI sFTP copiée !')" title="Copier l'URI complète : ${sftpUri}">
+              📋 Copier URI
+            </button>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="openEditSftpShareModal('${escapeHtml(share.id)}')" title="Modifier la configuration du partage">
+              ✏️ Modifier
+            </button>
+            <button type="button" class="btn btn-danger btn-xs" onclick="deleteSftpShareConfirm('${escapeHtml(share.id)}', '${escapeHtml(share.name)}')" title="Supprimer ce partage">
+              🗑️
+            </button>
+          </div>
+        </div>
+
+        <div class="sftp-share-meta-row">
+          <div>
+            <div class="sftp-share-field-label">Chemin Unix Réel :</div>
+            <div class="sftp-share-field-val">
+              <code class="sftp-share-path-code">${escapeHtml(share.path)}</code>
+              <button type="button" class="btn-copy-uri" onclick="copyTextToClipboard('${escapeHtml(share.path)}', 'Chemin copié !')" title="Copier le chemin">📋</button>
+            </div>
+          </div>
+
+          <div>
+            <div class="sftp-share-field-label">Utilisateurs SSH Autorisés :</div>
+            <div class="sftp-share-field-val">
+              ${usersDisplay}
+            </div>
+          </div>
+
+          <div>
+            <div class="sftp-share-field-label">Sous-système :</div>
+            <div class="sftp-share-field-val">
+              <span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--subtext1);">internal-sftp (OpenSSH 10.5)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderSftpUsersTable(users) {
+  const tbody = document.getElementById("sftp-users-tbody");
+  if (!tbody) return;
+
+  if (!users || users.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--subtext0); padding:20px;">Aucun utilisateur avec accès SSH détecté.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = users.map(u => {
+    const keyBadge = u.has_ssh_keys 
+      ? `<span class="badge badge-success">🔑 ${u.ssh_keys_count} clé${u.ssh_keys_count > 1 ? "s" : ""} SSH</span>`
+      : `<span class="badge badge-warning">⚠️ Mot de passe seul</span>`;
+
+    return `
+      <tr>
+        <td>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="width:28px; height:28px; border-radius:50%; background:rgba(203,166,247,0.2); color:var(--mauve); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem;">
+              ${escapeHtml(u.username.substring(0, 2).toUpperCase())}
+            </div>
+            <strong>${escapeHtml(u.username)}</strong>
+          </div>
+        </td>
+        <td>
+          <div>${escapeHtml(u.full_name)}</div>
+          <div style="font-size:0.75rem; color:var(--subtext0);">${escapeHtml(u.role)}</div>
+        </td>
+        <td>
+          <code style="color:var(--teal); font-size:0.8rem;">${escapeHtml(u.chroot_dir || u.home_dir)}</code>
+        </td>
+        <td>
+          ${keyBadge}
+        </td>
+        <td>
+          <code style="color:var(--subtext1); font-size:0.75rem;">${escapeHtml(u.shell)}</code>
+        </td>
+        <td style="text-align:right;">
+          <span class="badge badge-success">● Actif</span>
+        </td>
+      </tr>
+    `;
+  }).join("");
+}
+
+function renderSftpSessionsTable(sessions) {
+  const tbody = document.getElementById("sftp-sessions-tbody");
+  if (!tbody) return;
+
+  if (!sessions || sessions.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--subtext0); padding:20px;">Aucune session sFTP ou SSH active en direct.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = sessions.map(s => `
+    <tr>
+      <td><strong>👤 ${escapeHtml(s.user)}</strong></td>
+      <td>
+        <code style="color:var(--sapphire); font-weight:600;">${escapeHtml(s.client_ip)}:${s.client_port}</code>
+      </td>
+      <td>
+        <span class="badge ${s.session_type.includes("sFTP") ? "badge-primary" : "badge-info"}">${escapeHtml(s.session_type)}</span>
+      </td>
+      <td>
+        <span class="badge badge-success">● Connecté</span>
+      </td>
+      <td style="text-align:right;">
+        ${s.pid ? `
+          <button type="button" class="btn btn-danger btn-xs" onclick="disconnectSftpSession(${s.pid})" title="Déconnecter cette session (kill PID ${s.pid})">
+            🔌 Déconnecter
+          </button>
+        ` : "-"}
+      </td>
+    </tr>
+  `).join("");
+}
+
+function renderSftpLogsTable(logs) {
+  const tbody = document.getElementById("sftp-logs-tbody");
+  if (!tbody) return;
+
+  if (!logs || logs.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--subtext0); padding:20px;">Aucun événement d'audit récent.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = logs.map(l => {
+    let badgeClass = "badge-secondary";
+    let eventLabel = l.event_type;
+
+    if (l.event_type === "accepted") {
+      badgeClass = "badge-success";
+      eventLabel = "✅ Connexion Réussie";
+    } else if (l.event_type === "failed") {
+      badgeClass = "badge-danger";
+      eventLabel = "❌ Échec Auth";
+    } else if (l.event_type === "closed") {
+      badgeClass = "badge-info";
+      eventLabel = "🔌 Déconnexion";
+    } else if (l.event_type === "banned") {
+      badgeClass = "badge-purple";
+      eventLabel = "🛡️ IP Bannie (Fail2ban)";
+    }
+
+    return `
+      <tr>
+        <td><span style="font-size:0.78rem; color:var(--subtext1); font-family:var(--font-mono);">${escapeHtml(l.timestamp)}</span></td>
+        <td><span class="badge ${badgeClass}" style="font-size:0.75rem;">${eventLabel}</span></td>
+        <td><strong>${escapeHtml(l.user)}</strong></td>
+        <td><code>${escapeHtml(l.ip)}</code></td>
+      </tr>
+    `;
+  }).join("");
+}
+
+// =========================================================================
+// MODALE PARTAGE sFTP (CRÉATION / MODIFICATION)
+// =========================================================================
+
+function openCreateSftpShareModal() {
+  document.getElementById("modal-sftp-share-title").textContent = "Nouveau Partage Réseau sFTP";
+  document.getElementById("sftp-share-id").value = "";
+  document.getElementById("sftp-share-name").value = "";
+  document.getElementById("sftp-share-name").readOnly = false;
+  document.getElementById("sftp-share-comment").value = "";
+  document.getElementById("sftp-share-path").value = "/storage/data";
+  document.getElementById("sftp-opt-chroot").checked = true;
+  document.getElementById("sftp-opt-readonly").checked = false;
+
+  renderSftpUsersCheckboxes([]);
+  document.getElementById("modal-sftp-share").style.display = "flex";
+}
+
+function openEditSftpShareModal(shareId) {
+  if (!currentSftpData || !currentSftpData.shares) return;
+  const share = currentSftpData.shares.find(s => s.id === shareId);
+  if (!share) {
+    showToast("Partage introuvable", "error");
+    return;
+  }
+
+  document.getElementById("modal-sftp-share-title").textContent = `Modifier le Partage sFTP : ${share.name}`;
+  document.getElementById("sftp-share-id").value = share.id;
+  document.getElementById("sftp-share-name").value = share.name;
+  document.getElementById("sftp-share-name").readOnly = true;
+  document.getElementById("sftp-share-comment").value = share.comment || "";
+  document.getElementById("sftp-share-path").value = share.path || "";
+  document.getElementById("sftp-opt-chroot").checked = share.chroot_enforced !== false;
+  document.getElementById("sftp-opt-readonly").checked = !!share.read_only;
+
+  renderSftpUsersCheckboxes(share.allowed_users || []);
+  document.getElementById("modal-sftp-share").style.display = "flex";
+}
+
+function closeSftpShareModal() {
+  document.getElementById("modal-sftp-share").style.display = "none";
+}
+
+function setSftpSharePathPreset(presetPath) {
+  document.getElementById("sftp-share-path").value = presetPath;
+}
+
+function renderSftpUsersCheckboxes(selectedUsers = []) {
+  const container = document.getElementById("sftp-share-users-checkboxes");
+  if (!container) return;
+
+  const users = currentSftpData?.allowed_users || [];
+  if (users.length === 0) {
+    container.innerHTML = `<div style="color:var(--subtext0); font-size:0.8rem;">Aucun utilisateur SSH détecté.</div>`;
+    return;
+  }
+
+  container.innerHTML = users.map(u => {
+    const isChecked = selectedUsers.includes(u.username) || (selectedUsers.length === 0 && u.is_admin);
+    return `
+      <label class="sftp-user-checkbox-item">
+        <input type="checkbox" name="sftp-user-perm" value="${escapeHtml(u.username)}" ${isChecked ? "checked" : ""}>
+        <span><strong>${escapeHtml(u.username)}</strong> <small style="color:var(--subtext0);">(${escapeHtml(u.role)})</small></span>
+      </label>
+    `;
+  }).join("");
+}
+
+async function submitSftpShareForm() {
+  const id = document.getElementById("sftp-share-id").value.trim();
+  const name = document.getElementById("sftp-share-name").value.trim();
+  const path = document.getElementById("sftp-share-path").value.trim();
+  const comment = document.getElementById("sftp-share-comment").value.trim();
+
+  if (!name) {
+    showToast("Veuillez saisir un nom de partage valide.", "warning");
+    return;
+  }
+  if (!path || !path.startsWith("/")) {
+    showToast("Veuillez saisir un chemin absolu valide (ex: /storage/data).", "warning");
+    return;
+  }
+
+  const checkedUsers = [];
+  document.querySelectorAll('input[name="sftp-user-perm"]:checked').forEach(cb => {
+    checkedUsers.push(cb.value);
+  });
+
+  const payload = {
+    id: id || name.toLowerCase().replace(/\s+/g, "-"),
+    name: name,
+    path: path,
+    comment: comment,
+    read_only: document.getElementById("sftp-opt-readonly").checked,
+    chroot_enforced: document.getElementById("sftp-opt-chroot").checked,
+    allowed_users: checkedUsers,
+    write_users: document.getElementById("sftp-opt-readonly").checked ? [] : checkedUsers,
+    quota_gb: null,
+  };
+
+  const btn = document.getElementById("btn-submit-sftp-share");
+  const oldText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<span>⏳</span> Application...`;
+
+  try {
+    const url = id ? `/api/sftp/shares/${encodeURIComponent(id)}` : "/api/sftp/shares";
+    const method = id ? "PUT" : "POST";
+
+    const res = await fetch(url, {
+      method: method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || "Échec de l'enregistrement");
+
+    showToast(id ? "Partage sFTP mis à jour avec succès !" : "Nouveau partage sFTP créé !", "success");
+    closeSftpShareModal();
+    await loadSftpData();
+  } catch (err) {
+    console.error("Erreur enregistrement sFTP:", err);
+    showToast("Erreur : " + err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = oldText;
+  }
+}
+
+async function deleteSftpShareConfirm(shareId, shareName) {
+  if (!confirm(`Êtes-vous sûr de vouloir supprimer le partage sFTP « ${shareName} » ?\n\n🛡️ NOTE IMPORTANTE : Vos fichiers physiques sur le disque NE seront PAS supprimés. Seule la règle d'accès réseau sFTP est retirée.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/sftp/shares/${encodeURIComponent(shareId)}`, {
+      method: "DELETE"
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || "Échec de suppression");
+
+    showToast(`Partage sFTP « ${shareName} » supprimé avec succès.`, "success");
+    await loadSftpData();
+  } catch (err) {
+    console.error("Erreur suppression sFTP:", err);
+    showToast("Erreur lors de la suppression : " + err.message, "error");
+  }
+}
+
+// =========================================================================
+// MODALE CONFIGURATION GLOBALE sFTP
+// =========================================================================
+
+function openSftpGlobalModal() {
+  if (currentSftpData && currentSftpData.global_config) {
+    const cfg = currentSftpData.global_config;
+    document.getElementById("sftp-global-port").value = cfg.port || 22;
+    document.getElementById("sftp-global-root").value = cfg.permit_root_login || "no";
+    document.getElementById("sftp-global-chroot").value = cfg.default_chroot_dir || "/mnt/storage/sftp";
+    document.getElementById("sftp-global-max-tries").value = cfg.max_auth_tries || 5;
+    document.getElementById("sftp-global-password-auth").checked = cfg.password_authentication !== false;
+  }
+  document.getElementById("modal-sftp-global").style.display = "flex";
+}
+
+function closeSftpGlobalModal() {
+  document.getElementById("modal-sftp-global").style.display = "none";
+}
+
+async function submitSftpGlobalForm() {
+  const port = parseInt(document.getElementById("sftp-global-port").value, 10) || 22;
+  const payload = {
+    port: port,
+    permit_root_login: document.getElementById("sftp-global-root").value,
+    password_authentication: document.getElementById("sftp-global-password-auth").checked,
+    pubkey_authentication: true,
+    default_chroot_dir: document.getElementById("sftp-global-chroot").value.trim() || "/mnt/storage/sftp",
+    max_auth_tries: parseInt(document.getElementById("sftp-global-max-tries").value, 10) || 5,
+    idle_timeout_min: 15,
+  };
+
+  try {
+    const res = await fetch("/api/sftp/global", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || "Échec de l'enregistrement");
+
+    showToast("Paramètres globaux sFTP enregistrés et appliqués !", "success");
+    closeSftpGlobalModal();
+    await loadSftpData();
+  } catch (err) {
+    console.error("Erreur enregistrement global sFTP:", err);
+    showToast("Erreur : " + err.message, "error");
+  }
+}
+
+// =========================================================================
+// MODALE GUIDE DE CONNEXION INTERACTIF sFTP
+// =========================================================================
+
+function openSftpGuideModal() {
+  const ip = currentSftpData?.primary_lan_ip || window.location.hostname;
+  const port = currentSftpData?.port || 22;
+  const user = (currentSftpData?.allowed_users && currentSftpData.allowed_users[0]?.username) || "chomiam";
+
+  const hostEl = document.getElementById("sftp-guide-val-host");
+  const portEl = document.getElementById("sftp-guide-val-port");
+  const cliEl = document.getElementById("sftp-guide-cmd-cli");
+  const sshfsEl = document.getElementById("sftp-guide-cmd-sshfs");
+  const rsyncEl = document.getElementById("sftp-guide-cmd-rsync");
+
+  if (hostEl) hostEl.textContent = ip;
+  if (portEl) portEl.textContent = port;
+  if (cliEl) cliEl.textContent = `sftp -P ${port} ${user}@${ip}`;
+  if (sshfsEl) sshfsEl.textContent = `sshfs -p ${port} ${user}@${ip}:/ /mnt/nas_sftp`;
+  if (rsyncEl) rsyncEl.textContent = `rsync -avz --progress -e "ssh -p ${port}" /mon/dossier/local/ ${user}@${ip}:/storage/data/`;
+
+  switchSftpGuideTab("filezilla");
+  document.getElementById("modal-sftp-guide").style.display = "flex";
+}
+
+function closeSftpGuideModal() {
+  document.getElementById("modal-sftp-guide").style.display = "none";
+}
+
+function switchSftpGuideTab(tabKey) {
+  document.querySelectorAll(".sftp-guide-tab").forEach(tab => {
+    tab.classList.toggle("active", tab.getAttribute("data-sftp-guide") === tabKey);
+  });
+  document.querySelectorAll(".sftp-guide-pane").forEach(pane => {
+    pane.classList.toggle("active", pane.id === `sftp-guide-pane-${tabKey}`);
+  });
+}
+
+// =========================================================================
+// ACTIONS RAPIDES sFTP (RELOAD, DISCONNECT)
+// =========================================================================
+
+async function reloadSftpAction() {
+  const btn = document.getElementById("btn-reload-sftp");
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch("/api/sftp/reload", { method: "POST" });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || "Échec du rechargement");
+
+    showToast("Service SSH / sFTP rechargé avec succès sans déconnecter les sessions !", "success");
+    await loadSftpData();
+  } catch (err) {
+    console.error("Erreur rechargement sFTP:", err);
+    showToast("Erreur : " + err.message, "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function disconnectSftpSession(pid) {
+  if (!confirm(`Voulez-vous vraiment déconnecter la session SSH/sFTP associée au processus PID ${pid} ?`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/sftp/sessions/disconnect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pid: pid })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || "Échec de déconnexion");
+
+    showToast(`Session PID ${pid} déconnectée.`, "success");
+    await loadSftpData();
+  } catch (err) {
+    console.error("Erreur déconnexion session sFTP:", err);
     showToast("Erreur : " + err.message, "error");
   }
 }

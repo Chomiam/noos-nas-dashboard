@@ -44,6 +44,7 @@ mod vms;
 mod generations;
 mod users;
 mod samba;
+mod sftp;
 
 use axum::Router;
 use std::env;

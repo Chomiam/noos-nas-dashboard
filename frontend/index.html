@@ -1866,158 +1866,243 @@
 
       </div>
 
-      <!-- SOUS-ONGLET 4 : sFTP (SSH) -->
+      <!-- SOUS-ONGLET 4 : sFTP (SSH FILE TRANSFER PROTOCOL) REBÂTI HAUTE SÉCURITÉ -->
       <div id="subtab-sftp" class="network-subpane">
-        <!-- Direct sFTP Connection Box -->
-        <div class="section-card" style="border: 1px solid rgba(137, 180, 250, 0.3); background: rgba(137, 180, 250, 0.05);">
-          <div class="section-header">
-            <div class="section-title-wrap">
-              <div class="section-icon-box" style="background:rgba(137,180,250,0.2); color:var(--blue);">🚀</div>
+
+        <!-- HERO HEADER sFTP CATPPUCCIN MOCHA -->
+        <div class="sftp-hero-card">
+          <div class="sftp-hero-top">
+            <div class="sftp-hero-identity">
+              <div class="sftp-hero-icon-box">
+                <span class="sftp-hero-icon">🚀</span>
+                <span class="sftp-hero-pulse" id="sftp-hero-pulse-dot"></span>
+              </div>
               <div>
-                <div class="section-title">Lien Direct sFTP / SSH Sécurisé</div>
-                <div class="section-subtitle">Transférez vos fichiers via le protocole SSH chiffré de bout en bout</div>
+                <div class="sftp-hero-title-row">
+                  <h2 class="sftp-hero-title">Serveur & Partages sFTP (SSH Chiffré)</h2>
+                  <span class="sftp-port-tag" id="sftp-port-badge">Port 22 TCP</span>
+                  <span class="sftp-status-tag active" id="sftp-status-badge">● OpenSSH En Ligne</span>
+                  <span class="sftp-fail2ban-tag" id="sftp-fail2ban-badge">🛡️ Fail2ban Actif</span>
+                </div>
+                <p class="sftp-hero-desc">
+                  Transferts distants chiffrés de bout en bout avec isolation stricte en prison Chroot, contrôle d'accès réservé aux utilisateurs SSH autorisés, et protection contre les attaques par force brute.
+                </p>
               </div>
             </div>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="restartServiceAction('sshd')">
-              🔄 Redémarrer SSH
-            </button>
-          </div>
-          <div style="background:var(--mantle); padding:14px 18px; border-radius:var(--radius-md); font-family:var(--font-mono); font-size:0.95rem; color:var(--teal); display:flex; align-items:center; justify-content:space-between; border:1px solid rgba(255,255,255,0.06); margin-top:8px;">
-            <span id="sftp-connection-uri">sftp://chomiam@192.168.1.20:22</span>
-            <div style="display:flex; gap:10px; align-items:center;">
-              <span class="badge badge-success">Port SSH 22 Ouvert</span>
-              <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('sftp-connection-uri', 'URI sFTP copiée !')">
-                📋 Copier l'URI
+
+            <!-- Actions globales sFTP -->
+            <div class="sftp-hero-actions">
+              <button type="button" class="btn btn-primary" onclick="openCreateSftpShareModal()">
+                <span>➕</span> Nouveau Partage sFTP
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="openSftpGlobalModal()" title="Paramètres globaux SSH & sFTP">
+                <span>⚙️</span> Configuration
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="openSftpGuideModal()" title="Guide de connexion pour FileZilla, Cyberduck, WinSCP et Terminal">
+                <span>📖</span> Guide Connexion
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="reloadSftpAction()" id="btn-reload-sftp" title="Recharger la configuration SSH sans déconnecter les sessions">
+                <span>🔄</span> Recharger
               </button>
             </div>
           </div>
+
+          <!-- BANNIÈRE DES ADRESSES ET COMMANDES DE CONNEXION RAPIDE -->
+          <div class="sftp-uris-grid">
+            <div class="sftp-uri-card client">
+              <div class="sftp-uri-os">
+                <span class="sftp-os-icon">📁</span>
+                <span class="sftp-os-name">URI Client (FileZilla / Cyberduck / WinSCP)</span>
+              </div>
+              <div class="sftp-uri-value-row">
+                <code class="sftp-uri-code" id="sftp-uri-val-client">sftp://chomiam@192.168.1.139:22</code>
+                <button type="button" class="btn-copy-uri" onclick="copyElementText('sftp-uri-val-client', 'URI sFTP copiée !')" title="Copier l'URI sFTP">📋</button>
+              </div>
+            </div>
+
+            <div class="sftp-uri-card cli">
+              <div class="sftp-uri-os">
+                <span class="sftp-os-icon">💻</span>
+                <span class="sftp-os-name">Ligne de Commande Terminal (Linux / Mac / PowerShell)</span>
+              </div>
+              <div class="sftp-uri-value-row">
+                <code class="sftp-uri-code" id="sftp-uri-val-cli">sftp -P 22 chomiam@192.168.1.139</code>
+                <button type="button" class="btn-copy-uri" onclick="copyElementText('sftp-uri-val-cli', 'Commande terminal copiée !')" title="Copier la commande sftp">📋</button>
+              </div>
+            </div>
+
+            <div class="sftp-uri-card sshfs">
+              <div class="sftp-uri-os">
+                <span class="sftp-os-icon">🔗</span>
+                <span class="sftp-os-name">Montage Réseau Distant (sshfs)</span>
+              </div>
+              <div class="sftp-uri-value-row">
+                <code class="sftp-uri-code" id="sftp-uri-val-sshfs">sshfs -p 22 chomiam@192.168.1.139:/ /mnt/nas</code>
+                <button type="button" class="btn-copy-uri" onclick="copyElementText('sftp-uri-val-sshfs', 'Commande sshfs copiée !')" title="Copier la commande de montage">📋</button>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <!-- Spécifications et configuration -->
-        <div class="metrics-grid">
-          <div class="metric-card">
-            <div class="metric-header">
-              <span class="metric-title">Port d'écoute SSH</span>
-              <span class="metric-icon">🔌</span>
+        <!-- 4 KPIS EN CARTES CATPPUCCIN MOCHA -->
+        <div class="sftp-kpis-grid">
+          <div class="sftp-kpi-card">
+            <div class="sftp-kpi-icon-wrap blue">🔌</div>
+            <div class="sftp-kpi-content">
+              <div class="sftp-kpi-label">Port & Démon</div>
+              <div class="sftp-kpi-val" id="sftp-kpi-port-val">Port 22</div>
+              <div class="sftp-kpi-sub" id="sftp-kpi-port-sub">OpenSSH 10.5 Chiffré</div>
             </div>
-            <div class="metric-value">22</div>
-            <div class="metric-sub" style="color:var(--green);">● Chiffrement OpenSSH actif</div>
           </div>
-          <div class="metric-card">
-            <div class="metric-header">
-              <span class="metric-title">Racine d'isolation (Chroot)</span>
-              <span class="metric-icon">🔒</span>
+
+          <div class="sftp-kpi-card">
+            <div class="sftp-kpi-icon-wrap sapphire">📂</div>
+            <div class="sftp-kpi-content">
+              <div class="sftp-kpi-label">Partages sFTP</div>
+              <div class="sftp-kpi-val" id="sftp-kpi-shares-count">-</div>
+              <div class="sftp-kpi-sub" id="sftp-kpi-shares-sub">Chargement...</div>
             </div>
-            <div class="metric-value" style="font-size:1.1rem; font-family:var(--font-mono);">/mnt/storage/sftp</div>
-            <div class="metric-sub" style="color:var(--mauve);">Utilisateurs restreints à leur dossier</div>
           </div>
-          <div class="metric-card">
-            <div class="metric-header">
-              <span class="metric-title">Protection Anti-Bruteforce</span>
-              <span class="metric-icon">🛡️</span>
+
+          <div class="sftp-kpi-card">
+            <div class="sftp-kpi-icon-wrap mauve">👥</div>
+            <div class="sftp-kpi-content">
+              <div class="sftp-kpi-label">Accès SSH Autorisés</div>
+              <div class="sftp-kpi-val" id="sftp-kpi-users-count">-</div>
+              <div class="sftp-kpi-sub" id="sftp-kpi-users-sub">Comptes avec droit SSH</div>
             </div>
-            <div class="metric-value" style="font-size:1.1rem; color:var(--green);">Fail2ban Active</div>
-            <div class="metric-sub" style="color:var(--subtext0);">Bannissement après 5 échecs</div>
+          </div>
+
+          <div class="sftp-kpi-card">
+            <div class="sftp-kpi-icon-wrap green">🛡️</div>
+            <div class="sftp-kpi-content">
+              <div class="sftp-kpi-label">Chroot & Sécurité</div>
+              <div class="sftp-kpi-val" id="sftp-kpi-security-val">Prison Chroot</div>
+              <div class="sftp-kpi-sub" id="sftp-kpi-security-sub">Fail2ban Actif (0 IP bannie)</div>
+            </div>
           </div>
         </div>
 
-        <!-- Guide de connexion pour les logiciels sFTP -->
-        <div class="section-card">
-          <div class="section-header">
+        <!-- SECTION 1 : PARTAGES sFTP DÉCLARÉS -->
+        <div class="section-card" style="margin-top:20px;">
+          <div class="section-header" style="justify-content:space-between; flex-wrap:wrap; gap:12px;">
             <div class="section-title-wrap">
-              <div class="section-icon-box">💻</div>
+              <div class="section-icon-box" style="background:rgba(137,180,250,0.18); color:var(--blue);">🗂️</div>
               <div>
-                <div class="section-title">Guide Rapide de Connexion Client</div>
-                <div class="section-subtitle">Comment vous connecter avec vos logiciels préférés</div>
+                <div class="section-title">Points d'Accès & Partages sFTP</div>
+                <div class="section-subtitle">Répertoires exposés via SSH avec confinement Chroot Jail et attribution des permissions aux utilisateurs SSH</div>
               </div>
             </div>
+            <button type="button" class="btn btn-primary btn-sm" onclick="openCreateSftpShareModal()">
+              <span>➕</span> Nouveau Partage sFTP
+            </button>
           </div>
-          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:14px;">
-            <div style="background:var(--mantle); padding:14px; border-radius:var(--radius-md); border:1px solid rgba(255,255,255,0.05);">
-              <div style="font-weight:700; color:var(--text); margin-bottom:6px;">📁 FileZilla / Cyberduck / WinSCP</div>
-              <div style="font-size:0.83rem; color:var(--subtext1); line-height:1.5;">
-                Protocole : <code>SFTP - SSH File Transfer Protocol</code><br>
-                Hôte : <code class="sftp-host-code">192.168.1.20</code> | Port : <code>22</code><br>
-                Identifiant : votre compte administrateur STEvE_OS
-              </div>
-            </div>
-            <div style="background:var(--mantle); padding:14px; border-radius:var(--radius-md); border:1px solid rgba(255,255,255,0.05);">
-              <div style="font-weight:700; color:var(--text); margin-bottom:6px;">💻 Terminal (Linux / macOS / PowerShell)</div>
-              <div style="font-size:0.83rem; color:var(--subtext1); line-height:1.5;">
-                Ligne de commande directe :<br>
-                <code style="color:var(--green); display:block; margin-top:4px;" id="sftp-terminal-cmd">sftp chomiam@192.168.1.20</code>
-              </div>
+
+          <div class="sftp-shares-cards-container" id="sftp-shares-list">
+            <div style="padding:32px; text-align:center; color:var(--subtext0);">
+              <div class="spinner-small" style="margin:0 auto 12px auto;"></div>
+              Chargement des partages sFTP...
             </div>
           </div>
         </div>
 
-        <!-- Sessions sFTP / SSH actives -->
-        <div class="section-card">
-          <div class="section-header">
+        <!-- SECTION 2 : UTILISATEURS DU NAS AYANT L'ACCÈS SSH / sFTP -->
+        <div class="section-card" style="margin-top:20px;">
+          <div class="section-header" style="justify-content:space-between; flex-wrap:wrap; gap:12px;">
             <div class="section-title-wrap">
-              <div class="section-icon-box">👥</div>
+              <div class="section-icon-box" style="background:rgba(203,166,247,0.18); color:var(--mauve);">🔑</div>
               <div>
-                <div class="section-title">Sessions SSH & sFTP Connectées en Direct</div>
-                <div class="section-subtitle">Utilisateurs actuellement identifiés sur le serveur SSH</div>
+                <div class="section-title">Utilisateurs Autorisés pour SSH & sFTP</div>
+                <div class="section-subtitle">Comptes système disposant d'un accès shell/distant et pouvant s'authentifier sur le serveur sFTP</div>
               </div>
             </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span class="sftp-info-pill">💡 Pour autoriser un autre utilisateur, activez son accès SSH dans <strong>Utilisateurs</strong></span>
+              <a href="#" onclick="switchTab('tab-users')" class="btn btn-secondary btn-xs" style="text-decoration:none;">👤 Gérer les Comptes</a>
+            </div>
           </div>
-          <table class="custom-table">
-            <thead>
-              <tr>
-                <th>Utilisateur</th>
-                <th>Adresse IP Cliente</th>
-                <th>Protocole</th>
-                <th>Heure de Connexion</th>
-              </tr>
-            </thead>
-            <tbody id="sftp-sessions-tbody">
-              <tr><td colspan="4" style="text-align:center; color:var(--subtext0);">Aucune session active détectée.</td></tr>
-            </tbody>
-          </table>
+
+          <div class="table-responsive">
+            <table class="custom-table">
+              <thead>
+                <tr>
+                  <th>Utilisateur</th>
+                  <th>Nom Complet & Rôle</th>
+                  <th>Dossier Racine (Chroot)</th>
+                  <th>Authentification Clés SSH</th>
+                  <th>Shell Système</th>
+                  <th style="text-align:right;">Statut sFTP</th>
+                </tr>
+              </thead>
+              <tbody id="sftp-users-tbody">
+                <tr><td colspan="6" style="text-align:center; color:var(--subtext0); padding:20px;">Chargement des utilisateurs SSH...</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
-      <div class="section-card">
-        <div class="section-header">
-          <div class="section-title-wrap">
-            <div class="section-icon-box">📁</div>
-            <div>
-              <div class="section-title">Partages Réseau Actifs (Samba / NFS / sFTP)</div>
-              <div class="section-subtitle">Dossiers accessibles sur le réseau local et distants</div>
+        <!-- SECTION 3 : MONITORING SESSIONS EN DIRECT & JOURNAL D'AUDIT -->
+        <div class="sftp-monitoring-grid">
+          <!-- Carte 1 : Sessions actives -->
+          <div class="section-card">
+            <div class="section-header" style="justify-content:space-between;">
+              <div class="section-title-wrap">
+                <div class="section-icon-box" style="background:rgba(116,199,236,0.18); color:var(--sapphire);">👥</div>
+                <div>
+                  <div class="section-title">Sessions SSH & sFTP en Direct</div>
+                  <div class="section-subtitle">Connexions actuellement établies sur le port SSH</div>
+                </div>
+              </div>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="loadSftpData()">🔄 Actualiser</button>
+            </div>
+            <div class="table-responsive">
+              <table class="custom-table">
+                <thead>
+                  <tr>
+                    <th>Utilisateur</th>
+                    <th>Client (IP:Port)</th>
+                    <th>Type de Session</th>
+                    <th>Statut</th>
+                    <th style="text-align:right;">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="sftp-sessions-tbody">
+                  <tr><td colspan="5" style="text-align:center; color:var(--subtext0); padding:20px;">Aucune session sFTP ou SSH active.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Carte 2 : Journal d'audit et tentatives -->
+          <div class="section-card">
+            <div class="section-header">
+              <div class="section-title-wrap">
+                <div class="section-icon-box" style="background:rgba(166,227,161,0.18); color:var(--green);">📜</div>
+                <div>
+                  <div class="section-title">Journal de Sécurité SSH / sFTP</div>
+                  <div class="section-subtitle">Derniers événements d'authentification et surveillance Fail2ban</div>
+                </div>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="custom-table">
+                <thead>
+                  <tr>
+                    <th>Horodatage</th>
+                    <th>Événement</th>
+                    <th>Utilisateur</th>
+                    <th>Adresse IP</th>
+                  </tr>
+                </thead>
+                <tbody id="sftp-logs-tbody">
+                  <tr><td colspan="4" style="text-align:center; color:var(--subtext0); padding:20px;">Chargement du journal d'audit...</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
-        <div class="shares-grid" id="shares-container">
-          <div class="share-card">
-            <div class="share-title">📂 /storage/data</div>
-            <div class="share-meta">Partage Général NAS (Samba smb:// + sFTP)</div>
-            <div class="share-path">/storage/data (chomiam:users, 755)</div>
-            <div style="margin-top:12px; display:flex; gap:8px;">
-              <span class="badge badge-success">Lecture / Écriture</span>
-              <span class="badge badge-primary">Protégé Fail2ban</span>
-            </div>
-          </div>
-          <div class="share-card">
-            <div class="share-title">🎬 /storage/media</div>
-            <div class="share-meta">Bibliothèque Multimédia Jellyfin & DLNA</div>
-            <div class="share-path">/storage/media (Films, Séries, Musique)</div>
-            <div style="margin-top:12px; display:flex; gap:8px;">
-              <span class="badge badge-success">Accès Jellyfin</span>
-              <span class="badge badge-primary">Transcodage GPU</span>
-            </div>
-          </div>
-          <div class="share-card">
-            <div class="share-title">📦 /storage/backups</div>
-            <div class="share-meta">Dépôt de sauvegardes chiffrées & snapshots</div>
-            <div class="share-path">/storage/backups (Accès restreint chomiam)</div>
-            <div style="margin-top:12px; display:flex; gap:8px;">
-              <span class="badge badge-warning">Snapshot ZFS</span>
-              <span class="badge badge-primary">SSH chroot</span>
-            </div>
-          </div>
-        </div>
+
       </div>
-    </div>
 
       <!-- SOUS-ONGLET 5 : DNS (Résolveurs Réseau, Port 53 & Fallbacks) -->
       <div id="subtab-dns" class="network-subpane">
@@ -7162,9 +7247,275 @@
     </div>
   </div>
 
+  <!-- ================= MODALE : CRÉATION / MODIFICATION PARTAGE sFTP ================= -->
+  <div class="file-modal-overlay" id="modal-sftp-share" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-sftp-share')">
+    <div class="file-modal-window" style="max-width: 680px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(137, 180, 250, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-primary" style="font-size:0.75rem; font-weight:800;">sFTP / SSH</span>
+          <span class="file-modal-title" id="modal-sftp-share-title">Nouveau Partage Réseau sFTP</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeSftpShareModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:22px; max-height:calc(85vh - 120px); overflow-y:auto;">
+        <input type="hidden" id="sftp-share-id" value="">
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:16px;">
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600; color:var(--text);">Nom du Partage <span style="color:var(--red);">*</span></label>
+            <input type="text" id="sftp-share-name" class="form-input" placeholder="ex: backups, medias, data" required>
+            <div style="font-size:0.75rem; color:var(--subtext0); margin-top:4px;">Nom de référence dans le Dashboard.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600; color:var(--text);">Description / Commentaire</label>
+            <input type="text" id="sftp-share-comment" class="form-input" placeholder="ex: Dépôt distant chiffré">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:18px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <label class="form-label" style="font-weight:600; color:var(--text); margin-bottom:0;">Chemin Absolu du Dossier Partagé <span style="color:var(--red);">*</span></label>
+            <div style="display:flex; gap:6px;">
+              <button type="button" class="btn btn-secondary btn-xs" onclick="setSftpSharePathPreset('/storage/data')">📁 /storage/data</button>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="setSftpSharePathPreset('/mnt/storage/sftp')">📁 /mnt/storage/sftp</button>
+            </div>
+          </div>
+          <input type="text" id="sftp-share-path" class="form-input" placeholder="/storage/data" required>
+          <div style="font-size:0.75rem; color:var(--subtext0); margin-top:4px;">Répertoire racine vers lequel les utilisateurs sFTP seront acheminés.</div>
+        </div>
+
+        <!-- OPTIONS sFTP : CHROOT & READ-ONLY -->
+        <div style="margin-bottom:20px;">
+          <label class="form-label" style="font-weight:700; color:var(--sapphire); margin-bottom:10px; display:flex; align-items:center; gap:8px;">
+            <span>⚡</span> Sécurité & Confinement sFTP
+          </label>
+          <div class="sftp-options-grid">
+            <label class="sftp-toggle-card">
+              <div class="sftp-toggle-left">
+                <input type="checkbox" id="sftp-opt-chroot" checked>
+                <div>
+                  <div class="sftp-toggle-name">🏰 Prison Chroot Jail (Recommandé)</div>
+                  <div class="sftp-toggle-desc">Enferme l'utilisateur dans ce répertoire. Tout accès à la racine (/) et aux autres dossiers système est physiquement bloqué.</div>
+                </div>
+              </div>
+            </label>
+
+            <label class="sftp-toggle-card">
+              <div class="sftp-toggle-left">
+                <input type="checkbox" id="sftp-opt-readonly">
+                <div>
+                  <div class="sftp-toggle-name">🔒 Lecture Seule (Read-Only)</div>
+                  <div class="sftp-toggle-desc">Interdit tout envoi (upload), modification ou suppression de fichiers par les clients distants.</div>
+                </div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- ATTRIBUTION DES UTILISATEURS SSH -->
+        <div class="sftp-users-panel">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <label class="form-label" style="font-weight:700; color:var(--mauve); margin-bottom:0; display:flex; align-items:center; gap:8px;">
+              <span>🔑</span> Utilisateurs SSH Autorisés
+            </label>
+            <span style="font-size:0.75rem; color:var(--subtext0);">
+              Comptes ayant le droit d'accès SSH/sFTP
+            </span>
+          </div>
+
+          <div style="background:var(--mantle); border:1px solid rgba(255,255,255,0.06); border-radius:var(--radius-md); padding:14px;">
+            <div style="font-size:0.8rem; color:var(--subtext1); margin-bottom:10px;">
+              Cochez les comptes autorisés à monter et explorer ce partage via sFTP :
+            </div>
+            <div id="sftp-share-users-checkboxes" class="sftp-users-checkboxes-grid">
+              <div style="color:var(--subtext0); font-size:0.8rem;">Chargement des utilisateurs SSH...</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 22px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+        <button type="button" class="btn btn-secondary" onclick="closeSftpShareModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-sftp-share" onclick="submitSftpShareForm()">
+          <span>💾</span> Enregistrer & Appliquer
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODALE : CONFIGURATION GLOBALE sFTP / SSH ================= -->
+  <div class="file-modal-overlay" id="modal-sftp-global" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-sftp-global')">
+    <div class="file-modal-window" style="max-width: 620px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(137, 180, 250, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-info" style="font-size:0.75rem; font-weight:800;">OPENSSH</span>
+          <span class="file-modal-title">Paramètres Globaux SSH & sFTP</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeSftpGlobalModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:22px;">
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:16px;">
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600;">Port d'Écoute SSH</label>
+            <input type="number" id="sftp-global-port" class="form-input" min="1" max="65535" value="22">
+            <div style="font-size:0.75rem; color:var(--subtext0); margin-top:4px;">Par défaut 22. Le pare-feu est configuré automatiquement.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600;">Accès Compte Root</label>
+            <select id="sftp-global-root" class="form-select">
+              <option value="no">Désactivé (Recommandé)</option>
+              <option value="prohibit-password">Clés SSH uniquement</option>
+              <option value="yes">Autorisé avec mot de passe</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:16px;">
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600;">Racine Chroot Globale</label>
+            <input type="text" id="sftp-global-chroot" class="form-input" value="/mnt/storage/sftp">
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600;">Tentatives Max Avant Ban</label>
+            <input type="number" id="sftp-global-max-tries" class="form-input" min="1" max="20" value="5">
+          </div>
+        </div>
+
+        <div class="sftp-options-grid" style="grid-template-columns:1fr; gap:10px; margin-top:14px;">
+          <label class="sftp-toggle-card">
+            <div class="sftp-toggle-left">
+              <input type="checkbox" id="sftp-global-password-auth" checked>
+              <div>
+                <div class="sftp-toggle-name">🔑 Authentification par Mot de Passe</div>
+                <div class="sftp-toggle-desc">Permet la connexion avec le mot de passe du compte utilisateur. Décochez pour exiger impérativement une clé SSH publique.</div>
+              </div>
+            </div>
+          </label>
+
+          <label class="sftp-toggle-card">
+            <div class="sftp-toggle-left">
+              <input type="checkbox" id="sftp-global-pubkey-auth" checked disabled>
+              <div>
+                <div class="sftp-toggle-name">🛡️ Authentification par Clé Publique SSH (Toujours Active)</div>
+                <div class="sftp-toggle-desc">Supporte les clés modernes ED25519 et RSA 4096 bits pour une sécurité maximale.</div>
+              </div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 22px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+        <button type="button" class="btn btn-secondary" onclick="closeSftpGlobalModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" onclick="submitSftpGlobalForm()">
+          <span>💾</span> Enregistrer la Configuration
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODALE : GUIDE DE CONNEXION INTERACTIF sFTP ================= -->
+  <div class="file-modal-overlay" id="modal-sftp-guide" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-sftp-guide')">
+    <div class="file-modal-window" style="max-width: 780px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(137, 180, 250, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-primary" style="font-size:0.75rem; font-weight:800;">GUIDE CLIENTS</span>
+          <span class="file-modal-title">Guide de Connexion au Serveur sFTP</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeSftpGuideModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:22px;">
+        <div class="sftp-guide-nav">
+          <button type="button" class="sftp-guide-tab active" data-sftp-guide="filezilla" onclick="switchSftpGuideTab('filezilla')">📁 FileZilla</button>
+          <button type="button" class="sftp-guide-tab" data-sftp-guide="cyberduck" onclick="switchSftpGuideTab('cyberduck')">🦆 Cyberduck / WinSCP</button>
+          <button type="button" class="sftp-guide-tab" data-sftp-guide="terminal" onclick="switchSftpGuideTab('terminal')">💻 Terminal & sshfs</button>
+          <button type="button" class="sftp-guide-tab" data-sftp-guide="rsync" onclick="switchSftpGuideTab('rsync')">🔄 Sync rsync / Scripts</button>
+          <button type="button" class="sftp-guide-tab" data-sftp-guide="mobile" onclick="switchSftpGuideTab('mobile')">📱 iOS / Android</button>
+        </div>
+
+        <!-- FileZilla -->
+        <div id="sftp-guide-pane-filezilla" class="sftp-guide-pane active">
+          <h4 style="color:var(--sapphire); margin-bottom:8px;">Configuration dans FileZilla</h4>
+          <ol class="sftp-guide-steps">
+            <li>Ouvrez <em>Fichier &gt; Gestionnaire de sites</em> (<kbd>Ctrl</kbd> + <kbd>S</kbd>) et cliquez sur <strong>Nouveau site</strong>.</li>
+            <li>Sélectionnez le protocole : <strong style="color:var(--teal);">SFTP - SSH File Transfer Protocol</strong>.</li>
+            <li>
+              Hôte : <code id="sftp-guide-val-host">192.168.1.139</code> | Port : <code id="sftp-guide-val-port">22</code>
+            </li>
+            <li>Type d'authentification : <em>Normal</em> (avec identifiant et mot de passe de votre compte) ou <em>Fichier de clé</em> si vous utilisez une clé SSH privée.</li>
+            <li>Cliquez sur <strong>Connexion</strong>. Acceptez la première empreinte de clé d'hôte du NAS.</li>
+          </ol>
+        </div>
+
+        <!-- Cyberduck / WinSCP -->
+        <div id="sftp-guide-pane-cyberduck" class="sftp-guide-pane">
+          <h4 style="color:var(--teal); margin-bottom:8px;">Configuration Cyberduck & WinSCP</h4>
+          <ol class="sftp-guide-steps">
+            <li><strong>WinSCP :</strong> Choisissez <em>SFTP</em> dans le menu déroulant du protocole, entrez l'adresse IP du NAS et votre compte. WinSCP gère la reprise automatique des téléchargements interrompus.</li>
+            <li><strong>Cyberduck (macOS / Windows) :</strong> Cliquez sur <em>Ouvrir une connexion</em>, choisissez <em>SFTP (SSH File Transfer Protocol)</em>, serveur <code>192.168.1.139</code>, port <code>22</code>.</li>
+            <li>Cochez <em>Ajouter au trousseau</em> pour enregistrer les identifiants de manière sécurisée.</li>
+          </ol>
+        </div>
+
+        <!-- Terminal & sshfs -->
+        <div id="sftp-guide-pane-terminal" class="sftp-guide-pane">
+          <h4 style="color:var(--peach); margin-bottom:8px;">Ligne de Commande & Montage Réseau Virtuel (sshfs)</h4>
+          <ol class="sftp-guide-steps">
+            <li>
+              <strong>Client interactif sftp :</strong>
+              <div class="sftp-guide-code-box">
+                <code id="sftp-guide-cmd-cli">sftp -P 22 chomiam@192.168.1.139</code>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('sftp-guide-cmd-cli', 'Copié !')">📋</button>
+              </div>
+            </li>
+            <li>
+              <strong>Montage direct du dossier NAS sur votre ordinateur (Linux/Mac) :</strong>
+              <div class="sftp-guide-code-box">
+                <code id="sftp-guide-cmd-sshfs">sshfs -p 22 chomiam@192.168.1.139:/ /mnt/nas_sftp</code>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('sftp-guide-cmd-sshfs', 'Copié !')">📋</button>
+              </div>
+            </li>
+          </ol>
+        </div>
+
+        <!-- rsync -->
+        <div id="sftp-guide-pane-rsync" class="sftp-guide-pane">
+          <h4 style="color:var(--green); margin-bottom:8px;">Synchronisation Automatique & Sauvegardes rsync</h4>
+          <ol class="sftp-guide-steps">
+            <li>
+              <strong>Sauvegarder un dossier local vers le NAS :</strong>
+              <div class="sftp-guide-code-box">
+                <code id="sftp-guide-cmd-rsync">rsync -avz --progress -e "ssh -p 22" /mon/dossier/local/ chomiam@192.168.1.139:/storage/data/</code>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('sftp-guide-cmd-rsync', 'Copié !')">📋</button>
+              </div>
+            </li>
+            <li>L'argument <code>-z</code> compresse les données à la volée pour accélérer les transferts sur connexion WiFi ou distante.</li>
+          </ol>
+        </div>
+
+        <!-- Mobile -->
+        <div id="sftp-guide-pane-mobile" class="sftp-guide-pane">
+          <h4 style="color:var(--mauve); margin-bottom:8px;">Accès depuis iPhone, iPad et Android</h4>
+          <ol class="sftp-guide-steps">
+            <li><strong>iOS :</strong> Téléchargez <em>FE File Explorer</em> ou <em>Documents by Readdle</em> &gt; <em>Ajouter une connexion</em> &gt; <em>SFTP</em>.</li>
+            <li><strong>Android :</strong> Installez <em>Solid Explorer</em> ou <em>CX File Explorer</em> &gt; <em>Nouveau stockage réseau</em> &gt; <em>SFTP</em>.</li>
+            <li>Vous pouvez parcourir, éditer des documents bureautiques et regarder des vidéos en streaming direct sur le réseau cellulaire 4G/5G en toute sécurité.</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 20px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end;">
+        <button type="button" class="btn btn-primary" onclick="closeSftpGuideModal()">Compris !</button>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /#app-shell -->
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20261001_12"></script>
+  <script src="/js/app.js?v=20261001_13"></script>
 </body>
 </html>

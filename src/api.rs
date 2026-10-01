@@ -41,6 +41,13 @@ use crate::firewall::{
     update_custom_rule, CreatePortRuleRequest, CustomPortRule, FirewallOverview,
     ToggleFirewallRequest, UpdatePortRuleRequest,
 };
+use crate::sftp::{
+    create_sftp_share, delete_sftp_share, disconnect_sftp_session,
+    get_sftp_allowed_users, get_sftp_overview, reload_sshd_service,
+    save_sftp_global_config, update_sftp_share, CreateSftpShareRequest,
+    DisconnectSftpSessionRequest, SftpGlobalConfig, SftpOverview, SftpShare,
+    SftpUserAccess, UpdateSftpGlobalRequest,
+};
 use crate::samba::{
     create_samba_share, delete_samba_share, disconnect_samba_session,
     get_samba_diagnostics, get_samba_overview, reload_samba_service,
@@ -172,6 +179,14 @@ pub fn api_routes() -> Router {
         .route("/samba/reload", post(handle_samba_reload))
         .route("/samba/diagnostics", get(handle_samba_diagnostics))
         .route("/samba/sessions/disconnect", post(handle_samba_disconnect_session))
+
+        .route("/sftp", get(handle_sftp_overview))
+        .route("/sftp/users", get(handle_sftp_users))
+        .route("/sftp/shares", post(handle_sftp_create_share))
+        .route("/sftp/shares/:id", put(handle_sftp_update_share).delete(handle_sftp_delete_share))
+        .route("/sftp/global", post(handle_sftp_update_global))
+        .route("/sftp/reload", post(handle_sftp_reload))
+        .route("/sftp/sessions/disconnect", post(handle_sftp_disconnect_session))
 
         .route("/firewall", get(handle_firewall))
         .route("/firewall/toggle", post(handle_firewall_toggle))
@@ -2303,6 +2318,138 @@ async fn handle_samba_disconnect_session(
     Json(body): Json<DisconnectSessionRequest>,
 ) -> Json<ApiResponse<()>> {
     match disconnect_samba_session(&body.pid) {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            data: Some(()),
+            message: Some(format!("Session PID {} déconnectée.", body.pid)),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+
+// =========================================================================
+// 🚀 GESTION sFTP (SSH FILE TRANSFER PROTOCOL) DYNAMIQUE & SÉCURISÉE
+// =========================================================================
+
+async fn handle_sftp_overview() -> Json<ApiResponse<SftpOverview>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(get_sftp_overview()),
+        message: None,
+    })
+}
+
+async fn handle_sftp_users() -> Json<ApiResponse<Vec<SftpUserAccess>>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(get_sftp_allowed_users()),
+        message: None,
+    })
+}
+
+async fn handle_sftp_create_share(
+    Json(body): Json<CreateSftpShareRequest>,
+) -> Json<ApiResponse<SftpShare>> {
+    match create_sftp_share(body) {
+        Ok(share) => Json(ApiResponse {
+            success: true,
+            data: Some(share),
+            message: Some("Partage sFTP créé avec succès !".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_sftp_update_share(
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(body): Json<CreateSftpShareRequest>,
+) -> Json<ApiResponse<SftpShare>> {
+    match update_sftp_share(&id, body) {
+        Ok(share) => Json(ApiResponse {
+            success: true,
+            data: Some(share),
+            message: Some("Partage sFTP mis à jour avec succès !".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_sftp_delete_share(
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Json<ApiResponse<()>> {
+    match delete_sftp_share(&id) {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            data: Some(()),
+            message: Some("Partage sFTP supprimé.".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_sftp_update_global(
+    Json(body): Json<UpdateSftpGlobalRequest>,
+) -> Json<ApiResponse<SftpGlobalConfig>> {
+    let mut cfg = crate::sftp::load_sftp_global_config();
+    if let Some(p) = body.port { cfg.port = p; }
+    if let Some(r) = body.permit_root_login { cfg.permit_root_login = r; }
+    if let Some(pw) = body.password_authentication { cfg.password_authentication = pw; }
+    if let Some(pk) = body.pubkey_authentication { cfg.pubkey_authentication = pk; }
+    if let Some(ch) = body.default_chroot_dir { cfg.default_chroot_dir = ch; }
+    if let Some(m) = body.max_auth_tries { cfg.max_auth_tries = m; }
+    if let Some(to) = body.idle_timeout_min { cfg.idle_timeout_min = to; }
+
+    match save_sftp_global_config(&cfg) {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            data: Some(cfg),
+            message: Some("Configuration globale sFTP enregistrée.".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_sftp_reload() -> Json<ApiResponse<String>> {
+    if reload_sshd_service() {
+        Json(ApiResponse {
+            success: true,
+            data: Some("Service SSH / sFTP rechargé avec succès.".into()),
+            message: Some("Service SSH / sFTP rechargé.".into()),
+        })
+    } else {
+        Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some("Échec du rechargement du service SSH.".into()),
+        })
+    }
+}
+
+async fn handle_sftp_disconnect_session(
+    Json(body): Json<DisconnectSftpSessionRequest>,
+) -> Json<ApiResponse<()>> {
+    match disconnect_sftp_session(body.pid) {
         Ok(_) => Json(ApiResponse {
             success: true,
             data: Some(()),

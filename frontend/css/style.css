@@ -14519,3 +14519,532 @@ body.app-updating-reload #app-shell {
   font-size: 0.78rem;
   color: var(--blue);
 }
+
+
+/* ==========================================================================
+   sFTP (SSH FILE TRANSFER PROTOCOL) CATPPUCCIN MOCHA STYLING & MODULES
+   ========================================================================== */
+
+/* Hero Header sFTP */
+.sftp-hero-card {
+  background: linear-gradient(135deg, rgba(137, 180, 250, 0.08) 0%, rgba(116, 199, 236, 0.05) 50%, rgba(30, 30, 46, 0.95) 100%);
+  border: 1px solid rgba(137, 180, 250, 0.22);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  margin-bottom: 20px;
+}
+
+.sftp-hero-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.sftp-hero-identity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: 720px;
+}
+
+.sftp-hero-icon-box {
+  position: relative;
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(137, 180, 250, 0.25), rgba(116, 199, 236, 0.15));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(137, 180, 250, 0.35);
+  flex-shrink: 0;
+}
+
+.sftp-hero-icon {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.sftp-hero-pulse {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 10px var(--green);
+  animation: pulse-dot 2s infinite ease-in-out;
+}
+
+.sftp-hero-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.sftp-hero-title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+
+.sftp-port-tag {
+  background: rgba(137, 180, 250, 0.15);
+  color: var(--blue);
+  border: 1px solid rgba(137, 180, 250, 0.3);
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+.sftp-status-tag {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.sftp-status-tag.active {
+  background: rgba(166, 227, 161, 0.15);
+  color: var(--green);
+  border: 1px solid rgba(166, 227, 161, 0.35);
+}
+
+.sftp-status-tag.inactive {
+  background: rgba(243, 139, 168, 0.15);
+  color: var(--red);
+  border: 1px solid rgba(243, 139, 168, 0.35);
+}
+
+.sftp-fail2ban-tag {
+  background: rgba(166, 227, 161, 0.12);
+  color: var(--green);
+  border: 1px solid rgba(166, 227, 161, 0.3);
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.sftp-hero-desc {
+  font-size: 0.86rem;
+  color: var(--subtext0);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.sftp-hero-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Quick Connection URIs */
+.sftp-uris-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.sftp-uri-card {
+  background: var(--mantle);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 12px 14px;
+  transition: all 0.2s ease;
+}
+
+.sftp-uri-card:hover {
+  border-color: var(--blue);
+  transform: translateY(-2px);
+}
+
+.sftp-uri-card.client { border-left: 3px solid var(--blue); }
+.sftp-uri-card.cli { border-left: 3px solid var(--teal); }
+.sftp-uri-card.sshfs { border-left: 3px solid var(--mauve); }
+
+.sftp-uri-os {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--subtext1);
+}
+
+.sftp-uri-value-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--crust);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  margin-top: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.sftp-uri-code {
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--green);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 4 KPIs Grid */
+.sftp-kpis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.sftp-kpi-card {
+  background: var(--surface0);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sftp-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+
+.sftp-kpi-icon-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.sftp-kpi-icon-wrap.blue { background: rgba(137, 180, 250, 0.15); color: var(--blue); }
+.sftp-kpi-icon-wrap.sapphire { background: rgba(116, 199, 236, 0.15); color: var(--sapphire); }
+.sftp-kpi-icon-wrap.mauve { background: rgba(203, 166, 247, 0.15); color: var(--mauve); }
+.sftp-kpi-icon-wrap.green { background: rgba(166, 227, 161, 0.15); color: var(--green); }
+
+.sftp-kpi-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.sftp-kpi-label {
+  font-size: 0.74rem;
+  color: var(--subtext0);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sftp-kpi-val {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.sftp-kpi-sub {
+  font-size: 0.73rem;
+  color: var(--subtext1);
+}
+
+/* Shares Cards */
+.sftp-shares-cards-container {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.sftp-share-card {
+  background: var(--surface0);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.sftp-share-card:hover {
+  border-color: rgba(137, 180, 250, 0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.sftp-share-card.chroot {
+  border-left: 4px solid var(--teal);
+}
+
+.sftp-share-card.readonly {
+  border-left: 4px solid var(--peach);
+}
+
+.sftp-share-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.sftp-share-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sftp-share-badge-icon {
+  font-size: 1.3rem;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sftp-share-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.sftp-share-comment {
+  font-size: 0.8rem;
+  color: var(--subtext0);
+  margin-top: 2px;
+}
+
+.sftp-share-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.sftp-share-meta-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.sftp-share-field-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  color: var(--subtext0);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.sftp-share-field-val {
+  font-size: 0.85rem;
+  color: var(--text);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sftp-share-path-code {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--teal);
+  background: rgba(148, 226, 213, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.sftp-share-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Monitoring section */
+.sftp-monitoring-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+@media (max-width: 1024px) {
+  .sftp-monitoring-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Toggles & Modals */
+.sftp-options-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.sftp-toggle-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sftp-toggle-card:hover {
+  border-color: rgba(137, 180, 250, 0.3);
+  background: rgba(137, 180, 250, 0.04);
+}
+
+.sftp-toggle-card input[type="checkbox"] {
+  accent-color: var(--blue);
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.sftp-toggle-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sftp-toggle-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sftp-toggle-desc {
+  font-size: 0.74rem;
+  color: var(--subtext0);
+  margin-top: 2px;
+}
+
+.sftp-users-panel {
+  margin-top: 18px;
+}
+
+.sftp-users-checkboxes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.sftp-user-checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text);
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.sftp-user-checkbox-item input[type="checkbox"] {
+  accent-color: var(--blue);
+  width: 16px;
+  height: 16px;
+}
+
+/* Guide */
+.sftp-guide-nav {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.sftp-guide-tab {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  color: var(--subtext1);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sftp-guide-tab.active {
+  background: rgba(137, 180, 250, 0.15);
+  color: var(--blue);
+  border-color: var(--blue);
+}
+
+.sftp-guide-pane {
+  display: none;
+}
+
+.sftp-guide-pane.active {
+  display: block;
+}
+
+.sftp-guide-steps {
+  padding-left: 20px;
+  font-size: 0.88rem;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.sftp-guide-steps li {
+  margin-bottom: 10px;
+}
+
+.sftp-guide-code-box {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--crust);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--green);
+}
+
+.sftp-info-pill {
+  background: rgba(203, 166, 247, 0.12);
+  border: 1px solid rgba(203, 166, 247, 0.25);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.78rem;
+  color: var(--mauve);
+}
