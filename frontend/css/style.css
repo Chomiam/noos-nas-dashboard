@@ -11475,3 +11475,154 @@ body.app-updating-reload #app-shell {
 .granny-runner[data-frame="3"] .granny-dust-puff {
   opacity: 0.9;
 }
+
+/* ==========================================================================
+   MINI-LECTEUR FLOTTANT (PICTURE-IN-PICTURE) VIDÉO & MUSIQUE
+   ========================================================================== */
+
+/* 1. Neutralisation de l'overlay : transparent et passthrough complet des clics */
+.file-modal-overlay.mini-player-mode {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  pointer-events: none !important; /* Laisse passer tous les clics vers le dashboard sous-jacent */
+  align-items: flex-start !important;
+  justify-content: flex-end !important;
+  padding: 0 !important;
+  animation: none !important;
+}
+
+/* 2. Positionnement de la fenêtre en vignette flottante en haut à droite */
+.file-modal-overlay.mini-player-mode .file-modal-window {
+  pointer-events: auto !important; /* La vignette elle-même reste interactive */
+  position: fixed !important;
+  top: 74px !important; /* Juste en-dessous de la barre des menus supérieure */
+  right: 24px !important;
+  left: auto !important;
+  bottom: auto !important;
+  margin: 0 !important;
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.8), 0 0 25px rgba(203, 166, 247, 0.28) !important;
+  border: 1px solid rgba(203, 166, 247, 0.45) !important;
+  border-radius: var(--radius-md) !important;
+  z-index: 3500 !important;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  transform: none !important;
+}
+
+/* 3. Adaptation du lecteur Vidéo MPV en mode réduit */
+.file-modal-overlay.mini-player-mode .mpv-window {
+  width: 390px !important;
+  max-width: calc(100vw - 32px) !important;
+  background: #0b0c13 !important;
+}
+
+.file-modal-overlay.mini-player-mode .mpv-header {
+  padding: 7px 10px !important;
+  cursor: grab;
+  user-select: none;
+  background: var(--mantle) !important;
+  border-bottom: 1px solid rgba(203, 166, 247, 0.2) !important;
+}
+
+.file-modal-overlay.mini-player-mode .mpv-header:active {
+  cursor: grabbing;
+}
+
+.file-modal-overlay.mini-player-mode .mpv-header .file-modal-title {
+  font-size: 0.82rem !important;
+  max-width: 170px !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-modal-overlay.mini-player-mode .mpv-player-container {
+  max-height: 220px !important;
+  background: #000;
+}
+
+.file-modal-overlay.mini-player-mode .mpv-video {
+  max-height: 220px !important;
+  width: 100% !important;
+}
+
+.file-modal-overlay.mini-player-mode .mpv-footer-info {
+  display: none !important; /* Masquer la notice des raccourcis en mode mini */
+}
+
+.file-modal-overlay.mini-player-mode #mpv-resolution-badge,
+.file-modal-overlay.mini-player-mode #mpv-open-native-btn {
+  display: none !important;
+}
+
+/* 4. Adaptation du lecteur Audio en mode réduit */
+.file-modal-overlay.mini-player-mode .audio-window {
+  width: 360px !important;
+  max-width: calc(100vw - 32px) !important;
+  background: #0d0e17 !important;
+}
+
+.file-modal-overlay.mini-player-mode .audio-header {
+  padding: 7px 10px !important;
+  cursor: grab;
+  user-select: none;
+  background: var(--mantle) !important;
+  border-bottom: 1px solid rgba(203, 166, 247, 0.2) !important;
+}
+
+.file-modal-overlay.mini-player-mode .audio-header:active {
+  cursor: grabbing;
+}
+
+.file-modal-overlay.mini-player-mode .audio-header .file-modal-title {
+  font-size: 0.82rem !important;
+  max-width: 180px !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-modal-overlay.mini-player-mode #audio-format-badge,
+.file-modal-overlay.mini-player-mode #audio-file-size {
+  display: none !important;
+}
+
+.file-modal-overlay.mini-player-mode .audio-player-body {
+  padding: 10px 14px 12px !important;
+}
+
+.file-modal-overlay.mini-player-mode .audio-visualizer-container {
+  height: 70px !important;
+  margin-bottom: 6px !important;
+}
+
+.file-modal-overlay.mini-player-mode .audio-visualizer-canvas {
+  height: 70px !important;
+}
+
+.file-modal-overlay.mini-player-mode .audio-freq-labels {
+  display: none !important;
+}
+
+.file-modal-overlay.mini-player-mode .audio-timeline-wrap {
+  margin-top: 4px !important;
+}
+
+.file-modal-overlay.mini-player-mode .audio-controls-row {
+  margin-top: 8px !important;
+}
+
+.file-modal-overlay.mini-player-mode .audio-btn-icon {
+  width: 28px !important;
+  height: 28px !important;
+  font-size: 0.72rem !important;
+}
+
+.file-modal-overlay.mini-player-mode .audio-play-circle {
+  width: 34px !important;
+  height: 34px !important;
+  font-size: 0.95rem !important;
+}
+
+.file-modal-overlay.mini-player-mode .audio-volume-wrap {
+  display: none !important;
+}

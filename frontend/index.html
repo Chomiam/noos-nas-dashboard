@@ -2886,6 +2886,9 @@
           <a id="mpv-open-native-btn" class="btn btn-secondary btn-xs" target="_blank" title="Ouvrir le flux direct">
             ↗ Flux
           </a>
+          <button type="button" class="btn btn-secondary btn-xs btn-pip-toggle" id="mpv-pip-btn" onclick="toggleMediaPip('mpv-modal')" title="Réduire en vignette flottante (P)">
+            <span id="mpv-pip-icon">🗗</span>
+          </button>
           <button type="button" class="btn btn-secondary btn-xs" onclick="closeMpvModal()" title="Fermer (q)">
             ✕ Fermer (q)
           </button>
@@ -2915,6 +2918,9 @@
         <div style="display:flex; align-items:center; gap:8px;">
           <span class="badge badge-accent" id="audio-format-badge">FLAC / MP3</span>
           <span id="audio-file-size" style="font-size:0.75rem; color:var(--subtext0);"></span>
+          <button type="button" class="btn btn-secondary btn-xs btn-pip-toggle" id="audio-pip-btn" onclick="toggleMediaPip('audio-modal')" title="Réduire en vignette flottante (P)">
+            <span id="audio-pip-icon">🗗</span>
+          </button>
           <button type="button" class="btn btn-secondary btn-xs" onclick="closeAudioModal()" title="Fermer (q)">
             ✕ Fermer (q)
           </button>

@@ -1731,7 +1731,20 @@ function openCreateRaidModal() {
 
 function closeCreateRaidModal() {
   const modal = document.getElementById("create-raid-modal");
-  if (modal) modal.style.display = "none";
+  if (modal) {
+    modal.classList.remove("mini-player-mode");
+    const winMpv = modal.querySelector(".file-modal-window");
+    if (winMpv) {
+      winMpv.style.top = "";
+      winMpv.style.right = "";
+      winMpv.style.left = "";
+      winMpv.style.bottom = "";
+      winMpv.style.margin = "";
+    }
+    const pipIcon = document.getElementById("mpv-pip-icon");
+    if (pipIcon) pipIcon.textContent = "🗗";
+    modal.style.display = "none";
+  }
 }
 
 function selectRaidLevel(level) {
@@ -1965,7 +1978,20 @@ function openFormatDiskModalFor(preselectPath) {
 
 function closeFormatDiskModal() {
   const modal = document.getElementById("format-disk-modal");
-  if (modal) modal.style.display = "none";
+  if (modal) {
+    modal.classList.remove("mini-player-mode");
+    const winAud = modal.querySelector(".file-modal-window");
+    if (winAud) {
+      winAud.style.top = "";
+      winAud.style.right = "";
+      winAud.style.left = "";
+      winAud.style.bottom = "";
+      winAud.style.margin = "";
+    }
+    const audPipIcon = document.getElementById("audio-pip-icon");
+    if (audPipIcon) audPipIcon.textContent = "🗗";
+    modal.style.display = "none";
+  }
 }
 
 function toggleFormatSubmitBtn() {
@@ -4622,6 +4648,17 @@ function openMpvModal(path, fileName) {
 
   video.src = streamUrl;
   video.currentTime = 0;
+  modal.classList.remove("mini-player-mode");
+  const winMpv = modal.querySelector(".file-modal-window");
+  if (winMpv) {
+    winMpv.style.top = "";
+    winMpv.style.right = "";
+    winMpv.style.left = "";
+    winMpv.style.bottom = "";
+    winMpv.style.margin = "";
+  }
+  const pipIcon = document.getElementById("mpv-pip-icon");
+  if (pipIcon) pipIcon.textContent = "🗗";
   modal.style.display = "flex";
   video.play().catch(() => {});
 
@@ -4638,7 +4675,6 @@ function handleMpvKeydown(e, video) {
 
   switch (e.code) {
     case "Space":
-    case "KeyP":
       e.preventDefault();
       if (video.paused) {
         video.play();
@@ -4647,6 +4683,11 @@ function handleMpvKeydown(e, video) {
         video.pause();
         showMpvOsd("⏸ Pause");
       }
+      break;
+
+    case "KeyP":
+      e.preventDefault();
+      toggleMediaPip("mpv-modal");
       break;
 
     case "ArrowLeft":
@@ -5303,8 +5344,128 @@ async function submitArchivePasswordPrompt() {
   }
 }
 
+// ==========================================================================
+// FONCTIONS DE GESTION DU MINI-LECTEUR FLOTTANT (PICTURE-IN-PICTURE)
+// ==========================================================================
+
+function toggleMediaPip(modalId, forceMini) {
+  const modal = document.getElementById(modalId);
+  if (!modal) return;
+
+  const isMini = modal.classList.contains("mini-player-mode");
+  const shouldBeMini = forceMini !== undefined ? forceMini : !isMini;
+
+  const iconId = modalId === "mpv-modal" ? "mpv-pip-icon" : "audio-pip-icon";
+  const btnId = modalId === "mpv-modal" ? "mpv-pip-btn" : "audio-pip-btn";
+  const icon = document.getElementById(iconId);
+  const btn = document.getElementById(btnId);
+  const win = modal.querySelector(".file-modal-window");
+
+  if (shouldBeMini) {
+    modal.classList.add("mini-player-mode");
+    if (icon) icon.textContent = "⤢";
+    if (btn) btn.title = "Agrandir le lecteur au centre (P)";
+
+    if (win) {
+      win.style.top = "74px";
+      win.style.right = "24px";
+      win.style.left = "auto";
+      win.style.bottom = "auto";
+      win.style.margin = "0";
+    }
+
+    if (modalId === "audio-modal") {
+      const canvas = document.getElementById("audio-visualizer-canvas");
+      if (canvas) {
+        canvas.width = 330;
+        canvas.height = 70;
+      }
+    }
+
+    initMediaPipDrag(modalId);
+  } else {
+    modal.classList.remove("mini-player-mode");
+    if (icon) icon.textContent = "🗗";
+    if (btn) btn.title = "Réduire en vignette flottante (P)";
+
+    if (win) {
+      win.style.top = "";
+      win.style.right = "";
+      win.style.left = "";
+      win.style.bottom = "";
+      win.style.margin = "";
+    }
+
+    if (modalId === "audio-modal") {
+      const canvas = document.getElementById("audio-visualizer-canvas");
+      if (canvas) {
+        canvas.width = 680;
+        canvas.height = 152;
+      }
+    }
+  }
+}
+
+function initMediaPipDrag(modalId) {
+  const modal = document.getElementById(modalId);
+  if (!modal) return;
+  const header = modal.querySelector(".file-modal-header");
+  const win = modal.querySelector(".file-modal-window");
+  if (!header || !win || header._pipDragInitialized) return;
+
+  header._pipDragInitialized = true;
+  let isDragging = false;
+  let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+
+  header.addEventListener("mousedown", (e) => {
+    if (!modal.classList.contains("mini-player-mode")) return;
+    if (e.target.closest("button") || e.target.closest("a") || e.target.closest("input")) return;
+
+    isDragging = true;
+    const rect = win.getBoundingClientRect();
+    startX = e.clientX;
+    startY = e.clientY;
+    startLeft = rect.left;
+    startTop = rect.top;
+
+    win.style.right = "auto";
+    win.style.bottom = "auto";
+    win.style.left = `${startLeft}px`;
+    win.style.top = `${startTop}px`;
+    win.style.transition = "none";
+
+    const onMouseMove = (ev) => {
+      if (!isDragging) return;
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      const newLeft = Math.max(10, Math.min(window.innerWidth - rect.width - 10, startLeft + dx));
+      const newTop = Math.max(60, Math.min(window.innerHeight - rect.height - 10, startTop + dy));
+      win.style.left = `${newLeft}px`;
+      win.style.top = `${newTop}px`;
+    };
+
+    const onMouseUp = () => {
+      isDragging = false;
+      win.style.transition = "";
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  });
+}
+
 function handleModalOverlayClick(e, modalId) {
   if (e.target.id === modalId) {
+    // Si clic dans le vide autour du lecteur vidéo ou audio en mode centré, on le réduit en vignette flottante
+    if (modalId === "mpv-modal" || modalId === "audio-modal") {
+      const modal = document.getElementById(modalId);
+      if (modal && !modal.classList.contains("mini-player-mode")) {
+        toggleMediaPip(modalId, true);
+        return;
+      }
+    }
     if (modalId === "image-modal") closeImageModal();
     if (modalId === "nvim-modal") closeNvimModal();
     if (modalId === "mpv-modal") closeMpvModal();
@@ -5363,6 +5524,23 @@ function openAudioModal(path, fileName, sizeBytes) {
   audioSpeedIndex = 2;
   audioEl.loop = false;
   audioEl.playbackRate = 1.0;
+
+  modal.classList.remove("mini-player-mode");
+  const winAud = modal.querySelector(".file-modal-window");
+  if (winAud) {
+    winAud.style.top = "";
+    winAud.style.right = "";
+    winAud.style.left = "";
+    winAud.style.bottom = "";
+    winAud.style.margin = "";
+  }
+  const audPipIcon = document.getElementById("audio-pip-icon");
+  if (audPipIcon) audPipIcon.textContent = "🗗";
+  const canvas = document.getElementById("audio-visualizer-canvas");
+  if (canvas) {
+    canvas.width = 680;
+    canvas.height = 152;
+  }
 
   const streamUrl = buildAuthenticatedUrl("/api/files/stream", { path });
   audioEl.src = streamUrl;
@@ -5593,9 +5771,13 @@ function handleAudioKeydown(e, audioEl) {
 
   switch (e.code) {
     case "Space":
-    case "KeyP":
       e.preventDefault();
       toggleAudioPlay();
+      break;
+
+    case "KeyP":
+      e.preventDefault();
+      toggleMediaPip("audio-modal");
       break;
 
     case "ArrowLeft":
