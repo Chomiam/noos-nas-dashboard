@@ -7878,7 +7878,7 @@ function filterStoreApps(resetLimit = false) {
   }).join("");
 }
 
-async function checkModalFirewallStatus() {
+async function checkModalFirewallStatus(justOpened = false) {
   const portInput = document.getElementById("config-app-port");
   const container = document.getElementById("modal-fw-alert-container");
   const alertBox = document.getElementById("modal-fw-alert");
@@ -7900,7 +7900,7 @@ async function checkModalFirewallStatus() {
   container.style.display = "block";
 
   try {
-    if (!currentFirewallData) {
+    if (!currentFirewallData || justOpened) {
       const res = await fetch("/api/firewall");
       const json = await res.json();
       if (json.success && json.data) {
@@ -7913,26 +7913,50 @@ async function checkModalFirewallStatus() {
       if (!currentFirewallData.is_enabled) {
         isOpen = true;
       } else {
-        const tcpPorts = currentFirewallData.tcp_ports || [];
-        isOpen = tcpPorts.some(p => p.port === port);
+        // 1. Contrôle des règles unifiées (système ET personnalisées)
+        const rules = currentFirewallData.rules || [];
+        isOpen = rules.some(r => r.port === port && r.enabled !== false && (r.protocol === "TCP" || r.protocol === "BOTH"));
+
+        // 2. Contrôle de repli sur les ports TCP système
+        if (!isOpen) {
+          const tcpPorts = currentFirewallData.tcp_ports || [];
+          isOpen = tcpPorts.some(p => p.port === port);
+        }
       }
     }
 
     if (isOpen) {
-      if (alertBox) alertBox.className = "modal-fw-alert fw-open";
-      if (icon) icon.textContent = "🛡️";
-      if (title) title.textContent = `Pare-feu STEvE_OS : Port ${port} (TCP) Ouvert`;
-      if (desc) desc.textContent = `Ce port est déjà autorisé dans le pare-feu. Vos appareils du réseau local pourront y accéder sans blocage.`;
-      if (btn) btn.style.display = "none";
+      if (alertBox) {
+        alertBox.className = "modal-fw-alert fw-open" + (justOpened ? " fw-just-verified" : "");
+      }
+      if (icon) icon.textContent = justOpened ? "✅" : "🛡️";
+
+      if (justOpened) {
+        if (title) title.innerHTML = `<span style="color:var(--green); font-weight:700;">✅ Port ${port} (TCP) ouvert et vérifié avec succès !</span>`;
+        if (desc) desc.textContent = `Le pare-feu STEvE_OS autorise désormais le trafic sur le port ${port}. L'application sera accessible immédiatement sur votre réseau local.`;
+      } else {
+        if (title) title.innerHTML = `<span style="color:var(--green); font-weight:700;">Pare-feu STEvE_OS : Port ${port} (TCP) Ouvert</span>`;
+        if (desc) desc.textContent = `Ce port est déjà autorisé dans le pare-feu. Vos appareils du réseau local pourront y accéder sans blocage.`;
+      }
+
+      if (btn) {
+        btn.style.display = "inline-flex";
+        btn.disabled = true;
+        btn.className = "btn btn-success btn-xs fw-quick-btn";
+        btn.innerHTML = `<span>✓</span> Port Ouvert & Vérifié`;
+        btn.style.cursor = "default";
+      }
     } else {
       if (alertBox) alertBox.className = "modal-fw-alert fw-closed";
       if (icon) icon.textContent = "⚠️";
-      if (title) title.textContent = `Pare-feu STEvE_OS : Port ${port} (TCP) Non Ouvert`;
+      if (title) title.innerHTML = `<span>Pare-feu STEvE_OS : Port ${port} (TCP) Non Ouvert</span>`;
       if (desc) desc.textContent = `Le pare-feu bloque actuellement ce port. Cliquez ci-contre pour l'autoriser immédiatement sur le réseau local.`;
       if (btn) {
         btn.style.display = "inline-flex";
         btn.disabled = false;
+        btn.className = "btn btn-warning btn-xs fw-quick-btn";
         btn.innerHTML = `<span>🛡️</span> Ouvrir le port ${port} en 1 clic`;
+        btn.style.cursor = "pointer";
       }
     }
   } catch (err) {
@@ -7944,6 +7968,9 @@ async function quickOpenModalFirewallPort() {
   const portInput = document.getElementById("config-app-port");
   const appIdInput = document.getElementById("config-app-id");
   const btn = document.getElementById("btn-quick-open-fw");
+  const title = document.getElementById("fw-alert-title");
+  const desc = document.getElementById("fw-alert-desc");
+  const icon = document.getElementById("fw-shield-icon");
 
   if (!portInput) return;
   const port = parseInt(portInput.value.trim(), 10);
@@ -7958,7 +7985,13 @@ async function quickOpenModalFirewallPort() {
 
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = `<span>⏳</span> Autorisation...`;
+    btn.innerHTML = `<span>⏳</span> Vérification & Ouverture...`;
+  }
+  if (title) {
+    title.innerHTML = `<span>⏳ Ouverture du port ${port} en cours...</span>`;
+  }
+  if (desc) {
+    desc.textContent = `Application de la règle pare-feu et vérification de la bonne ouverture...`;
   }
 
   try {
@@ -7976,24 +8009,31 @@ async function quickOpenModalFirewallPort() {
     });
 
     const json = await res.json();
-    if (json.success) {
-      showToast(`🛡️ Port ${port} (TCP) autorisé avec succès dans le pare-feu STEvE_OS !`, "success");
-      currentFirewallData = null; // Invalider cache
-      await checkModalFirewallStatus(); // Mettre à jour l'alerte en vert
-      loadFirewall(); // Actualiser l'onglet Pare-feu en arrière-plan
+    const isAlreadyOpen = !json.success && json.message && json.message.includes("existe déjà");
+
+    if (json.success || isAlreadyOpen) {
+      showToast(`🛡️ Port ${port} (TCP) autorisé et vérifié dans le pare-feu !`, "success");
+      currentFirewallData = null; // Invalider le cache pour forcer une ré-interrogation fraîche
+      await new Promise(r => setTimeout(r, 300));
+      await checkModalFirewallStatus(true); // Passer l'alerte en vert avec confirmation
+      loadFirewall(); // Actualiser l'onglet Pare-feu en tâche de fond
     } else {
       showToast(`Erreur ouverture pare-feu : ${json.message || "Échec"}`, "error");
       if (btn) {
         btn.disabled = false;
+        btn.className = "btn btn-warning btn-xs fw-quick-btn";
         btn.innerHTML = `<span>🛡️</span> Réessayer d'ouvrir le port ${port}`;
       }
+      await checkModalFirewallStatus(false);
     }
   } catch (err) {
     showToast(`Erreur réseau lors de l'ouverture du port : ${err}`, "error");
     if (btn) {
       btn.disabled = false;
+      btn.className = "btn btn-warning btn-xs fw-quick-btn";
       btn.innerHTML = `<span>🛡️</span> Réessayer d'ouvrir le port ${port}`;
     }
+    await checkModalFirewallStatus(false);
   }
 }
 

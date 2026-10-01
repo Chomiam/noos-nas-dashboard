@@ -4821,6 +4821,26 @@ select.form-control option,
   color: var(--text);
 }
 
+@keyframes fwSuccessPulse {
+  0% {
+    transform: scale(0.98);
+    box-shadow: 0 0 0 0 rgba(166, 227, 161, 0.6);
+  }
+  50% {
+    transform: scale(1.01);
+    box-shadow: 0 0 15px 3px rgba(166, 227, 161, 0.4);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(166, 227, 161, 0);
+  }
+}
+
+.modal-fw-alert.fw-just-verified {
+  animation: fwSuccessPulse 0.8s ease-out;
+  border-color: var(--green) !important;
+}
+
 .fw-alert-left {
   display: flex;
   align-items: center;
