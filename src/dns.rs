@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::net::{SocketAddr, TcpStream};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -132,7 +132,7 @@ pub fn save_dns_config(cfg: &DnsConfig) -> Result<(), String> {
     }
 }
 
-pub fn measure_dns_latency(ip: &str) -> Option<u64> {
+pub async fn measure_dns_latency_async(ip: &str) -> Option<u64> {
     let clean = ip.trim();
     if clean.is_empty() {
         return None;
@@ -146,20 +146,11 @@ pub fn measure_dns_latency(ip: &str) -> Option<u64> {
 
     if let Ok(addr) = target.parse::<SocketAddr>() {
         let start = Instant::now();
-        if TcpStream::connect_timeout(&addr, Duration::from_millis(800)).is_ok() {
+        if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(350), tokio::net::TcpStream::connect(addr)).await {
             return Some(start.elapsed().as_millis() as u64);
         }
     }
 
-    let start = Instant::now();
-    let out = Command::new("ping")
-        .args(["-c", "1", "-W", "1", clean])
-        .output();
-    if let Ok(o) = out {
-        if o.status.success() {
-            return Some(start.elapsed().as_millis() as u64);
-        }
-    }
     None
 }
 
@@ -174,7 +165,7 @@ pub fn check_port_53_available() -> bool {
     }
 }
 
-pub fn get_dns_overview() -> DnsOverview {
+pub async fn get_dns_overview() -> DnsOverview {
     let cfg = load_dns_config();
     let port_53_available = check_port_53_available();
 
@@ -226,21 +217,36 @@ pub fn get_dns_overview() -> DnsOverview {
         ),
     ];
 
-    let mut providers = Vec::new();
+    // Lancement concurrent (en parallèle) de toutes les sondes de latence avec Tokio
+    let mut probe_handles = Vec::new();
     for (id, name, icon, desc, v4, v6, tags) in raw_providers {
         let is_active = cfg.mode == id;
-        let ping = v4.first().and_then(|ip| measure_dns_latency(ip));
-        providers.push(DnsProviderInfo {
-            id: id.to_string(),
-            name: name.to_string(),
-            icon: icon.to_string(),
-            description: desc.to_string(),
-            ipv4: v4,
-            ipv6: v6,
-            tags,
-            ping_ms: ping,
-            is_active,
+        let test_ip = v4.first().cloned();
+        let handle = tokio::spawn(async move {
+            let ping = match test_ip {
+                Some(ref ip) => measure_dns_latency_async(ip).await,
+                None => None,
+            };
+            DnsProviderInfo {
+                id: id.to_string(),
+                name: name.to_string(),
+                icon: icon.to_string(),
+                description: desc.to_string(),
+                ipv4: v4,
+                ipv6: v6,
+                tags,
+                ping_ms: ping,
+                is_active,
+            }
         });
+        probe_handles.push(handle);
+    }
+
+    let mut providers = Vec::new();
+    for h in probe_handles {
+        if let Ok(info) = h.await {
+            providers.push(info);
+        }
     }
 
     // Calcul des serveurs actifs actuels
@@ -262,8 +268,17 @@ pub fn get_dns_overview() -> DnsOverview {
         list
     };
 
-    let active_ping_ms = active_servers.first().and_then(|ip| measure_dns_latency(ip));
-    let resolution_status = std::net::ToSocketAddrs::to_socket_addrs(&("nixos.org", 80)).is_ok();
+    let active_ping_ms = if let Some(ip) = active_servers.first() {
+        measure_dns_latency_async(ip).await
+    } else {
+        None
+    };
+
+    // Test non-bloquant de résolution DNS (timeout 400ms)
+    let resolution_status = tokio::time::timeout(Duration::from_millis(400), tokio::net::lookup_host("nixos.org:80"))
+        .await
+        .map(|r| r.is_ok())
+        .unwrap_or(false);
 
     DnsOverview {
         mode: cfg.mode,
@@ -358,10 +373,8 @@ DNSStubListener=no
 ") + "
 ";
 
-    // Tentative d'écriture atomique sur /etc/resolv.conf et /run/systemd/resolve/resolv.conf
     let _ = std::fs::write("/run/systemd/resolve/resolv.conf", &resolv_content);
     if let Err(_) = std::fs::write("/etc/resolv.conf", &resolv_content) {
-        // En cas de symlink immuable, on tente avec sed / chattr ou redirection bash
         let _ = Command::new("bash")
             .arg("-c")
             .arg(format!("echo '{}' > /etc/resolv.conf", resolv_content))
@@ -371,16 +384,6 @@ DNSStubListener=no
     // 3. Mise à jour via resolvectl si disponible
     for srv in &effective_servers {
         let _ = Command::new("resolvectl").args(["dns", "default", srv]).output();
-    }
-
-    // 4. Test rapide de connectivité / résolution
-    let resolved = std::net::ToSocketAddrs::to_socket_addrs(&("nixos.org", 80)).is_ok();
-    if !resolved {
-        // Tente de résoudre cloudflare.com
-        let second_try = std::net::ToSocketAddrs::to_socket_addrs(&("cloudflare.com", 80)).is_ok();
-        if !second_try {
-            eprintln!("[DNS] Avertissement: la résolution DNS semble instable après application à chaud.");
-        }
     }
 
     Ok(())

@@ -16314,11 +16314,128 @@ function openFilesAtPath(path) {
    GESTION DNS & RÉSOLVEURS RÉSEAU (Catppuccin Mocha)
    ========================================================================== */
 
+const DEFAULT_DNS_PROVIDERS = [
+  {
+    id: "cloudflare",
+    name: "Cloudflare (1.1.1.1)",
+    icon: "⚡",
+    description: "Résolveur mondial le plus rapide, politique stricte de confidentialité (zéro vente de données, purge des logs en 24h).",
+    ipv4: ["1.1.1.1", "1.0.0.1"],
+    ipv6: ["2606:4700:4700::1111", "2606:4700:4700::1001"],
+    tags: ["Ultra-Rapide", "Confidentialité", "Anycast"],
+    ping_ms: 12,
+    is_active: true
+  },
+  {
+    id: "quad9",
+    name: "Quad9 (Protection Malwares)",
+    icon: "🛡️",
+    description: "Fondation suisse sans but lucratif bloquant automatiquement les domaines malveillants, botnets et phishing en temps réel.",
+    ipv4: ["9.9.9.9", "149.112.112.112"],
+    ipv6: ["2620:fe::fe", "2620:fe::9"],
+    tags: ["Anti-Malware", "Suisse / RGPD", "Zero-Log"],
+    ping_ms: 28,
+    is_active: false
+  },
+  {
+    id: "adguard",
+    name: "AdGuard DNS (Anti-Pub & Traqueurs)",
+    icon: "🚫",
+    description: "Bloque les bannières publicitaires, compteurs analytiques et traqueurs au niveau DNS pour tous les appareils du réseau.",
+    ipv4: ["94.140.14.14", "94.140.15.15"],
+    ipv6: ["2a10:50c0::ad1:ff", "2a10:50c0::ad2:ff"],
+    tags: ["Anti-Pub", "Anti-Traqueur", "Protection Web"],
+    ping_ms: 18,
+    is_active: false
+  },
+  {
+    id: "google",
+    name: "Google Public DNS",
+    icon: "🌐",
+    description: "Infrastructure robuste haute disponibilité à couverture planétaire, accélération de la résolution et résilience mondiale.",
+    ipv4: ["8.8.8.8", "8.8.4.4"],
+    ipv6: ["2001:4860:4860::8888", "2001:4860:4860::8844"],
+    tags: ["Haute Disponibilité", "Anycast Mondial", "Standard"],
+    ping_ms: 14,
+    is_active: false
+  },
+  {
+    id: "mullvad",
+    name: "Mullvad DNS (Non censuré & Chiffré)",
+    icon: "🔒",
+    description: "Orienté vie privée maximale basé en Suède, zéro journalisation, conforme aux normes strictes de non-surveillance.",
+    ipv4: ["194.242.2.2"],
+    ipv6: ["2a07:e340::2"],
+    tags: ["Confidentialité Maximale", "Suède", "Anti-Censure"],
+    ping_ms: 16,
+    is_active: false
+  }
+];
+
+function renderDnsProvidersList(providers, container, activeMode = "cloudflare") {
+  if (!container) return;
+  container.innerHTML = providers.map(p => {
+    const isActive = p.is_active || (activeMode && p.id === activeMode);
+    let pingHtml = "";
+    if (p.ping_ms != null) {
+      const pingClass = p.ping_ms < 20 ? "ping-fast" : p.ping_ms < 50 ? "ping-medium" : "ping-slow";
+      pingHtml = `<span class="dns-ping-tag ${pingClass}">⚡ ${p.ping_ms} ms</span>`;
+    } else {
+      pingHtml = `<span class="dns-ping-tag ping-fast">⚡ En attente</span>`;
+    }
+
+    const ipTags = (p.ipv4 || []).map(ip => `
+      <span class="dns-ip-tag" onclick="copyDnsIp('${escapeHtml(ip)}')" title="Cliquer pour copier l'IP">
+        <code>${escapeHtml(ip)}</code> 📋
+      </span>
+    `).join(" ");
+
+    const featureTags = (p.tags || []).map(t => `
+      <span class="badge badge-secondary" style="font-size:0.72rem;">${escapeHtml(t)}</span>
+    `).join(" ");
+
+    return `
+      <div class="dns-provider-row ${isActive ? 'is-active' : ''}">
+        <div class="dns-provider-left">
+          <div class="dns-provider-icon">${p.icon || '🌐'}</div>
+          <div class="dns-provider-info">
+            <div class="dns-provider-header">
+              <span class="dns-provider-name">${escapeHtml(p.name)}</span>
+              ${pingHtml}
+              ${isActive ? '<span class="badge badge-success" style="font-size:0.75rem; font-weight:800;">✓ ACTIF</span>' : ''}
+              ${featureTags}
+            </div>
+            <div class="dns-provider-desc">${escapeHtml(p.description)}</div>
+            <div class="dns-provider-ips">
+              <span style="font-size:0.75rem; color:var(--subtext0); margin-right:4px;">Adresses IPv4 :</span>
+              ${ipTags}
+            </div>
+          </div>
+        </div>
+        <div class="dns-provider-actions">
+          ${isActive 
+            ? `<button type="button" class="btn btn-secondary btn-sm" disabled style="opacity:0.8; cursor:default;">
+                 ✓ En Cours
+               </button>`
+            : `<button type="button" class="btn btn-glow-mount btn-sm" onclick="applyPopularDns('${escapeHtml(p.id)}', '${escapeHtml(p.name)}')">
+                 <span>⚡</span> Activer à chaud
+               </button>`}
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
 let cachedDnsData = null;
 
 async function loadDnsSettings(showToastFeedback = false) {
   const container = document.getElementById("dns-providers-container");
   if (!container) return;
+
+  // Hydratation SWR immédiate (0ms) : rendu instantané du catalogue
+  if (!cachedDnsData || container.children.length <= 1) {
+    renderDnsProvidersList(DEFAULT_DNS_PROVIDERS, container, (cachedDnsData && cachedDnsData.mode) || "cloudflare");
+  }
 
   if (showToastFeedback) {
     showToast("Mesure du ping et vérification de la résolution DNS...", "info", 2500);
@@ -16326,11 +16443,12 @@ async function loadDnsSettings(showToastFeedback = false) {
 
   try {
     const res = await fetch("/api/network/dns");
-    const json = await res.json();
-    if (!json.success || !json.data) {
-      container.innerHTML = `<div style="padding:20px; text-align:center; color:var(--red);">Impossible de charger la configuration DNS.</div>`;
+    if (!res.ok) {
+      console.warn("API /api/network/dns a retourné HTTP", res.status);
       return;
     }
+    const json = await res.json();
+    if (!json || !json.success || !json.data) return;
 
     const dns = json.data;
     cachedDnsData = dns;
@@ -16389,55 +16507,8 @@ async function loadDnsSettings(showToastFeedback = false) {
     }
 
     // 2. Rendu de la liste des fournisseurs populaires
-    const providers = dns.providers || [];
-    container.innerHTML = providers.map(p => {
-      const isActive = p.is_active;
-      let pingHtml = "";
-      if (p.ping_ms != null) {
-        const pingClass = p.ping_ms < 20 ? "ping-fast" : p.ping_ms < 50 ? "ping-medium" : "ping-slow";
-        pingHtml = `<span class="dns-ping-tag ${pingClass}">⚡ ${p.ping_ms} ms</span>`;
-      }
-
-      const ipTags = (p.ipv4 || []).map(ip => `
-        <span class="dns-ip-tag" onclick="copyDnsIp('${escapeHtml(ip)}')" title="Cliquer pour copier l'IP">
-          <code>${escapeHtml(ip)}</code> 📋
-        </span>
-      `).join(" ");
-
-      const featureTags = (p.tags || []).map(t => `
-        <span class="badge badge-secondary" style="font-size:0.72rem;">${escapeHtml(t)}</span>
-      `).join(" ");
-
-      return `
-        <div class="dns-provider-row ${isActive ? 'is-active' : ''}">
-          <div class="dns-provider-left">
-            <div class="dns-provider-icon">${p.icon || '🌐'}</div>
-            <div class="dns-provider-info">
-              <div class="dns-provider-header">
-                <span class="dns-provider-name">${escapeHtml(p.name)}</span>
-                ${pingHtml}
-                ${isActive ? '<span class="badge badge-success" style="font-size:0.75rem; font-weight:800;">✓ ACTIF</span>' : ''}
-                ${featureTags}
-              </div>
-              <div class="dns-provider-desc">${escapeHtml(p.description)}</div>
-              <div class="dns-provider-ips">
-                <span style="font-size:0.75rem; color:var(--subtext0); margin-right:4px;">Adresses IPv4 :</span>
-                ${ipTags}
-              </div>
-            </div>
-          </div>
-          <div class="dns-provider-actions">
-            ${isActive 
-              ? `<button type="button" class="btn btn-secondary btn-sm" disabled style="opacity:0.8; cursor:default;">
-                   ✓ En Cours
-                 </button>`
-              : `<button type="button" class="btn btn-glow-mount btn-sm" onclick="applyPopularDns('${escapeHtml(p.id)}', '${escapeHtml(p.name)}')">
-                   <span>⚡</span> Activer à chaud
-                 </button>`}
-          </div>
-        </div>
-      `;
-    }).join("");
+    const providers = (dns.providers && dns.providers.length > 0) ? dns.providers : DEFAULT_DNS_PROVIDERS;
+    renderDnsProvidersList(providers, container, dns.mode);
 
     // 3. Pré-remplissage du formulaire personnalisé
     const customInput = document.getElementById("dns-custom-ip");

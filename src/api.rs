@@ -1402,7 +1402,7 @@ pub struct UnbanRequest {
 
 
 async fn handle_get_dns() -> Json<ApiResponse<DnsOverview>> {
-    let overview = get_dns_overview();
+    let overview = get_dns_overview().await;
     Json(ApiResponse {
         success: true,
         data: Some(overview),
