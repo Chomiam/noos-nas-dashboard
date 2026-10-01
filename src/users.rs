@@ -266,7 +266,7 @@ fn get_locked_users() -> HashSet<String> {
 }
 
 // Lecture rapide des utilisateurs enregistrés dans Samba (pdbedit -L)
-fn get_samba_users() -> HashSet<String> {
+pub fn get_samba_users() -> HashSet<String> {
     let mut smb_users = HashSet::new();
     let pdbedit_bin = find_bin("pdbedit");
     if let Ok(out) = Command::new(pdbedit_bin).arg("-L").output() {

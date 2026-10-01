@@ -89,14 +89,14 @@ pub fn get_network_overview() -> NetworkOverview {
     }
 }
 
-fn get_hostname() -> String {
+pub fn get_hostname() -> String {
     Command::new("hostname")
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|_| "steveos-nas".to_string())
 }
 
-fn get_primary_lan_ip() -> String {
+pub fn get_primary_lan_ip() -> String {
     if let Ok(output) = Command::new("ip").args(["-4", "route", "get", "1.1.1.1"]).output() {
         let text = String::from_utf8_lossy(&output.stdout);
         let parts: Vec<&str> = text.split_whitespace().collect();
@@ -219,40 +219,15 @@ fn get_samba_section() -> SambaSection {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "active")
         .unwrap_or(false);
 
-    let shares = vec![
-        SambaShareItem {
-            name: "data".into(),
-            path: "/storage/data".into(),
-            description: "Partage Général NAS (Lecture & Écriture)".into(),
-            read_only: false,
-            guest_ok: false,
-            exists: std::path::Path::new("/storage/data").exists(),
-        },
-        SambaShareItem {
-            name: "media".into(),
-            path: "/storage/media".into(),
-            description: "Médiathèque (Films, Séries, Musique - Jellyfin)".into(),
-            read_only: false,
-            guest_ok: true,
-            exists: std::path::Path::new("/storage/media").exists(),
-        },
-        SambaShareItem {
-            name: "backups".into(),
-            path: "/storage/backups".into(),
-            description: "Dépôt Sauvegardes & Snapshots (Accès Restreint)".into(),
-            read_only: false,
-            guest_ok: false,
-            exists: std::path::Path::new("/storage/backups").exists(),
-        },
-        SambaShareItem {
-            name: "shares".into(),
-            path: "/mnt/storage/shares".into(),
-            description: "Racine des Partages Réseau STEvE_OS".into(),
-            read_only: false,
-            guest_ok: false,
-            exists: std::path::Path::new("/mnt/storage/shares").exists(),
-        },
-    ];
+    let dynamic_shares = crate::samba::load_samba_shares();
+    let shares = dynamic_shares.into_iter().map(|s| SambaShareItem {
+        name: s.name,
+        path: s.path.clone(),
+        description: s.comment,
+        read_only: s.read_only,
+        guest_ok: s.guest_ok,
+        exists: std::path::Path::new(&s.path).exists(),
+    }).collect();
 
     let active_sessions = get_smb_sessions();
 

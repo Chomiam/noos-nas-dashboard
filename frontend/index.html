@@ -1655,109 +1655,215 @@
 
       </div>
 
-      <!-- SOUS-ONGLET 3 : SAMBA (SMB / CIFS) -->
+      <!-- SOUS-ONGLET 3 : SAMBA (SMB / CIFS) REBÂTI HAUTE PERFORMANCE -->
       <div id="subtab-samba" class="network-subpane">
-        <!-- Bannière d'accès rapide SMB -->
-        <div class="section-card" style="border:1px solid rgba(166,227,161,0.25); background:rgba(166,227,161,0.04);">
-          <div class="section-header">
-            <div class="section-title-wrap">
-              <div class="section-icon-box" style="background:rgba(166,227,161,0.2); color:var(--green);">📁</div>
+
+        <!-- HERO HEADER SAMBA CATPPUCCIN MOCHA -->
+        <div class="samba-hero-card">
+          <div class="samba-hero-top">
+            <div class="samba-hero-identity">
+              <div class="samba-hero-icon-box">
+                <span class="samba-hero-icon">🗄️</span>
+                <span class="samba-hero-pulse" id="samba-hero-pulse-dot"></span>
+              </div>
               <div>
-                <div class="section-title">Connexion Réseau Rapide Samba (SMB)</div>
-                <div class="section-subtitle">Accédez à vos partages depuis l'Explorateur Windows, Finder Mac ou le gestionnaire de fichiers Linux</div>
+                <div class="samba-hero-title-row">
+                  <h2 class="samba-hero-title">Partages Réseau Samba (SMB / CIFS)</h2>
+                  <span class="samba-version-tag" id="samba-version-badge">Samba v4.23.10</span>
+                  <span class="samba-status-tag active" id="samba-status-badge">● En Ligne</span>
+                </div>
+                <p class="samba-hero-desc">
+                  Partage ultra-performant de fichiers multi-OS avec extensions Apple Time Machine, corbeilles réseau automatiques, chiffrement forcé SMB3 et négociation multi-canal.
+                </p>
               </div>
             </div>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="restartServiceAction('samba-smbd')">
-              🔄 Redémarrer Samba
-            </button>
+
+            <!-- Boutons d'actions globales -->
+            <div class="samba-hero-actions">
+              <button type="button" class="btn btn-primary" onclick="openCreateSambaShareModal()">
+                <span>➕</span> Nouveau Partage SMB
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="openSambaGlobalModal()" title="Paramètres globaux du serveur Samba">
+                <span>⚙️</span> Configuration
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="openSambaDiagModal()" title="Vérification syntaxique testparm">
+                <span>🩺</span> Diagnostic
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="openSambaGuideModal()" title="Guide d'accès Windows, macOS et Linux">
+                <span>📖</span> Guide Connexion
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="reloadSambaAction()" id="btn-reload-samba" title="Recharger la configuration à chaud sans déconnecter les clients">
+                <span>🔄</span> Recharger
+              </button>
+            </div>
           </div>
 
-          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px; margin-top:8px;">
-            <div class="share-connect-box">
-              <div>
-                <span style="font-size:0.75rem; color:var(--subtext0); display:block;">🪟 Windows (Explorateur de fichiers) :</span>
-                <span id="samba-uri-windows" style="color:var(--green); font-weight:700;">\192.168.1.20</span>
+          <!-- BANNIÈRE DES ADRESSES DE CONNEXION RAPIDE -->
+          <div class="samba-uris-grid">
+            <div class="samba-uri-card win">
+              <div class="samba-uri-os">
+                <span class="samba-os-icon">🪟</span>
+                <span class="samba-os-name">Windows (Explorateur / Exécuter ⊞+R)</span>
               </div>
-              <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('samba-uri-windows', 'Adresse Windows copiée !')">📋 Copier</button>
+              <div class="samba-uri-value-row">
+                <code class="samba-uri-code" id="samba-uri-val-win">\192.168.1.139</code>
+                <button type="button" class="btn-copy-uri" onclick="copyElementText('samba-uri-val-win', 'Chemin Windows copié !')" title="Copier le chemin UNC">📋</button>
+              </div>
             </div>
-            <div class="share-connect-box">
-              <div>
-                <span style="font-size:0.75rem; color:var(--subtext0); display:block;">🍎 macOS (Finder ⌘+K) & Linux :</span>
-                <span id="samba-uri-mac" style="color:var(--teal); font-weight:700;">smb://192.168.1.20</span>
+
+            <div class="samba-uri-card mac">
+              <div class="samba-uri-os">
+                <span class="samba-os-icon">🍎</span>
+                <span class="samba-os-name">macOS (Finder ⌘+K) & Avahi Bonjour</span>
               </div>
-              <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('samba-uri-mac', 'Adresse macOS copiée !')">📋 Copier</button>
+              <div class="samba-uri-value-row">
+                <code class="samba-uri-code" id="samba-uri-val-mac">smb://192.168.1.139</code>
+                <button type="button" class="btn-copy-uri" onclick="copyElementText('samba-uri-val-mac', 'Adresse macOS copiée !')" title="Copier l'adresse smb://">📋</button>
+              </div>
+            </div>
+
+            <div class="samba-uri-card lnx">
+              <div class="samba-uri-os">
+                <span class="samba-os-icon">🐧</span>
+                <span class="samba-os-name">Linux (Nautilus / Dolphin / fstab)</span>
+              </div>
+              <div class="samba-uri-value-row">
+                <code class="samba-uri-code" id="samba-uri-val-lnx">smb://steveos-nas.local</code>
+                <button type="button" class="btn-copy-uri" onclick="copyElementText('samba-uri-val-lnx', 'Adresse Linux copiée !')" title="Copier le chemin réseau">📋</button>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Partages configurés -->
-        <div class="section-card">
-          <div class="section-header">
+        <!-- 4 KPIS EN CARTES CATPPUCCIN MOCHA -->
+        <div class="samba-kpis-grid">
+          <div class="samba-kpi-card">
+            <div class="samba-kpi-icon-wrap mauve">📂</div>
+            <div class="samba-kpi-content">
+              <div class="samba-kpi-label">Partages Actifs</div>
+              <div class="samba-kpi-val" id="samba-kpi-shares-count">-</div>
+              <div class="samba-kpi-sub" id="samba-kpi-shares-sub">Chargement...</div>
+            </div>
+          </div>
+
+          <div class="samba-kpi-card">
+            <div class="samba-kpi-icon-wrap sapphire">👥</div>
+            <div class="samba-kpi-content">
+              <div class="samba-kpi-label">Sessions Connectées</div>
+              <div class="samba-kpi-val" id="samba-kpi-sessions-count">-</div>
+              <div class="samba-kpi-sub" id="samba-kpi-sessions-sub">Clients SMB3</div>
+            </div>
+          </div>
+
+          <div class="samba-kpi-card">
+            <div class="samba-kpi-icon-wrap peach">🔒</div>
+            <div class="samba-kpi-content">
+              <div class="samba-kpi-label">Fichiers Verrouillés</div>
+              <div class="samba-kpi-val" id="samba-kpi-locks-count">-</div>
+              <div class="samba-kpi-sub" id="samba-kpi-locks-sub">Oplocks & accès concurrents</div>
+            </div>
+          </div>
+
+          <div class="samba-kpi-card">
+            <div class="samba-kpi-icon-wrap green">🍏</div>
+            <div class="samba-kpi-content">
+              <div class="samba-kpi-label">Time Machine & Corbeille</div>
+              <div class="samba-kpi-val" id="samba-kpi-features-count">-</div>
+              <div class="samba-kpi-sub" id="samba-kpi-features-sub">Extensions VFS actives</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION : PARTAGES SMB DÉCLARÉS -->
+        <div class="section-card" style="margin-top:20px;">
+          <div class="section-header" style="justify-content:space-between; flex-wrap:wrap; gap:12px;">
             <div class="section-title-wrap">
-              <div class="section-icon-box">🗂️</div>
+              <div class="section-icon-box" style="background:rgba(203,166,247,0.18); color:var(--mauve);">🗂️</div>
               <div>
                 <div class="section-title">Partages Samba Déclarés</div>
-                <div class="section-subtitle">Dossiers partagés sur le réseau local avec gestion des droits</div>
+                <div class="section-subtitle">Dossiers partagés sur le réseau local avec contrôle d'accès fin par utilisateur et protocoles VFS</div>
               </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span class="samba-info-pill">ℹ️ Gestion des comptes dans <strong>Utilisateurs</strong></span>
+              <button type="button" class="btn btn-primary btn-sm" onclick="openCreateSambaShareModal()">
+                <span>➕</span> Ajouter un Partage
+              </button>
             </div>
           </div>
 
-          <div class="shares-grid" id="samba-shares-grid">
-            <div class="share-card">
-              <div class="share-title">📂 /storage/data</div>
-              <div class="share-meta">Partage Général NAS (smb:// + sFTP)</div>
-              <div class="share-path">/storage/data (chomiam:users, 755)</div>
-              <div style="margin-top:12px; display:flex; gap:8px;">
-                <span class="badge badge-success">Lecture / Écriture</span>
-                <span class="badge badge-primary">Protégé Fail2ban</span>
-              </div>
-            </div>
-            <div class="share-card">
-              <div class="share-title">🎬 /storage/media</div>
-              <div class="share-meta">Bibliothèque Multimédia Jellyfin & DLNA</div>
-              <div class="share-path">/storage/media (Films, Séries, Musique)</div>
-              <div style="margin-top:12px; display:flex; gap:8px;">
-                <span class="badge badge-success">Accès Jellyfin</span>
-                <span class="badge badge-primary">Transcodage GPU</span>
-              </div>
-            </div>
-            <div class="share-card">
-              <div class="share-title">📦 /storage/backups</div>
-              <div class="share-meta">Dépôt de sauvegardes chiffrées & snapshots</div>
-              <div class="share-path">/storage/backups (Accès restreint)</div>
-              <div style="margin-top:12px; display:flex; gap:8px;">
-                <span class="badge badge-warning">Snapshot ZFS</span>
-                <span class="badge badge-primary">SSH chroot</span>
-              </div>
+          <!-- Conteneur des cartes de partages -->
+          <div class="samba-shares-cards-container" id="samba-shares-list">
+            <div style="padding:32px; text-align:center; color:var(--subtext0);">
+              <div class="spinner-small" style="margin:0 auto 12px auto;"></div>
+              Chargement des partages réseau Samba...
             </div>
           </div>
         </div>
 
-        <!-- Sessions actives Samba -->
-        <div class="section-card">
-          <div class="section-header">
-            <div class="section-title-wrap">
-              <div class="section-icon-box">👥</div>
-              <div>
-                <div class="section-title">Sessions Samba Actives en Direct</div>
-                <div class="section-subtitle">Ordinateurs et utilisateurs actuellement connectés aux partages SMB</div>
+        <!-- SECTION : MONITORING TEMPS RÉEL (SESSIONS & VERROUS) -->
+        <div class="samba-monitoring-grid">
+          <!-- Carte 1 : Sessions actives -->
+          <div class="section-card">
+            <div class="section-header" style="justify-content:space-between;">
+              <div class="section-title-wrap">
+                <div class="section-icon-box" style="background:rgba(116,199,236,0.18); color:var(--sapphire);">👥</div>
+                <div>
+                  <div class="section-title">Sessions SMB Actives</div>
+                  <div class="section-subtitle">Machines clientes actuellement connectées aux partages</div>
+                </div>
               </div>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="loadSambaData()">🔄 Actualiser</button>
+            </div>
+            <div class="table-responsive">
+              <table class="custom-table">
+                <thead>
+                  <tr>
+                    <th>Utilisateur</th>
+                    <th>Client (IP / Machine)</th>
+                    <th>Protocole & Chiffrement</th>
+                    <th>Partage Ouvert</th>
+                    <th>Heure Connexion</th>
+                    <th style="text-align:right;">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="samba-sessions-tbody">
+                  <tr><td colspan="6" style="text-align:center; color:var(--subtext0); padding:20px;">Aucune session cliente active détectée.</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
-          <table class="custom-table">
-            <thead>
-              <tr>
-                <th>Utilisateur</th>
-                <th>Adresse IP Cliente</th>
-                <th>Protocole</th>
-                <th>Statut Session</th>
-              </tr>
-            </thead>
-            <tbody id="samba-sessions-tbody">
-              <tr><td colspan="4" style="text-align:center; color:var(--subtext0);">Aucune session active détectée actuellement.</td></tr>
-            </tbody>
-          </table>
+
+          <!-- Carte 2 : Fichiers Verrouillés (Locks) -->
+          <div class="section-card">
+            <div class="section-header">
+              <div class="section-title-wrap">
+                <div class="section-icon-box" style="background:rgba(250,179,135,0.18); color:var(--peach);">🔒</div>
+                <div>
+                  <div class="section-title">Fichiers Verrouillés en Cours</div>
+                  <div class="section-subtitle">Oplocks et verrous d'ouverture de fichiers en temps réel</div>
+                </div>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="custom-table">
+                <thead>
+                  <tr>
+                    <th>Fichier</th>
+                    <th>Partage</th>
+                    <th>Type de Verrou</th>
+                    <th>PID Processus</th>
+                    <th>Heure</th>
+                  </tr>
+                </thead>
+                <tbody id="samba-locks-tbody">
+                  <tr><td colspan="5" style="text-align:center; color:var(--subtext0); padding:20px;">Aucun fichier verrouillé actuellement.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
+
       </div>
 
       <!-- SOUS-ONGLET 4 : sFTP (SSH) -->
@@ -6695,9 +6801,370 @@
     <div class="safe-removal-progress" id="safe-removal-progress"></div>
   </div>
 
+  <!-- ================= MODALE : CRÉATION / MODIFICATION PARTAGE SAMBA ================= -->
+  <div class="file-modal-overlay" id="modal-samba-share" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-samba-share')">
+    <div class="file-modal-window" style="max-width: 720px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(203, 166, 247, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-purple" style="font-size:0.75rem; font-weight:800;">SMB / CIFS</span>
+          <span class="file-modal-title" id="modal-samba-share-title">Nouveau Partage Réseau Samba</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeSambaShareModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:22px; max-height:calc(85vh - 120px); overflow-y:auto;">
+        <input type="hidden" id="samba-share-id" value="">
+
+        <!-- Nom et Description -->
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:16px;">
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600; color:var(--text);">Nom du Partage <span style="color:var(--red);">*</span></label>
+            <input type="text" id="samba-share-name" class="form-input" placeholder="ex: medias, documents, backups" required pattern="^[a-zA-Z0-9_\-]+$">
+            <div style="font-size:0.75rem; color:var(--subtext0); margin-top:4px;">Nom visible sur le réseau (sans espaces ni accents).</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600; color:var(--text);">Commentaire / Description</label>
+            <input type="text" id="samba-share-comment" class="form-input" placeholder="ex: Bibliothèque Multimédia Ultra HD">
+            <div style="font-size:0.75rem; color:var(--subtext0); margin-top:4px;">Description affichée dans l'Explorateur Windows.</div>
+          </div>
+        </div>
+
+        <!-- Chemin Unix -->
+        <div class="form-group" style="margin-bottom:18px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <label class="form-label" style="font-weight:600; color:var(--text); margin-bottom:0;">Chemin Absolu sur le Disque / RAID <span style="color:var(--red);">*</span></label>
+            <div style="display:flex; gap:6px;">
+              <button type="button" class="btn btn-secondary btn-xs" onclick="setSambaSharePathPreset('/mnt/raid/shares/')">📁 /mnt/raid/shares/</button>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="setSambaSharePathPreset('/srv/storage/')">📁 /srv/storage/</button>
+            </div>
+          </div>
+          <input type="text" id="samba-share-path" class="form-input" placeholder="/mnt/raid/shares/mon_dossier" required>
+          <div style="font-size:0.75rem; color:var(--subtext0); margin-top:4px;">Le dossier sera créé automatiquement s'il n'existe pas encore.</div>
+        </div>
+
+        <!-- GRILLE D'OPTIONS VFS & PROTOCOLES AVANCÉS (TOGGLES CATPPUCCIN) -->
+        <div style="margin-bottom:20px;">
+          <label class="form-label" style="font-weight:700; color:var(--mauve); margin-bottom:10px; display:flex; align-items:center; gap:8px;">
+            <span>⚡</span> Options & Extensions Avancées STEvE_OS
+          </label>
+          <div class="samba-options-grid">
+            <!-- Option 1 : Visibilité -->
+            <label class="samba-toggle-card">
+              <div class="samba-toggle-left">
+                <input type="checkbox" id="samba-opt-browseable" checked>
+                <div>
+                  <div class="samba-toggle-name">👁️ Visible sur le Réseau</div>
+                  <div class="samba-toggle-desc">Découvrable dans l'Explorateur Windows et Finder Mac.</div>
+                </div>
+              </div>
+            </label>
+
+            <!-- Option 2 : Lecture Seule -->
+            <label class="samba-toggle-card">
+              <div class="samba-toggle-left">
+                <input type="checkbox" id="samba-opt-readonly">
+                <div>
+                  <div class="samba-toggle-name">🔒 Lecture Seule (Read Only)</div>
+                  <div class="samba-toggle-desc">Empêche les écritures et suppressions de fichiers.</div>
+                </div>
+              </div>
+            </label>
+
+            <!-- Option 3 : Accès Invité -->
+            <label class="samba-toggle-card">
+              <div class="samba-toggle-left">
+                <input type="checkbox" id="samba-opt-guest">
+                <div>
+                  <div class="samba-toggle-name">👤 Accès Invité Anonyme</div>
+                  <div class="samba-toggle-desc">Connexion sans mot de passe (à utiliser avec précaution).</div>
+                </div>
+              </div>
+            </label>
+
+            <!-- Option 4 : Corbeille Réseau (.recycle) -->
+            <label class="samba-toggle-card">
+              <div class="samba-toggle-left">
+                <input type="checkbox" id="samba-opt-recycle" checked>
+                <div>
+                  <div class="samba-toggle-name">♻️ Corbeille Réseau (.recycle)</div>
+                  <div class="samba-toggle-desc">Sauvegarde les fichiers supprimés dans le sous-dossier .recycle.</div>
+                </div>
+              </div>
+            </label>
+
+            <!-- Option 5 : Apple Time Machine -->
+            <label class="samba-toggle-card">
+              <div class="samba-toggle-left">
+                <input type="checkbox" id="samba-opt-timemachine" onchange="onSambaTimeMachineToggle()">
+                <div>
+                  <div class="samba-toggle-name">🍏 Apple Time Machine (vfs_fruit)</div>
+                  <div class="samba-toggle-desc">Enregistre le partage comme cible officielle de sauvegarde macOS.</div>
+                </div>
+              </div>
+            </label>
+
+            <!-- Option 6 : Clichés Instantanés VSS -->
+            <label class="samba-toggle-card">
+              <div class="samba-toggle-left">
+                <input type="checkbox" id="samba-opt-shadowcopy" checked>
+                <div>
+                  <div class="samba-toggle-name">📸 Versions Précédentes (VSS)</div>
+                  <div class="samba-toggle-desc">Intègre l'onglet « Versions précédentes » de l'explorateur Windows.</div>
+                </div>
+              </div>
+            </label>
+
+            <!-- Option 7 : Chiffrement Forcé SMB3 -->
+            <label class="samba-toggle-card">
+              <div class="samba-toggle-left">
+                <input type="checkbox" id="samba-opt-encrypt">
+                <div>
+                  <div class="samba-toggle-name">🔐 Chiffrement Forcé SMB3</div>
+                  <div class="samba-toggle-desc">Exige le chiffrement matériel AES-128/256-GCM sur ce partage.</div>
+                </div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- CONTROLE D'ACCES UTILISATEURS -->
+        <div class="samba-users-panel">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <label class="form-label" style="font-weight:700; color:var(--sapphire); margin-bottom:0; display:flex; align-items:center; gap:8px;">
+              <span>👥</span> Autorisations Utilisateurs
+            </label>
+            <span style="font-size:0.75rem; color:var(--subtext0);">
+              💡 Comptes gérés dans l'onglet <a href="#" onclick="closeSambaShareModal(); switchTab('tab-users');" style="color:var(--mauve); font-weight:700;">Utilisateurs & Groupes</a>
+            </span>
+          </div>
+
+          <div style="background:var(--mantle); border:1px solid rgba(255,255,255,0.06); border-radius:var(--radius-md); padding:14px;">
+            <div style="font-size:0.8rem; color:var(--subtext1); margin-bottom:10px;">
+              Cochez les utilisateurs autorisés à accéder à ce partage en écriture ou lecture seule :
+            </div>
+            <div id="samba-share-users-checkboxes" class="samba-users-checkboxes-grid">
+              <div style="color:var(--subtext0); font-size:0.8rem;">Chargement des utilisateurs du NAS...</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 22px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+        <button type="button" class="btn btn-secondary" onclick="closeSambaShareModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-samba-share" onclick="submitSambaShareForm()">
+          <span>💾</span> Enregistrer & Appliquer
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODALE : CONFIGURATION GLOBALE SAMBA ================= -->
+  <div class="file-modal-overlay" id="modal-samba-global" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-samba-global')">
+    <div class="file-modal-window" style="max-width: 640px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(116, 199, 236, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-info" style="font-size:0.75rem; font-weight:800;">DÉMON SMB</span>
+          <span class="file-modal-title">Paramètres Globaux du Serveur Samba</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeSambaGlobalModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:22px;">
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:16px;">
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600;">Nom du Serveur (NetBIOS)</label>
+            <input type="text" id="samba-global-server-string" class="form-input" placeholder="STEvE_OS NAS Media">
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600;">Groupe de Travail (Workgroup)</label>
+            <input type="text" id="samba-global-workgroup" class="form-input" placeholder="WORKGROUP">
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:20px;">
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600;">Protocole Minimal</label>
+            <select id="samba-global-min-protocol" class="form-select">
+              <option value="SMB2_10">SMB 2.10 (Standard sécurisé)</option>
+              <option value="SMB3_00">SMB 3.00 (Chiffrement moderne)</option>
+              <option value="SMB3_11">SMB 3.11 (Ultra sécurisé, Windows 10/11 & macOS)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight:600;">Politique de Chiffrement SMB3</label>
+            <select id="samba-global-encrypt" class="form-select">
+              <option value="auto">Automatique (Négocié selon le client)</option>
+              <option value="desired">Désiré (Chiffrement si supporté)</option>
+              <option value="mandatory">Obligatoire (Refuse les clients non chiffrés)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="samba-options-grid" style="grid-template-columns:1fr; gap:10px;">
+          <label class="samba-toggle-card">
+            <div class="samba-toggle-left">
+              <input type="checkbox" id="samba-global-wsdd" checked>
+              <div>
+                <div class="samba-toggle-name">📡 Découverte Windows WSDD (Web Services Dynamic Discovery)</div>
+                <div class="samba-toggle-desc">Permet à Windows 10/11 d'afficher immédiatement le NAS dans l'onglet « Réseau ».</div>
+              </div>
+            </div>
+          </label>
+
+          <label class="samba-toggle-card">
+            <div class="samba-toggle-left">
+              <input type="checkbox" id="samba-global-multichannel" checked>
+              <div>
+                <div class="samba-toggle-name">⚡ SMB Multi-Channel (Agrégation multi-interfaces)</div>
+                <div class="samba-toggle-desc">Combine plusieurs cartes réseau ou connexions WiFi/Ethernet pour doubler le débit.</div>
+              </div>
+            </div>
+          </label>
+
+          <label class="samba-toggle-card">
+            <div class="samba-toggle-left">
+              <input type="checkbox" id="samba-global-apple" checked>
+              <div>
+                <div class="samba-toggle-name">🍏 Extensions macOS Apple Fruit & Metadata</div>
+                <div class="samba-toggle-desc">Accélère l'affichage des icônes et le streaming Finder sur Mac.</div>
+              </div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 22px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+        <button type="button" class="btn btn-secondary" onclick="closeSambaGlobalModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" onclick="submitSambaGlobalForm()">
+          <span>💾</span> Enregistrer la Configuration
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODALE : DIAGNOSTIC TESTPARM ================= -->
+  <div class="file-modal-overlay" id="modal-samba-diag" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-samba-diag')">
+    <div class="file-modal-window" style="max-width: 800px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(166, 227, 161, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-success" style="font-size:0.75rem; font-weight:800;">TESTPARM</span>
+          <span class="file-modal-title">Diagnostic & Syntaxe Samba</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeSambaDiagModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:20px;">
+        <div id="samba-diag-status-banner" style="margin-bottom:14px;"></div>
+        <div style="position:relative;">
+          <pre id="samba-diag-output" class="samba-diag-terminal">Chargement du diagnostic syntaxique...</pre>
+          <button type="button" class="btn btn-secondary btn-xs" style="position:absolute; top:10px; right:10px;" onclick="copyElementText('samba-diag-output', 'Rapport copié !')">📋 Copier</button>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 20px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+        <button type="button" class="btn btn-secondary" onclick="runSambaDiag()">🔄 Relancer le Diagnostic</button>
+        <button type="button" class="btn btn-primary" onclick="closeSambaDiagModal()">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODALE : GUIDE DE CONNEXION INTERACTIF ================= -->
+  <div class="file-modal-overlay" id="modal-samba-guide" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-samba-guide')">
+    <div class="file-modal-window" style="max-width: 780px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(249, 226, 175, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-warning" style="font-size:0.75rem; font-weight:800;">GUIDE D'ACCÈS</span>
+          <span class="file-modal-title">Guide de Connexion aux Partages SMB</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeSambaGuideModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:22px;">
+        <!-- Onglets du guide -->
+        <div class="samba-guide-nav">
+          <button type="button" class="samba-guide-tab active" data-guide-os="win" onclick="switchSambaGuideTab('win')">🪟 Windows 11 / 10</button>
+          <button type="button" class="samba-guide-tab" data-guide-os="mac" onclick="switchSambaGuideTab('mac')">🍎 macOS (Finder)</button>
+          <button type="button" class="samba-guide-tab" data-guide-os="lnx" onclick="switchSambaGuideTab('lnx')">🐧 Linux & fstab</button>
+          <button type="button" class="samba-guide-tab" data-guide-os="mob" onclick="switchSambaGuideTab('mob')">📱 iOS & Android</button>
+        </div>
+
+        <!-- Contenu Windows -->
+        <div id="samba-guide-pane-win" class="samba-guide-pane active">
+          <h4 style="color:var(--sapphire); margin-bottom:8px;">Accéder depuis Windows 11 / 10</h4>
+          <ol class="samba-guide-steps">
+            <li>Appuyez sur <kbd>⊞ Windows</kbd> + <kbd>R</kbd> pour ouvrir la boîte de dialogue <em>Exécuter</em>.</li>
+            <li>
+              Entrez l'adresse réseau :
+              <div class="samba-guide-code-box">
+                <code id="guide-code-win">\192.168.1.139</code>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('guide-code-win', 'Copié !')">📋</button>
+              </div>
+            </li>
+            <li>Saisissez votre identifiant et mot de passe utilisateur créés dans le Dashboard STEvE_OS.</li>
+            <li><strong>Optionnel :</strong> Faites un clic droit sur un dossier &gt; <em>« Connecter un lecteur réseau »</em> (ex: lettre <code>Z:</code>) pour reconnecter automatiquement à chaque démarrage de Windows.</li>
+          </ol>
+        </div>
+
+        <!-- Contenu macOS -->
+        <div id="samba-guide-pane-mac" class="samba-guide-pane">
+          <h4 style="color:var(--teal); margin-bottom:8px;">Accéder depuis macOS (Finder)</h4>
+          <ol class="samba-guide-steps">
+            <li>Dans le <strong>Finder</strong>, cliquez sur le menu <em>Aller</em> &gt; <em>Se connecter au serveur…</em> (ou raccourci <kbd>⌘</kbd> + <kbd>K</kbd>).</li>
+            <li>
+              Entrez l'adresse de partage :
+              <div class="samba-guide-code-box">
+                <code id="guide-code-mac">smb://192.168.1.139</code>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('guide-code-mac', 'Copié !')">📋</button>
+              </div>
+            </li>
+            <li>Cliquez sur <em>Se connecter</em> et authentifiez-vous avec votre compte NAS.</li>
+            <li><strong>Apple Time Machine :</strong> Ouvrez les <em>Réglages Système &gt; Général &gt; Time Machine</em>, cliquez sur <em>Ajouter un disque de sauvegarde</em> et sélectionnez le partage configuré avec l'extension Apple.</li>
+          </ol>
+        </div>
+
+        <!-- Contenu Linux -->
+        <div id="samba-guide-pane-lnx" class="samba-guide-pane">
+          <h4 style="color:var(--peach); margin-bottom:8px;">Accéder depuis Linux (Bureau ou Ligne de commande)</h4>
+          <ol class="samba-guide-steps">
+            <li>
+              <strong>Explorateur (GNOME Fichiers / KDE Dolphin) :</strong>
+              Appuyez sur <kbd>Ctrl</kbd> + <kbd>L</kbd> et saisissez :
+              <div class="samba-guide-code-box">
+                <code id="guide-code-lnx-gui">smb://192.168.1.139/</code>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('guide-code-lnx-gui', 'Copié !')">📋</button>
+              </div>
+            </li>
+            <li>
+              <strong>Montage automatique permanent (/etc/fstab) :</strong>
+              <div class="samba-guide-code-box">
+                <code id="guide-code-lnx-fstab">//192.168.1.139/medias /mnt/nas_medias cifs username=chomiam,password=VOTRE_MDP,uid=1000,gid=100,iocharset=utf8 0 0</code>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('guide-code-lnx-fstab', 'Copié !')">📋</button>
+              </div>
+            </li>
+          </ol>
+        </div>
+
+        <!-- Contenu Mobile -->
+        <div id="samba-guide-pane-mob" class="samba-guide-pane">
+          <h4 style="color:var(--green); margin-bottom:8px;">Accéder depuis iPhone / iPad ou Android</h4>
+          <ol class="samba-guide-steps">
+            <li><strong>iOS / iPadOS (Application Fichiers native) :</strong> Appuyez sur le menu <kbd>•••</kbd> en haut &gt; <em>Se connecter au serveur</em> &gt; entrez <code>smb://192.168.1.139</code>.</li>
+            <li><strong>Android (Solid Explorer / CX File Explorer / VLC) :</strong> Ajoutez un nouveau stockage réseau SMB / Samba &gt; l'IP du NAS sera détectée automatiquement via mDNS.</li>
+            <li><strong>Streaming multimédia (VLC / Kodi) :</strong> Naviguez dans Réseau local &gt; Samba &gt; vos vidéos et musiques sont diffusées instantanément sans téléchargement.</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 20px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end;">
+        <button type="button" class="btn btn-primary" onclick="closeSambaGuideModal()">Compris !</button>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /#app-shell -->
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20261001_11"></script>
+  <script src="/js/app.js?v=20261001_12"></script>
 </body>
 </html>

@@ -43,6 +43,7 @@ mod minecraft;
 mod vms;
 mod generations;
 mod users;
+mod samba;
 
 use axum::Router;
 use std::env;

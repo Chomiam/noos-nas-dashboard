@@ -10555,6 +10555,9 @@ function switchNetworkSubtab(subtabId, updateHash = true) {
   if (subtabId === "subtab-dns") {
     loadDnsSettings();
   }
+  if (subtabId === "subtab-samba") {
+    loadSambaData();
+  }
   if (subtabId === "subtab-firewall") {
     try {
       const savedFwState = localStorage.getItem("steveos_firewall_state");
@@ -10797,6 +10800,12 @@ async function loadNetwork(showFeedback = false) {
           </tr>
         `).join("");
       }
+    }
+
+    // Charger Samba si le sous-onglet Samba est actif
+    const sambaSubpane = document.getElementById("subtab-samba");
+    if (activeNetworkSubtab === "subtab-samba" || (sambaSubpane && sambaSubpane.classList.contains("active"))) {
+      loadSambaData();
     }
 
     // Charger les profils clients WireGuard si le sous-onglet VPN est actif
@@ -17409,4 +17418,690 @@ async function checkActiveStorageJobOnLoad() {
       }
     }
   } catch (e) {}
+}
+
+
+// =========================================================================
+// 🗄️ GESTIONNAIRE COMPLET SAMBA (SMB / CIFS) — STEvE_OS CATPPUCCIN MOCHA
+// =========================================================================
+
+let currentSambaData = null;
+
+async function loadSambaData(showFeedback = false) {
+  try {
+    const res = await fetch("/api/samba");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    if (!json.success || !json.data) throw new Error(json.error || "Données indisponibles");
+
+    const data = json.data;
+    currentSambaData = data;
+
+    // 1. En-tête et Badges d'état
+    const statusBadge = document.getElementById("samba-status-badge");
+    const versionBadge = document.getElementById("samba-version-badge");
+    const pulseDot = document.getElementById("samba-hero-pulse-dot");
+
+    if (statusBadge) {
+      statusBadge.textContent = data.is_active ? "● En Ligne" : "● Inactif";
+      statusBadge.className = `samba-status-tag ${data.is_active ? "active" : "inactive"}`;
+    }
+    if (versionBadge && data.version) {
+      versionBadge.textContent = `Samba v${data.version}`;
+    }
+    if (pulseDot) {
+      pulseDot.style.display = data.is_active ? "block" : "none";
+    }
+
+    // Badge sous-onglet dans la navigation
+    const navBadge = document.getElementById("badge-subtab-samba");
+    if (navBadge) {
+      navBadge.textContent = data.is_active ? "Actif" : "Inactif";
+      navBadge.className = `subtab-pill-badge ${data.is_active ? "badge-success" : "badge-secondary"}`;
+    }
+
+    // 2. Adresses de connexion rapide
+    const uriWin = document.getElementById("samba-uri-val-win");
+    const uriMac = document.getElementById("samba-uri-val-mac");
+    const uriLnx = document.getElementById("samba-uri-val-lnx");
+
+    const ip = data.primary_ip || window.location.hostname;
+    const host = data.hostname || "steveos-nas";
+
+    if (uriWin) uriWin.textContent = `\\${ip}`;
+    if (uriMac) uriMac.textContent = `smb://${ip}`;
+    if (uriLnx) uriLnx.textContent = `smb://${host}.local`;
+
+    // 3. Mise à jour des KPIs
+    const kpiSharesCount = document.getElementById("samba-kpi-shares-count");
+    const kpiSharesSub = document.getElementById("samba-kpi-shares-sub");
+    const kpiSessionsCount = document.getElementById("samba-kpi-sessions-count");
+    const kpiSessionsSub = document.getElementById("samba-kpi-sessions-sub");
+    const kpiLocksCount = document.getElementById("samba-kpi-locks-count");
+    const kpiLocksSub = document.getElementById("samba-kpi-locks-sub");
+    const kpiFeaturesCount = document.getElementById("samba-kpi-features-count");
+    const kpiFeaturesSub = document.getElementById("samba-kpi-features-sub");
+
+    const shares = data.shares || [];
+    const sessions = data.active_sessions || [];
+    const locks = data.locked_files || [];
+
+    const rwCount = shares.filter(s => !s.read_only).length;
+    const tmCount = shares.filter(s => s.time_machine).length;
+    const recycleCount = shares.filter(s => s.recycle_bin).length;
+
+    if (kpiSharesCount) kpiSharesCount.textContent = shares.length;
+    if (kpiSharesSub) kpiSharesSub.textContent = `${rwCount} en lecture/écriture, ${shares.length - rwCount} lecture seule`;
+
+    if (kpiSessionsCount) kpiSessionsCount.textContent = sessions.length;
+    if (kpiSessionsSub) kpiSessionsSub.textContent = sessions.length === 1 ? "1 client connecté" : `${sessions.length} clients connectés`;
+
+    if (kpiLocksCount) kpiLocksCount.textContent = locks.length;
+    if (kpiLocksSub) kpiLocksSub.textContent = locks.length === 1 ? "1 fichier ouvert" : `${locks.length} fichiers ouverts`;
+
+    if (kpiFeaturesCount) kpiFeaturesCount.textContent = `${tmCount} TM / ${recycleCount} ♻️`;
+    if (kpiFeaturesSub) kpiFeaturesSub.textContent = `${tmCount} Time Machine, ${recycleCount} corbeilles`;
+
+    // 4. Rendu de la liste des partages
+    renderSambaSharesList(shares, data.available_users || []);
+
+    // 5. Rendu des sessions actives
+    renderSambaSessionsTable(sessions);
+
+    // 6. Rendu des verrous
+    renderSambaLocksTable(locks);
+
+    if (showFeedback) {
+      showToast("Données Samba actualisées avec succès !", "success");
+    }
+  } catch (err) {
+    console.error("Erreur chargement Samba:", err);
+    if (showFeedback) {
+      showToast("Erreur lors du chargement de Samba : " + err.message, "error");
+    }
+  }
+}
+
+function renderSambaSharesList(shares, availableUsers) {
+  const container = document.getElementById("samba-shares-list");
+  if (!container) return;
+
+  if (!shares || shares.length === 0) {
+    container.innerHTML = `
+      <div style="padding:40px; text-align:center; background:var(--mantle); border-radius:var(--radius-md); border:1px dashed rgba(255,255,255,0.1);">
+        <div style="font-size:2.5rem; margin-bottom:12px;">📂</div>
+        <div style="font-size:1.1rem; font-weight:700; color:var(--text); margin-bottom:6px;">Aucun partage Samba configuré</div>
+        <div style="font-size:0.85rem; color:var(--subtext0); max-width:440px; margin:0 auto 16px auto;">
+          Créez votre premier partage réseau pour accéder à vos fichiers depuis Windows, Mac, Linux ou vos appareils mobiles.
+        </div>
+        <button type="button" class="btn btn-primary" onclick="openCreateSambaShareModal()">
+          <span>➕</span> Créer un Partage Réseau
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  const primaryIp = currentSambaData?.primary_ip || window.location.hostname;
+
+  container.innerHTML = shares.map(share => {
+    // Choix de l'icône contextuelle
+    let icon = "📂";
+    let cardClass = "";
+    if (share.time_machine) {
+      icon = "🍏";
+      cardClass = "timemachine";
+    } else if (share.read_only) {
+      icon = "🔒";
+      cardClass = "readonly";
+    } else if (share.name.toLowerCase().includes("media") || share.name.toLowerCase().includes("video") || share.name.toLowerCase().includes("film")) {
+      icon = "🎬";
+    } else if (share.name.toLowerCase().includes("backup") || share.name.toLowerCase().includes("sauvegarde")) {
+      icon = "📦";
+    }
+
+    // Badges
+    const badges = [];
+    if (share.read_only) {
+      badges.push(`<span class="badge badge-warning" title="Lecture seule forcée">🔒 Lecture Seule</span>`);
+    } else {
+      badges.push(`<span class="badge badge-success" title="Accès en écriture autorisé">✏️ Lecture / Écriture</span>`);
+    }
+
+    if (share.guest_ok) {
+      badges.push(`<span class="badge badge-info" title="Connexion sans mot de passe">👤 Invités Autorisés</span>`);
+    } else {
+      badges.push(`<span class="badge badge-primary" title="Authentification requise">🔑 Authentifié</span>`);
+    }
+
+    if (share.recycle_bin) {
+      badges.push(`<span class="badge" style="background:rgba(166,227,161,0.15); color:var(--green); border:1px solid rgba(166,227,161,0.3);" title="Corbeille réseau active (.recycle)">♻️ Corbeille</span>`);
+    }
+
+    if (share.time_machine) {
+      badges.push(`<span class="badge" style="background:rgba(148,226,213,0.15); color:var(--teal); border:1px solid rgba(148,226,213,0.3);" title="Cible de sauvegarde macOS Time Machine">🍏 Time Machine</span>`);
+    }
+
+    if (share.shadow_copy) {
+      badges.push(`<span class="badge" style="background:rgba(203,166,247,0.15); color:var(--mauve); border:1px solid rgba(203,166,247,0.3);" title="Clichés instantanés Windows VSS">📸 Versions Précédentes</span>`);
+    }
+
+    if (share.smb_encrypt) {
+      badges.push(`<span class="badge" style="background:rgba(243,139,168,0.15); color:var(--red); border:1px solid rgba(243,139,168,0.3);" title="Chiffrement matériel AES SMB3 obligatoire">🔐 Chiffré</span>`);
+    }
+
+    if (!share.browseable) {
+      badges.push(`<span class="badge badge-secondary" title="Partage masqué sur le réseau">👁️‍🗨️ Masqué</span>`);
+    }
+
+    // Formater utilisateurs autorisés
+    let usersDisplay = `<span style="color:var(--subtext0); font-style:italic;">Tous les utilisateurs authentifiés</span>`;
+    if (share.write_list && share.write_list.length > 0) {
+      usersDisplay = share.write_list.map(u => `<span class="badge badge-primary" style="font-size:0.75rem;">👤 ${escapeHtml(u)}</span>`).join(" ");
+    } else if (share.valid_users && share.valid_users.length > 0) {
+      usersDisplay = share.valid_users.map(u => `<span class="badge badge-secondary" style="font-size:0.75rem;">👤 ${escapeHtml(u)}</span>`).join(" ");
+    }
+
+    const uncPath = `\\${primaryIp}\${share.name}`;
+
+    return `
+      <div class="samba-share-card ${cardClass}" id="samba-card-${escapeHtml(share.id)}">
+        <div class="samba-share-header">
+          <div class="samba-share-title-group">
+            <div class="samba-share-badge-icon">${icon}</div>
+            <div>
+              <div class="samba-share-name">${escapeHtml(share.name)}</div>
+              <div class="samba-share-comment">${escapeHtml(share.comment || "Aucune description")}</div>
+            </div>
+          </div>
+
+          <div class="samba-share-badges">
+            ${badges.join(" ")}
+          </div>
+
+          <div class="samba-share-actions">
+            <button type="button" class="btn btn-secondary btn-xs" onclick="copyTextToClipboard('${uncPath}', 'Chemin UNC copié !')" title="Copier le chemin réseau UNC : ${uncPath}">
+              📋 Copier UNC
+            </button>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="openEditSambaShareModal('${escapeHtml(share.id)}')" title="Modifier la configuration du partage">
+              ✏️ Modifier
+            </button>
+            <button type="button" class="btn btn-danger btn-xs" onclick="deleteSambaShareConfirm('${escapeHtml(share.id)}', '${escapeHtml(share.name)}')" title="Supprimer ce partage">
+              🗑️
+            </button>
+          </div>
+        </div>
+
+        <div class="samba-share-meta-row">
+          <div>
+            <div class="samba-share-field-label">Chemin Unix Hôte :</div>
+            <div class="samba-share-field-val">
+              <code class="samba-share-path-code">${escapeHtml(share.path)}</code>
+              <button type="button" class="btn-copy-uri" onclick="copyTextToClipboard('${escapeHtml(share.path)}', 'Chemin hôte copié !')" title="Copier le chemin Unix">📋</button>
+            </div>
+          </div>
+
+          <div>
+            <div class="samba-share-field-label">Accès Utilisateurs :</div>
+            <div class="samba-share-field-val">
+              ${usersDisplay}
+            </div>
+          </div>
+
+          <div>
+            <div class="samba-share-field-label">Permissions Création :</div>
+            <div class="samba-share-field-val">
+              <span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--subtext1);">Fichiers: ${escapeHtml(share.create_mask || "0664")} | Dossiers: ${escapeHtml(share.directory_mask || "0775")}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderSambaSessionsTable(sessions) {
+  const tbody = document.getElementById("samba-sessions-tbody");
+  if (!tbody) return;
+
+  if (!sessions || sessions.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--subtext0); padding:20px;">Aucune session cliente active détectée.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = sessions.map(s => `
+    <tr>
+      <td><strong>👤 ${escapeHtml(s.user)}</strong></td>
+      <td>
+        <code style="color:var(--sapphire); font-weight:600;">${escapeHtml(s.client_ip)}</code>
+        ${s.machine ? `<span style="font-size:0.75rem; color:var(--subtext0); display:block;">(${escapeHtml(s.machine)})</span>` : ""}
+      </td>
+      <td>
+        <span class="badge badge-info">${escapeHtml(s.protocol)}</span>
+        ${s.encryption ? `<span class="badge" style="background:rgba(243,139,168,0.15); color:var(--red); font-size:0.7rem; margin-left:4px;">${escapeHtml(s.encryption)}</span>` : ""}
+      </td>
+      <td>
+        <span class="badge badge-secondary">📁 ${escapeHtml(s.share || "-")}</span>
+      </td>
+      <td>
+        <span style="font-size:0.8rem; color:var(--subtext1);">${escapeHtml(s.login_time || "-")}</span>
+      </td>
+      <td style="text-align:right;">
+        ${s.pid ? `
+          <button type="button" class="btn btn-danger btn-xs" onclick="disconnectSambaSession(${s.pid})" title="Déconnecter ce client (kill PID ${s.pid})">
+            🔌 Déconnecter
+          </button>
+        ` : "-"}
+      </td>
+    </tr>
+  `).join("");
+}
+
+function renderSambaLocksTable(locks) {
+  const tbody = document.getElementById("samba-locks-tbody");
+  if (!tbody) return;
+
+  if (!locks || locks.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--subtext0); padding:20px;">Aucun fichier verrouillé actuellement.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = locks.map(l => `
+    <tr>
+      <td>
+        <div style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text); max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(l.path)}">
+          📄 ${escapeHtml(l.path)}
+        </div>
+      </td>
+      <td>
+        <span class="badge badge-secondary">📁 ${escapeHtml(l.share)}</span>
+      </td>
+      <td>
+        <span class="badge badge-warning" style="font-size:0.72rem;">${escapeHtml(l.lock_type)}</span>
+      </td>
+      <td>
+        <code style="color:var(--mauve); font-size:0.8rem;">${l.pid}</code>
+      </td>
+      <td>
+        <span style="font-size:0.78rem; color:var(--subtext0);">${escapeHtml(l.time || "-")}</span>
+      </td>
+    </tr>
+  `).join("");
+}
+
+// =========================================================================
+// MODALE PARTAGE SAMBA (CRÉATION / MODIFICATION)
+// =========================================================================
+
+function openCreateSambaShareModal() {
+  document.getElementById("modal-samba-share-title").textContent = "Nouveau Partage Réseau Samba";
+  document.getElementById("samba-share-id").value = "";
+  document.getElementById("samba-share-name").value = "";
+  document.getElementById("samba-share-name").readOnly = false;
+  document.getElementById("samba-share-comment").value = "";
+  document.getElementById("samba-share-path").value = "/mnt/raid/shares/";
+
+  document.getElementById("samba-opt-browseable").checked = true;
+  document.getElementById("samba-opt-readonly").checked = false;
+  document.getElementById("samba-opt-guest").checked = false;
+  document.getElementById("samba-opt-recycle").checked = true;
+  document.getElementById("samba-opt-timemachine").checked = false;
+  document.getElementById("samba-opt-shadowcopy").checked = true;
+  document.getElementById("samba-opt-encrypt").checked = false;
+
+  renderSambaUsersCheckboxes([]);
+
+  document.getElementById("modal-samba-share").style.display = "flex";
+}
+
+function openEditSambaShareModal(shareId) {
+  if (!currentSambaData || !currentSambaData.shares) return;
+  const share = currentSambaData.shares.find(s => s.id === shareId);
+  if (!share) {
+    showToast("Partage introuvable", "error");
+    return;
+  }
+
+  document.getElementById("modal-samba-share-title").textContent = `Modifier le Partage : ${share.name}`;
+  document.getElementById("samba-share-id").value = share.id;
+  document.getElementById("samba-share-name").value = share.name;
+  document.getElementById("samba-share-name").readOnly = true;
+  document.getElementById("samba-share-comment").value = share.comment || "";
+  document.getElementById("samba-share-path").value = share.path || "";
+
+  document.getElementById("samba-opt-browseable").checked = share.browseable !== false;
+  document.getElementById("samba-opt-readonly").checked = !!share.read_only;
+  document.getElementById("samba-opt-guest").checked = !!share.guest_ok;
+  document.getElementById("samba-opt-recycle").checked = !!share.recycle_bin;
+  document.getElementById("samba-opt-timemachine").checked = !!share.time_machine;
+  document.getElementById("samba-opt-shadowcopy").checked = !!share.shadow_copy;
+  document.getElementById("samba-opt-encrypt").checked = !!share.smb_encrypt;
+
+  const selectedUsers = share.write_list && share.write_list.length > 0 ? share.write_list : (share.valid_users || []);
+  renderSambaUsersCheckboxes(selectedUsers);
+
+  document.getElementById("modal-samba-share").style.display = "flex";
+}
+
+function closeSambaShareModal() {
+  document.getElementById("modal-samba-share").style.display = "none";
+}
+
+function setSambaSharePathPreset(presetPath) {
+  const input = document.getElementById("samba-share-path");
+  const nameInput = document.getElementById("samba-share-name");
+  const name = nameInput.value.trim();
+  if (name) {
+    input.value = `${presetPath}${name}`;
+  } else {
+    input.value = presetPath;
+  }
+}
+
+function onSambaTimeMachineToggle() {
+  const isTm = document.getElementById("samba-opt-timemachine").checked;
+  if (isTm) {
+    const commentInput = document.getElementById("samba-share-comment");
+    if (commentInput && !commentInput.value) {
+      commentInput.value = "Sauvegardes Apple Time Machine macOS";
+    }
+  }
+}
+
+function renderSambaUsersCheckboxes(selectedUsers = []) {
+  const container = document.getElementById("samba-share-users-checkboxes");
+  if (!container) return;
+
+  const users = currentSambaData?.available_users || ["chomiam"];
+  if (users.length === 0) {
+    container.innerHTML = `<div style="color:var(--subtext0); font-size:0.8rem;">Aucun utilisateur spécifique détecté sur le système.</div>`;
+    return;
+  }
+
+  container.innerHTML = users.map(user => {
+    const isChecked = selectedUsers.includes(user) || (selectedUsers.length === 0 && user === "chomiam");
+    return `
+      <label class="samba-user-checkbox-item">
+        <input type="checkbox" name="samba-user-perm" value="${escapeHtml(user)}" ${isChecked ? "checked" : ""}>
+        <span><strong>${escapeHtml(user)}</strong></span>
+      </label>
+    `;
+  }).join("");
+}
+
+async function submitSambaShareForm() {
+  const id = document.getElementById("samba-share-id").value.trim();
+  const name = document.getElementById("samba-share-name").value.trim();
+  const path = document.getElementById("samba-share-path").value.trim();
+  const comment = document.getElementById("samba-share-comment").value.trim();
+
+  if (!name) {
+    showToast("Veuillez saisir un nom de partage valide.", "warning");
+    return;
+  }
+  if (!path || !path.startsWith("/")) {
+    showToast("Veuillez saisir un chemin absolu valide (ex: /mnt/raid/shares/mon_dossier).", "warning");
+    return;
+  }
+
+  // Utilisateurs sélectionnés
+  const checkedUsers = [];
+  document.querySelectorAll('input[name="samba-user-perm"]:checked').forEach(cb => {
+    checkedUsers.push(cb.value);
+  });
+
+  const payload = {
+    id: id || name,
+    name: name,
+    path: path,
+    comment: comment,
+    read_only: document.getElementById("samba-opt-readonly").checked,
+    browseable: document.getElementById("samba-opt-browseable").checked,
+    guest_ok: document.getElementById("samba-opt-guest").checked,
+    recycle_bin: document.getElementById("samba-opt-recycle").checked,
+    time_machine: document.getElementById("samba-opt-timemachine").checked,
+    shadow_copy: document.getElementById("samba-opt-shadowcopy").checked,
+    smb_encrypt: document.getElementById("samba-opt-encrypt").checked,
+    valid_users: checkedUsers,
+    write_list: document.getElementById("samba-opt-readonly").checked ? [] : checkedUsers,
+    read_list: document.getElementById("samba-opt-readonly").checked ? checkedUsers : [],
+    create_mask: "0664",
+    directory_mask: "0775"
+  };
+
+  const btn = document.getElementById("btn-submit-samba-share");
+  const oldText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<span>⏳</span> Application...`;
+
+  try {
+    const res = await fetch("/api/samba/shares", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || "Échec de l'enregistrement");
+
+    showToast(id ? "Partage Samba mis à jour avec succès !" : "Nouveau partage Samba créé !", "success");
+    closeSambaShareModal();
+    await loadSambaData();
+  } catch (err) {
+    console.error("Erreur enregistrement partage Samba:", err);
+    showToast("Erreur : " + err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = oldText;
+  }
+}
+
+async function deleteSambaShareConfirm(shareId, shareName) {
+  if (!confirm(`Êtes-vous sûr de vouloir supprimer le partage « ${shareName} » ?
+
+🛡️ NOTE IMPORTANTE : Vos fichiers et données sur le disque NE seront PAS supprimés. Seule la règle de partage réseau sera retirée.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/samba/shares/${encodeURIComponent(shareId)}`, {
+      method: "DELETE"
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || "Échec de suppression");
+
+    showToast(`Partage « ${shareName} » supprimé avec succès`, "success");
+    await loadSambaData();
+  } catch (err) {
+    console.error("Erreur suppression partage Samba:", err);
+    showToast("Erreur lors de la suppression : " + err.message, "error");
+  }
+}
+
+// =========================================================================
+// MODALE CONFIGURATION GLOBALE SAMBA
+// =========================================================================
+
+function openSambaGlobalModal() {
+  if (currentSambaData && currentSambaData.global_config) {
+    const cfg = currentSambaData.global_config;
+    document.getElementById("samba-global-server-string").value = cfg.server_string || "STEvE_OS NAS";
+    document.getElementById("samba-global-workgroup").value = cfg.workgroup || "WORKGROUP";
+    document.getElementById("samba-global-min-protocol").value = cfg.min_protocol || "SMB2_10";
+    document.getElementById("samba-global-encrypt").value = cfg.smb_encrypt || "auto";
+    document.getElementById("samba-global-wsdd").checked = cfg.wsdd_enabled !== false;
+    document.getElementById("samba-global-multichannel").checked = cfg.multi_channel !== false;
+    document.getElementById("samba-global-apple").checked = cfg.apple_extensions !== false;
+  }
+  document.getElementById("modal-samba-global").style.display = "flex";
+}
+
+function closeSambaGlobalModal() {
+  document.getElementById("modal-samba-global").style.display = "none";
+}
+
+async function submitSambaGlobalForm() {
+  const payload = {
+    server_string: document.getElementById("samba-global-server-string").value.trim() || "STEvE_OS NAS",
+    workgroup: document.getElementById("samba-global-workgroup").value.trim().toUpperCase() || "WORKGROUP",
+    min_protocol: document.getElementById("samba-global-min-protocol").value,
+    smb_encrypt: document.getElementById("samba-global-encrypt").value,
+    wsdd_enabled: document.getElementById("samba-global-wsdd").checked,
+    multi_channel: document.getElementById("samba-global-multichannel").checked,
+    apple_extensions: document.getElementById("samba-global-apple").checked
+  };
+
+  try {
+    const res = await fetch("/api/samba/global", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || "Échec de l'enregistrement");
+
+    showToast("Paramètres globaux Samba mis à jour et appliqués !", "success");
+    closeSambaGlobalModal();
+    await loadSambaData();
+  } catch (err) {
+    console.error("Erreur enregistrement global Samba:", err);
+    showToast("Erreur : " + err.message, "error");
+  }
+}
+
+// =========================================================================
+// MODALE DIAGNOSTIC TESTPARM
+// =========================================================================
+
+function openSambaDiagModal() {
+  document.getElementById("modal-samba-diag").style.display = "flex";
+  runSambaDiag();
+}
+
+function closeSambaDiagModal() {
+  document.getElementById("modal-samba-diag").style.display = "none";
+}
+
+async function runSambaDiag() {
+  const pre = document.getElementById("samba-diag-output");
+  const banner = document.getElementById("samba-diag-status-banner");
+  if (pre) pre.textContent = "Exécution de testparm -s en cours...";
+  if (banner) banner.innerHTML = "";
+
+  try {
+    const res = await fetch("/api/samba/diagnostics");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || "Échec du diagnostic");
+
+    const diag = json.data;
+    if (pre) {
+      pre.textContent = diag.output || "Aucune sortie.";
+    }
+
+    if (banner) {
+      if (diag.valid) {
+        banner.innerHTML = `
+          <div style="background:rgba(166,227,161,0.12); border:1px solid rgba(166,227,161,0.3); border-radius:var(--radius-sm); padding:10px 14px; display:flex; align-items:center; gap:10px; color:var(--green); font-size:0.86rem; font-weight:600;">
+            <span>✅</span> Syntaxe et structure de la configuration Samba parfaitement valides.
+          </div>
+        `;
+      } else {
+        banner.innerHTML = `
+          <div style="background:rgba(243,139,168,0.12); border:1px solid rgba(243,139,168,0.3); border-radius:var(--radius-sm); padding:10px 14px; display:flex; align-items:center; gap:10px; color:var(--red); font-size:0.86rem; font-weight:600;">
+            <span>⚠️</span> Des avertissements ou erreurs ont été détectés lors de la vérification syntaxique.
+          </div>
+        `;
+      }
+    }
+  } catch (err) {
+    if (pre) pre.textContent = "Erreur : " + err.message;
+    if (banner) {
+      banner.innerHTML = `
+        <div style="background:rgba(243,139,168,0.12); border:1px solid rgba(243,139,168,0.3); border-radius:var(--radius-sm); padding:10px 14px; color:var(--red); font-size:0.86rem;">
+          ❌ Impossible d'exécuter testparm : ${escapeHtml(err.message)}
+        </div>
+      `;
+    }
+  }
+}
+
+// =========================================================================
+// MODALE GUIDE DE CONNEXION INTERACTIF
+// =========================================================================
+
+function openSambaGuideModal() {
+  const ip = currentSambaData?.primary_ip || window.location.hostname;
+  const host = currentSambaData?.hostname || "steveos-nas";
+
+  const winCode = document.getElementById("guide-code-win");
+  const macCode = document.getElementById("guide-code-mac");
+  const lnxGuiCode = document.getElementById("guide-code-lnx-gui");
+  const lnxFstabCode = document.getElementById("guide-code-lnx-fstab");
+
+  if (winCode) winCode.textContent = `\\${ip}`;
+  if (macCode) macCode.textContent = `smb://${ip}`;
+  if (lnxGuiCode) lnxGuiCode.textContent = `smb://${host}.local/`;
+  if (lnxFstabCode) lnxFstabCode.textContent = `//${ip}/partage /mnt/nas_partage cifs username=VOTRE_USER,password=VOTRE_MDP,uid=1000,gid=100,iocharset=utf8 0 0`;
+
+  switchSambaGuideTab("win");
+  document.getElementById("modal-samba-guide").style.display = "flex";
+}
+
+function closeSambaGuideModal() {
+  document.getElementById("modal-samba-guide").style.display = "none";
+}
+
+function switchSambaGuideTab(os) {
+  document.querySelectorAll(".samba-guide-tab").forEach(tab => {
+    tab.classList.toggle("active", tab.getAttribute("data-guide-os") === os);
+  });
+  document.querySelectorAll(".samba-guide-pane").forEach(pane => {
+    pane.classList.toggle("active", pane.id === `samba-guide-pane-${os}`);
+  });
+}
+
+// =========================================================================
+// ACTIONS RAPIDES SAMBA (RELOAD, DISCONNECT)
+// =========================================================================
+
+async function reloadSambaAction() {
+  const btn = document.getElementById("btn-reload-samba");
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch("/api/samba/reload", { method: "POST" });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || "Échec du rechargement");
+
+    showToast("Samba rechargé avec succès sans déconnecter les clients !", "success");
+    await loadSambaData();
+  } catch (err) {
+    console.error("Erreur rechargement Samba:", err);
+    showToast("Erreur : " + err.message, "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function disconnectSambaSession(pid) {
+  if (!confirm(`Voulez-vous vraiment déconnecter la session SMB associée au processus PID ${pid} ?`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/samba/sessions/disconnect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pid: pid })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || "Échec de déconnexion");
+
+    showToast(`Session PID ${pid} déconnectée.`, "success");
+    await loadSambaData();
+  } catch (err) {
+    console.error("Erreur déconnexion session:", err);
+    showToast("Erreur : " + err.message, "error");
+  }
 }

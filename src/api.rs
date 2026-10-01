@@ -41,6 +41,13 @@ use crate::firewall::{
     update_custom_rule, CreatePortRuleRequest, CustomPortRule, FirewallOverview,
     ToggleFirewallRequest, UpdatePortRuleRequest,
 };
+use crate::samba::{
+    create_samba_share, delete_samba_share, disconnect_samba_session,
+    get_samba_diagnostics, get_samba_overview, reload_samba_service,
+    save_samba_global_config, update_samba_share, CreateShareRequest,
+    DisconnectSessionRequest, SambaDiagResult, SambaGlobalConfig, SambaOverview,
+    SambaShare, UpdateGlobalConfigRequest, UpdateShareRequest,
+};
 use crate::network::{
     get_live_traffic, get_network_overview, get_traffic_history, LiveTrafficOverview,
     NetworkOverview, TrafficHistoryOverview,
@@ -158,6 +165,14 @@ pub fn api_routes() -> Router {
         .route("/network/traffic/live", get(handle_network_traffic_live))
         .route("/network/traffic/history", get(handle_network_traffic_history))
         .route("/network/dns", get(handle_get_dns).post(handle_update_dns))
+        .route("/samba", get(handle_samba_overview))
+        .route("/samba/shares", post(handle_samba_create_share))
+        .route("/samba/shares/:id", put(handle_samba_update_share).delete(handle_samba_delete_share))
+        .route("/samba/global", post(handle_samba_update_global))
+        .route("/samba/reload", post(handle_samba_reload))
+        .route("/samba/diagnostics", get(handle_samba_diagnostics))
+        .route("/samba/sessions/disconnect", post(handle_samba_disconnect_session))
+
         .route("/firewall", get(handle_firewall))
         .route("/firewall/toggle", post(handle_firewall_toggle))
         .route("/firewall/rules", post(handle_firewall_create_rule))
@@ -2161,6 +2176,137 @@ async fn handle_delete_docker_image(
             success: true,
             data: Some(msg),
             message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+
+// =========================================================================
+// 📁 GESTION SAMBA (SMB/CIFS) COMPLÈTE & DYNAMIQUE
+// =========================================================================
+
+async fn handle_samba_overview() -> Json<ApiResponse<SambaOverview>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(get_samba_overview()),
+        message: None,
+    })
+}
+
+async fn handle_samba_create_share(
+    Json(body): Json<CreateShareRequest>,
+) -> Json<ApiResponse<SambaShare>> {
+    match create_samba_share(body) {
+        Ok(share) => Json(ApiResponse {
+            success: true,
+            data: Some(share),
+            message: Some("Partage Samba créé avec succès !".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_samba_update_share(
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(body): Json<UpdateShareRequest>,
+) -> Json<ApiResponse<SambaShare>> {
+    match update_samba_share(&id, body) {
+        Ok(share) => Json(ApiResponse {
+            success: true,
+            data: Some(share),
+            message: Some("Partage Samba mis à jour avec succès !".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_samba_delete_share(
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Json<ApiResponse<()>> {
+    match delete_samba_share(&id) {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            data: Some(()),
+            message: Some("Partage Samba supprimé.".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_samba_update_global(
+    Json(body): Json<UpdateGlobalConfigRequest>,
+) -> Json<ApiResponse<SambaGlobalConfig>> {
+    let mut cfg = crate::samba::load_samba_global_config();
+    if let Some(w) = body.workgroup { cfg.workgroup = w; }
+    if let Some(s) = body.server_string { cfg.server_string = s; }
+    if let Some(min) = body.min_protocol { cfg.min_protocol = min; }
+    if let Some(max) = body.max_protocol { cfg.max_protocol = max; }
+    if let Some(wsdd) = body.wsdd_enabled { cfg.wsdd_enabled = wsdd; }
+    if let Some(mc) = body.multi_channel { cfg.multi_channel = mc; }
+    if let Some(aio) = body.aio_enabled { cfg.aio_enabled = aio; }
+
+    match save_samba_global_config(&cfg) {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            data: Some(cfg),
+            message: Some("Configuration globale Samba enregistrée.".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_samba_reload() -> Json<ApiResponse<String>> {
+    match reload_samba_service() {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg.clone()),
+            message: Some(msg),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_samba_diagnostics() -> Json<ApiResponse<SambaDiagResult>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(get_samba_diagnostics()),
+        message: None,
+    })
+}
+
+async fn handle_samba_disconnect_session(
+    Json(body): Json<DisconnectSessionRequest>,
+) -> Json<ApiResponse<()>> {
+    match disconnect_samba_session(&body.pid) {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            data: Some(()),
+            message: Some(format!("Session PID {} déconnectée.", body.pid)),
         }),
         Err(err) => Json(ApiResponse {
             success: false,
