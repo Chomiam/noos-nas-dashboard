@@ -5261,8 +5261,55 @@
         <a href="#" target="_blank" class="btn btn-success btn-xs" id="docker-deploy-toast-open-btn">
           <span>🚀</span> Ouvrir l'application ↗
         </a>
+        <button type="button" class="btn btn-danger btn-xs" id="docker-deploy-toast-view-error-btn" style="display: none;" onclick="openDockerDeployErrorModal()">
+          <span>🔍</span> Voir le rapport d'erreur
+        </button>
         <button type="button" class="btn btn-secondary btn-xs" onclick="switchTab('tab-containers'); switchDockerSubTab('containers'); dismissDockerDeployToast();">
           <span>📦</span> Mes Conteneurs
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL : RAPPORT D'ERREUR DÉTAILLÉ DE DÉPLOIEMENT DOCKER (CENTRÉ) -->
+  <div class="file-modal-overlay" id="modal-docker-deploy-error" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-docker-deploy-error')">
+    <div class="file-modal-window" style="max-width: 840px; width: 94%; border-color: rgba(243, 139, 168, 0.4); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.75), 0 0 30px rgba(243, 139, 168, 0.15);">
+      <div class="file-modal-header" style="border-bottom: 1px solid rgba(243, 139, 168, 0.25); display: flex; justify-content: space-between; align-items: center;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-danger" style="font-size:0.75rem; font-weight:800;">DÉPLOIEMENT ÉCHOUÉ</span>
+          <span class="file-modal-title" id="docker-deploy-error-modal-title" style="color:var(--red);">Rapport d'incident Docker Compose</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeDockerDeployErrorModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:22px;">
+        <!-- BANNIÈRE D'ANALYSE INTELLIGENTE DU DIAGNOSTIC -->
+        <div id="docker-deploy-error-hint" class="storage-modal-infobox" style="margin-bottom:16px; border-color:rgba(243, 139, 168, 0.35); background:rgba(243, 139, 168, 0.08); display:none;">
+          <div style="font-weight:700; color:var(--red); font-size:0.88rem; margin-bottom:4px;" id="docker-deploy-error-hint-title">⚠️ Conflit détecté</div>
+          <div style="font-size:0.82rem; color:var(--subtext1); line-height:1.5;" id="docker-deploy-error-hint-desc">...</div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <label class="form-label" style="font-weight:600; margin-bottom:0; font-size:0.84rem; color:var(--text);">
+            <span>🖥️</span> Journal d'exécution Docker (Sortie console complète) :
+          </label>
+          <span style="font-size:0.74rem; color:var(--subtext0);">Sélectionnez ou copiez le texte ci-dessous</span>
+        </div>
+
+        <div class="form-group" style="margin-bottom:12px; position:relative;">
+          <textarea id="docker-deploy-error-textarea" class="form-input" readonly style="height:320px; font-family:var(--font-mono); font-size:0.78rem; background:#11111b; color:#f38ba8; border:1px solid rgba(243, 139, 168, 0.25); border-radius:8px; line-height:1.55; padding:14px; white-space:pre; resize:vertical; width:100%; box-sizing:border-box;"></textarea>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 22px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-docker-error" onclick="copyDockerDeployError()">
+            <span>📋</span> Copier le journal d'erreur
+          </button>
+          <span id="docker-error-copied-feedback" style="display:none; color:var(--green); font-size:0.8rem; font-weight:600;">✓ Copié dans le presse-papier !</span>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" onclick="closeDockerDeployErrorModal()">
+          <span>✕</span> Fermer
         </button>
       </div>
     </div>

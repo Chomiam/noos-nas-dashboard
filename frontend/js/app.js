@@ -9099,6 +9099,94 @@ function startDockerDeployToast(appId, appName, icon, port) {
   }, 1000);
 }
 
+let currentDockerDeployError = {
+  appName: "",
+  appId: "",
+  message: ""
+};
+
+function openDockerDeployErrorModal(appName, message) {
+  if (appName) currentDockerDeployError.appName = appName;
+  if (message) currentDockerDeployError.message = message;
+
+  const modal = document.getElementById("modal-docker-deploy-error");
+  const title = document.getElementById("docker-deploy-error-modal-title");
+  const textarea = document.getElementById("docker-deploy-error-textarea");
+  const hintBox = document.getElementById("docker-deploy-error-hint");
+  const hintTitle = document.getElementById("docker-deploy-error-hint-title");
+  const hintDesc = document.getElementById("docker-deploy-error-hint-desc");
+  const feedback = document.getElementById("docker-error-copied-feedback");
+
+  if (feedback) feedback.style.display = "none";
+
+  const appLabel = currentDockerDeployError.appName || currentDockerDeployError.appId || "Application";
+  if (title) title.textContent = `Échec du Déploiement : ${appLabel}`;
+
+  const msg = currentDockerDeployError.message || "Aucun détail d'erreur disponible.";
+  if (textarea) {
+    textarea.value = msg;
+    setTimeout(() => { textarea.scrollTop = textarea.scrollHeight; }, 100);
+  }
+
+  // Diagnostic intelligent et conseils ergonomiques
+  if (hintBox) {
+    const isPort53 = msg.includes("0.0.0.0:53") || msg.includes(":53/tcp") || msg.includes(":53/udp") || msg.includes("port 53");
+    const isPortConflict = msg.includes("address already in use") || msg.includes("failed to bind host port");
+
+    if (isPort53) {
+      hintBox.style.display = "block";
+      if (hintTitle) hintTitle.innerHTML = "⚠️ Conflit sur le port 53 (DNS système déjà actif)";
+      if (hintDesc) hintDesc.innerHTML = "Le port <strong>53 (TCP/UDP)</strong> est déjà utilisé par un service de résolution DNS local sur l'hôte (ex: <code>systemd-resolved</code> ou <code>dnsmasq</code>).<br>Pour déployer un résolveur DNS comme AdGuard Home ou Pi-hole sans conflit :<br>• <strong>Option recommandée</strong> : Désactiver le résolveur stub local dans NixOS (<code>services.resolved.extraConfig = \"DNSStubListener=no\\n\";</code>) tout en conservant les serveurs DNS amont dans <code>networking.nameservers</code>.<br>• <strong>Alternative</strong> : Lier le conteneur sur l'adresse IP locale spécifique du NAS au lieu de <code>0.0.0.0</code> ou utiliser un réseau Macvlan.";
+    } else if (isPortConflict) {
+      const portMatch = msg.match(/:(\d+)\/(tcp|udp): address already in use/i) || msg.match(/bind.*:(\d+): address already in use/i);
+      const portUsed = portMatch ? portMatch[1] : "demandé";
+      hintBox.style.display = "block";
+      if (hintTitle) hintTitle.innerHTML = `⚠️ Conflit de port réseau (Port ${portUsed} déjà réservé)`;
+      if (hintDesc) hintDesc.innerHTML = `Le port hôte <strong>${portUsed}</strong> est déjà occupé par un autre conteneur ou un démon système du NAS.<br>Modifiez le port d'écoute externe de l'application dans la modale d'installation pour choisir un port libre.`;
+    } else {
+      hintBox.style.display = "none";
+    }
+  }
+
+  if (modal) modal.style.display = "flex";
+}
+
+function closeDockerDeployErrorModal() {
+  const modal = document.getElementById("modal-docker-deploy-error");
+  if (modal) modal.style.display = "none";
+}
+
+function copyDockerDeployError() {
+  const textarea = document.getElementById("docker-deploy-error-textarea");
+  const feedback = document.getElementById("docker-error-copied-feedback");
+  if (!textarea) return;
+
+  const text = textarea.value || "";
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      if (feedback) {
+        feedback.style.display = "inline";
+        setTimeout(() => { feedback.style.display = "none"; }, 3500);
+      }
+    }).catch(() => fallbackCopyDeployError(textarea, feedback));
+  } else {
+    fallbackCopyDeployError(textarea, feedback);
+  }
+}
+
+function fallbackCopyDeployError(textarea, feedback) {
+  textarea.select();
+  try {
+    document.execCommand("copy");
+    if (feedback) {
+      feedback.style.display = "inline";
+      setTimeout(() => { feedback.style.display = "none"; }, 3500);
+    }
+  } catch (e) {
+    showToast("Impossible de copier automatiquement, veuillez sélectionner le texte manuellement.", "warning");
+  }
+}
+
 function completeDockerDeployToast(success, message, port, appId, appName) {
   const card = document.getElementById("docker-deploy-toast-card");
   const title = document.getElementById("docker-deploy-toast-title");
@@ -9107,6 +9195,7 @@ function completeDockerDeployToast(success, message, port, appId, appName) {
   const bar = document.getElementById("docker-deploy-toast-bar");
   const actions = document.getElementById("docker-deploy-toast-actions");
   const openBtn = document.getElementById("docker-deploy-toast-open-btn");
+  const viewErrorBtn = document.getElementById("docker-deploy-toast-view-error-btn");
 
   const step1 = document.getElementById("deploy-step-1");
   const step2 = document.getElementById("deploy-step-2");
@@ -9133,6 +9222,7 @@ function completeDockerDeployToast(success, message, port, appId, appName) {
 
     if (actions) {
       actions.style.display = "flex";
+      if (viewErrorBtn) viewErrorBtn.style.display = "none";
       if (openBtn) {
         if (port) {
           openBtn.href = `http://${window.location.hostname}:${port}`;
@@ -9149,22 +9239,45 @@ function completeDockerDeployToast(success, message, port, appId, appName) {
     }, 12000);
 
   } else {
+    currentDockerDeployError = {
+      appName: appName || appId || "Application Docker",
+      appId: appId || "",
+      message: message || "Erreur inconnue lors du déploiement Docker Compose"
+    };
+
     if (step3) {
-      step3.className = "deploy-step-item error";
+      step3.className = "deploy-step-item error is-clickable";
       step3.querySelector(".step-status-icon").textContent = "❌";
+      step3.title = "Cliquer pour voir le rapport d'erreur complet";
+      step3.onclick = () => openDockerDeployErrorModal();
     }
     if (step4) {
-      step4.className = "deploy-step-item error";
+      step4.className = "deploy-step-item error is-clickable";
       step4.querySelector(".step-status-icon").textContent = "❌";
       const txt = step4.querySelector(".step-text");
-      if (txt) txt.textContent = message || "Échec d'exécution Docker Compose";
+      if (txt) {
+        const isPort53 = message && (message.includes("0.0.0.0:53") || message.includes(":53/tcp") || message.includes(":53/udp"));
+        const isPort = message && message.includes("address already in use");
+        if (isPort53) {
+          txt.textContent = "Conflit Port 53 (DNS déjà utilisé par l'hôte)";
+        } else if (isPort) {
+          txt.textContent = "Conflit de port réseau (déjà utilisé)";
+        } else {
+          txt.textContent = "Échec d'exécution Docker Compose (cliquez pour inspecter)";
+        }
+      }
+      step4.title = "Cliquer pour voir le rapport d'erreur complet";
+      step4.onclick = () => openDockerDeployErrorModal();
     }
     if (card) {
       card.classList.remove("status-success");
       card.classList.add("status-error");
     }
     if (title) title.textContent = `❌ Échec du déploiement (${appName || appId})`;
-    if (subtitle) subtitle.textContent = message || "Erreur de démarrage Docker Compose";
+    if (subtitle) {
+      const isPort53 = message && (message.includes("0.0.0.0:53") || message.includes(":53/tcp") || message.includes(":53/udp"));
+      subtitle.textContent = isPort53 ? "Conflit détecté sur le port 53" : "Erreur de démarrage Docker Compose";
+    }
     if (badge) {
       badge.className = "badge badge-danger";
       badge.textContent = "🔴 Erreur";
@@ -9172,7 +9285,11 @@ function completeDockerDeployToast(success, message, port, appId, appName) {
     if (actions) {
       actions.style.display = "flex";
       if (openBtn) openBtn.style.display = "none";
+      if (viewErrorBtn) viewErrorBtn.style.display = "inline-flex";
     }
+
+    // Ouvrir immédiatement la modale détaillée au milieu de l'écran avec le rapport d'erreur complet
+    openDockerDeployErrorModal(appName || appId, message);
   }
 }
 

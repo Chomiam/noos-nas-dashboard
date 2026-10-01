@@ -333,7 +333,15 @@ pub async fn install_store_app(req: InstallAppRequest) -> Result<String, String>
                 Ok(format!("Application '{}' installée et lancée avec succès en 1 clic !", clean_id))
             } else {
                 let err = String::from_utf8_lossy(&out.stderr);
-                Err(format!("Erreur lors du démarrage Docker Compose : {}", err.trim()))
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let full_log = if err.trim().is_empty() {
+                    stdout.to_string()
+                } else if stdout.trim().is_empty() {
+                    err.to_string()
+                } else {
+                    format!("{}\\n{}", stdout.trim(), err.trim())
+                };
+                Err(format!("Erreur lors du démarrage Docker Compose :\\n{}", full_log.trim()))
             }
         }
         Err(e) => Err(format!("Échec d'exécution de docker compose : {}", e)),

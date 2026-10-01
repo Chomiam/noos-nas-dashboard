@@ -11822,3 +11822,34 @@ body.app-updating-reload #app-shell {
 .file-modal-overlay.mini-player-mode .audio-footer-hints {
   display: none !important;
 }
+
+/* =========================================================================
+   🚨 MODALE D'ERREUR DÉTAILLÉE DE DÉPLOIEMENT DOCKER
+   ========================================================================= */
+#modal-docker-deploy-error {
+  z-index: 100070 !important;
+}
+
+#docker-deploy-error-textarea {
+  user-select: text !important;
+  cursor: text;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+#docker-deploy-error-textarea:focus {
+  outline: none;
+  border-color: var(--red);
+  box-shadow: 0 0 16px rgba(243, 139, 168, 0.25);
+}
+
+.deploy-step-item.is-clickable {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  transition: background 0.2s ease;
+}
+
+.deploy-step-item.is-clickable:hover {
+  background: rgba(243, 139, 168, 0.12);
+}
