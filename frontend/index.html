@@ -577,29 +577,77 @@
       <div class="files-layout">
         <!-- VOLET LATÉRAL DES EMPLACEMENTS -->
         <aside class="files-sidebar">
-          <div class="files-category-title">Dossiers Personnels</div>
+          <div class="files-sidebar-section-header">
+            <span class="files-category-title">Dossiers Personnels</span>
+          </div>
           <button type="button" class="files-nav-item active" id="fnav-home" onclick="navigateToUserFolder('')">
-            <span>🏠</span> personnel (/home)
+            <span class="files-nav-icon nav-icon-sapphire">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                <polyline points="9 22 9 12 15 12 15 22"></polyline>
+              </svg>
+            </span>
+            <span class="files-nav-text">personnel (/home)</span>
           </button>
           <button type="button" class="files-nav-item" id="fnav-docs" onclick="navigateToUserFolder('documents')">
-            <span>📄</span> documents
+            <span class="files-nav-icon nav-icon-sky">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+              </svg>
+            </span>
+            <span class="files-nav-text">documents</span>
           </button>
           <button type="button" class="files-nav-item" id="fnav-pics" onclick="navigateToUserFolder('images')">
-            <span>🖼️</span> images
+            <span class="files-nav-icon nav-icon-peach">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                <polyline points="21 15 16 10 5 21"></polyline>
+              </svg>
+            </span>
+            <span class="files-nav-text">images</span>
           </button>
           <button type="button" class="files-nav-item" id="fnav-vids" onclick="navigateToUserFolder('videos')">
-            <span>🎬</span> videos
+            <span class="files-nav-icon nav-icon-mauve">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+                <line x1="7" y1="2" x2="7" y2="22"></line>
+                <line x1="17" y1="2" x2="17" y2="22"></line>
+                <line x1="2" y1="12" x2="22" y2="12"></line>
+                <line x1="2" y1="7" x2="7" y2="7"></line>
+                <line x1="2" y1="17" x2="7" y2="17"></line>
+                <line x1="17" y1="17" x2="22" y2="17"></line>
+                <line x1="17" y1="7" x2="22" y2="7"></line>
+              </svg>
+            </span>
+            <span class="files-nav-text">videos</span>
           </button>
           <button type="button" class="files-nav-item" id="fnav-music" onclick="navigateToUserFolder('musique')">
-            <span>🎵</span> musique
+            <span class="files-nav-icon nav-icon-pink">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 18V5l12-2v13"></path>
+                <circle cx="6" cy="18" r="3"></circle>
+                <circle cx="18" cy="16" r="3"></circle>
+              </svg>
+            </span>
+            <span class="files-nav-text">musique</span>
           </button>
           <button type="button" class="files-nav-item" id="fnav-dl" onclick="navigateToUserFolder('telechargements')">
-            <span>📥</span> telechargements
+            <span class="files-nav-icon nav-icon-teal">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+            </span>
+            <span class="files-nav-text">telechargements</span>
           </button>
 
-
-          <div class="files-category-title" style="display:flex; justify-content:space-between; align-items:center;">
-            <span>💾 Disques & Points de Montage</span>
+          <div class="files-sidebar-section-header" style="margin-top:14px;">
+            <span class="files-category-title">Disques & Volumes</span>
             <button type="button" class="files-sidebar-action-btn" onclick="openStorageMountsModal()" title="Gérer ou épingler des partitions et grappes RAID">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="3"></circle>
@@ -609,15 +657,28 @@
           </div>
           <div id="files-pinned-mounts-container" class="files-sidebar-mounts-list">
             <button type="button" class="files-nav-item" id="fnav-root" onclick="navigateToPath('/')">
-              <span>🗄️</span> racine (/)
+              <span class="files-nav-icon nav-icon-subtext">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                  <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                  <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                  <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                </svg>
+              </span>
+              <span class="files-nav-text">racine (/)</span>
             </button>
             <button type="button" class="files-nav-item" id="fnav-shares" onclick="navigateToPath('/mnt/storage/shares')">
-              <span>📂</span> /mnt/storage/shares
+              <span class="files-nav-icon nav-icon-subtext">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
+              </span>
+              <span class="files-nav-text">/mnt/storage/shares</span>
             </button>
           </div>
 
-          <div class="files-category-title" style="display:flex; justify-content:space-between; align-items:center; margin-top:16px;">
-            <span>🌐 Partages Réseau & sFTP</span>
+          <div class="files-sidebar-section-header" style="margin-top:14px;">
+            <span class="files-category-title">Partages Réseau</span>
             <div style="display:flex; gap:4px;">
               <button type="button" class="files-sidebar-action-btn" onclick="openNetworkDiscoveryModal()" title="Radar / Découverte de partages réseau LAN">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -639,9 +700,17 @@
             </div>
           </div>
 
-          <div class="files-category-title" style="margin-top:16px;">Gestion des Fichiers</div>
+          <div class="files-sidebar-section-header" style="margin-top:14px;">
+            <span class="files-category-title">Système</span>
+          </div>
           <button type="button" class="files-nav-item" id="fnav-trash" onclick="navigateToTrash()">
-            <span>🗑️</span> corbeille (30 j)
+            <span class="files-nav-icon nav-icon-red">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </span>
+            <span class="files-nav-text">corbeille (30 j)</span>
             <span class="trash-badge-count" id="trash-badge-count" style="display:none;">0</span>
           </button>
         </aside>
@@ -649,120 +718,156 @@
         <!-- PANNEAU PRINCIPAL DE NAVIGATION -->
         <div class="files-main-pane">
           <!-- Barre d'outils -->
-          <div class="files-toolbar">
-            <div style="display:flex; align-items:center; gap:8px;" id="files-toolbar-normal">
-              <button type="button" class="files-btn" id="btn-file-up" onclick="navigateUpFolder()" title="Dossier parent (Monter d'un niveau)">
-                <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M12 19V5M5 12l7-7 7 7"/>
-                </svg>
-                <span>Monter</span>
-              </button>
-              <button type="button" class="files-btn files-btn-icon-only" onclick="refreshCurrentFolder()" title="Actualiser le dossier">
-                <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
-                </svg>
-              </button>
-              <button type="button" class="files-btn files-btn-primary" onclick="promptCreateFolder()" title="Créer un nouveau sous-dossier">
-                <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                  <line x1="12" y1="11" x2="12" y2="17"></line>
-                  <line x1="9" y1="14" x2="15" y2="14"></line>
-                </svg>
-                <span>Nouveau Dossier</span>
-              </button>
-              <button type="button" class="files-btn files-btn-accent" onclick="document.getElementById('files-upload-input').click()" title="Téléverser des fichiers de votre ordinateur vers ce dossier">
-                <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="17 8 12 3 7 8"></polyline>
-                  <line x1="12" y1="3" x2="12" y2="15"></line>
-                </svg>
-                <span>Téléverser</span>
-              </button>
-              <button type="button" class="files-btn files-btn-mauve" onclick="openNetworkDiscoveryModal()" title="Découvrir les partages réseau LAN et monter un serveur sFTP/SMB">
-                <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="10"></circle>
-                  <line x1="2" y1="12" x2="22" y2="12"></line>
-                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-                </svg>
-                <span>Réseau & sFTP</span>
-              </button>
-              <button type="button" class="files-btn" id="btn-pin-current-folder" onclick="pinCurrentFolder()" title="Épingler ce dossier ou disque au volet latéral">
-                <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
-                </svg>
-                <span>Épingler</span>
-              </button>
-              <input type="file" id="files-upload-input" multiple style="display:none;" onchange="handleFileSelect(event)">
-              <div class="files-breadcrumbs" id="files-breadcrumbs"></div>
-            </div>
+          <!-- Barre d'outils (2 Tiers : Actions + Fil d'Ariane) -->
+          <div class="files-toolbar-wrapper">
+            <!-- TIER 1 : ACTIONS & CONTRÔLES -->
+            <div class="files-toolbar-main">
+              <!-- GAUCHE : NAVIGATION & ACTIONS DU DOSSIER -->
+              <div class="files-toolbar-left" id="files-toolbar-normal">
+                <div class="files-btn-group">
+                  <button type="button" class="files-btn" id="btn-file-up" onclick="navigateUpFolder()" title="Dossier parent (Monter d'un niveau)">
+                    <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 19V5M5 12l7-7 7 7"/>
+                    </svg>
+                    <span>Monter</span>
+                  </button>
+                  <button type="button" class="files-btn files-btn-icon-only" onclick="refreshCurrentFolder()" title="Actualiser le dossier">
+                    <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                    </svg>
+                  </button>
+                </div>
 
-            <div style="display:none; align-items:center; gap:8px;" id="files-toolbar-trash">
-              <button type="button" class="files-btn files-btn-icon-only" onclick="refreshTrash()" title="Actualiser la corbeille">
-                <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
-                </svg>
-              </button>
-              <button type="button" class="files-btn files-btn-primary" onclick="restoreSelectedTrashItem()" id="btn-trash-restore" disabled title="Restaurer l'élément sélectionné à son emplacement d'origine">
-                <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="1 4 1 10 7 10"></polyline>
-                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
-                </svg>
-                <span>Restaurer</span>
-              </button>
-              <button type="button" class="files-btn files-btn-danger" onclick="deleteSelectedTrashPermanent()" id="btn-trash-delete-perm" disabled title="Supprimer définitivement l'élément sélectionné">
-                <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="3 6 5 6 21 6"></polyline>
-                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                  <line x1="10" y1="11" x2="10" y2="17"></line>
-                  <line x1="14" y1="11" x2="14" y2="17"></line>
-                </svg>
-                <span>Supprimer</span>
-              </button>
-              <button type="button" class="files-btn files-btn-danger" onclick="emptyEntireTrash()" id="btn-trash-empty" title="Vider toute la corbeille définitivement">
-                <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-                <span>Vider la corbeille</span>
-              </button>
-              <div class="trash-retention-pill-header">
-                <span>⏱️ Rétention automatique : <strong>30 jours</strong></span>
-              </div>
-            </div>
+                <div class="files-toolbar-divider"></div>
 
-            <div style="display:flex; align-items:center; gap:10px;">
-              <div class="files-search-box">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--subtext0)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
-                  <circle cx="11" cy="11" r="8"></circle>
-                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                </svg>
-                <input type="text" id="files-filter-input" class="files-search-input" placeholder="Filtrer..." oninput="filterFilesList()">
+                <div class="files-actions-group">
+                  <button type="button" class="files-btn files-btn-primary" onclick="promptCreateFolder()" title="Créer un nouveau sous-dossier">
+                    <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                      <line x1="12" y1="11" x2="12" y2="17"></line>
+                      <line x1="9" y1="14" x2="15" y2="14"></line>
+                    </svg>
+                    <span>Nouveau Dossier</span>
+                  </button>
+                  <button type="button" class="files-btn files-btn-accent" onclick="document.getElementById('files-upload-input').click()" title="Téléverser des fichiers de votre ordinateur vers ce dossier">
+                    <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                      <polyline points="17 8 12 3 7 8"></polyline>
+                      <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    <span>Téléverser</span>
+                  </button>
+                </div>
+
+                <div class="files-toolbar-divider"></div>
+
+                <div class="files-actions-group">
+                  <button type="button" class="files-btn files-btn-mauve" onclick="openNetworkDiscoveryModal()" title="Découvrir les partages réseau LAN et monter un serveur sFTP/SMB">
+                    <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <line x1="2" y1="12" x2="22" y2="12"></line>
+                      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                    </svg>
+                    <span>Réseau & sFTP</span>
+                  </button>
+                  <button type="button" class="files-btn" id="btn-pin-current-folder" onclick="pinCurrentFolder()" title="Épingler ce dossier ou disque au volet latéral">
+                    <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
+                    </svg>
+                    <span>Épingler</span>
+                  </button>
+                </div>
+
+                <input type="file" id="files-upload-input" multiple style="display:none;" onchange="handleFileSelect(event)">
               </div>
-              <div class="files-view-toggle" role="group" aria-label="Mode d affichage des fichiers">
-                <button type="button" class="files-btn-view-toggle active" id="btn-view-grid" onclick="setFileViewMode('grid')" title="Affichage en Grille de cartes">
-                  <svg class="view-toggle-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="3" width="7" height="7" rx="1.5"></rect>
-                    <rect x="14" y="3" width="7" height="7" rx="1.5"></rect>
-                    <rect x="14" y="14" width="7" height="7" rx="1.5"></rect>
-                    <rect x="3" y="14" width="7" height="7" rx="1.5"></rect>
+
+              <!-- GAUCHE : BARRE CORBEILLE (QUAND ACTIVE) -->
+              <div style="display:none; align-items:center; gap:8px;" id="files-toolbar-trash">
+                <button type="button" class="files-btn files-btn-icon-only" onclick="refreshTrash()" title="Actualiser la corbeille">
+                  <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
                   </svg>
-                  <span>Grille</span>
                 </button>
-                <button type="button" class="files-btn-view-toggle" id="btn-view-table" onclick="setFileViewMode('table')" title="Affichage en Liste détaillée">
-                  <svg class="view-toggle-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="9" y1="6" x2="21" y2="6"></line>
-                    <line x1="9" y1="12" x2="21" y2="12"></line>
-                    <line x1="9" y1="18" x2="21" y2="18"></line>
-                    <circle cx="4.5" cy="6" r="1.5" fill="currentColor"></circle>
-                    <circle cx="4.5" cy="12" r="1.5" fill="currentColor"></circle>
-                    <circle cx="4.5" cy="18" r="1.5" fill="currentColor"></circle>
+                <button type="button" class="files-btn files-btn-primary" onclick="restoreSelectedTrashItem()" id="btn-trash-restore" disabled title="Restaurer l'élément sélectionné à son emplacement d'origine">
+                  <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="1 4 1 10 7 10"></polyline>
+                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
                   </svg>
-                  <span>Liste</span>
+                  <span>Restaurer</span>
+                </button>
+                <button type="button" class="files-btn files-btn-danger" onclick="deleteSelectedTrashPermanent()" id="btn-trash-delete-perm" disabled title="Supprimer définitivement l'élément sélectionné">
+                  <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  </svg>
+                  <span>Supprimer</span>
+                </button>
+                <button type="button" class="files-btn files-btn-danger" onclick="emptyEntireTrash()" id="btn-trash-empty" title="Vider toute la corbeille définitivement">
+                  <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                  <span>Vider la corbeille</span>
+                </button>
+                <div class="trash-retention-pill-header">
+                  <span>⏱️ Rétention automatique : <strong>30 jours</strong></span>
+                </div>
+              </div>
+
+              <!-- DROITE : RECHERCHE & BASCULE DE VUE -->
+              <div class="files-toolbar-right">
+                <div class="files-search-box">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--subtext0)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                  <input type="text" id="files-filter-input" class="files-search-input" placeholder="Filtrer..." oninput="filterFilesList()">
+                </div>
+
+                <div class="files-view-toggle" role="group" aria-label="Mode d affichage des fichiers">
+                  <button type="button" class="files-btn-view-toggle active" id="btn-view-grid" onclick="setFileViewMode('grid')" title="Affichage en Grille de cartes">
+                    <svg class="view-toggle-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="3" y="3" width="7" height="7" rx="1.5"></rect>
+                      <rect x="14" y="3" width="7" height="7" rx="1.5"></rect>
+                      <rect x="14" y="14" width="7" height="7" rx="1.5"></rect>
+                      <rect x="3" y="14" width="7" height="7" rx="1.5"></rect>
+                    </svg>
+                    <span>Grille</span>
+                  </button>
+                  <button type="button" class="files-btn-view-toggle" id="btn-view-table" onclick="setFileViewMode('table')" title="Affichage en Liste détaillée">
+                    <svg class="view-toggle-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="9" y1="6" x2="21" y2="6"></line>
+                      <line x1="9" y1="12" x2="21" y2="12"></line>
+                      <line x1="9" y1="18" x2="21" y2="18"></line>
+                      <circle cx="4.5" cy="6" r="1.5" fill="currentColor"></circle>
+                      <circle cx="4.5" cy="12" r="1.5" fill="currentColor"></circle>
+                      <circle cx="4.5" cy="18" r="1.5" fill="currentColor"></circle>
+                    </svg>
+                    <span>Liste</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- TIER 2 : BARRE DE CHEMIN / FIL D'ARIANE -->
+            <div class="files-path-bar">
+              <div class="files-path-bar-left">
+                <svg class="files-path-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--sapphire)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <div class="files-breadcrumbs" id="files-breadcrumbs"></div>
+              </div>
+              <div class="files-path-bar-right">
+                <button type="button" class="files-btn-copy-path" onclick="copyCurrentFolderPath()" title="Copier le chemin absolu dans le presse-papier">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                  <span id="files-quick-path-display">~</span>
                 </button>
               </div>
             </div>
           </div>
-
           <!-- Zone d'affichage des fichiers -->
           <div class="files-view-container" id="files-view-container" oncontextmenu="handleBackgroundContextMenu(event)">
             <div class="files-drop-overlay" id="files-drop-overlay" style="display:none;">
@@ -7865,6 +7970,6 @@
 </div><!-- /#app-shell -->
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20261001_18"></script>
+  <script src="/js/app.js?v=20261001_19"></script>
 </body>
 </html>

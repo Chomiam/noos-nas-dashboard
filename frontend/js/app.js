@@ -3656,27 +3656,55 @@ function updateSidebarNavActive(path) {
   };
 
   document.querySelectorAll(".files-nav-item").forEach(item => item.classList.remove("active"));
-  const activeId = mapping[path];
+  const activeId = mapping[path] || mapping[normPath];
   if (activeId) {
     const el = document.getElementById(activeId);
     if (el) el.classList.add("active");
   }
 }
 
+function copyCurrentFolderPath() {
+  if (!currentFolderPath) return;
+  const p = currentFolderPath.replace(/\/+$/, '') || '/';
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(p).then(() => {
+      showToast(`Chemin copié : ${p}`, "info");
+    }).catch(() => {
+      showToast(p, "info");
+    });
+  } else {
+    showToast(`Chemin : ${p}`, "info");
+  }
+}
+
 function updateFilesBreadcrumbs(path) {
   const container = document.getElementById("files-breadcrumbs");
+  const quickDisplay = document.getElementById("files-quick-path-display");
+  const cleanPath = (path || "/").replace(/\/+$/, "") || "/";
+  if (quickDisplay) {
+    quickDisplay.textContent = cleanPath;
+    quickDisplay.title = "Copier le chemin : " + cleanPath;
+  }
   if (!container) return;
 
-  const parts = path.split("/").filter(Boolean);
-  let html = `<span class="crumb-item ${parts.length === 0 ? 'active' : ''}" onclick="navigateToPath('/')">🗄️ /</span>`;
+  const parts = cleanPath.split("/").filter(Boolean);
+  let html = `<span class="crumb-item ${parts.length === 0 ? 'active' : ''}" onclick="navigateToPath('/')" title="Racine du système (/)">
+    <svg class="crumb-item-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+      <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+      <line x1="6" y1="6" x2="6.01" y2="6"></line>
+      <line x1="6" y1="18" x2="6.01" y2="18"></line>
+    </svg>
+    <span>Racine</span>
+  </span>`;
 
   let accumulated = "";
   parts.forEach((part, idx) => {
     accumulated += "/" + part;
     const isLast = idx === parts.length - 1;
     const thisPath = accumulated;
-    html += `<span class="crumb-separator">/</span>`;
-    html += `<span class="crumb-item ${isLast ? 'active' : ''}" onclick="navigateToPath('${escapeHtml(thisPath)}')">${escapeHtml(part)}</span>`;
+    html += `<span class="crumb-separator"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></span>`;
+    html += `<span class="crumb-item ${isLast ? 'active' : ''}" onclick="navigateToPath('${escapeHtml(thisPath)}')" title="${escapeHtml(thisPath)}">${escapeHtml(part)}</span>`;
   });
 
   container.innerHTML = html;
@@ -8175,7 +8203,15 @@ async function navigateToTrash() {
 
   const breadcrumb = document.getElementById("files-breadcrumbs");
   if (breadcrumb) {
-    breadcrumb.innerHTML = '<span class="crumb-item active" style="color:var(--mauve);">🗑️ Corbeille (Rétention automatique 30 jours)</span>';
+    breadcrumb.innerHTML = `
+      <span class="crumb-item active" style="color:var(--mauve); display:inline-flex; align-items:center; gap:6px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--mauve)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        </svg>
+        <span>Corbeille (Rétention 30 jours)</span>
+      </span>
+    `;
   }
 
   await refreshTrash();
@@ -19029,14 +19065,24 @@ function renderPinnedMounts(pins) {
     return `
       <div class="files-mount-item ${isActive ? "active" : ""}" data-mount-path="${escapeHtml(p.path)}" onclick="navigateToPath('${escapeHtml(p.path)}')" title="Accéder à : ${escapeHtml(p.path)}">
         <div class="files-mount-left">
-          <span class="files-mount-icon">${escapeHtml(p.icon || "💾")}</span>
+          <span class="files-nav-icon nav-icon-subtext">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+              <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+              <line x1="6" y1="6" x2="6.01" y2="6"></line>
+              <line x1="6" y1="18" x2="6.01" y2="18"></line>
+            </svg>
+          </span>
           <div class="files-mount-info">
             <span class="files-mount-label">${escapeHtml(p.label)}</span>
             <span class="files-mount-meta">${escapeHtml(p.path)}</span>
           </div>
         </div>
         <button type="button" class="files-mount-unpin-btn" onclick="unpinMountAction('${escapeHtml(p.path)}', event)" title="Désépingler ce point de montage">
-          ✕
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
         </button>
       </div>
     `;
