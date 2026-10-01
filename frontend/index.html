@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" media="print" onload="this.media='all'">
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"></noscript>
-  <link rel="stylesheet" href="/css/style.css?v=20260930_33">
+  <link rel="stylesheet" href="/css/style.css?v=20261001_01">
   <script>
     (function() {
       try {
@@ -107,13 +107,16 @@
 
   <!-- HEADER -->
   <header class="header">
-    <div class="logo-wrap">
+    <div class="logo-wrap" id="header-logo-wrap" onclick="handleLogoEasterEggClick()" style="cursor: pointer;" title="STEvE_OS NAS Edition">
       <div class="logo-badge-img-box"><img src="/assets/logo.png" alt="STEvE_OS Logo" class="brand-logo-img"></div>
       <div class="logo-text">
         <h1>STEvE_OS <span class="edition-tag">NAS Edition</span></h1>
         <p id="header-hostname">steveos-nas • NixOS 26.05</p>
       </div>
     </div>
+
+    <!-- PISTE EASTER EGG MAMIE PIXEL (Course au-dessus des onglets) -->
+    <div id="granny-easter-egg-track" class="granny-easter-egg-track"></div>
 
     <div class="header-status-group">
       <!-- BOUTON PILL MISE À JOUR INTELLIGENTE -->
@@ -5724,6 +5727,6 @@
   </div><!-- /#app-shell -->
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20260930_33"></script>
+  <script src="/js/app.js?v=20261001_01"></script>
 </body>
 </html>

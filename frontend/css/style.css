@@ -10999,3 +10999,124 @@ body.app-updating-reload #app-shell {
   padding-top: 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
+
+
+/* =========================================================================
+   👵 EASTER EGG : MAMIE PIXEL EN SPRINT
+   ========================================================================= */
+.logo-wrap {
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.15s ease;
+}
+
+.logo-wrap:active {
+  transform: scale(0.96);
+}
+
+.logo-click-bounce {
+  animation: logoClickBounce 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes logoClickBounce {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.18) rotate(-5deg); }
+  100% { transform: scale(1); }
+}
+
+.granny-easter-egg-track {
+  position: absolute;
+  left: 0;
+  bottom: -2px;
+  width: 100%;
+  height: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 99999;
+}
+
+.granny-runner {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 56px;
+  height: 56px;
+  transform: translateX(-80px);
+  will-change: transform;
+  pointer-events: none;
+  animation: grannyRunTrack 5.8s linear forwards;
+}
+
+@keyframes grannyRunTrack {
+  0% {
+    transform: translateX(-80px);
+  }
+  100% {
+    transform: translateX(calc(100vw + 80px));
+  }
+}
+
+.granny-runner .granny-sprite {
+  display: none;
+  width: 56px;
+  height: 56px;
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.45));
+}
+
+.granny-runner[data-frame="0"] .granny-f0 { display: block; }
+.granny-runner[data-frame="1"] .granny-f1 { display: block; }
+.granny-runner[data-frame="2"] .granny-f2 { display: block; }
+.granny-runner[data-frame="3"] .granny-f3 { display: block; }
+
+.granny-speech-bubble {
+  position: absolute;
+  top: 58px; /* Positionnée sous les pieds de mamie, visible sur la barre des onglets */
+  left: 50%;
+  transform: translateX(-50%) scale(0);
+  transform-origin: top center;
+  background: var(--crust);
+  border: 2px solid var(--mauve);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.75), 0 0 14px rgba(203, 166, 247, 0.35);
+  border-radius: 12px;
+  padding: 6px 14px;
+  white-space: nowrap;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--text);
+  pointer-events: none;
+  opacity: 0;
+  z-index: 100000;
+  transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.25s ease;
+}
+
+.granny-speech-bubble::after {
+  content: "";
+  position: absolute;
+  top: -8px; /* Flèche pointant vers le haut vers mamie */
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 0 8px 8px 8px;
+  border-style: solid;
+  border-color: transparent transparent var(--mauve) transparent;
+  display: block;
+  width: 0;
+}
+
+.granny-speech-bubble.visible {
+  transform: translateX(-50%) scale(1);
+  opacity: 1;
+}
+
+.granny-dust-puff {
+  position: absolute;
+  bottom: 2px;
+  left: -10px;
+  font-size: 16px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s ease;
+}
+
+.granny-runner[data-frame="3"] .granny-dust-puff {
+  opacity: 0.9;
+}
