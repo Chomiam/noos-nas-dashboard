@@ -272,18 +272,45 @@
         </div>
       </div>
 
-      <!-- Quick Services Bar -->
-      <div class="section-card">
-        <div class="section-header">
-          <div class="section-title-wrap">
-            <div class="section-icon-box">⚡</div>
-            <div>
-              <div class="section-title">État des Services Critiques du NAS</div>
-              <div class="section-subtitle">Surveillance en temps réel des démons réseau et de stockage</div>
+      <!-- ================= ÉTAT DES SERVICES CRITIQUES DU NAS & SERVEURS DE JEUX (2 COLONNES) ================= -->
+      <div class="services-critical-grid">
+        <!-- COLONNE 1 : SERVICES SYSTÈME DU NAS -->
+        <div class="section-card services-column-card">
+          <div class="section-header" style="border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:12px; margin-bottom:14px;">
+            <div class="section-title-wrap">
+              <div class="section-icon-box" style="background:rgba(137,180,250,0.12); color:var(--sapphire);">⚡</div>
+              <div>
+                <div class="section-title">Services Critiques du NAS</div>
+                <div class="section-subtitle">Démons réseau, partages, VPN et sécurité système</div>
+              </div>
             </div>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="loadServices()" title="Actualiser les services">
+              <span>🔄</span>
+            </button>
+          </div>
+          <div id="overview-nas-services-list" class="overview-services-list">
+            <div style="text-align:center; padding:20px; color:var(--subtext0);">Chargement des services critiques...</div>
           </div>
         </div>
-        <div id="quick-services-wrap" style="display:flex; flex-wrap:wrap; gap:12px;"></div>
+
+        <!-- COLONNE 2 : SERVEURS DE JEUX DÉPLOYÉS -->
+        <div class="section-card services-column-card">
+          <div class="section-header" style="border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:12px; margin-bottom:14px;">
+            <div class="section-title-wrap">
+              <div class="section-icon-box" style="background:rgba(203,166,247,0.12); color:var(--mauve);">🎮</div>
+              <div>
+                <div class="section-title">Serveurs de Jeux Hébergés</div>
+                <div class="section-subtitle">État de fonctionnement des instances dédiées</div>
+              </div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="switchTab('tab-games')" title="Gérer ou créer des serveurs de jeu">
+              <span>➕ Déployer</span>
+            </button>
+          </div>
+          <div id="overview-game-servers-list" class="overview-services-list">
+            <div style="text-align:center; padding:20px; color:var(--subtext0);">Chargement des serveurs de jeu...</div>
+          </div>
+        </div>
       </div>
 
       <!-- ================= SPÉCIFICATIONS MATÉRIELLES DE LA MACHINE ================= -->
@@ -7739,6 +7766,6 @@
 </div><!-- /#app-shell -->
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20261001_16"></script>
+  <script src="/js/app.js?v=20261001_17"></script>
 </body>
 </html>

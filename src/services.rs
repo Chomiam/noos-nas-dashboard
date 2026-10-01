@@ -7,6 +7,12 @@ pub struct ServiceSummary {
     pub unit_name: String,
     pub is_active: bool,
     pub sub_state: String,
+    #[serde(default)]
+    pub icon: String,
+    #[serde(default)]
+    pub address: String,
+    #[serde(default)]
+    pub port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,13 +71,74 @@ pub fn get_services_overview() -> ServicesOverview {
     let fail2ban = check_unit("fail2ban", "Système Anti-Bruteforce & Sécurité");
     let wireguard = check_unit("wireguard-wg0", "Réseau Privé WireGuard");
 
+    let lan_ip = crate::network::get_primary_lan_ip();
+    let is_firewall_active = crate::firewall::load_firewall_state().unwrap_or(true);
+    let is_dns_active = check_unit("systemd-resolved", "").is_active;
+
     let services = vec![
-        ServiceSummary { display_name: "Samba (SMB)".into(), unit_name: "samba-smbd".into(), is_active: samba.is_active, sub_state: samba.status_text.clone() },
-        ServiceSummary { display_name: "SSH / sFTP".into(), unit_name: "sshd".into(), is_active: sshd.is_active, sub_state: sshd.status_text.clone() },
-        ServiceSummary { display_name: "WireGuard VPN".into(), unit_name: "wireguard-wg0".into(), is_active: wireguard.is_active, sub_state: wireguard.status_text.clone() },
-        ServiceSummary { display_name: "Fail2ban".into(), unit_name: "fail2ban".into(), is_active: fail2ban.is_active, sub_state: fail2ban.status_text.clone() },
-        ServiceSummary { display_name: "Jellyfin".into(), unit_name: "jellyfin".into(), is_active: jellyfin.is_active, sub_state: jellyfin.status_text.clone() },
-        ServiceSummary { display_name: "Docker".into(), unit_name: "docker".into(), is_active: docker.is_active, sub_state: docker.status_text.clone() },
+        ServiceSummary {
+            display_name: "SSH / sFTP".into(),
+            unit_name: "sshd".into(),
+            is_active: sshd.is_active,
+            sub_state: if sshd.is_active { "En ligne".into() } else { "Arrêté".into() },
+            icon: "⚡".into(),
+            address: format!("{}:22", lan_ip),
+            port: Some(22),
+        },
+        ServiceSummary {
+            display_name: "Samba (SMB)".into(),
+            unit_name: "samba-smbd".into(),
+            is_active: samba.is_active,
+            sub_state: if samba.is_active { "En ligne".into() } else { "Arrêté".into() },
+            icon: "🪟".into(),
+            address: format!("\\\\{}:445", lan_ip),
+            port: Some(445),
+        },
+        ServiceSummary {
+            display_name: "WireGuard VPN".into(),
+            unit_name: "wireguard-wg0".into(),
+            is_active: wireguard.is_active,
+            sub_state: if wireguard.is_active { "En ligne".into() } else { "Inactif".into() },
+            icon: "🔒".into(),
+            address: "10.100.0.1:51820".into(),
+            port: Some(51820),
+        },
+        ServiceSummary {
+            display_name: "Pare-feu (Firewall)".into(),
+            unit_name: "firewall".into(),
+            is_active: is_firewall_active,
+            sub_state: if is_firewall_active { "En ligne".into() } else { "Désactivé".into() },
+            icon: "🛡️".into(),
+            address: "Filtrage strict NixOS".into(),
+            port: None,
+        },
+        ServiceSummary {
+            display_name: "Résolution DNS".into(),
+            unit_name: "systemd-resolved".into(),
+            is_active: is_dns_active,
+            sub_state: if is_dns_active { "En ligne".into() } else { "Arrêté".into() },
+            icon: "🌐".into(),
+            address: format!("{}:53", lan_ip),
+            port: Some(53),
+        },
+        ServiceSummary {
+            display_name: "Fail2ban IPS".into(),
+            unit_name: "fail2ban".into(),
+            is_active: fail2ban.is_active,
+            sub_state: if fail2ban.is_active { "En ligne".into() } else { "Inactif".into() },
+            icon: "🚨".into(),
+            address: "Surveillance bruteforce".into(),
+            port: None,
+        },
+        ServiceSummary {
+            display_name: "Docker Engine".into(),
+            unit_name: "docker".into(),
+            is_active: docker.is_active,
+            sub_state: if docker.is_active { "En ligne".into() } else { "Arrêté".into() },
+            icon: "🐳".into(),
+            address: "/var/run/docker.sock".into(),
+            port: None,
+        },
     ];
 
     // Sessions sFTP / SSH

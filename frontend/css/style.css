@@ -15543,3 +15543,191 @@ body.app-updating-reload #app-shell {
 .files-btn-view-toggle:hover .view-toggle-icon {
   transform: scale(1.1);
 }
+
+/* ==========================================================================
+   ÉTAT DES SERVICES CRITIQUES & SERVEURS DE JEUX (VUE 2 COLONNES)
+   ========================================================================== */
+
+.services-critical-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 960px) {
+  .services-critical-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.services-column-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.overview-services-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.overview-service-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.overview-service-item:hover {
+  background: rgba(255, 255, 255, 0.035);
+  border-color: rgba(255, 255, 255, 0.12);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+.service-item-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.service-item-icon {
+  font-size: 1.25rem;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  flex-shrink: 0;
+}
+
+.service-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.service-item-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.service-item-title {
+  font-weight: 700;
+  color: var(--text);
+  font-size: 0.88rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.service-item-sub {
+  font-size: 0.74rem;
+  color: var(--subtext0);
+}
+
+.service-item-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.service-address-code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--teal);
+  background: rgba(148, 226, 213, 0.08);
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid rgba(148, 226, 213, 0.2);
+  max-width: 170px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+}
+
+/* Pastille de statut qui scintille / pulse (RÉQUISITION UTILISATEUR) */
+.service-pulse-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.service-pulse-dot.online {
+  background: #a6e3a1; /* Catppuccin Green */
+  box-shadow: 0 0 0 0 rgba(166, 227, 161, 0.7);
+  animation: pulseGreenGlow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.service-pulse-dot.starting,
+.service-pulse-dot.deploying {
+  background: #fab387; /* Catppuccin Peach */
+  box-shadow: 0 0 0 0 rgba(250, 179, 135, 0.7);
+  animation: pulseOrangeGlow 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.service-pulse-dot.offline,
+.service-pulse-dot.stopped {
+  background: #f38ba8; /* Catppuccin Red */
+  opacity: 0.75;
+}
+
+@keyframes pulseGreenGlow {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(166, 227, 161, 0.75);
+  }
+  70% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 8px rgba(166, 227, 161, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(166, 227, 161, 0);
+  }
+}
+
+@keyframes pulseOrangeGlow {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(250, 179, 135, 0.75);
+  }
+  70% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 8px rgba(250, 179, 135, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(250, 179, 135, 0);
+  }
+}
+
+.game-servers-empty-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 20px;
+  background: var(--mantle);
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  text-align: center;
+}

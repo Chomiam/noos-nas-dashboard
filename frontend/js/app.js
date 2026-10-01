@@ -2656,33 +2656,158 @@ async function submitFormatDisk() {
 
 
 // --------------------------------------------------------------------------
-// SERVICES & DOCKER
+// SERVICES CRITIQUES & APERÇU SERVEURS DE JEUX (VUE D'ENSEMBLE)
 // --------------------------------------------------------------------------
 async function loadServices() {
   try {
     const res = await fetch("/api/services");
     const json = await res.json();
-    if (!json.success || !json.data) return;
+    if (json.success && json.data) {
+      const data = json.data;
 
-    const data = json.data;
+      // Colonne 1 : Services critiques du NAS
+      const nasWrap = document.getElementById("overview-nas-services-list");
+      if (nasWrap && data.services) {
+        nasWrap.innerHTML = data.services.map(s => {
+          const pulseClass = s.is_active ? 'online' : 'offline';
+          const statusText = s.is_active ? 'En ligne' : (s.sub_state || 'Arrêté');
+          const statusBadgeClass = s.is_active ? 'badge-success' : 'badge-secondary';
+          const icon = s.icon || '⚡';
+          const addressHtml = s.address ? `<span class="service-address-code" title="${escapeHtml(s.address)}">${escapeHtml(s.address)}</span>` : '';
 
-    // Quick services in overview
-    const quickWrap = document.getElementById("quick-services-wrap");
-    if (quickWrap) {
-      quickWrap.innerHTML = data.services.map(s => `
-        <div style="background:var(--mantle); border:1px solid rgba(255,255,255,0.06); padding:8px 14px; border-radius:var(--radius-md); display:flex; align-items:center; gap:10px;">
-          <span class="status-indicator ${s.is_active ? 'status-online' : 'status-offline'}"></span>
-          <span style="font-size:0.85rem; font-weight:600;">${escapeHtml(s.display_name)}</span>
-          <span style="font-size:0.75rem; color:var(--subtext0);">(${escapeHtml(s.sub_state)})</span>
-          <button type="button" class="btn btn-secondary btn-xs" onclick="restartService('${escapeHtml(s.unit_name)}')">🔄</button>
-        </div>
-      `).join("");
+          return `
+            <div class="overview-service-item">
+              <div class="service-item-left">
+                <div class="service-item-icon">${icon}</div>
+                <div class="service-item-info">
+                  <div class="service-item-title-row">
+                    <span class="service-pulse-dot ${pulseClass}" title="${s.is_active ? 'Service opérationnel (En ligne)' : 'Service inactif'}"></span>
+                    <span class="service-item-title">${escapeHtml(s.display_name)}</span>
+                    <span class="badge ${statusBadgeClass}" style="font-size:0.68rem; padding:1px 6px;">${escapeHtml(statusText)}</span>
+                  </div>
+                  <div class="service-item-sub">${escapeHtml(s.unit_name)}</div>
+                </div>
+              </div>
+              <div class="service-item-right">
+                ${addressHtml}
+                <button type="button" class="btn btn-secondary btn-xs" onclick="restartService('${escapeHtml(s.unit_name)}')" title="Redémarrer ${escapeHtml(s.display_name)}">🔄</button>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+
+      // Rétrocompatibilité avec ancien sélecteur quick-services-wrap si présent
+      const quickWrap = document.getElementById("quick-services-wrap");
+      if (quickWrap && data.services) {
+        quickWrap.innerHTML = data.services.map(s => `
+          <div style="background:var(--mantle); border:1px solid rgba(255,255,255,0.06); padding:8px 14px; border-radius:var(--radius-md); display:flex; align-items:center; gap:10px;">
+            <span class="service-pulse-dot ${s.is_active ? 'online' : 'offline'}"></span>
+            <span style="font-size:0.85rem; font-weight:600;">${escapeHtml(s.display_name)}</span>
+            <span style="font-size:0.75rem; color:var(--subtext0);">(${escapeHtml(s.sub_state)})</span>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="restartService('${escapeHtml(s.unit_name)}')">🔄</button>
+          </div>
+        `).join("");
+      }
     }
-
-    // Note: les conteneurs Docker sont gérés exclusivement par loadDockerContainers()
   } catch (err) {
     console.warn("Erreur fetch /api/services:", err);
   }
+
+  // Alimentation de la colonne 2 : Liste minimale des serveurs de jeux
+  loadOverviewGameServers();
+}
+
+async function loadOverviewGameServers() {
+  const container = document.getElementById("overview-game-servers-list");
+  if (!container) return;
+
+  try {
+    if (typeof gameServersData !== 'undefined' && Array.isArray(gameServersData) && gameServersData.length > 0) {
+      renderOverviewGameServers(gameServersData);
+      return;
+    }
+    const res = await fetch("/api/games/servers");
+    const json = await res.json();
+    if (json.success && Array.isArray(json.data)) {
+      if (typeof gameServersData !== 'undefined') {
+        gameServersData = json.data;
+      }
+      renderOverviewGameServers(json.data);
+    } else {
+      renderOverviewGameServers([]);
+    }
+  } catch (err) {
+    console.warn("Erreur chargement serveurs de jeu aperçu:", err);
+    renderOverviewGameServers([]);
+  }
+}
+
+function renderOverviewGameServers(servers) {
+  const container = document.getElementById("overview-game-servers-list");
+  if (!container) return;
+
+  if (!servers || servers.length === 0) {
+    container.innerHTML = `
+      <div class="game-servers-empty-card">
+        <div style="font-size:2rem; margin-bottom:8px; opacity:0.6;">🎮</div>
+        <div style="font-weight:700; font-size:0.9rem; color:var(--text); margin-bottom:4px;">Aucun serveur de jeu actif</div>
+        <div style="font-size:0.75rem; color:var(--subtext0); margin-bottom:12px; max-width:280px;">Déployez votre premier serveur de jeu (Minecraft, Palworld, Rust, Ark...) en un clic.</div>
+        <button type="button" class="btn btn-primary btn-xs" onclick="switchTab('tab-games')">
+          <span>➕ Déployer un serveur</span>
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = servers.map(srv => {
+    const isOnline = srv.status === 'online';
+    const isStarting = srv.status === 'starting' || srv.status === 'deploying';
+    let pulseClass = 'stopped';
+    let statusText = 'Arrêté';
+    let badgeClass = 'badge-secondary';
+
+    if (isOnline) {
+      pulseClass = 'online';
+      statusText = 'En ligne';
+      badgeClass = 'badge-success';
+    } else if (isStarting) {
+      pulseClass = 'starting';
+      statusText = srv.status === 'deploying' ? 'Déploiement' : 'Démarrage';
+      badgeClass = 'badge-warning';
+    } else if (srv.status === 'error') {
+      pulseClass = 'stopped';
+      statusText = 'Erreur';
+      badgeClass = 'badge-danger';
+    }
+
+    const iconHtml = srv.icon_url 
+      ? `<img src="${escapeHtml(srv.icon_url)}" style="width:24px; height:24px; object-fit:contain; border-radius:4px;" alt="icon" onerror="this.outerHTML='🎮'">`
+      : (srv.icon || '🎮');
+
+    const address = srv.lan_ip && srv.port ? `${srv.lan_ip}:${srv.port}` : (srv.port ? `Port ${srv.port}` : 'N/A');
+
+    return `
+      <div class="overview-service-item" style="cursor:pointer;" onclick="switchTab('tab-games')" title="Gérer le serveur ${escapeHtml(srv.name)}">
+        <div class="service-item-left">
+          <div class="service-item-icon">${iconHtml}</div>
+          <div class="service-item-info">
+            <div class="service-item-title-row">
+              <span class="service-pulse-dot ${pulseClass}" title="${statusText}"></span>
+              <span class="service-item-title">${escapeHtml(srv.name)}</span>
+              <span class="badge ${badgeClass}" style="font-size:0.68rem; padding:1px 6px;">${escapeHtml(statusText)}</span>
+            </div>
+            <div class="service-item-sub">${escapeHtml(srv.game_name || srv.egg_id || 'Serveur de jeu')}</div>
+          </div>
+        </div>
+        <div class="service-item-right">
+          <span class="service-address-code" title="${escapeHtml(address)}">${escapeHtml(address)}</span>
+          <span style="font-size:0.8rem; color:var(--subtext0); opacity:0.6;">➔</span>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 
@@ -13192,6 +13317,9 @@ function setGamesViewMode(mode) {
 }
 
 function renderGameServers() {
+  if (typeof renderOverviewGameServers === 'function' && typeof gameServersData !== 'undefined') {
+    renderOverviewGameServers(gameServersData);
+  }
   const grid = document.getElementById("game-servers-grid") || document.getElementById("games-servers-grid");
   if (!grid) return;
 
