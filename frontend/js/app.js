@@ -7518,6 +7518,8 @@ let activeDockerSubTab = "containers";
 let activeStoreCategory = "Tous";
 let currentStoreCatalog = null;
 let currentViewingContainerName = null;
+let storeRenderLimit = 48;
+let currentFirewallData = null;
 
 function switchDockerSubTab(subTab, updateHash = true) {
   activeDockerSubTab = subTab;
@@ -7663,16 +7665,26 @@ async function loadDockerStore() {
 
     currentStoreCatalog = json.data;
 
-    // Rendu des catégories
+    // Rendu dynamique des pastilles de catégories avec compteurs
     if (catContainer && currentStoreCatalog.categories) {
-      catContainer.innerHTML = currentStoreCatalog.categories.map(cat => `
-        <button type="button" class="store-cat-pill ${cat === activeStoreCategory ? 'active' : ''}" onclick="selectStoreCategory('${escapeHtml(cat)}')">
-          ${escapeHtml(cat)}
-        </button>
-      `).join("");
+      const catCounts = {};
+      currentStoreCatalog.apps.forEach(a => {
+        const cat = a.category || "Outils & Utilitaires";
+        catCounts[cat] = (catCounts[cat] || 0) + 1;
+      });
+
+      catContainer.innerHTML = currentStoreCatalog.categories.map(cat => {
+        const count = (cat === "Tous") ? currentStoreCatalog.apps.length : (catCounts[cat] || 0);
+        return `
+          <button type="button" class="store-cat-pill ${cat === activeStoreCategory ? 'active' : ''}" onclick="selectStoreCategory('${escapeHtml(cat)}')">
+            <span>${escapeHtml(cat)}</span>
+            <span class="store-cat-count">${count}</span>
+          </button>
+        `;
+      }).join("");
     }
 
-    filterStoreApps();
+    filterStoreApps(true);
   } catch (err) {
     console.error("Erreur fetch /api/docker/store:", err);
     grid.innerHTML = `<p style="color:var(--red); font-size:0.9rem;">Erreur de chargement du catalogue store.</p>`;
@@ -7682,33 +7694,129 @@ async function loadDockerStore() {
 function selectStoreCategory(cat) {
   activeStoreCategory = cat;
   document.querySelectorAll(".store-cat-pill").forEach(pill => {
-    pill.classList.toggle("active", pill.textContent.trim() === cat);
+    const span = pill.querySelector("span");
+    const pillCat = span ? span.textContent.trim() : pill.textContent.trim();
+    pill.classList.toggle("active", pillCat === cat);
   });
-  filterStoreApps();
+  filterStoreApps(true);
 }
 
-function filterStoreApps() {
+function clearStoreSearch() {
+  const input = document.getElementById("store-search-input");
+  const clearBtn = document.getElementById("store-search-clear");
+  if (input) input.value = "";
+  if (clearBtn) clearBtn.style.display = "none";
+  filterStoreApps(true);
+}
+
+function loadMoreStoreApps() {
+  storeRenderLimit += 48;
+  filterStoreApps(false);
+}
+
+function filterStoreApps(resetLimit = false) {
   const grid = document.getElementById("store-apps-grid");
   const searchInput = document.getElementById("store-search-input");
+  const clearBtn = document.getElementById("store-search-clear");
+  const sortSelect = document.getElementById("store-sort-select");
+  const statusSelect = document.getElementById("store-status-select");
+  const countIndicator = document.getElementById("store-count-val");
+  const paginationContainer = document.getElementById("store-pagination-container");
+  const remainingCountEl = document.getElementById("store-remaining-count");
+
   if (!grid || !currentStoreCatalog) return;
 
+  if (resetLimit) {
+    storeRenderLimit = 48;
+  }
+
   const query = (searchInput ? searchInput.value.trim().toLowerCase() : "");
-  const filtered = currentStoreCatalog.apps.filter(app => {
+  if (clearBtn) {
+    clearBtn.style.display = query ? "block" : "none";
+  }
+
+  const sortVal = sortSelect ? sortSelect.value : "recommended";
+  const statusVal = statusSelect ? statusSelect.value : "all";
+
+  // 1. Filtrage dynamique
+  let filtered = currentStoreCatalog.apps.filter(app => {
     const matchCat = (activeStoreCategory === "Tous" || app.category === activeStoreCategory);
-    const matchQuery = !query || app.name.toLowerCase().includes(query) ||
-                       app.tagline.toLowerCase().includes(query) ||
-                       app.description.toLowerCase().includes(query) ||
-                       app.category.toLowerCase().includes(query);
-    return matchCat && matchQuery;
+
+    let matchQuery = true;
+    if (query) {
+      const q = query;
+      const portMatch = app.default_port ? String(app.default_port).includes(q) : false;
+      matchQuery = app.name.toLowerCase().includes(q) ||
+                   (app.tagline && app.tagline.toLowerCase().includes(q)) ||
+                   (app.description && app.description.toLowerCase().includes(q)) ||
+                   (app.category && app.category.toLowerCase().includes(q)) ||
+                   (app.id && app.id.toLowerCase().includes(q)) ||
+                   portMatch;
+    }
+
+    let matchStatus = true;
+    if (statusVal === "installed") {
+      matchStatus = !!app.is_installed;
+    } else if (statusVal === "available") {
+      matchStatus = !app.is_installed;
+    }
+
+    return matchCat && matchQuery && matchStatus;
   });
 
+  // 2. Tri
+  if (sortVal === "name_asc") {
+    filtered.sort((a, b) => a.name.localeCompare(b.name));
+  } else if (sortVal === "name_desc") {
+    filtered.sort((a, b) => b.name.localeCompare(a.name));
+  } else if (sortVal === "port") {
+    filtered.sort((a, b) => (a.default_port || 99999) - (b.default_port || 99999));
+  } else {
+    // Par défaut : Recommandés en premier, puis alphabétique
+    filtered.sort((a, b) => {
+      if (a.recommended && !b.recommended) return -1;
+      if (!a.recommended && b.recommended) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
+  // 3. Mise à jour de l'indicateur de volume
+  if (countIndicator) {
+    countIndicator.textContent = filtered.length;
+  }
+
+  // 4. État vide
   if (filtered.length === 0) {
-    grid.innerHTML = `<p style="grid-column:1/-1; color:var(--subtext0); text-align:center; padding:30px;">Aucune application ne correspond à votre recherche.</p>`;
+    grid.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align: center; padding: 48px 20px; color: var(--subtext0);">
+        <div style="font-size: 2.5rem; margin-bottom: 12px;">🔍</div>
+        <h4 style="color: var(--text); margin-bottom: 6px;">Aucune application trouvée</h4>
+        <p style="font-size: 0.88rem;">Aucune application ne correspond à vos filtres ou terme de recherche.</p>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="clearStoreSearch(); selectStoreCategory('Tous');" style="margin-top: 14px;">
+          Réinitialiser la recherche
+        </button>
+      </div>
+    `;
+    if (paginationContainer) paginationContainer.style.display = "none";
     return;
   }
 
+  // 5. Pagination / Découpage
+  const visibleApps = filtered.slice(0, storeRenderLimit);
+  const remaining = filtered.length - visibleApps.length;
+
+  if (paginationContainer && remainingCountEl) {
+    if (remaining > 0) {
+      paginationContainer.style.display = "block";
+      remainingCountEl.textContent = remaining;
+    } else {
+      paginationContainer.style.display = "none";
+    }
+  }
+
+  // 6. Rendu des cartes d'applications
   const host = window.location.hostname;
-  grid.innerHTML = filtered.map(app => {
+  grid.innerHTML = visibleApps.map(app => {
     const isInstalled = app.is_installed;
     const isRunning = app.is_running;
     const openLink = (isInstalled && isRunning && app.default_port)
@@ -7768,6 +7876,125 @@ function filterStoreApps() {
       </div>
     `;
   }).join("");
+}
+
+async function checkModalFirewallStatus() {
+  const portInput = document.getElementById("config-app-port");
+  const container = document.getElementById("modal-fw-alert-container");
+  const alertBox = document.getElementById("modal-fw-alert");
+  const icon = document.getElementById("fw-shield-icon");
+  const title = document.getElementById("fw-alert-title");
+  const desc = document.getElementById("fw-alert-desc");
+  const btn = document.getElementById("btn-quick-open-fw");
+
+  if (!container || !portInput) return;
+
+  const portVal = portInput.value.trim();
+  const port = parseInt(portVal, 10);
+
+  if (!portVal || isNaN(port) || port < 1 || port > 65535) {
+    container.style.display = "none";
+    return;
+  }
+
+  container.style.display = "block";
+
+  try {
+    if (!currentFirewallData) {
+      const res = await fetch("/api/firewall");
+      const json = await res.json();
+      if (json.success && json.data) {
+        currentFirewallData = json.data;
+      }
+    }
+
+    let isOpen = false;
+    if (currentFirewallData) {
+      if (!currentFirewallData.is_enabled) {
+        isOpen = true;
+      } else {
+        const tcpPorts = currentFirewallData.tcp_ports || [];
+        isOpen = tcpPorts.some(p => p.port === port);
+      }
+    }
+
+    if (isOpen) {
+      if (alertBox) alertBox.className = "modal-fw-alert fw-open";
+      if (icon) icon.textContent = "🛡️";
+      if (title) title.textContent = `Pare-feu STEvE_OS : Port ${port} (TCP) Ouvert`;
+      if (desc) desc.textContent = `Ce port est déjà autorisé dans le pare-feu. Vos appareils du réseau local pourront y accéder sans blocage.`;
+      if (btn) btn.style.display = "none";
+    } else {
+      if (alertBox) alertBox.className = "modal-fw-alert fw-closed";
+      if (icon) icon.textContent = "⚠️";
+      if (title) title.textContent = `Pare-feu STEvE_OS : Port ${port} (TCP) Non Ouvert`;
+      if (desc) desc.textContent = `Le pare-feu bloque actuellement ce port. Cliquez ci-contre pour l'autoriser immédiatement sur le réseau local.`;
+      if (btn) {
+        btn.style.display = "inline-flex";
+        btn.disabled = false;
+        btn.innerHTML = `<span>🛡️</span> Ouvrir le port ${port} en 1 clic`;
+      }
+    }
+  } catch (err) {
+    console.warn("Erreur checkModalFirewallStatus:", err);
+  }
+}
+
+async function quickOpenModalFirewallPort() {
+  const portInput = document.getElementById("config-app-port");
+  const appIdInput = document.getElementById("config-app-id");
+  const btn = document.getElementById("btn-quick-open-fw");
+
+  if (!portInput) return;
+  const port = parseInt(portInput.value.trim(), 10);
+  if (isNaN(port) || port < 1 || port > 65535) {
+    showToast("Numéro de port invalide pour le pare-feu", "warning");
+    return;
+  }
+
+  const appId = appIdInput ? appIdInput.value.trim() : "App";
+  const app = currentStoreCatalog && currentStoreCatalog.apps ? currentStoreCatalog.apps.find(a => a.id === appId) : null;
+  const label = app ? app.name : appId;
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span>⏳</span> Autorisation...`;
+  }
+
+  try {
+    const payload = {
+      port: port,
+      protocol: "TCP",
+      label: `${label} (Docker)`,
+      category: "Conteneurs"
+    };
+
+    const res = await fetch("/api/firewall/rules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const json = await res.json();
+    if (json.success) {
+      showToast(`🛡️ Port ${port} (TCP) autorisé avec succès dans le pare-feu STEvE_OS !`, "success");
+      currentFirewallData = null; // Invalider cache
+      await checkModalFirewallStatus(); // Mettre à jour l'alerte en vert
+      loadFirewall(); // Actualiser l'onglet Pare-feu en arrière-plan
+    } else {
+      showToast(`Erreur ouverture pare-feu : ${json.message || "Échec"}`, "error");
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<span>🛡️</span> Réessayer d'ouvrir le port ${port}`;
+      }
+    }
+  } catch (err) {
+    showToast(`Erreur réseau lors de l'ouverture du port : ${err}`, "error");
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<span>🛡️</span> Réessayer d'ouvrir le port ${port}`;
+    }
+  }
 }
 
 function openStoreAppModal(appId) {
@@ -7886,24 +8113,38 @@ function openDockerConfigModal(appId, customData = null) {
   document.getElementById("config-app-id").value = appId;
   document.getElementById("config-app-title").textContent = `Configuration : ${title}`;
   document.getElementById("config-app-subtitle").textContent = app && app.tagline ? app.tagline : "Variables d'environnement, port et volumes";
+  const portInput = document.getElementById("config-app-port");
+  if (portInput) {
+    portInput.value = defaultPort;
+    portInput.oninput = () => {
+      updateConfigUrlPreview();
+      checkModalFirewallStatus();
+    };
+  }
   document.getElementById("config-app-icon").src = icon;
-  document.getElementById("config-app-port").value = defaultPort;
   document.getElementById("config-app-data-dir").value = dataDir;
   
   const nixTarget = document.getElementById("config-app-nix-target");
   if (nixTarget) nixTarget.textContent = `/etc/nixos/docker/${appId}.nix`;
 
   updateConfigUrlPreview();
+  checkModalFirewallStatus();
 
   // Remplir les variables d'environnement
   const container = document.getElementById("config-env-rows-container");
   if (container) {
     container.innerHTML = "";
-    const envs = DEFAULT_DOCKER_ENVS[appId] || [
-      { key: "TZ", value: "Europe/Paris" },
-      { key: "PUID", value: "1000" },
-      { key: "PGID", value: "100" }
-    ];
+    let envs = DEFAULT_DOCKER_ENVS[appId];
+    if (!envs && app && Array.isArray(app.env) && app.env.length > 0) {
+      envs = app.env.map(e => ({ key: e.name, value: e.default || "" }));
+    }
+    if (!envs) {
+      envs = [
+        { key: "TZ", value: "Europe/Paris" },
+        { key: "PUID", value: "1000" },
+        { key: "PGID", value: "100" }
+      ];
+    }
     envs.forEach(e => addDockerConfigEnvRow(e.key, e.value));
   }
 

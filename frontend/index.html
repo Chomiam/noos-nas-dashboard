@@ -1970,16 +1970,53 @@
         <div id="docker-pane-store" class="docker-subpane" style="display:none;">
           <!-- BARRE D'OUTILS DU STORE -->
           <div class="store-toolbar">
-            <div class="store-search-box">
-              <span class="store-search-icon">🔍</span>
-              <input type="text" id="store-search-input" class="form-control" placeholder="Rechercher une application (nom, catégorie, description)..." oninput="filterStoreApps()">
+            <div class="store-search-row">
+              <div class="store-search-box">
+                <span class="store-search-icon">🔍</span>
+                <input type="text" id="store-search-input" class="form-control" placeholder="Rechercher parmi 700+ applications (nom, description, port)..." oninput="filterStoreApps()">
+                <button type="button" class="store-search-clear" id="store-search-clear" onclick="clearStoreSearch()" style="display:none;">✕</button>
+              </div>
+
+              <!-- Filtres et Tri -->
+              <div class="store-controls-row">
+                <div class="store-sort-wrap">
+                  <label for="store-sort-select" class="store-control-label">Trier par :</label>
+                  <select id="store-sort-select" class="form-control store-select" onchange="filterStoreApps()">
+                    <option value="recommended">⭐ Recommandés en premier</option>
+                    <option value="name_asc">🔤 Nom (A ➔ Z)</option>
+                    <option value="name_desc">🔤 Nom (Z ➔ A)</option>
+                    <option value="port">🔢 Numéro de Port</option>
+                  </select>
+                </div>
+
+                <div class="store-status-wrap">
+                  <select id="store-status-select" class="form-control store-select" onchange="filterStoreApps()">
+                    <option value="all">📦 Tout afficher</option>
+                    <option value="installed">🟢 Installées</option>
+                    <option value="available">⚪ Disponibles</option>
+                  </select>
+                </div>
+
+                <div class="store-count-pill" id="store-count-indicator">
+                  <span id="store-count-val">0</span> app(s)
+                </div>
+              </div>
             </div>
+
+            <!-- Pastilles de catégories avec compteurs -->
             <div class="store-categories-pills" id="store-categories-container"></div>
           </div>
 
           <!-- GRILLE DES APPLICATIONS -->
           <div class="store-apps-grid" id="store-apps-grid">
             <p style="color:var(--subtext0); font-size:0.9rem;">Chargement de la boutique...</p>
+          </div>
+
+          <!-- Bouton Afficher Plus -->
+          <div id="store-pagination-container" style="text-align: center; margin-top: 24px; display: none;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-store-load-more" onclick="loadMoreStoreApps()">
+              <span>➕</span> Afficher plus d'applications (<span id="store-remaining-count">0</span> restantes)
+            </button>
           </div>
         </div>
 
@@ -3688,10 +3725,26 @@
             <span style="font-size: 0.75rem; color: var(--subtext0); font-weight: 400;">Exposé sur votre réseau local</span>
           </label>
           <div style="display: flex; align-items: center; gap: 14px; background: rgba(17, 17, 27, 0.5); padding: 8px 14px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.06);">
-            <input type="number" id="config-app-port" class="form-input docker-port-input" placeholder="3552" min="1" max="65535" oninput="updateConfigUrlPreview()">
+            <input type="number" id="config-app-port" class="form-input docker-port-input" placeholder="3552" min="1" max="65535" oninput="updateConfigUrlPreview(); if(typeof checkModalFirewallStatus==='function'){checkModalFirewallStatus(parseInt(this.value)||0, document.getElementById('config-app-id').value);}">
             <span style="font-size: 0.84rem; color: var(--subtext1); display: flex; align-items: center; gap: 8px;">
               <span>Accès direct :</span> <code style="color:var(--mauve); font-weight: 700; font-size: 0.86rem;" id="config-app-url-preview">http://...</code>
             </span>
+          </div>
+        </div>
+
+        <!-- Alerte Bouclier Pare-feu 1-Clic -->
+        <div id="modal-fw-alert-container" style="display: none; margin-top: -6px;">
+          <div id="modal-fw-alert" class="modal-fw-alert fw-closed">
+            <div class="fw-alert-left">
+              <span class="fw-shield-icon" id="fw-shield-icon">🛡️</span>
+              <div class="fw-alert-text">
+                <div class="fw-alert-title" id="fw-alert-title">Vérification du pare-feu...</div>
+                <div class="fw-alert-desc" id="fw-alert-desc">État du port sur votre réseau local.</div>
+              </div>
+            </div>
+            <button type="button" class="btn btn-warning btn-xs fw-quick-btn" id="btn-quick-open-fw" onclick="quickOpenModalFirewallPort()" style="display: none;">
+              <span>🛡️</span> Ouvrir en 1 clic
+            </button>
           </div>
         </div>
 

@@ -4711,10 +4711,147 @@ select.form-control option,
 
 .store-search-box input {
   padding-left: 40px !important;
+  padding-right: 36px !important;
   height: 44px;
   font-size: 0.95rem;
   background: var(--surface0);
   border-radius: 12px;
+}
+
+.store-search-row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+@media (min-width: 900px) {
+  .store-search-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.store-search-clear {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--subtext0);
+  font-size: 0.95rem;
+  cursor: pointer;
+  padding: 4px;
+  transition: color 0.15s ease;
+}
+
+.store-search-clear:hover {
+  color: var(--red);
+}
+
+.store-controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.store-sort-wrap, .store-status-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.store-control-label {
+  font-size: 0.8rem;
+  color: var(--subtext0);
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.store-select {
+  background: var(--surface0);
+  border: 1px solid var(--surface1);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 6px 12px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.store-select:hover, .store-select:focus {
+  border-color: var(--peach);
+}
+
+.store-count-pill {
+  background: rgba(203, 166, 247, 0.12);
+  border: 1px solid rgba(203, 166, 247, 0.3);
+  color: var(--mauve);
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Alerte Bouclier Pare-feu */
+.modal-fw-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 0.84rem;
+  transition: all 0.2s ease;
+}
+
+.modal-fw-alert.fw-closed {
+  background: rgba(249, 226, 175, 0.08);
+  border: 1px solid rgba(249, 226, 175, 0.35);
+  color: var(--text);
+}
+
+.modal-fw-alert.fw-open {
+  background: rgba(166, 227, 161, 0.08);
+  border: 1px solid rgba(166, 227, 161, 0.35);
+  color: var(--text);
+}
+
+.fw-alert-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fw-shield-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.fw-alert-title {
+  font-weight: 700;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.fw-alert-desc {
+  font-size: 0.76rem;
+  color: var(--subtext0);
+  margin-top: 1px;
+}
+
+.fw-quick-btn {
+  white-space: nowrap;
+  font-weight: 700;
+  border-radius: 8px;
+  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .store-categories-pills {

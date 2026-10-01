@@ -12,16 +12,34 @@ pub struct StoreVolume {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoreEnv {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub default: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreApp {
     pub id: String,
     pub name: String,
+    #[serde(default)]
     pub version: String,
     pub category: String,
+    #[serde(default)]
     pub tagline: String,
+    #[serde(default)]
     pub description: String,
+    #[serde(default)]
     pub website: String,
+    #[serde(default)]
     pub icon: String,
-    pub default_port: u16,
+    #[serde(default)]
+    pub default_port: u32,
+    #[serde(default)]
+    pub extra_ports: Vec<u32>,
     #[serde(default)]
     pub recommended: bool,
     #[serde(default)]
@@ -29,7 +47,9 @@ pub struct StoreApp {
     #[serde(default)]
     pub volumes: Vec<StoreVolume>,
     #[serde(default)]
-    pub nix_file: String,
+    pub compose_file: String,
+    #[serde(default)]
+    pub env: Vec<StoreEnv>,
 
     // Champs calculés dynamiquement
     #[serde(default)]
@@ -47,14 +67,17 @@ pub struct StoreCatalog {
     pub version: String,
     pub updated_at: String,
     pub repository: String,
+    #[serde(default)]
+    pub total_apps: usize,
     pub categories: Vec<String>,
     pub apps: Vec<StoreApp>,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct InstallAppRequest {
     pub app_id: String,
-    pub port: Option<u16>,
+    pub port: Option<u32>,
     pub data_dir: Option<String>,
     pub media_dir: Option<String>,
     pub gpu_device: Option<String>,
@@ -144,24 +167,26 @@ pub fn get_store_catalog() -> StoreCatalog {
     // 2. Repli sur le cache local
     let json_text = json_text.or_else(|| std::fs::read_to_string(&cache_file).ok());
 
-    // 3. Repli sur catalogue intégré par défaut
+    // 3. Parser ou repli sur catalogue par défaut
     let mut catalog: StoreCatalog = if let Some(txt) = json_text {
-        serde_json::from_str(&txt).unwrap_or_else(|_| get_embedded_catalog())
+        serde_json::from_str(&txt).unwrap_or_else(|_| get_default_catalog())
     } else {
-        get_embedded_catalog()
+        get_default_catalog()
     };
 
-    // Filtrer d'éventuelles entrées supprimées
-    catalog.apps.retain(|a| a.id != "homepage" && a.id != "filebrowser");
-
-    // 4. Enrichir avec l'état du système NixOS et de Docker
+    // 4. Enrichir avec l'état dynamique des conteneurs et dossiers
+    let user = get_target_user();
+    let user_docker_dir = PathBuf::from(format!("/home/{}/docker", user));
     let config_dir = get_config_dir();
-    let docker_dir = config_dir.join("docker");
+    let nix_docker_dir = config_dir.join("docker");
     let containers_map = get_running_containers_map();
 
     for app in &mut catalog.apps {
-        let nix_path = docker_dir.join(format!("{}.nix", app.id));
-        app.is_installed = nix_path.exists();
+        let app_dir = user_docker_dir.join(&app.id);
+        let compose_file = app_dir.join("compose.yaml");
+        let nix_file = nix_docker_dir.join(format!("{}.nix", app.id));
+
+        app.is_installed = compose_file.exists() || nix_file.exists();
 
         if let Some((cid, status, is_running)) = containers_map.get(&app.id) {
             app.is_running = *is_running;
@@ -177,136 +202,73 @@ pub fn get_store_catalog() -> StoreCatalog {
     catalog
 }
 
-fn customize_nix_content(
-    base_nix: &str,
-    app_id: &str,
-    port: Option<u16>,
-    data_dir: Option<&str>,
-    media_dir: Option<&str>,
-    gpu_device: Option<&str>,
+fn customize_compose_yaml(
+    base_compose: &str,
+    new_port: Option<u32>,
     env_vars: Option<&HashMap<String, String>>,
 ) -> String {
-    let mut res = base_nix.to_string();
+    let mut lines: Vec<String> = base_compose.lines().map(|s| s.to_string()).collect();
 
-    // 1. Personnalisation du dossier de données
-    if let Some(dir) = data_dir {
-        let trimmed = dir.trim();
-        if !trimmed.is_empty() {
-            let default_pattern = format!("dataDir = \"/home/${{user}}/docker/{}\";", app_id);
-            let custom_pattern = format!("dataDir = \"{}\";", trimmed);
-            if res.contains(&default_pattern) {
-                res = res.replace(&default_pattern, &custom_pattern);
-            }
-        }
-    }
-
-    // 2. Personnalisation du dossier média (ex: Jellyfin)
-    if let Some(m_dir) = media_dir {
-        let trimmed = m_dir.trim().trim_end_matches('/');
-        if !trimmed.is_empty() {
-            let custom_media = format!("mediaDir = \"{}\";", trimmed);
-            if res.contains("mediaDir = \"/home/${user}/videos\";") {
-                res = res.replace("mediaDir = \"/home/${user}/videos\";", &custom_media);
-            } else if res.contains("mediaDir = \"/home/${user}/video\";") {
-                res = res.replace("mediaDir = \"/home/${user}/video\";", &custom_media);
-            } else if let Some(idx) = res.find("mediaDir = \"") {
-                if let Some(end_idx) = res[idx..].find("\";") {
-                    let old_val = &res[idx..idx + end_idx + 2];
-                    res = res.replace(old_val, &custom_media);
-                }
-            }
-        }
-    }
-
-    // 3. Personnalisation du périphérique GPU (ex: Jellyfin)
-    if let Some(gpu) = gpu_device {
-        let trimmed = gpu.trim();
-        if trimmed == "none" || trimmed.is_empty() {
-            res = res.replace("\"--device=/dev/dri:/dev/dri\"", "");
-            res = res.replace("extraOptions = [\n      \"--device=/dev/dri:/dev/dri\"\n    ];", "extraOptions = [ ];");
-        } else if trimmed == "--gpus all" || trimmed == "--gpus=all" || trimmed == "nvidia" {
-            res = res.replace("\"--device=/dev/dri:/dev/dri\"", "\"--gpus=all\"");
-        } else if trimmed.contains(':') && !res.contains(&format!("\"--device={}\"", trimmed)) {
-            res = res.replace("\"--device=/dev/dri:/dev/dri\"", &format!("\"--device={}\"", trimmed));
-        }
-    }
-
-    // 2. Personnalisation du port
-    if let Some(new_port) = port {
-        // Remplacement dans allowedTCPPorts
-        if let Some(tcp_idx) = res.find("networking.firewall.allowedTCPPorts = [") {
-            if let Some(end_bracket) = res[tcp_idx..].find(']') {
-                let full_end = tcp_idx + end_bracket;
-                let prefix = &res[..tcp_idx + "networking.firewall.allowedTCPPorts = [".len()];
-                let suffix = &res[full_end..];
-                res = format!("{} {} {}", prefix, new_port, suffix);
-            }
-        }
-
-        // Remplacement dans ports = [ "XXXX:
-        if let Some(p_idx) = res.find("ports = [") {
-            if let Some(p_end) = res[p_idx..].find(']') {
-                let ports_block = &res[p_idx..p_idx + p_end];
-                let mut new_block = ports_block.to_string();
-                for chunk in ports_block.split('"') {
-                    if let Some(colon) = chunk.find(':') {
-                        let host_p = &chunk[..colon];
-                        let cont_p = &chunk[colon + 1..];
-                        if host_p.chars().all(|c| c.is_ascii_digit()) {
-                            let old_str = format!("\"{}:{}\"", host_p, cont_p);
-                            let new_str = format!("\"{}:{}\"", new_port, cont_p);
-                            new_block = new_block.replace(&old_str, &new_str);
-                            break;
-                        }
+    // 1. Remplacer le port d'hôte si spécifié
+    if let Some(p) = new_port {
+        let mut port_replaced = false;
+        for line in &mut lines {
+            if !port_replaced && line.trim().starts_with("- ") && line.contains(':') {
+                let trimmed = line.trim().trim_start_matches("- ").trim_matches('"').trim_matches('\'');
+                if let Some(colon) = trimmed.find(':') {
+                    let host_chunk = &trimmed[..colon];
+                    if host_chunk.chars().all(|c| c.is_ascii_digit()) {
+                        let cont_chunk = &trimmed[colon + 1..];
+                        let indent = line.chars().take_while(|c| c.is_whitespace()).collect::<String>();
+                        *line = format!("{}- \"{}:{}\"", indent, p, cont_chunk);
+                        port_replaced = true;
                     }
                 }
-                res = res[..p_idx].to_string() + &new_block + &res[p_idx + p_end..];
             }
         }
     }
 
-    // 3. Personnalisation des variables d'environnement
+    // 2. Mettre à jour les variables d'environnement
     if let Some(envs) = env_vars {
         if !envs.is_empty() {
-            if !res.contains("environment = {") {
-                if let Some(auto_idx) = res.find("autoStart = true;") {
-                    let insert_pt = auto_idx + "autoStart = true;".len();
-                    res.insert_str(insert_pt, "
-    environment = {
-    };");
+            let mut env_idx = None;
+            for (idx, line) in lines.iter().enumerate() {
+                if line.trim() == "environment:" {
+                    env_idx = Some(idx);
+                    break;
                 }
             }
 
-            if let Some(env_idx) = res.find("environment = {") {
-                if let Some(env_end) = res[env_idx..].find("};") {
-                    let mut env_block = res[env_idx + "environment = {".len()..env_idx + env_end].to_string();
-                    for (k, v) in envs {
-                        let clean_k = k.trim().replace('"', "");
-                        let clean_v = v.trim().replace('"', "");
-                        if !clean_k.is_empty() {
-                            let key_match = format!("{} =", clean_k);
-                            let key_match_space = format!("{} =", clean_k);
-                            let mut found = false;
-                            for line in env_block.lines() {
-                                let trimmed_line = line.trim();
-                                if trimmed_line.starts_with(&key_match) || trimmed_line.starts_with(&key_match_space) {
-                                    env_block = env_block.replace(line, &format!("      {} = \"{}\";", clean_k, clean_v));
-                                    found = true;
-                                    break;
-                                }
-                            }
-                            if !found {
-                                env_block.push_str(&format!("\n      {} = \"{}\";", clean_k, clean_v));
-                            }
-                        }
+            if let Some(e_idx) = env_idx {
+                let mut existing_keys = HashMap::new();
+                for i in (e_idx + 1)..lines.len() {
+                    let l = &lines[i];
+                    if !l.trim().starts_with("- ") {
+                        break;
                     }
-                    res = res[..env_idx + "environment = {".len()].to_string() + &env_block + &res[env_idx + env_end..];
+                    let item = l.trim().trim_start_matches("- ").trim();
+                    if let Some(eq) = item.find('=') {
+                        let k = item[..eq].trim();
+                        existing_keys.insert(k.to_string(), i);
+                    }
+                }
+
+                for (k, v) in envs {
+                    let clean_k = k.trim();
+                    let clean_v = v.trim();
+                    if let Some(&line_num) = existing_keys.get(clean_k) {
+                        lines[line_num] = format!("    - {}={}", clean_k, clean_v);
+                    } else {
+                        lines.insert(e_idx + 1, format!("    - {}={}", clean_k, clean_v));
+                    }
                 }
             }
         }
     }
 
-    res
+    lines.join("
+") + "
+"
 }
 
 pub async fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
@@ -315,144 +277,102 @@ pub async fn install_store_app(req: InstallAppRequest) -> Result<String, String>
         return Err("Identifiant d'application invalide".to_string());
     }
 
-    let config_dir = get_config_dir();
-    let docker_dir = config_dir.join("docker");
-    let target_nix_file = docker_dir.join(format!("{}.nix", clean_id));
+    let user = get_target_user();
+    let app_dir = if let Some(ref d) = req.data_dir {
+        PathBuf::from(d)
+    } else {
+        PathBuf::from(format!("/home/{}/docker/{}", user, clean_id))
+    };
 
-    // Récupérer le contenu du .nix de base
+    let data_dir = app_dir.join("data");
+    let compose_file = app_dir.join("compose.yaml");
+
+    // 1. Assurer la création des dossiers persistants avec permissions saines
+    std::fs::create_dir_all(&data_dir)
+        .map_err(|e| format!("Impossible de créer le dossier {} : {}", data_dir.display(), e))?;
+
+    let _ = Command::new("chown").args(["-R", &format!("{}:users", user), &app_dir.display().to_string()]).status();
+    let _ = Command::new("chmod").args(["-R", "0775", &app_dir.display().to_string()]).status();
+
+    // 2. Récupérer le compose.yaml depuis steveos_nas_store
     let url = format!(
-        "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/{}/{}.nix",
-        clean_id, clean_id
+        "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/{}/compose.yaml",
+        clean_id
     );
     let curl_res = Command::new("curl")
         .args(["-s", "--connect-timeout", "5", "--max-time", "15", &url])
         .output();
 
-    let base_nix = match curl_res {
+    let base_compose = match curl_res {
         Ok(out) => {
             let s = String::from_utf8_lossy(&out.stdout).to_string();
-            if s.contains("virtualisation.oci-containers") {
+            if s.contains("services:") {
                 s
             } else {
-                get_embedded_app_nix(&clean_id)?
+                generate_default_compose(&clean_id, req.port.unwrap_or(8080))
             }
         }
-        Err(_) => get_embedded_app_nix(&clean_id)?,
+        Err(_) => generate_default_compose(&clean_id, req.port.unwrap_or(8080)),
     };
 
-    // Appliquer les personnalisations (port, data_dir, media_dir, env_vars)
-    let user = get_target_user();
-    let customized_nix = customize_nix_content(
-        &base_nix,
-        &clean_id,
-        req.port,
-        req.data_dir.as_deref(),
-        req.media_dir.as_deref(),
-        req.gpu_device.as_deref(),
-        req.env_vars.as_ref(),
-    );
+    // 3. Personnaliser le compose.yaml (port et variables d'environnement)
+    let customized = customize_compose_yaml(&base_compose, req.port, req.env_vars.as_ref());
 
-    // Assurer le dossier docker/ dans NixOS
-    if let Err(e) = std::fs::create_dir_all(&docker_dir) {
-        return Err(format!("Impossible de créer le dossier docker dans NixOS : {}", e));
-    }
+    // 4. Écrire le fichier compose.yaml
+    std::fs::write(&compose_file, &customized)
+        .map_err(|e| format!("Impossible d'écrire {} : {}", compose_file.display(), e))?;
 
-    // Assurer le dossier persistant dans /home/<user>/docker/<app_id>
-    let app_data_dir = req.data_dir.clone().unwrap_or_else(|| format!("/home/{}/docker/{}", user, clean_id));
-    let _ = std::fs::create_dir_all(&app_data_dir);
-    let _ = Command::new("chown").args(["-R", &format!("{}:users", user), &app_data_dir]).status();
-    let _ = Command::new("chmod").args(["-R", "0775", &app_data_dir]).status();
+    // 5. Déployer instantanément via Docker Compose
+    let compose_cmd = Command::new("docker")
+        .args(["compose", "-f", &compose_file.display().to_string(), "up", "-d"])
+        .output();
 
-    // Gestion spécifique des dossiers médias pour Jellyfin (ou apps multimédias)
-    if clean_id == "jellyfin" || req.media_dir.is_some() {
-        let media_path = req.media_dir.clone().unwrap_or_else(|| format!("/home/{}/videos", user));
-        let m_path = std::path::PathBuf::from(&media_path);
-
-        let movies_dir = m_path.join("movies");
-        let tv_shows_dir = m_path.join("tv_shows");
-        let anims_dir = m_path.join("anims");
-
-        let _ = std::fs::create_dir_all(&m_path);
-        let _ = std::fs::create_dir_all(&movies_dir);
-        let _ = std::fs::create_dir_all(&tv_shows_dir);
-        let _ = std::fs::create_dir_all(&anims_dir);
-
-        let _ = Command::new("chown").args(["-R", &format!("{}:users", user), &media_path]).status();
-        let _ = Command::new("chmod").args(["-R", "0775", &media_path]).status();
-
-        if media_path.starts_with("/mnt/storage") {
-            let _ = Command::new("chmod").args(["-R", "2775", &media_path]).status();
+    match compose_cmd {
+        Ok(out) => {
+            if out.status.success() {
+                Ok(format!("Application '{}' installée et lancée avec succès en 1 clic !", clean_id))
+            } else {
+                let err = String::from_utf8_lossy(&out.stderr);
+                Err(format!("Erreur lors du démarrage Docker Compose : {}", err.trim()))
+            }
         }
+        Err(e) => Err(format!("Échec d'exécution de docker compose : {}", e)),
     }
-
-    // Écrire le fichier .nix
-    if let Err(e) = std::fs::write(&target_nix_file, customized_nix) {
-        return Err(format!("Impossible d'écrire le module Nix : {}", e));
-    }
-
-    // Indexer le fichier dans git pour que Nix flake le reconnaisse
-    let _ = Command::new("git")
-        .args(["-C", &config_dir.display().to_string(), "add", &format!("docker/{}.nix", clean_id)])
-        .status();
-
-    // Lancer le déploiement en arrière-plan
-    let cfg_clone = config_dir.clone();
-    tokio::spawn(async move {
-        let _ = Command::new("nh")
-            .args(["os", "switch", "--no-nom", &cfg_clone.display().to_string()])
-            .status();
-    });
-
-    Ok(format!(
-        "Application '{}' configurée et déploiement NixOS initié avec succès !",
-        clean_id
-    ))
 }
 
 pub async fn uninstall_store_app(app_id: &str, delete_data: bool) -> Result<String, String> {
     let clean_id = app_id.trim().to_lowercase();
+    let user = get_target_user();
+    let app_dir = PathBuf::from(format!("/home/{}/docker/{}", user, clean_id));
+    let compose_file = app_dir.join("compose.yaml");
+
+    // 1. Arrêter le conteneur via docker compose down
+    if compose_file.exists() {
+        let _ = Command::new("docker")
+            .args(["compose", "-f", &compose_file.display().to_string(), "down"])
+            .output();
+    } else {
+        let _ = Command::new("docker").args(["stop", &clean_id]).output();
+        let _ = Command::new("docker").args(["rm", "-f", &clean_id]).output();
+    }
+
+    // 2. Nettoyage de l'ancien module NixOS si présent
     let config_dir = get_config_dir();
     let docker_dir = config_dir.join("docker");
-    let target_nix_file = docker_dir.join(format!("{}.nix", clean_id));
-
-    if !target_nix_file.exists() {
-        return Err(format!("L'application '{}' n'est pas installée.", clean_id));
+    let nix_file = docker_dir.join(format!("{}.nix", clean_id));
+    if nix_file.exists() {
+        let _ = std::fs::remove_file(&nix_file);
+        let _ = Command::new("git")
+            .args(["-C", &config_dir.display().to_string(), "rm", "-f", &format!("docker/{}.nix", clean_id)])
+            .output();
     }
 
-    // Arrêter le conteneur Docker immédiatement
-    let _ = Command::new("docker").args(["stop", &clean_id]).status();
-    let _ = Command::new("docker").args(["rm", "-f", &clean_id]).status();
-
-    // Supprimer le fichier .nix
-    let _ = std::fs::remove_file(&target_nix_file);
-
-    // Mettre à jour git
-    let _ = Command::new("git")
-        .args(["-C", &config_dir.display().to_string(), "rm", "-f", &format!("docker/{}.nix", clean_id)])
-        .status();
-    let _ = Command::new("git")
-        .args(["-C", &config_dir.display().to_string(), "add", "-u"])
-        .status();
-
-    // Supprimer les données si demandé
-    if delete_data {
-        let user = get_target_user();
-        let app_data_dir = format!("/home/{}/docker/{}", user, clean_id);
-        let _ = std::fs::remove_dir_all(&app_data_dir);
+    // 3. Supprimer les données si demandé
+    if delete_data && app_dir.exists() {
+        let _ = std::fs::remove_dir_all(&app_dir);
     }
 
-    // Déclencher le switch NixOS pour mettre à jour les unités systemd et le pare-feu
-    let cfg_clone = config_dir.clone();
-    tokio::spawn(async move {
-        let _ = Command::new("nh")
-            .args(["os", "switch", "--no-nom", &cfg_clone.display().to_string()])
-            .status();
-    });
-
-    Ok(format!(
-        "Application '{}' désinstallée avec succès. Le système NixOS est mis à jour.",
-        clean_id
-    ))
+    Ok(format!("Application '{}' désinstallée avec succès.", clean_id))
 }
 
 pub fn control_docker_container(name_or_id: &str, action: &str) -> Result<String, String> {
@@ -494,497 +414,44 @@ pub fn get_docker_logs(name_or_id: &str, lines: usize) -> Result<String, String>
     Ok(combined)
 }
 
-fn get_embedded_catalog() -> StoreCatalog {
+fn generate_default_compose(app_id: &str, port: u32) -> String {
+    format!(r#"services:
+  {id}:
+    container_name: {id}
+    image: {id}:latest
+    restart: unless-stopped
+    ports:
+      - "{port}:{port}"
+    volumes:
+      - ./data:/data
+    environment:
+      - TZ=Europe/Paris
+      - PUID=1000
+      - PGID=100
+"#, id = app_id, port = port)
+}
+
+fn get_default_catalog() -> StoreCatalog {
     StoreCatalog {
-        version: "1.0.0".to_string(),
-        updated_at: "2026-09-29T19:20:00Z".to_string(),
+        version: "2.0.0".to_string(),
+        updated_at: "2026-10-01T02:00:00Z".to_string(),
         repository: "https://github.com/Chomiam/steveos_nas_store".to_string(),
+        total_apps: 0,
         categories: vec![
             "Tous".into(),
-            "Administration".into(),
             "Multimédia".into(),
+            "Sécurité & Réseau".into(),
+            "Administration & Monitoring".into(),
             "Téléchargement".into(),
-            "Sécurité".into(),
-            "Monitoring".into(),
+            "Domotique & IoT".into(),
+            "Outils & Utilitaires".into(),
+            "Développement".into(),
+            "Finance & Organisation".into(),
+            "Jeux & Divertissement".into(),
         ],
-        apps: vec![
-            StoreApp {
-                id: "arcane".into(),
-                name: "Arcane".into(),
-                version: "latest".into(),
-                category: "Administration".into(),
-                tagline: "Gestionnaire moderne et léger de conteneurs Docker".into(),
-                description: "Arcane propose une interface utilisateur épurée et moderne pour superviser, déployer et administrer facilement vos conteneurs Docker et stacks Compose.".into(),
-                website: "https://getarcane.app/".into(),
-                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/arcane/icon.svg".into(),
-                default_port: 3552,
-                recommended: true,
-                media_support: false,
-                volumes: vec![
-                    StoreVolume {
-                        host: "/home/{USER}/docker/arcane/data".into(),
-                        container: "/app/data".into(),
-                        description: "Base de données et configuration".into(),
-                    },
-                    StoreVolume {
-                        host: "/var/run/docker.sock".into(),
-                        container: "/var/run/docker.sock".into(),
-                        description: "Socket Docker".into(),
-                    },
-                ],
-                nix_file: "arcane.nix".into(),
-                is_installed: false,
-                is_running: false,
-                container_id: None,
-                container_status: None,
-            },
-            StoreApp {
-                id: "jellyfin".into(),
-                name: "Jellyfin".into(),
-                version: "latest".into(),
-                category: "Multimédia".into(),
-                tagline: "Système multimédia libre pour streamer vos films, séries et animés".into(),
-                description: "Serveur multimédia open-source puissant sans abonnement ni pistage. Organisez et streamez vos bibliothèques (Films, Séries, Animés) sur tous vos écrans avec transcodage matériel.".into(),
-                website: "https://jellyfin.org/".into(),
-                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/jellyfin/icon.svg".into(),
-                default_port: 8096,
-                recommended: true,
-                media_support: true,
-                volumes: vec![
-                    StoreVolume {
-                        host: "/home/{USER}/docker/jellyfin/config".into(),
-                        container: "/config".into(),
-                        description: "Configuration Jellyfin et base de données".into(),
-                    },
-                    StoreVolume {
-                        host: "/home/{USER}/docker/jellyfin/cache".into(),
-                        container: "/cache".into(),
-                        description: "Cache de transcodage et métadonnées".into(),
-                    },
-                    StoreVolume {
-                        host: "{MEDIA_DIR}/movies".into(),
-                        container: "/data/movies".into(),
-                        description: "Dossier des films".into(),
-                    },
-                    StoreVolume {
-                        host: "{MEDIA_DIR}/tv_shows".into(),
-                        container: "/data/tv_shows".into(),
-                        description: "Dossier des séries TV".into(),
-                    },
-                    StoreVolume {
-                        host: "{MEDIA_DIR}/anims".into(),
-                        container: "/data/anims".into(),
-                        description: "Dossier des animés et animations".into(),
-                    },
-                ],
-                nix_file: "jellyfin.nix".into(),
-                is_installed: false,
-                is_running: false,
-                container_id: None,
-                container_status: None,
-            },
-            StoreApp {
-                id: "immich".into(),
-                name: "Immich".into(),
-                version: "latest".into(),
-                category: "Multimédia".into(),
-                tagline: "Solution d'hébergement de photos et vidéos type Google Photos".into(),
-                description: "Sauvegarde automatique, détection des visages par IA, géolocalisation, albums partagés et lecture haute définition.".into(),
-                website: "https://immich.app/".into(),
-                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/immich/icon.svg".into(),
-                default_port: 2283,
-                recommended: true,
-                media_support: false,
-                volumes: vec![
-                    StoreVolume {
-                        host: "/home/{USER}/docker/immich/upload".into(),
-                        container: "/usr/src/app/upload".into(),
-                        description: "Stockage photos et vidéos".into(),
-                    },
-                ],
-                nix_file: "immich.nix".into(),
-                is_installed: false,
-                is_running: false,
-                container_id: None,
-                container_status: None,
-            },
-            StoreApp {
-                id: "jellyseerr".into(),
-                name: "Jellyseerr".into(),
-                version: "latest".into(),
-                category: "Multimédia".into(),
-                tagline: "Gestionnaire de demandes de films et séries pour Jellyfin".into(),
-                description: "Permet aux utilisateurs de votre NAS de demander de nouveaux contenus vidéo avec découverte interactive et intégration Jellyfin.".into(),
-                website: "https://github.com/Fallenbagel/jellyseerr".into(),
-                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/jellyseerr/icon.svg".into(),
-                default_port: 5055,
-                recommended: true,
-                media_support: false,
-                volumes: vec![
-                    StoreVolume {
-                        host: "/home/{USER}/docker/jellyseerr/config".into(),
-                        container: "/app/config".into(),
-                        description: "Configuration et base SQLite".into(),
-                    },
-                ],
-                nix_file: "jellyseerr.nix".into(),
-                is_installed: false,
-                is_running: false,
-                container_id: None,
-                container_status: None,
-            },
-            StoreApp {
-                id: "qbittorrent".into(),
-                name: "qBittorrent".into(),
-                version: "latest".into(),
-                category: "Téléchargement".into(),
-                tagline: "Client BitTorrent rapide avec interface web complète".into(),
-                description: "Client BitTorrent open-source complet doté d'une interface Web pour gérer vos téléchargements à distance.".into(),
-                website: "https://www.qbittorrent.org/".into(),
-                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/qbittorrent/icon.svg".into(),
-                default_port: 8085,
-                recommended: false,
-                media_support: false,
-                volumes: vec![
-                    StoreVolume {
-                        host: "/home/{USER}/docker/qbittorrent/config".into(),
-                        container: "/config".into(),
-                        description: "Configuration torrents".into(),
-                    },
-                    StoreVolume {
-                        host: "/home/{USER}/docker/qbittorrent/downloads".into(),
-                        container: "/downloads".into(),
-                        description: "Fichiers téléchargés".into(),
-                    },
-                ],
-                nix_file: "qbittorrent.nix".into(),
-                is_installed: false,
-                is_running: false,
-                container_id: None,
-                container_status: None,
-            },
-            StoreApp {
-                id: "vaultwarden".into(),
-                name: "Vaultwarden".into(),
-                version: "latest".into(),
-                category: "Sécurité".into(),
-                tagline: "Serveur Bitwarden léger et ultra-rapide en Rust".into(),
-                description: "Coffre-fort de mots de passe auto-hébergé, 100% compatible avec les applications mobiles et extensions officielles Bitwarden.".into(),
-                website: "https://github.com/dani-garcia/vaultwarden".into(),
-                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/vaultwarden/icon.svg".into(),
-                default_port: 8222,
-                recommended: true,
-                media_support: false,
-                volumes: vec![
-                    StoreVolume {
-                        host: "/home/{USER}/docker/vaultwarden/data".into(),
-                        container: "/data".into(),
-                        description: "Coffre chiffré".into(),
-                    },
-                ],
-                nix_file: "vaultwarden.nix".into(),
-                is_installed: false,
-                is_running: false,
-                container_id: None,
-                container_status: None,
-            },
-            StoreApp {
-                id: "uptime-kuma".into(),
-                name: "Uptime Kuma".into(),
-                version: "latest".into(),
-                category: "Monitoring".into(),
-                tagline: "Surveillance de disponibilité de vos services et sites web".into(),
-                description: "Tableau de bord auto-hébergé surveillant le temps de disponibilité avec alertes instantanées (Discord, Telegram, Mail).".into(),
-                website: "https://uptime.kuma.pet/".into(),
-                icon: "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/uptime-kuma/icon.svg".into(),
-                default_port: 3001,
-                recommended: false,
-                media_support: false,
-                volumes: vec![
-                    StoreVolume {
-                        host: "/home/{USER}/docker/uptime-kuma/data".into(),
-                        container: "/app/data".into(),
-                        description: "Historiques et alertes".into(),
-                    },
-                ],
-                nix_file: "uptime-kuma.nix".into(),
-                is_installed: false,
-                is_running: false,
-                container_id: None,
-                container_status: None,
-            },
-        ],
+        apps: Vec::new(),
     }
 }
-
-fn get_embedded_app_nix(app_id: &str) -> Result<String, String> {
-    match app_id {
-        "jellyfin" => Ok(r#"{ config, lib, pkgs, ... }:
-
-let
-  user = config.steveos.user.username;
-  dataDir = "/home/${user}/docker/jellyfin";
-  mediaDir = "/home/${user}/videos";
-  gpuType = config.steveos.hardware.gpu or "intel";
-
-  isNvidia = gpuType == "nvidia" || gpuType == "nvidia-legacy";
-  hasDri = builtins.pathExists "/dev/dri" || gpuType == "intel" || gpuType == "amd";
-
-  gpuOptions =
-    if isNvidia then
-      [ "--gpus=all" ]
-    else if hasDri then
-      [ "--device=/dev/dri:/dev/dri" ]
-    else
-      [ ];
-
-  gpuEnv =
-    if isNvidia then {
-      NVIDIA_VISIBLE_DEVICES = "all";
-      NVIDIA_DRIVER_CAPABILITIES = "all";
-    } else { };
-in
-{
-  systemd.tmpfiles.rules = [
-    "d /home/${user}/docker 0775 ${user} users -"
-    "d ${dataDir} 0775 ${user} users -"
-    "d ${dataDir}/config 0775 ${user} users -"
-    "d ${dataDir}/cache 0775 ${user} users -"
-    "d ${mediaDir} 0775 ${user} users -"
-    "d ${mediaDir}/movies 0775 ${user} users -"
-    "d ${mediaDir}/tv_shows 0775 ${user} users -"
-    "d ${mediaDir}/anims 0775 ${user} users -"
-  ];
-
-  virtualisation.oci-containers.backend = "docker";
-  virtualisation.oci-containers.containers.jellyfin = {
-    image = "lscr.io/linuxserver/jellyfin:latest";
-    autoStart = true;
-    ports = [
-      "8096:8096"
-      "8920:8920"
-      "1900:1900/udp"
-      "7359:7359/udp"
-    ];
-    volumes = [
-      "${dataDir}/config:/config"
-      "${dataDir}/cache:/cache"
-      "${mediaDir}/movies:/data/movies"
-      "${mediaDir}/tv_shows:/data/tv_shows"
-      "${mediaDir}/anims:/data/anims"
-      "${mediaDir}:/media"
-    ];
-    environment = {
-      PUID = "1000";
-      PGID = "100";
-      TZ = config.steveos.timeZone or "Europe/Paris";
-      UMASK = "002";
-    } // gpuEnv;
-    extraOptions = gpuOptions;
-  };
-
-  networking.firewall.allowedTCPPorts = [ 8096 8920 ];
-  networking.firewall.allowedUDPPorts = [ 1900 7359 ];
-}
-"#.to_string()),
-        "arcane" => Ok(r#"{ config, lib, pkgs, ... }:
-
-let
-  user = config.steveos.user.username;
-  dataDir = "/home/${user}/docker/arcane";
-in
-{
-  systemd.tmpfiles.rules = [
-    "d /home/${user}/docker 0775 ${user} users -"
-    "d ${dataDir} 0775 ${user} users -"
-    "d ${dataDir}/data 0775 ${user} users -"
-  ];
-
-  virtualisation.oci-containers.backend = "docker";
-  virtualisation.oci-containers.containers.arcane = {
-    image = "ghcr.io/getarcaneapp/arcane:latest";
-    autoStart = true;
-    ports = [ "3552:3552" ];
-    volumes = [
-      "/var/run/docker.sock:/var/run/docker.sock"
-      "${dataDir}/data:/app/data"
-    ];
-    environment = {
-      PORT = "3552";
-      ENCRYPTION_KEY = "0c8f24b63e073f21f04431b2bd81f6f65bbf5b2571ccaf9eda3dc5eab3486f85";
-    };
-  };
-
-  networking.firewall.allowedTCPPorts = [ 3552 ];
-}
-"#.to_string()),
-        "immich" => Ok(r#"{ config, lib, pkgs, ... }:
-
-let
-  user = config.steveos.user.username;
-  dataDir = "/home/${user}/docker/immich";
-in
-{
-  systemd.tmpfiles.rules = [
-    "d /home/${user}/docker 0775 ${user} users -"
-    "d ${dataDir} 0775 ${user} users -"
-    "d ${dataDir}/upload 0775 ${user} users -"
-    "d ${dataDir}/profile 0775 ${user} users -"
-  ];
-
-  virtualisation.oci-containers.backend = "docker";
-  virtualisation.oci-containers.containers.immich = {
-    image = "ghcr.io/immich-app/immich-server:release";
-    autoStart = true;
-    ports = [ "2283:2283" ];
-    volumes = [
-      "${dataDir}/upload:/usr/src/app/upload"
-      "${dataDir}/profile:/usr/src/app/profile"
-    ];
-    environment = {
-      IMMICH_ENV = "production";
-      TZ = config.steveos.timeZone or "Europe/Paris";
-    };
-  };
-
-  networking.firewall.allowedTCPPorts = [ 2283 ];
-}
-"#.to_string()),
-        "jellyseerr" => Ok(r#"{ config, lib, pkgs, ... }:
-
-let
-  user = config.steveos.user.username;
-  dataDir = "/home/${user}/docker/jellyseerr";
-in
-{
-  systemd.tmpfiles.rules = [
-    "d /home/${user}/docker 0775 ${user} users -"
-    "d ${dataDir} 0775 ${user} users -"
-    "d ${dataDir}/config 0775 ${user} users -"
-  ];
-
-  virtualisation.oci-containers.backend = "docker";
-  virtualisation.oci-containers.containers.jellyseerr = {
-    image = "fallenbagel/jellyseerr:latest";
-    autoStart = true;
-    ports = [ "5055:5055" ];
-    volumes = [
-      "${dataDir}/config:/app/config"
-    ];
-    environment = {
-      PORT = "5055";
-      TZ = config.steveos.timeZone or "Europe/Paris";
-    };
-  };
-
-  networking.firewall.allowedTCPPorts = [ 5055 ];
-}
-"#.to_string()),
-        "qbittorrent" => Ok(r#"{ config, lib, pkgs, ... }:
-
-let
-  user = config.steveos.user.username;
-  dataDir = "/home/${user}/docker/qbittorrent";
-in
-{
-  systemd.tmpfiles.rules = [
-    "d /home/${user}/docker 0775 ${user} users -"
-    "d ${dataDir} 0775 ${user} users -"
-    "d ${dataDir}/config 0775 ${user} users -"
-    "d ${dataDir}/downloads 0775 ${user} users -"
-  ];
-
-  virtualisation.oci-containers.backend = "docker";
-  virtualisation.oci-containers.containers.qbittorrent = {
-    image = "lscr.io/linuxserver/qbittorrent:latest";
-    autoStart = true;
-    ports = [
-      "8085:8085"
-      "6881:6881"
-      "6881:6881/udp"
-    ];
-    volumes = [
-      "${dataDir}/config:/config"
-      "${dataDir}/downloads:/downloads"
-    ];
-    environment = {
-      PUID = "1000";
-      PGID = "100";
-      TZ = config.steveos.timeZone or "Europe/Paris";
-      WEBUI_PORT = "8085";
-    };
-  };
-
-  networking.firewall.allowedTCPPorts = [ 8085 6881 ];
-  networking.firewall.allowedUDPPorts = [ 6881 ];
-}
-"#.to_string()),
-        "vaultwarden" => Ok(r#"{ config, lib, pkgs, ... }:
-
-let
-  user = config.steveos.user.username;
-  dataDir = "/home/${user}/docker/vaultwarden";
-in
-{
-  systemd.tmpfiles.rules = [
-    "d /home/${user}/docker 0775 ${user} users -"
-    "d ${dataDir} 0775 ${user} users -"
-    "d ${dataDir}/data 0775 ${user} users -"
-  ];
-
-  virtualisation.oci-containers.backend = "docker";
-  virtualisation.oci-containers.containers.vaultwarden = {
-    image = "vaultwarden/server:latest";
-    autoStart = true;
-    ports = [ "8222:80" ];
-    volumes = [
-      "${dataDir}/data:/data"
-    ];
-    environment = {
-      ROCKET_PORT = "80";
-      TZ = config.steveos.timeZone or "Europe/Paris";
-    };
-  };
-
-  networking.firewall.allowedTCPPorts = [ 8222 ];
-}
-"#.to_string()),
-        "uptime-kuma" => Ok(r#"{ config, lib, pkgs, ... }:
-
-let
-  user = config.steveos.user.username;
-  dataDir = "/home/${user}/docker/uptime-kuma";
-in
-{
-  systemd.tmpfiles.rules = [
-    "d /home/${user}/docker 0775 ${user} users -"
-    "d ${dataDir} 0775 ${user} users -"
-    "d ${dataDir}/data 0775 ${user} users -"
-  ];
-
-  virtualisation.oci-containers.backend = "docker";
-  virtualisation.oci-containers.containers.uptime-kuma = {
-    image = "louislam/uptime-kuma:latest";
-    autoStart = true;
-    ports = [ "3001:3001" ];
-    volumes = [
-      "${dataDir}/data:/app/data"
-    ];
-    environment = {
-      TZ = config.steveos.timeZone or "Europe/Paris";
-    };
-  };
-
-  networking.firewall.allowedTCPPorts = [ 3001 ];
-}
-"#.to_string()),
-        _ => Err(format!("Module pour l'application '{}' non trouvé", app_id)),
-    }
-}
-
-// --------------------------------------------------------------------------
-// GESTION ET NETTOYAGE DES IMAGES DOCKER (DISK PRUNING)
-// --------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DockerImageInfo {
@@ -1008,25 +475,7 @@ pub struct DockerImagesOverview {
 
 pub fn list_docker_images() -> DockerImagesOverview {
     let mut container_image_map: HashMap<String, Vec<String>> = HashMap::new();
-    if let Ok(output) = Command::new("docker")
-        .args(["ps", "-a", "--format", "{{.Image}}|{{.Names}}|{{.ID}}"])
-        .output()
-    {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            let parts: Vec<&str> = line.split('|').collect();
-            if parts.len() >= 2 {
-                let img = parts[0].trim().to_string();
-                let name = parts[1].trim().to_string();
-                container_image_map.entry(img).or_default().push(name);
-            }
-        }
-    }
-
-    if let Ok(output) = Command::new("docker")
-        .args(["ps", "-a", "-q"])
-        .output()
-    {
+    if let Ok(output) = Command::new("docker").args(["ps", "-a", "--format", "{{.ID}}"]).output() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for cid in stdout.lines().filter(|s| !s.trim().is_empty()) {
             if let Ok(insp) = Command::new("docker").args(["inspect", "--format", "{{.Image}}|{{.Name}}", cid.trim()]).output() {
