@@ -15054,24 +15054,34 @@ body.app-updating-reload #app-shell {
    ========================================================================== */
 
 .files-sidebar-action-btn {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   color: var(--subtext1);
-  border-radius: 4px;
-  width: 22px;
-  height: 22px;
-  font-size: 0.72rem;
+  border-radius: 6px;
+  width: 24px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .files-sidebar-action-btn:hover {
-  background: var(--sapphire);
-  color: var(--crust);
-  border-color: var(--sapphire);
+  background: linear-gradient(135deg, rgba(137, 180, 250, 0.25) 0%, rgba(180, 190, 254, 0.16) 100%);
+  color: var(--sapphire);
+  border-color: rgba(137, 180, 250, 0.5);
+  transform: scale(1.1);
+}
+
+.files-sidebar-action-btn svg {
+  stroke: currentColor;
+  transition: transform 0.2s ease;
+}
+
+.files-sidebar-action-btn:hover svg {
+  transform: scale(1.15);
 }
 
 .files-sidebar-mounts-list,
@@ -15542,6 +15552,149 @@ body.app-updating-reload #app-shell {
 
 .files-btn-view-toggle:hover .view-toggle-icon {
   transform: scale(1.1);
+}
+
+/* ==========================================================================
+   BOUTONS UNIFIÉS DE LA PAGE FICHIERS (STYLE PREMIUM CATPPUCCIN MOCHA)
+   ========================================================================== */
+
+.files-btn {
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--subtext0);
+  padding: 6px 13px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  white-space: nowrap;
+  font-family: var(--font-sans);
+}
+
+.files-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.28);
+}
+
+.files-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.files-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+  box-shadow: none;
+}
+
+.files-btn-icon {
+  display: block;
+  flex-shrink: 0;
+  transition: stroke 0.2s ease, transform 0.2s ease, filter 0.2s ease;
+}
+
+.files-btn:hover:not(:disabled) .files-btn-icon {
+  transform: scale(1.15);
+}
+
+/* Bouton Icone Seule (compact) */
+.files-btn-icon-only {
+  padding: 6px 10px;
+  min-width: 32px;
+}
+
+/* Variante Principale (Nouveau dossier, restaurer, compresser...) */
+.files-btn-primary {
+  background: linear-gradient(135deg, rgba(137, 180, 250, 0.22) 0%, rgba(180, 190, 254, 0.14) 100%);
+  color: var(--sapphire);
+  border-color: rgba(137, 180, 250, 0.4);
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(137, 180, 250, 0.18);
+}
+
+.files-btn-primary .files-btn-icon {
+  stroke: var(--sapphire);
+  filter: drop-shadow(0 0 5px rgba(137, 180, 250, 0.45));
+}
+
+.files-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(137, 180, 250, 0.32) 0%, rgba(180, 190, 254, 0.22) 100%);
+  border-color: rgba(137, 180, 250, 0.65);
+  color: #b4befe;
+  box-shadow: 0 3px 12px rgba(137, 180, 250, 0.3);
+}
+
+/* Variante Accent / Succès (Téléverser) */
+.files-btn-accent {
+  background: linear-gradient(135deg, rgba(166, 227, 161, 0.2) 0%, rgba(148, 226, 213, 0.14) 100%);
+  color: var(--green);
+  border-color: rgba(166, 227, 161, 0.4);
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(166, 227, 161, 0.16);
+}
+
+.files-btn-accent .files-btn-icon {
+  stroke: var(--green);
+  filter: drop-shadow(0 0 5px rgba(166, 227, 161, 0.45));
+}
+
+.files-btn-accent:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(166, 227, 161, 0.3) 0%, rgba(148, 226, 213, 0.22) 100%);
+  border-color: rgba(166, 227, 161, 0.65);
+  color: #a6e3a1;
+  box-shadow: 0 3px 12px rgba(166, 227, 161, 0.28);
+}
+
+/* Variante Mauve / Réseau */
+.files-btn-mauve {
+  background: linear-gradient(135deg, rgba(203, 166, 247, 0.18) 0%, rgba(180, 190, 254, 0.12) 100%);
+  color: var(--mauve);
+  border-color: rgba(203, 166, 247, 0.4);
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(203, 166, 247, 0.16);
+}
+
+.files-btn-mauve .files-btn-icon {
+  stroke: var(--mauve);
+  filter: drop-shadow(0 0 5px rgba(203, 166, 247, 0.45));
+}
+
+.files-btn-mauve:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(203, 166, 247, 0.28) 0%, rgba(180, 190, 254, 0.2) 100%);
+  border-color: rgba(203, 166, 247, 0.65);
+  color: #cba6f7;
+  box-shadow: 0 3px 12px rgba(203, 166, 247, 0.28);
+}
+
+/* Variante Danger (Supprimer, Vider...) */
+.files-btn-danger {
+  background: linear-gradient(135deg, rgba(243, 139, 168, 0.18) 0%, rgba(235, 160, 172, 0.12) 100%);
+  color: var(--red);
+  border-color: rgba(243, 139, 168, 0.4);
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(243, 139, 168, 0.16);
+}
+
+.files-btn-danger .files-btn-icon {
+  stroke: var(--red);
+  filter: drop-shadow(0 0 5px rgba(243, 139, 168, 0.45));
+}
+
+.files-btn-danger:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(243, 139, 168, 0.28) 0%, rgba(235, 160, 172, 0.2) 100%);
+  border-color: rgba(243, 139, 168, 0.65);
+  color: #f38ba8;
+  box-shadow: 0 3px 12px rgba(243, 139, 168, 0.28);
 }
 
 /* ==========================================================================
