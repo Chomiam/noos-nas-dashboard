@@ -9190,6 +9190,10 @@ function openDockerComposeNvimPreview() {
   else if (appId === "jellyseerr") image = "fallenbagel/jellyseerr:latest";
   else if (appId === "vaultwarden") image = "vaultwarden/server:latest";
   else if (appId === "uptime-kuma") image = "louislam/uptime-kuma:latest";
+  else if (appId === "adguard" || appId.includes("adguard")) image = "adguard/adguardhome:latest";
+  else if (appId === "pihole") image = "pihole/pihole:latest";
+  else if (appId === "nextcloud") image = "lscr.io/linuxserver/nextcloud:latest";
+  else if (appId === "home-assistant") image = "ghcr.io/home-assistant/home-assistant:stable";
 
   let composeYaml = `# =========================================================================\n`;
   composeYaml += `# 🐳 STEvE_OS NAS Edition — Configuration Docker Compose\n`;
@@ -9204,8 +9208,18 @@ function openDockerComposeNvimPreview() {
   composeYaml += `    image: ${image}\n`;
   composeYaml += `    container_name: ${appId}\n`;
   composeYaml += `    restart: unless-stopped\n`;
-  composeYaml += `    ports:\n`;
-  composeYaml += `      - "${port}:${port}"\n`;
+
+  if (appId === "adguard" || appId.includes("adguard")) {
+    composeYaml += `    ports:\n`;
+    composeYaml += `      - "53:53/tcp"\n`;
+    composeYaml += `      - "53:53/udp"\n`;
+    composeYaml += `      - "3000:3000/tcp" # WebUI initiale (Assistant d installation)\n`;
+    composeYaml += `      - "80:80/tcp"     # WebUI finale administration\n`;
+    composeYaml += `      - "853:853/tcp"   # DNS over TLS\n`;
+  } else {
+    composeYaml += `    ports:\n`;
+    composeYaml += `      - "${port}:${port}"\n`;
+  }
 
   if (envList.length > 0) {
     composeYaml += `    environment:\n`;
@@ -9224,6 +9238,9 @@ function openDockerComposeNvimPreview() {
       composeYaml += `      - ${mediaDir}/anims:/data/anims\n`;
       composeYaml += `      - ${mediaDir}:/media\n`;
     }
+  } else if (appId === "adguard" || appId.includes("adguard")) {
+    composeYaml += `      - ${dataDir}/work:/opt/adguardhome/work\n`;
+    composeYaml += `      - ${dataDir}/conf:/opt/adguardhome/conf\n`;
   } else {
     composeYaml += `      - ${dataDir}/data:/data\n`;
   }
