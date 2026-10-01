@@ -1264,6 +1264,11 @@
             <span class="subtab-text">sFTP</span>
             <span class="subtab-pill-badge" id="badge-subtab-sftp">Port 22</span>
           </button>
+          <button type="button" class="network-subtab-btn" data-subtab="subtab-dns" onclick="switchNetworkSubtab('subtab-dns')">
+            <span class="subtab-icon">🌐</span>
+            <span class="subtab-text">DNS</span>
+            <span class="subtab-pill-badge" id="badge-subtab-dns">1.1.1.1</span>
+          </button>
         </div>
         <div class="network-quick-actions">
           <button type="button" class="btn btn-secondary btn-sm" onclick="loadNetwork(true)">
@@ -1900,6 +1905,138 @@
             <div style="margin-top:12px; display:flex; gap:8px;">
               <span class="badge badge-warning">Snapshot ZFS</span>
               <span class="badge badge-primary">SSH chroot</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SOUS-ONGLET 5 : DNS (Résolveurs Réseau, Port 53 & Fallbacks) -->
+      <div id="subtab-dns" class="network-subpane">
+        <!-- Carte Héro DNS & Statut Port 53 -->
+        <div class="section-card" style="border: 1px solid rgba(137, 180, 250, 0.3); background: rgba(137, 180, 250, 0.04);">
+          <div class="section-header" style="flex-wrap: wrap; gap: 14px;">
+            <div class="section-title-wrap">
+              <div class="section-icon-box" style="background:rgba(137, 180, 250, 0.2); color:var(--blue);">🌐</div>
+              <div>
+                <div class="section-title">Configuration DNS &amp; Résolveurs Amonts</div>
+                <div class="section-subtitle">Changement à chaud sans coupure, libération du port 53 pour Docker et résolveurs de secours</div>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+              <span class="badge badge-success" id="dns-hero-status-badge">🟢 Résolution Opérationnelle</span>
+              <span class="badge badge-primary font-mono" id="dns-hero-active-badge">Cloudflare • 1.1.1.1</span>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="loadDnsSettings(true)" title="Tester la latence et actualiser">
+                <span>🔄</span> Tester le Ping
+              </button>
+            </div>
+          </div>
+
+          <!-- Barre d'état avancée : Port 53 & Fallback -->
+          <div class="dns-hero-metrics-grid">
+            <div class="dns-metric-card">
+              <div class="dns-metric-icon">🛡️</div>
+              <div class="dns-metric-content">
+                <div class="dns-metric-label">Statut du Port 53 (Hôte)</div>
+                <div class="dns-metric-value" id="dns-port-53-status-text">
+                  <span style="color:var(--green); font-weight:700;">Libre &amp; Disponible</span>
+                </div>
+                <div class="dns-metric-subtext">Stub listener systemd désactivé, aucun conflit Docker</div>
+              </div>
+            </div>
+
+            <div class="dns-metric-card">
+              <div class="dns-metric-icon">⚡</div>
+              <div class="dns-metric-content">
+                <div class="dns-metric-label">Latence DNS Actuelle</div>
+                <div class="dns-metric-value" id="dns-active-ping-text">
+                  <span style="color:var(--teal); font-weight:700;">-- ms</span>
+                </div>
+                <div class="dns-metric-subtext">Temps de réponse du résolveur primaire</div>
+              </div>
+            </div>
+
+            <div class="dns-metric-card">
+              <div class="dns-metric-icon">🛟</div>
+              <div class="dns-metric-content">
+                <div class="dns-metric-label">Résolveurs de Secours (Fallback)</div>
+                <div class="dns-metric-value font-mono" id="dns-fallback-list-text" style="font-size:0.92rem;">
+                  1.1.1.1, 9.9.9.9
+                </div>
+                <div class="dns-metric-subtext">Garantie anti-coupure si le résolveur principal défaille</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 1 : Fournisseurs Populaires & Recommandés -->
+        <div class="section-card" style="margin-top: 16px;">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <div class="section-icon-box">⭐</div>
+              <div>
+                <div class="section-title">Fournisseurs DNS Recommandés (Activation 1-Clic)</div>
+                <div class="section-subtitle">Sélectionnez un résolveur audité pour basculer à chaud sans redémarrage</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dns-providers-list" id="dns-providers-container">
+            <!-- Injecté dynamiquement par JS -->
+            <div style="padding: 24px; text-align: center; color: var(--subtext0);">Chargement des résolveurs DNS...</div>
+          </div>
+        </div>
+
+        <!-- Section 2 : DNS Personnalisé / Local (AdGuard Home, Pi-hole) -->
+        <div class="section-card" style="margin-top: 16px; border: 1px solid rgba(166, 227, 161, 0.3); background: rgba(166, 227, 161, 0.03);">
+          <div class="section-header">
+            <div class="section-title-wrap">
+              <div class="section-icon-box" style="background:rgba(166, 227, 161, 0.2); color:var(--green);">🏠</div>
+              <div>
+                <div class="section-title">DNS Local Personnalisé (AdGuard Home / Pi-hole)</div>
+                <div class="section-subtitle">Faites pointer le NAS vers votre propre serveur DNS ou conteneur local</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="padding: 18px 20px;">
+            <div class="dns-custom-form-grid">
+              <div class="form-group">
+                <label class="form-label" for="dns-custom-ip">
+                  <span>Adresse IP du Résolveur Primaire :</span>
+                  <span class="label-tag" style="background:rgba(166,227,161,0.15); color:var(--green);">Primaire</span>
+                </label>
+                <input type="text" id="dns-custom-ip" class="form-control font-mono" placeholder="ex: 127.0.0.1 ou 192.168.1.50" value="">
+                <div style="font-size:0.78rem; color:var(--subtext0); margin-top:4px;">
+                  Saisissez l'IP locale de votre conteneur AdGuard Home ou Pi-hole.
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="dns-fallback-select">
+                  <span>Serveurs de Secours Obligatoires (Fallback) :</span>
+                  <span class="label-tag" style="background:rgba(137,180,250,0.15); color:var(--blue);">Anti-Coupure</span>
+                </label>
+                <select id="dns-fallback-select" class="form-control">
+                  <option value="cloudflare_quad9" selected>Cloudflare (1.1.1.1) + Quad9 (9.9.9.9)</option>
+                  <option value="cloudflare">Cloudflare Uniquement (1.1.1.1, 1.0.0.1)</option>
+                  <option value="quad9">Quad9 Uniquement (9.9.9.9, 149.112.112.112)</option>
+                  <option value="google">Google DNS (8.8.8.8, 8.8.4.4)</option>
+                </select>
+                <div style="font-size:0.78rem; color:var(--subtext0); margin-top:4px;">
+                  Garantit que le NAS ne perdra jamais sa connectivité si le conteneur local est arrêté.
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.06); flex-wrap:wrap; gap:12px;">
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.86rem; color:var(--text);">
+                <input type="checkbox" id="dns-toggle-free-port" checked style="accent-color:var(--teal); width:17px; height:17px;">
+                <span>Maintenir le port 53 libéré pour Docker (DNSStubListener=no)</span>
+              </label>
+
+              <button type="button" class="btn btn-primary" id="btn-apply-custom-dns" onclick="applyCustomDns()">
+                <span>🚀</span> Appliquer le DNS Personnalisé à chaud
+              </button>
             </div>
           </div>
         </div>
@@ -6129,6 +6266,6 @@
 </div><!-- /#app-shell -->
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20261001_02"></script>
+  <script src="/js/app.js?v=20261001_03"></script>
 </body>
 </html>

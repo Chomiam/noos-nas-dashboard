@@ -280,7 +280,7 @@ function applySubtabRoute(tabId, subtab) {
   if (!subtab) return;
   if (tabId === "tab-network") {
     const fullSubtab = subtab.startsWith("subtab-") ? subtab : `subtab-${subtab}`;
-    if (["subtab-vpn", "subtab-firewall", "subtab-samba", "subtab-sftp"].includes(fullSubtab)) {
+    if (["subtab-vpn", "subtab-firewall", "subtab-samba", "subtab-sftp", "subtab-dns"].includes(fullSubtab)) {
       switchNetworkSubtab(fullSubtab, false);
     }
   } else if (tabId === "tab-containers") {
@@ -457,6 +457,9 @@ function switchTab(tabId, updateHash = true) {
     loadNetwork();
     if (activeNetworkSubtab === "subtab-vpn") {
       loadWireguardClients();
+    }
+    if (activeNetworkSubtab === "subtab-dns") {
+      loadDnsSettings();
     }
   }
   if (tabId === "tab-containers") refreshContainersAndStore();
@@ -9966,6 +9969,9 @@ function switchNetworkSubtab(subtabId, updateHash = true) {
   if (subtabId === "subtab-vpn") {
     loadWireguardClients();
   }
+  if (subtabId === "subtab-dns") {
+    loadDnsSettings();
+  }
   if (subtabId === "subtab-firewall") {
     try {
       const savedFwState = localStorage.getItem("steveos_firewall_state");
@@ -9993,6 +9999,17 @@ async function loadNetwork(showFeedback = false) {
 
     const net = json.data;
     cachedNetworkData = net;
+
+    // Précharger le badge DNS
+    fetch("/api/network/dns").then(r => r.json()).then(d => {
+      if (d && d.success && d.data) {
+        const badge = document.getElementById("badge-subtab-dns");
+        if (badge) {
+          const mode = d.data.mode;
+          badge.textContent = mode === "custom" ? "Personnalisé" : (d.data.active_servers[0] || mode);
+        }
+      }
+    }).catch(() => {});
 
     // --- 1. Adresses IP & Hôte ---
     const lanIp = net.primary_lan_ip || "127.0.0.1";
@@ -16289,5 +16306,239 @@ function openFilesAtPath(path) {
   switchTab("tab-files");
   if (typeof navigateToPath === "function") {
     navigateToPath(path);
+  }
+}
+
+
+/* ==========================================================================
+   GESTION DNS & RÉSOLVEURS RÉSEAU (Catppuccin Mocha)
+   ========================================================================== */
+
+let cachedDnsData = null;
+
+async function loadDnsSettings(showToastFeedback = false) {
+  const container = document.getElementById("dns-providers-container");
+  if (!container) return;
+
+  if (showToastFeedback) {
+    showToast("Mesure du ping et vérification de la résolution DNS...", "info", 2500);
+  }
+
+  try {
+    const res = await fetch("/api/network/dns");
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      container.innerHTML = `<div style="padding:20px; text-align:center; color:var(--red);">Impossible de charger la configuration DNS.</div>`;
+      return;
+    }
+
+    const dns = json.data;
+    cachedDnsData = dns;
+
+    // 1. Mise à jour de la carte Héro
+    const heroStatus = document.getElementById("dns-hero-status-badge");
+    const heroActive = document.getElementById("dns-hero-active-badge");
+    const port53Status = document.getElementById("dns-port-53-status-text");
+    const activePing = document.getElementById("dns-active-ping-text");
+    const fallbackList = document.getElementById("dns-fallback-list-text");
+    const navBadge = document.getElementById("badge-subtab-dns");
+    const togglePort53 = document.getElementById("dns-toggle-free-port");
+
+    if (heroStatus) {
+      if (dns.resolution_status) {
+        heroStatus.textContent = "🟢 Résolution Opérationnelle";
+        heroStatus.className = "badge badge-success";
+      } else {
+        heroStatus.textContent = "🔴 Résolution Instable";
+        heroStatus.className = "badge badge-danger";
+      }
+    }
+
+    if (heroActive) {
+      const pingText = dns.active_ping_ms != null ? ` • ${dns.active_ping_ms} ms` : "";
+      heroActive.textContent = `${dns.mode.toUpperCase()}${pingText}`;
+    }
+
+    if (navBadge) {
+      navBadge.textContent = dns.mode === "custom" ? "Personnalisé" : (dns.active_servers[0] || dns.mode);
+    }
+
+    if (port53Status) {
+      if (dns.port_53_available) {
+        port53Status.innerHTML = `<span style="color:var(--green); font-weight:700;">🛡️ Libre &amp; Disponible</span>`;
+      } else {
+        port53Status.innerHTML = `<span style="color:var(--yellow); font-weight:700;">⚠️ Occupé (systemd-resolved)</span>`;
+      }
+    }
+
+    if (activePing) {
+      if (dns.active_ping_ms != null) {
+        const pingClass = dns.active_ping_ms < 20 ? "color:var(--green)" : dns.active_ping_ms < 50 ? "color:var(--yellow)" : "color:var(--red)";
+        activePing.innerHTML = `<span style="${pingClass}; font-weight:700;">${dns.active_ping_ms} ms</span>`;
+      } else {
+        activePing.innerHTML = `<span style="color:var(--subtext0); font-weight:700;">Non mesuré</span>`;
+      }
+    }
+
+    if (fallbackList) {
+      fallbackList.textContent = (dns.fallback_servers || []).join(", ") || "1.1.1.1, 9.9.9.9";
+    }
+
+    if (togglePort53) {
+      togglePort53.checked = dns.free_port_53;
+    }
+
+    // 2. Rendu de la liste des fournisseurs populaires
+    const providers = dns.providers || [];
+    container.innerHTML = providers.map(p => {
+      const isActive = p.is_active;
+      let pingHtml = "";
+      if (p.ping_ms != null) {
+        const pingClass = p.ping_ms < 20 ? "ping-fast" : p.ping_ms < 50 ? "ping-medium" : "ping-slow";
+        pingHtml = `<span class="dns-ping-tag ${pingClass}">⚡ ${p.ping_ms} ms</span>`;
+      }
+
+      const ipTags = (p.ipv4 || []).map(ip => `
+        <span class="dns-ip-tag" onclick="copyDnsIp('${escapeHtml(ip)}')" title="Cliquer pour copier l'IP">
+          <code>${escapeHtml(ip)}</code> 📋
+        </span>
+      `).join(" ");
+
+      const featureTags = (p.tags || []).map(t => `
+        <span class="badge badge-secondary" style="font-size:0.72rem;">${escapeHtml(t)}</span>
+      `).join(" ");
+
+      return `
+        <div class="dns-provider-row ${isActive ? 'is-active' : ''}">
+          <div class="dns-provider-left">
+            <div class="dns-provider-icon">${p.icon || '🌐'}</div>
+            <div class="dns-provider-info">
+              <div class="dns-provider-header">
+                <span class="dns-provider-name">${escapeHtml(p.name)}</span>
+                ${pingHtml}
+                ${isActive ? '<span class="badge badge-success" style="font-size:0.75rem; font-weight:800;">✓ ACTIF</span>' : ''}
+                ${featureTags}
+              </div>
+              <div class="dns-provider-desc">${escapeHtml(p.description)}</div>
+              <div class="dns-provider-ips">
+                <span style="font-size:0.75rem; color:var(--subtext0); margin-right:4px;">Adresses IPv4 :</span>
+                ${ipTags}
+              </div>
+            </div>
+          </div>
+          <div class="dns-provider-actions">
+            ${isActive 
+              ? `<button type="button" class="btn btn-secondary btn-sm" disabled style="opacity:0.8; cursor:default;">
+                   ✓ En Cours
+                 </button>`
+              : `<button type="button" class="btn btn-glow-mount btn-sm" onclick="applyPopularDns('${escapeHtml(p.id)}', '${escapeHtml(p.name)}')">
+                   <span>⚡</span> Activer à chaud
+                 </button>`}
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    // 3. Pré-remplissage du formulaire personnalisé
+    const customInput = document.getElementById("dns-custom-ip");
+    if (customInput && dns.mode === "custom" && (dns.custom_servers || []).length > 0) {
+      customInput.value = dns.custom_servers.join(", ");
+    }
+
+    if (showToastFeedback) {
+      showToast("Télémétrie DNS actualisée avec succès !", "success", 2000);
+    }
+  } catch (err) {
+    console.warn("Erreur chargement DNS:", err);
+  }
+}
+
+function copyDnsIp(ip) {
+  if (!ip) return;
+  navigator.clipboard.writeText(ip).then(() => {
+    showToast(`Adresse IP ${ip} copiée dans le presse-papier !`, "info", 2000);
+  }).catch(() => {});
+}
+
+async function applyPopularDns(providerId, providerName) {
+  const freePort = document.getElementById("dns-toggle-free-port")?.checked ?? true;
+  showToast(`Application de ${providerName} à chaud...`, "info", 3000);
+
+  try {
+    const res = await fetch("/api/network/dns", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: providerId,
+        free_port_53: freePort,
+        fallback_servers: ["1.1.1.1", "9.9.9.9"]
+      })
+    });
+
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || `Fournisseur DNS ${providerName} appliqué avec succès !`, "success", 4000);
+      loadDnsSettings();
+    } else {
+      showSystemError("Échec du changement DNS", "La configuration DNS n'a pas pu être appliquée.", json.message || "Erreur inconnue", 12000);
+    }
+  } catch (err) {
+    showToast(`Erreur réseau lors du changement DNS : ${err.message}`, "error", 10000);
+  }
+}
+
+async function applyCustomDns() {
+  const input = document.getElementById("dns-custom-ip");
+  const fallbackSel = document.getElementById("dns-fallback-select");
+  const freePortToggle = document.getElementById("dns-toggle-free-port");
+  const btn = document.getElementById("btn-apply-custom-dns");
+
+  const rawIp = (input?.value || "").trim();
+  if (!rawIp) {
+    showToast("Veuillez saisir l'adresse IP de votre serveur DNS local (ex: 127.0.0.1 ou 192.168.1.50).", "warning", 5000);
+    input?.focus();
+    return;
+  }
+
+  const customServers = rawIp.split(/[,;\s]+/).filter(Boolean);
+  let fallbacks = ["1.1.1.1", "9.9.9.9"];
+  const selVal = fallbackSel?.value || "cloudflare_quad9";
+  if (selVal === "cloudflare") fallbacks = ["1.1.1.1", "1.0.0.1"];
+  if (selVal === "quad9") fallbacks = ["9.9.9.9", "149.112.112.112"];
+  if (selVal === "google") fallbacks = ["8.8.8.8", "8.8.4.4"];
+
+  const freePort = freePortToggle?.checked ?? true;
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" style="display:inline-block; width:14px; height:14px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:spin 0.75s linear infinite; margin-right:6px;"></span> Application à chaud...`;
+  }
+
+  try {
+    const res = await fetch("/api/network/dns", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "custom",
+        custom_servers: customServers,
+        fallback_servers: fallbacks,
+        free_port_53: freePort
+      })
+    });
+
+    const json = await res.json();
+    if (json.success) {
+      showToast(`DNS local appliqué avec succès ! Résolution vérifiée.`, "success", 5000);
+      loadDnsSettings();
+    } else {
+      showSystemError("Échec du DNS personnalisé", "Le serveur DNS spécifié ne répond pas correctement.", json.message || "Erreur de configuration", 12000);
+    }
+  } catch (err) {
+    showToast(`Erreur réseau lors de l'application DNS : ${err.message}`, "error", 10000);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<span>🚀</span> Appliquer le DNS Personnalisé à chaud`;
+    }
   }
 }

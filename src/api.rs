@@ -22,6 +22,7 @@ use crate::wireguard::{
 };
 
 use crate::documents::{get_document_info, get_document_pdf_path, DocumentInfoResponse};
+use crate::dns::{get_dns_overview, update_dns, DnsOverview, UpdateDnsRequest};
 use crate::docker_store::{
     control_docker_container, delete_docker_image, get_docker_logs, get_store_catalog,
     install_store_app, list_docker_images, prune_docker_images, uninstall_store_app,
@@ -152,6 +153,7 @@ pub fn api_routes() -> Router {
         .route("/network", get(handle_network))
         .route("/network/traffic/live", get(handle_network_traffic_live))
         .route("/network/traffic/history", get(handle_network_traffic_history))
+        .route("/network/dns", get(handle_get_dns).post(handle_update_dns))
         .route("/firewall", get(handle_firewall))
         .route("/firewall/toggle", post(handle_firewall_toggle))
         .route("/firewall/rules", post(handle_firewall_create_rule))
@@ -1396,6 +1398,31 @@ async fn handle_docker_store_uninstall(
 #[derive(Debug, Deserialize)]
 pub struct UnbanRequest {
     pub ip: String,
+}
+
+
+async fn handle_get_dns() -> Json<ApiResponse<DnsOverview>> {
+    let overview = get_dns_overview();
+    Json(ApiResponse {
+        success: true,
+        data: Some(overview),
+        message: None,
+    })
+}
+
+async fn handle_update_dns(Json(payload): Json<UpdateDnsRequest>) -> Json<ApiResponse<String>> {
+    match update_dns(&payload) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
 }
 
 async fn handle_network() -> Json<ApiResponse<NetworkOverview>> {

@@ -21,6 +21,7 @@ async fn no_cache_layer(req: axum::extract::Request, next: axum::middleware::Nex
 
 mod api;
 mod auth;
+mod dns;
 mod files;
 mod firewall;
 mod hardware;
