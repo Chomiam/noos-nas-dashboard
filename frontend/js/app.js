@@ -10001,7 +10001,7 @@ async function loadNetwork(showFeedback = false) {
     cachedNetworkData = net;
 
     // Précharger le badge DNS
-    fetch("/api/network/dns").then(r => r.json()).then(d => {
+    fetch("/api/network/dns").then(r => r.ok ? r.json() : null).then(d => {
       if (d && d.success && d.data) {
         const badge = document.getElementById("badge-subtab-dns");
         if (badge) {
