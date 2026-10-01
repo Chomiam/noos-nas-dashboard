@@ -6716,6 +6716,13 @@ body.authenticated .app-shell {
 }
 
 /* ================= POPUP / TOAST FLOTTANT EN BAS D'ÉCRAN ================= */
+
+.update-floating-toast.toast-fading-out {
+  opacity: 0 !important;
+  transform: translate(-50%, 30px) !important;
+  pointer-events: none !important;
+  transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
 .update-floating-toast {
   position: fixed;
   bottom: 24px;

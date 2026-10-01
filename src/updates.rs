@@ -108,6 +108,8 @@ pub struct UpdateProgressState {
     pub error: Option<String>,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
+    #[serde(default)]
+    pub completed_timestamp: Option<u64>,
     pub target_commit: Option<String>,
     pub generation_before: Option<String>,
     pub generation_after: Option<String>,
@@ -229,6 +231,7 @@ pub fn get_update_progress() -> UpdateProgressState {
         error: None,
         started_at: None,
         completed_at: None,
+        completed_timestamp: None,
         target_commit: None,
         generation_before: get_current_system_generation(),
         generation_after: None,
@@ -246,6 +249,7 @@ pub fn dismiss_update_progress() {
     state.stage = "idle".to_string();
     state.progress_percent = 0;
     state.error = None;
+    state.completed_timestamp = None;
     state.total_derivations = None;
     state.current_derivation_index = None;
     state.current_package_name = None;
@@ -262,6 +266,7 @@ pub fn init_update_tracker() {
         };
 
         if changed || state.dashboard_restarting || state.stage == "activating" {
+            let now_ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
             state.is_running = false;
             state.stage = "completed".to_string();
             state.step_index = 4;
@@ -271,8 +276,17 @@ pub fn init_update_tracker() {
             state.status_detail = format!("Le système a basculé avec succès sur la génération {}.", cur_gen.clone().unwrap_or_else(|| "suivante".to_string()));
             state.generation_after = cur_gen;
             state.completed_at = Some(current_time_formatted());
+            state.completed_timestamp = Some(now_ts);
             state.dashboard_restarting = false;
             save_update_progress(&state);
+        }
+    } else if state.stage == "completed" {
+        // Purger automatiquement si la mise à jour s'est terminée il y a plus de 10 secondes
+        if let Some(ts) = state.completed_timestamp {
+            let now_ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            if now_ts.saturating_sub(ts) >= 10 {
+                dismiss_update_progress();
+            }
         }
     }
 }
@@ -1352,6 +1366,7 @@ pub fn start_detached_update(force_packages: bool) -> Result<(), String> {
         error: None,
         started_at: Some(current_time_formatted()),
         completed_at: None,
+        completed_timestamp: None,
         target_commit: None,
         generation_before: cur_gen,
         generation_after: None,
@@ -1645,6 +1660,7 @@ pub fn run_detached_update_process(force_packages: bool) {
             .args(["try-restart", "steveos-nas-dashboard.service"])
             .status();
 
+        let now_ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         state.is_running = false;
         state.stage = "completed".to_string();
         state.step_index = 4;
@@ -1654,6 +1670,7 @@ pub fn run_detached_update_process(force_packages: bool) {
         state.status_detail = format!("Le système est actif sur la génération {}.", cur_gen.clone().unwrap_or_else(|| "suivante".to_string()));
         state.generation_after = cur_gen;
         state.completed_at = Some(current_time_formatted());
+        state.completed_timestamp = Some(now_ts);
         state.dashboard_restarting = false;
         save_update_progress(&state);
     } else {

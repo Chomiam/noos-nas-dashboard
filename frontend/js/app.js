@@ -1187,8 +1187,17 @@ function updateProgressView(data) {
     if (panelSpinner) panelSpinner.textContent = "✅";
     if (toastIcon) toastIcon.textContent = "🎉";
     if (toastClose) toastClose.style.display = "block";
+    if (toastTitle) toastTitle.textContent = "Mise à jour terminée avec succès !";
+    if (toastDetail) toastDetail.textContent = data.status_detail || "Le système STEvE_OS a été actualisé.";
+    if (toastBar) {
+      toastBar.style.width = "100%";
+      toastBar.style.background = "linear-gradient(90deg, var(--green), var(--teal))";
+    }
 
     showToast("🎉 STEvE_OS a été mis à jour avec succès !", "success");
+
+    // Auto-dismiss de la bulle après 10 secondes
+    scheduleUpdateToastDismiss(10000);
 
     // Réactiver le bouton principal
     const btnSingle = document.getElementById("btn-single-update");
@@ -1264,9 +1273,31 @@ function triggerUpdateSuccessReload(skipReload = false) {
 
 window.triggerUpdateSuccessReload = triggerUpdateSuccessReload;
 
+let updateToastDismissTimer = null;
+
+function scheduleUpdateToastDismiss(delayMs = 10000) {
+  if (updateToastDismissTimer) {
+    clearTimeout(updateToastDismissTimer);
+    updateToastDismissTimer = null;
+  }
+  updateToastDismissTimer = setTimeout(() => {
+    dismissUpdateToast();
+  }, delayMs);
+}
+
 async function dismissUpdateToast() {
+  if (updateToastDismissTimer) {
+    clearTimeout(updateToastDismissTimer);
+    updateToastDismissTimer = null;
+  }
   const floatingToast = document.getElementById("update-floating-toast");
-  if (floatingToast) floatingToast.style.display = "none";
+  if (floatingToast) {
+    floatingToast.classList.add("toast-fading-out");
+    setTimeout(() => {
+      floatingToast.style.display = "none";
+      floatingToast.classList.remove("toast-fading-out");
+    }, 450);
+  }
   try {
     await fetch("/api/updates/dismiss", { method: "POST" });
   } catch (e) {}
@@ -1281,11 +1312,26 @@ async function checkInitialUpdateProgress() {
         isUpdatingNow = true;
         startPollingUpdateProgress();
       } else if (json.data.stage === "completed" && json.data.progress_percent === 100) {
+        // Calcul du temps écoulé depuis la fin de la mise à jour
+        let elapsedMs = 0;
+        if (json.data.completed_timestamp) {
+          const nowSec = Math.floor(Date.now() / 1000);
+          elapsedMs = Math.max(0, (nowSec - json.data.completed_timestamp) * 1000);
+        }
+
+        // Si plus de 10 secondes se sont écoulées, on masque et purge immédiatement
+        if (elapsedMs >= 10000) {
+          dismissUpdateToast();
+          return;
+        }
+
+        const remainingMs = Math.max(1000, 10000 - elapsedMs);
         const floatingToast = document.getElementById("update-floating-toast");
         if (floatingToast) floatingToast.style.display = "block";
         const toastClose = document.getElementById("btn-close-update-toast");
         if (toastClose) toastClose.style.display = "block";
         updateProgressView(json.data);
+        scheduleUpdateToastDismiss(remainingMs);
       }
     }
   } catch (e) {}
