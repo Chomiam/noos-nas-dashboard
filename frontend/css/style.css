@@ -12645,3 +12645,293 @@ body.app-updating-reload #app-shell {
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 16px;
 }
+
+
+/* ==========================================================================
+   🐳 STEvE_OS DOCKER — AFFICHAGE EN LIGNES & BOUTONS D'ACTIONS STYLISÉS
+   ========================================================================== */
+
+.docker-containers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.docker-container-row {
+  background: var(--surface0);
+  border: 1px solid var(--surface1);
+  border-radius: 12px;
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+}
+
+.docker-container-row.is-running {
+  border-left: 4px solid var(--green);
+}
+
+.docker-container-row.is-stopped {
+  border-left: 4px solid var(--peach);
+  opacity: 0.88;
+}
+
+.docker-container-row:hover {
+  background: rgba(30, 30, 46, 0.85);
+  border-color: rgba(138, 173, 244, 0.45);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
+}
+
+.docker-row-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  min-width: 220px;
+}
+
+.docker-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.docker-status-dot.dot-running {
+  background: var(--green);
+  box-shadow: 0 0 8px rgba(166, 227, 161, 0.7);
+}
+
+.docker-status-dot.dot-stopped {
+  background: var(--peach);
+  box-shadow: 0 0 6px rgba(250, 179, 135, 0.4);
+}
+
+.docker-avatar-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: rgba(138, 173, 244, 0.12);
+  color: var(--blue);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.18rem;
+  flex-shrink: 0;
+  border: 1px solid rgba(138, 173, 244, 0.2);
+}
+
+.docker-row-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 200px;
+}
+
+.docker-row-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 195px;
+  letter-spacing: -0.01em;
+}
+
+.docker-row-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.docker-row-id {
+  font-size: 0.72rem;
+  color: var(--subtext0);
+  background: var(--mantle);
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.docker-badge-state {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.docker-badge-state.state-running {
+  background: rgba(166, 227, 161, 0.12);
+  color: var(--green);
+  border: 1px solid rgba(166, 227, 161, 0.25);
+}
+
+.docker-badge-state.state-stopped {
+  background: rgba(250, 179, 135, 0.12);
+  color: var(--peach);
+  border: 1px solid rgba(250, 179, 135, 0.25);
+}
+
+.docker-row-middle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  overflow: hidden;
+  justify-content: flex-start;
+  padding: 0 8px;
+}
+
+.docker-row-image {
+  font-size: 0.76rem;
+  color: var(--subtext0);
+  background: var(--mantle);
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 230px;
+}
+
+.btn-docker-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--base);
+  background: linear-gradient(135deg, var(--green), #89dceb);
+  padding: 4px 10px;
+  border-radius: 6px;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(166, 227, 161, 0.25);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.btn-docker-open:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(166, 227, 161, 0.4);
+  filter: brightness(1.05);
+}
+
+.docker-line-ports {
+  font-size: 0.74rem;
+  color: var(--blue);
+  background: rgba(138, 173, 244, 0.1);
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(138, 173, 244, 0.22);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 170px;
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+.docker-row-uptime {
+  font-size: 0.75rem;
+  color: var(--subtext0);
+  white-space: nowrap;
+  margin-left: auto;
+  padding-right: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.docker-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.btn-docker-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 5px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--surface1);
+  background: var(--mantle);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.btn-docker-action:hover {
+  background: var(--surface1);
+  color: var(--mauve);
+  border-color: rgba(203, 166, 247, 0.35);
+  transform: translateY(-1px);
+}
+
+.btn-docker-restart:hover {
+  color: var(--blue);
+  border-color: var(--blue);
+  background: rgba(138, 173, 244, 0.12);
+}
+
+.btn-docker-stop:hover {
+  color: var(--peach);
+  border-color: var(--peach);
+  background: rgba(250, 179, 135, 0.12);
+}
+
+.btn-docker-start {
+  background: rgba(166, 227, 161, 0.12);
+  color: var(--green);
+  border-color: rgba(166, 227, 161, 0.3);
+}
+
+.btn-docker-start:hover {
+  background: var(--green);
+  color: var(--base);
+  border-color: var(--green);
+  box-shadow: 0 2px 10px rgba(166, 227, 161, 0.3);
+}
+
+.btn-docker-delete {
+  background: rgba(243, 139, 168, 0.08);
+  color: var(--red);
+  border-color: rgba(243, 139, 168, 0.22);
+}
+
+.btn-docker-delete:hover {
+  background: var(--red);
+  color: var(--base);
+  border-color: var(--red);
+  box-shadow: 0 2px 10px rgba(243, 139, 168, 0.35);
+}
+
+@media (max-width: 1024px) {
+  .docker-container-row {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .docker-row-middle {
+    order: 3;
+    width: 100%;
+    padding: 4px 0 0 0;
+  }
+  .docker-row-actions {
+    order: 2;
+    margin-left: auto;
+  }
+}

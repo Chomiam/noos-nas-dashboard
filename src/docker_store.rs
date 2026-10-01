@@ -605,3 +605,73 @@ pub fn prune_docker_images(all: bool) -> Result<String, String> {
         Err(format!("Échec du nettoyage : {}", err.trim()))
     }
 }
+
+pub async fn remove_docker_container(name_or_id: &str, delete_image: bool) -> Result<String, String> {
+    let clean_name = name_or_id.trim().trim_start_matches('/');
+    if clean_name.is_empty() {
+        return Err("Nom de conteneur invalide.".into());
+    }
+
+    // 1. Récupérer l'image associée avant la suppression si demandée
+    let mut image_to_delete = None;
+    if delete_image {
+        if let Ok(out) = Command::new("docker")
+            .args(["inspect", "-f", "{{.Config.Image}}", clean_name])
+            .output()
+        {
+            if out.status.success() {
+                let img = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !img.is_empty() {
+                    image_to_delete = Some(img);
+                }
+            }
+        }
+    }
+
+    // 2. Vérifier si un compose.yaml ou docker-compose.yml existe dans ~/docker/<clean_name>
+    let user = get_target_user();
+    let app_dir = PathBuf::from(format!("/home/{}/docker/{}", user, clean_name));
+    let compose_file_yaml = app_dir.join("compose.yaml");
+    let compose_file_yml = app_dir.join("docker-compose.yml");
+    let compose_path = if compose_file_yaml.exists() {
+        Some(compose_file_yaml)
+    } else if compose_file_yml.exists() {
+        Some(compose_file_yml)
+    } else {
+        None
+    };
+
+    if let Some(cp) = compose_path {
+        let _ = Command::new("docker")
+            .args(["compose", "-f", &cp.display().to_string(), "down"])
+            .output();
+    } else {
+        // Arrêt forcé et suppression directe par Docker CLI
+        let _ = Command::new("docker").args(["stop", clean_name]).output();
+        let _ = Command::new("docker").args(["rm", "-f", clean_name]).output();
+    }
+
+    // 3. Suppression de l'image Docker si demandée
+    let mut img_msg = String::new();
+    if let Some(img) = image_to_delete {
+        let rmi_out = Command::new("docker").args(["rmi", "-f", &img]).output();
+        if let Ok(o) = rmi_out {
+            if o.status.success() {
+                img_msg = format!(" (image '{}' supprimée)", img);
+            }
+        }
+    }
+
+    // 4. Nettoyage de l'éventuel fichier NixOS si présent
+    let config_dir = get_config_dir();
+    let docker_dir = config_dir.join("docker");
+    let nix_file = docker_dir.join(format!("{}.nix", clean_name));
+    if nix_file.exists() {
+        let _ = std::fs::remove_file(&nix_file);
+        let _ = Command::new("git")
+            .args(["-C", &config_dir.display().to_string(), "rm", "-f", &format!("docker/{}.nix", clean_name)])
+            .output();
+    }
+
+    Ok(format!("Conteneur '{}' supprimé avec succès{}.", clean_name, img_msg))
+}

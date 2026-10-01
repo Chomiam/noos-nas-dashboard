@@ -25,7 +25,7 @@ use crate::documents::{get_document_info, get_document_pdf_path, DocumentInfoRes
 use crate::dns::{get_dns_overview, update_dns, DnsOverview, UpdateDnsRequest};
 use crate::docker_store::{
     control_docker_container, delete_docker_image, get_docker_logs, get_store_catalog,
-    install_store_app, list_docker_images, prune_docker_images, uninstall_store_app,
+    install_store_app, list_docker_images, prune_docker_images, uninstall_store_app, remove_docker_container,
     ContainerActionRequest, DockerImagesOverview, InstallAppRequest, StoreCatalog,
     UninstallAppRequest,
 };
@@ -127,6 +127,7 @@ pub fn api_routes() -> Router {
         .route("/storage/permissions/repair", post(handle_repair_permissions))
         .route("/services", get(handle_services))
         .route("/docker/containers", get(handle_docker_containers))
+        .route("/docker/containers/:name", delete(handle_delete_docker_container))
         .route("/docker/containers/:name/action", post(handle_docker_container_action))
         .route("/docker/containers/:name/logs", get(handle_docker_container_logs))
         .route("/docker/store", get(handle_docker_store))
@@ -1314,6 +1315,30 @@ async fn handle_docker_containers() -> Json<ApiResponse<Vec<DockerContainer>>> {
         data: Some(get_docker_containers()),
         message: None,
     })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteContainerQuery {
+    #[serde(default)]
+    pub delete_image: bool,
+}
+
+async fn handle_delete_docker_container(
+    Path(name): Path<String>,
+    Query(params): Query<DeleteContainerQuery>,
+) -> Json<ApiResponse<String>> {
+    match remove_docker_container(&name, params.delete_image).await {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
 }
 
 async fn handle_docker_container_action(

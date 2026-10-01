@@ -2344,28 +2344,7 @@ async function loadServices() {
       `).join("");
     }
 
-    // Docker containers
-    const contContainer = document.getElementById("containers-container");
-    if (contContainer) {
-      const containers = Array.isArray(data.containers) ? data.containers : [];
-      if (containers.length === 0) {
-        contContainer.innerHTML = `<p style="color:var(--subtext0); font-size:0.9rem;">Aucun conteneur Docker en cours d'exécution.</p>`;
-      } else {
-        contContainer.innerHTML = containers.map(c => `
-          <div class="container-card">
-            <div class="container-header">
-              <span class="container-name">🐳 ${escapeHtml(c.name)}</span>
-              <span class="badge ${c.is_running ? 'badge-success' : 'badge-warning'}">${escapeHtml(c.status)}</span>
-            </div>
-            <div class="container-image">Image: ${escapeHtml(c.image)}</div>
-            <div style="margin-top:12px; display:flex; justify-content:space-between; align-items:center;">
-              <code style="font-size:0.75rem; color:var(--subtext0);">${escapeHtml(c.id.substring(0, 12))}</code>
-              <button type="button" class="btn btn-secondary btn-xs" onclick="restartContainer('${escapeHtml(c.id)}')">Redémarrer</button>
-            </div>
-          </div>
-        `).join("");
-      }
-    }
+    // Note: les conteneurs Docker sont gérés exclusivement par loadDockerContainers()
   } catch (err) {
     console.warn("Erreur fetch /api/services:", err);
   }
@@ -8398,21 +8377,27 @@ async function loadDockerContainers() {
     const res = await fetch("/api/docker/containers");
     const json = await res.json();
     if (!json.success || !json.data) {
-      container.innerHTML = `<p style="color:var(--red); font-size:0.9rem;">Erreur lors de la récupération des conteneurs.</p>`;
+      container.innerHTML = `<p style="color:var(--red); font-size:0.9rem; padding: 20px;">Erreur lors de la récupération des conteneurs.</p>`;
       return;
     }
 
-    const containers = json.data;
+    const rawContainers = Array.isArray(json.data) ? json.data : [];
+    // Règle STEvE_OS : Masquer impérativement les conteneurs correspondant aux serveurs de jeux (steveos-game*)
+    const containers = rawContainers.filter(c => {
+      const name = (c.name || "").replace(/^\//, "").toLowerCase();
+      return !name.startsWith("steveos-game");
+    });
+
     const runningCount = containers.filter(c => c.is_running).length;
     if (countBadge) countBadge.textContent = runningCount;
 
     if (containers.length === 0) {
       container.innerHTML = `
-        <div style="grid-column: 1/-1; background: var(--surface0); border: 1px dashed var(--surface1); border-radius: 14px; padding: 30px; text-align: center;">
-          <div style="font-size: 2.2rem; margin-bottom: 8px;">🐳</div>
-          <div style="font-weight: 700; color: var(--text); font-size: 1.05rem;">Aucun conteneur Docker en cours d'exécution</div>
-          <div style="font-size: 0.85rem; color: var(--subtext0); margin: 6px 0 16px 0;">Découvrez et installez vos premières applications en 1-clic depuis le Store.</div>
-          <button type="button" class="btn btn-primary btn-sm" onclick="switchDockerSubTab('store')">🛍️ Découvrir la Boutique d'Applications</button>
+        <div style="background: var(--surface0); border: 1px dashed var(--surface1); border-radius: 14px; padding: 36px 20px; text-align: center;">
+          <div style="font-size: 2.4rem; margin-bottom: 8px;">🐳</div>
+          <div style="font-weight: 700; color: var(--text); font-size: 1.05rem;">Aucun conteneur applicatif actif</div>
+          <div style="font-size: 0.85rem; color: var(--subtext0); margin: 6px 0 18px 0;">Découvrez et déployez vos applications en 1-clic depuis le Store officiel STEvE_OS.</div>
+          <button type="button" class="btn btn-primary btn-sm" onclick="switchDockerSubTab('store')">🛍️ Parcourir la Boutique d'Applications</button>
         </div>
       `;
       return;
@@ -8420,53 +8405,142 @@ async function loadDockerContainers() {
 
     const host = window.location.hostname;
     container.innerHTML = containers.map(c => {
-      const portLink = c.web_port
-        ? `<a href="http://${host}:${c.web_port}" target="_blank" class="store-open-link"><span>🚀</span> Ouvrir (Port ${c.web_port}) ↗</a>`
+      const cleanName = (c.name || "").replace(/^\//, "");
+      const shortId = (c.id || "").substring(0, 10);
+      const isRunning = Boolean(c.is_running);
+
+      const openLink = c.web_port
+        ? `<a href="http://${host}:${c.web_port}" target="_blank" class="btn-docker-open" title="Ouvrir l'application Web (Port ${c.web_port})">
+             <span>🚀</span> Ouvrir :${c.web_port} ↗
+           </a>`
+        : "";
+
+      const portsBadge = c.ports && !c.web_port
+        ? `<span class="docker-line-ports" title="${escapeHtml(c.ports)}">🔌 ${escapeHtml(c.ports)}</span>`
         : "";
 
       return `
-        <div class="container-card">
-          <div class="container-header">
-            <span class="container-name">🐳 ${escapeHtml(c.name)}</span>
-            <span class="badge ${c.is_running ? 'badge-success' : 'badge-warning'}">
-              ${c.is_running ? '🟢 En cours' : '🟡 Arrêté'}
-            </span>
-          </div>
-
-          <div class="container-image">
-            <div style="color:var(--subtext1); font-size:0.75rem; margin-bottom:2px;">Image :</div>
-            ${escapeHtml(c.image)}
-          </div>
-
-          ${c.ports ? `
-            <div class="container-ports-badge">
-              <span>🔌</span> <span>${escapeHtml(c.ports)}</span>
+        <div class="docker-container-row ${isRunning ? 'is-running' : 'is-stopped'}">
+          <div class="docker-row-left">
+            <span class="docker-status-dot ${isRunning ? 'dot-running' : 'dot-stopped'}" title="${isRunning ? 'En cours d execution' : 'Arrêté'}"></span>
+            <div class="docker-avatar-icon">🐳</div>
+            <div class="docker-row-identity">
+              <div class="docker-row-name" title="${escapeHtml(cleanName)}">${escapeHtml(cleanName)}</div>
+              <div class="docker-row-sub">
+                <span class="docker-row-id font-mono">${escapeHtml(shortId)}</span>
+                <span class="docker-badge-state ${isRunning ? 'state-running' : 'state-stopped'}">
+                  ${isRunning ? '🟢 En cours' : '🟡 Arrêté'}
+                </span>
+              </div>
             </div>
-          ` : ""}
-
-          <div style="font-size:0.75rem; color:var(--subtext0);">
-            Statut : <strong>${escapeHtml(c.status)}</strong>
           </div>
 
-          <div class="container-actions-row">
-            ${portLink}
-            ${c.is_running ? `
-              <button type="button" class="btn btn-secondary btn-xs" onclick="dockerContainerAction('${escapeHtml(c.name)}', 'restart')">🔄 Redémarrer</button>
-              <button type="button" class="btn btn-secondary btn-xs" onclick="dockerContainerAction('${escapeHtml(c.name)}', 'stop')">⏹ Arrêter</button>
+          <div class="docker-row-middle">
+            <span class="docker-row-image font-mono" title="Image: ${escapeHtml(c.image)}">
+              📦 ${escapeHtml(c.image)}
+            </span>
+            ${openLink}
+            ${portsBadge}
+            <span class="docker-row-uptime" title="${escapeHtml(c.status)}">${escapeHtml(c.status)}</span>
+          </div>
+
+          <div class="docker-row-actions">
+            ${isRunning ? `
+              <button type="button" class="btn-docker-action btn-docker-restart" onclick="dockerContainerAction('${escapeHtml(cleanName)}', 'restart')" title="Redémarrer le conteneur">
+                <span>🔄</span> Redémarrer
+              </button>
+              <button type="button" class="btn-docker-action btn-docker-stop" onclick="dockerContainerAction('${escapeHtml(cleanName)}', 'stop')" title="Arrêter le conteneur">
+                <span>⏹</span> Arrêter
+              </button>
             ` : `
-              <button type="button" class="btn btn-success btn-xs" onclick="dockerContainerAction('${escapeHtml(c.name)}', 'start')">▶ Démarrer</button>
+              <button type="button" class="btn-docker-action btn-docker-start" onclick="dockerContainerAction('${escapeHtml(cleanName)}', 'start')" title="Démarrer le conteneur">
+                <span>▶</span> Démarrer
+              </button>
             `}
-            <button type="button" class="btn btn-secondary btn-xs" onclick="openDockerConfigModalForContainer('${escapeHtml(c.name)}')" title="Modifier les variables du conteneur">⚙️ Variables</button>
-            <button type="button" class="btn btn-secondary btn-xs" onclick="openDockerLogsModal('${escapeHtml(c.name)}')">📜 Logs</button>
+            <button type="button" class="btn-docker-action" onclick="openDockerConfigModalForContainer('${escapeHtml(cleanName)}')" title="Modifier les variables d'environnement">
+              <span>⚙️</span> Variables
+            </button>
+            <button type="button" class="btn-docker-action" onclick="openDockerLogsModal('${escapeHtml(cleanName)}')" title="Consulter les journaux Docker">
+              <span>📜</span> Logs
+            </button>
+            <button type="button" class="btn-docker-action btn-docker-delete" onclick="openDeleteDockerModal('${escapeHtml(cleanName)}', '${escapeHtml(c.image || '')}')" title="Supprimer le conteneur">
+              <span>🗑️</span> Supprimer
+            </button>
           </div>
         </div>
       `;
     }).join("");
+
   } catch (err) {
     console.error("Erreur fetch /api/docker/containers:", err);
-    container.innerHTML = `<p style="color:var(--red); font-size:0.9rem;">Erreur de communication avec le démon Docker.</p>`;
+    container.innerHTML = `<p style="color:var(--red); font-size:0.9rem; padding:20px;">Erreur de communication avec le démon Docker.</p>`;
   }
 }
+
+// --------------------------------------------------------------------------
+// MODALE SUPPRESSION DOCKER CONTENEUR
+// --------------------------------------------------------------------------
+let pendingDeleteDockerName = null;
+let pendingDeleteDockerImage = null;
+
+function openDeleteDockerModal(name, image) {
+  pendingDeleteDockerName = name;
+  pendingDeleteDockerImage = image || "";
+  const modal = document.getElementById("modal-delete-docker");
+  const nameEl = document.getElementById("delete-docker-name-display");
+  const imgEl = document.getElementById("delete-docker-image-preview");
+  const checkEl = document.getElementById("delete-docker-image-check");
+
+  if (nameEl) nameEl.textContent = name;
+  if (imgEl) imgEl.textContent = image ? `Image : ${image}` : "Aucune image identifiée";
+  if (checkEl) checkEl.checked = false;
+  if (modal) modal.style.display = "flex";
+}
+
+function closeDeleteDockerModal() {
+  pendingDeleteDockerName = null;
+  pendingDeleteDockerImage = null;
+  const modal = document.getElementById("modal-delete-docker");
+  if (modal) modal.style.display = "none";
+}
+
+async function confirmDeleteDockerContainer() {
+  if (!pendingDeleteDockerName) return;
+  const name = pendingDeleteDockerName;
+  const checkEl = document.getElementById("delete-docker-image-check");
+  const deleteImage = checkEl ? Boolean(checkEl.checked) : false;
+  const btn = document.getElementById("btn-confirm-delete-docker");
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span>⏳</span> Suppression en cours...`;
+  }
+
+  try {
+    const res = await fetch(`/api/docker/containers/${encodeURIComponent(name)}?delete_image=${deleteImage}`, {
+      method: "DELETE"
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || `Conteneur '${name}' supprimé avec succès.`, "success");
+      closeDeleteDockerModal();
+      await loadDockerContainers();
+      if (typeof loadDockerImages === "function") {
+        loadDockerImages();
+      }
+    } else {
+      showToast(`Erreur : ${json.message || "Échec de la suppression"}`, "error");
+    }
+  } catch (err) {
+    showToast(`Erreur réseau : ${err.message}`, "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<span>🗑️</span> Confirmer la suppression`;
+    }
+  }
+}
+
 
 async function loadDockerStore() {
   const grid = document.getElementById("store-apps-grid");

@@ -2080,7 +2080,7 @@
 
         <!-- SOUS-ONGLET 1 : MES CONTENEURS -->
         <div id="docker-pane-containers" class="docker-subpane">
-          <div class="containers-grid" id="containers-container">
+          <div class="docker-containers-list" id="containers-container">
             <p style="color:var(--subtext0); font-size:0.9rem;">Chargement des conteneurs...</p>
           </div>
         </div>
@@ -4172,6 +4172,50 @@
       </div>
       <div class="modal-body" style="padding: 16px; overflow: hidden; display: flex; flex-direction: column;">
         <pre class="docker-logs-pre" id="docker-logs-content" style="flex:1; margin:0;">Chargement des journaux...</pre>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- MODAL SUPPRESSION DOCKER CONTENEUR -->
+  <div class="file-modal-overlay modal-backdrop" id="modal-delete-docker" style="display:none;" onclick="if(event.target===this) closeDeleteDockerModal()">
+    <div class="file-modal-window modal-box" style="width: 100%; max-width: 520px; border-top: 3px solid var(--red); box-shadow: 0 16px 40px rgba(0,0,0,0.5);">
+      <div class="file-modal-header modal-header" style="border-bottom: 1px solid rgba(243, 139, 168, 0.2);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div style="background: rgba(243, 139, 168, 0.15); color: var(--red); width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 10px; font-size: 1.25rem;">
+            🗑️
+          </div>
+          <div>
+            <div class="file-modal-title modal-title" style="color: var(--red); font-size: 1.05rem;">Supprimer le conteneur</div>
+            <div style="font-size: 0.78rem; color: var(--subtext0);">Arrêt et suppression définitive du conteneur Docker</div>
+          </div>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeDeleteDockerModal()" title="Fermer la fenêtre">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+        <div style="font-size: 0.92rem; color: var(--text); line-height: 1.55;">
+          Êtes-vous sûr de vouloir supprimer le conteneur <strong id="delete-docker-name-display" style="color: var(--blue); font-family: var(--font-mono); font-size: 0.95rem;">nom-du-docker</strong> ?
+        </div>
+
+        <div style="background: rgba(243, 139, 168, 0.08); border: 1px solid rgba(243, 139, 168, 0.25); border-radius: 8px; padding: 12px; font-size: 0.8rem; color: var(--subtext1); line-height: 1.45;">
+          ⚠️ Le conteneur sera arrêté s'il est en cours et son instance retirée de Docker. Les volumes et données persistantes sur l'hôte restent préservés.
+        </div>
+
+        <label style="display: flex; align-items: flex-start; gap: 12px; cursor: pointer; background: var(--mantle); padding: 12px 14px; border-radius: 10px; border: 1px solid var(--surface1); transition: border-color 0.2s ease;">
+          <input type="checkbox" id="delete-docker-image-check" style="margin-top: 3px; accent-color: var(--red); width: 16px; height: 16px; cursor: pointer;">
+          <div style="display: flex; flex-direction: column; gap: 3px;">
+            <span style="font-size: 0.88rem; font-weight: 600; color: var(--text);">Supprimer également l'image Docker associée</span>
+            <span style="font-size: 0.76rem; color: var(--subtext0); font-family: var(--font-mono); word-break: break-all;" id="delete-docker-image-preview">Image : ...</span>
+          </div>
+        </label>
+      </div>
+
+      <div class="modal-footer" style="padding: 14px 20px; display: flex; justify-content: flex-end; gap: 10px; background: var(--mantle); border-top: 1px solid var(--surface1);">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeDeleteDockerModal()">Annuler</button>
+        <button type="button" class="btn btn-danger btn-sm" id="btn-confirm-delete-docker" onclick="confirmDeleteDockerContainer()">
+          <span>🗑️</span> Confirmer la suppression
+        </button>
       </div>
     </div>
   </div>
