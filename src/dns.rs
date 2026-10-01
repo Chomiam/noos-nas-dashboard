@@ -158,8 +158,11 @@ pub fn check_port_53_available() -> bool {
     let out = Command::new("ss").args(["-H", "-tlun", "sport", "=", ":53"]).output();
     if let Ok(o) = out {
         let stdout = String::from_utf8_lossy(&o.stdout);
-        // Si 127.0.0.53 ou 0.0.0.0:53 n'est pas écouté, le port est disponible pour Docker
-        !stdout.contains("127.0.0.53") && !stdout.contains("0.0.0.0:53")
+        // Le port 53 est bloqué si systemd-resolved (127.0.0.53/54), dnsmasq (192.168.122.1) ou 0.0.0.0:53 est actif
+        let has_conflict = stdout.lines().any(|line| {
+            line.contains("127.0.0.53") || line.contains("127.0.0.54") || line.contains("0.0.0.0:53") || line.contains("192.168.122.1:53")
+        });
+        !has_conflict
     } else {
         true
     }
@@ -353,12 +356,25 @@ fn apply_dns_runtime(cfg: &DnsConfig) -> Result<(), String> {
 
     // 1. Libération du port 53 si demandé
     if cfg.free_port_53 {
-        let _ = std::fs::create_dir_all("/etc/systemd/resolved.conf.d");
+        // Stopper immédiatement systemd-resolved via sudo pour libérer 127.0.0.53:53 à chaud
+        let _ = Command::new("sudo").args(["systemctl", "stop", "systemd-resolved"]).output();
+
+        // Écriture déclarative du drop-in désactivant le stub listener
+        let _ = Command::new("sudo").args(["mkdir", "-p", "/etc/systemd/resolved.conf.d"]).output();
         let dropin = "[Resolve]
 DNSStubListener=no
 ";
-        let _ = std::fs::write("/etc/systemd/resolved.conf.d/steveos-dns.conf", dropin);
-        let _ = Command::new("systemctl").args(["try-reload-or-restart", "systemd-resolved"]).output();
+        let tmp_dropin = "/tmp/steveos-resolved-stub.conf";
+        if std::fs::write(tmp_dropin, dropin).is_ok() {
+            let _ = Command::new("sudo").args(["cp", tmp_dropin, "/etc/systemd/resolved.conf.d/steveos-dns.conf"]).output();
+            let _ = std::fs::remove_file(tmp_dropin);
+        }
+
+        // Redémarrer systemd-resolved (avec DNSStubListener=no il ne liera plus aucun port 53)
+        let _ = Command::new("sudo").args(["systemctl", "restart", "systemd-resolved"]).output();
+
+        // Si libvirt écoute sur 192.168.122.1:53 (virbr0), désactiver le serveur DNS libvirt
+        let _ = Command::new("sudo").args(["virsh", "-c", "qemu:///system", "net-update", "default", "modify", "dns", "<dns enable='no'/>", "--live", "--config"]).output();
     }
 
     // 2. Écriture immédiate dans /etc/resolv.conf
@@ -374,11 +390,12 @@ DNSStubListener=no
 ";
 
     let _ = std::fs::write("/run/systemd/resolve/resolv.conf", &resolv_content);
-    if let Err(_) = std::fs::write("/etc/resolv.conf", &resolv_content) {
-        let _ = Command::new("bash")
-            .arg("-c")
-            .arg(format!("echo '{}' > /etc/resolv.conf", resolv_content))
-            .output();
+    let tmp_resolv = "/tmp/steveos-resolv.conf";
+    if std::fs::write(tmp_resolv, &resolv_content).is_ok() {
+        let _ = Command::new("sudo").args(["cp", tmp_resolv, "/etc/resolv.conf"]).output();
+        let _ = std::fs::remove_file(tmp_resolv);
+    } else {
+        let _ = Command::new("sudo").args(["bash", "-c", &format!("echo '{}' > /etc/resolv.conf", resolv_content)]).output();
     }
 
     // 3. Mise à jour via resolvectl si disponible

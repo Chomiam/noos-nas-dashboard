@@ -322,6 +322,21 @@ pub async fn install_store_app(req: InstallAppRequest) -> Result<String, String>
     std::fs::write(&compose_file, &customized)
         .map_err(|e| format!("Impossible d'écrire {} : {}", compose_file.display(), e))?;
 
+    // 4.b Libération proactive du port 53 si l'application expose le service DNS (AdGuard Home / Pi-hole)
+    if clean_id == "adguard" || clean_id == "pihole" || customized.contains(":53") {
+        let _ = Command::new("sudo").args(["systemctl", "stop", "systemd-resolved"]).output();
+        let _ = Command::new("sudo").args(["mkdir", "-p", "/etc/systemd/resolved.conf.d"]).output();
+        let dropin = "[Resolve]
+DNSStubListener=no
+";
+        let tmp_dropin = "/tmp/steveos-resolved-stub.conf";
+        if std::fs::write(tmp_dropin, dropin).is_ok() {
+            let _ = Command::new("sudo").args(["cp", tmp_dropin, "/etc/systemd/resolved.conf.d/steveos-dns.conf"]).output();
+            let _ = std::fs::remove_file(tmp_dropin);
+        }
+        let _ = Command::new("sudo").args(["systemctl", "restart", "systemd-resolved"]).output();
+    }
+
     // 5. Déployer instantanément via Docker Compose
     let compose_cmd = Command::new("docker")
         .args(["compose", "-f", &compose_file.display().to_string(), "up", "-d"])
