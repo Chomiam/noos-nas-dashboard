@@ -15048,3 +15048,439 @@ body.app-updating-reload #app-shell {
   font-size: 0.78rem;
   color: var(--mauve);
 }
+
+/* ==========================================================================
+   ENRICHISSEMENTS EXPLORATEUR DE FICHIERS (DISQUES, RADAR & sFTP DISTANT)
+   ========================================================================== */
+
+.files-sidebar-action-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--subtext1);
+  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  font-size: 0.72rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.files-sidebar-action-btn:hover {
+  background: var(--sapphire);
+  color: var(--crust);
+  border-color: var(--sapphire);
+}
+
+.files-sidebar-mounts-list,
+.files-sidebar-remote-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 8px;
+}
+
+.files-mount-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--subtext1);
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.18s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.files-mount-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.files-mount-item.active {
+  background: rgba(137, 180, 250, 0.14);
+  color: var(--sapphire);
+  border-color: rgba(137, 180, 250, 0.3);
+  font-weight: 600;
+}
+
+.files-mount-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.files-mount-icon {
+  font-size: 1.05rem;
+  flex-shrink: 0;
+}
+
+.files-mount-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.files-mount-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.8rem;
+}
+
+.files-mount-bar-wrap {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 1px;
+}
+
+.files-mount-bar-fill {
+  height: 100%;
+  background: var(--sapphire);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.files-mount-bar-fill.warn {
+  background: var(--peach);
+}
+
+.files-mount-bar-fill.crit {
+  background: var(--red);
+}
+
+.files-mount-meta {
+  font-size: 0.68rem;
+  color: var(--subtext0);
+  font-family: var(--font-mono);
+}
+
+.files-mount-unpin-btn {
+  opacity: 0;
+  background: none;
+  border: none;
+  color: var(--subtext0);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  transition: all 0.2s ease;
+}
+
+.files-mount-item:hover .files-mount-unpin-btn {
+  opacity: 1;
+}
+
+.files-mount-unpin-btn:hover {
+  color: var(--red);
+  background: rgba(243, 139, 168, 0.15);
+}
+
+/* Partages distants */
+.files-remote-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-sm);
+  color: var(--subtext1);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.files-remote-item:hover {
+  background: rgba(137, 180, 250, 0.08);
+  border-color: rgba(137, 180, 250, 0.25);
+  color: var(--text);
+}
+
+.files-remote-item.active {
+  background: rgba(137, 180, 250, 0.16);
+  border-color: var(--sapphire);
+  color: var(--sapphire);
+  font-weight: 600;
+}
+
+.remote-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 5px;
+}
+
+.remote-status-dot.online {
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+}
+
+.remote-status-dot.offline {
+  background: var(--red);
+}
+
+/* En-têtes triables du tableau */
+.sortable-th {
+  user-select: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sortable-th:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--teal);
+}
+
+.sortable-th.sorted {
+  color: var(--sapphire);
+  font-weight: 700;
+}
+
+.sort-indicator {
+  font-size: 0.72rem;
+  opacity: 0.6;
+  margin-left: 4px;
+}
+
+.sortable-th.sorted .sort-indicator {
+  opacity: 1;
+}
+
+/* Animation Radar Réseau */
+.net-discovery-header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--mantle);
+  padding: 14px 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.radar-scan-icon {
+  font-size: 1.8rem;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(137, 180, 250, 0.12);
+  border-radius: 50%;
+  border: 1px solid rgba(137, 180, 250, 0.25);
+}
+
+.radar-animation-box {
+  position: relative;
+  width: 100%;
+  height: 180px;
+  margin: 16px 0;
+  background: radial-gradient(circle at center, rgba(137, 180, 250, 0.12) 0%, rgba(24, 24, 37, 0.95) 75%);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(137, 180, 250, 0.2);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.radar-circle {
+  position: absolute;
+  border: 1px solid rgba(137, 180, 250, 0.2);
+  border-radius: 50%;
+}
+
+.radar-circle.circle-1 { width: 60px; height: 60px; }
+.radar-circle.circle-2 { width: 120px; height: 120px; }
+.radar-circle.circle-3 { width: 170px; height: 170px; }
+
+.radar-sweep {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 90px;
+  height: 90px;
+  background: conic-gradient(from 0deg, transparent 0deg, rgba(137, 180, 250, 0.45) 90deg, transparent 95deg);
+  transform-origin: 0 0;
+  animation: radarRotate 2s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes radarRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.radar-center-dot {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: var(--sapphire);
+  border-radius: 50%;
+  box-shadow: 0 0 10px var(--sapphire);
+}
+
+.radar-scanning-text {
+  position: absolute;
+  bottom: 12px;
+  font-size: 0.78rem;
+  color: var(--teal);
+  font-family: var(--font-mono);
+  background: rgba(0, 0, 0, 0.6);
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 226, 213, 0.3);
+}
+
+/* Grille des périphériques découverts */
+.net-discovered-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.discovered-device-card {
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: all 0.2s ease;
+}
+
+.discovered-device-card:hover {
+  border-color: rgba(137, 180, 250, 0.4);
+  background: rgba(255, 255, 255, 0.03);
+  transform: translateY(-2px);
+}
+
+.dev-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dev-card-icon {
+  font-size: 1.5rem;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.dev-card-title {
+  font-weight: 700;
+  color: var(--text);
+  font-size: 0.92rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dev-card-ip {
+  font-size: 0.78rem;
+  color: var(--subtext0);
+  font-family: var(--font-mono);
+}
+
+.dev-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.dev-card-shares-list {
+  background: var(--crust);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 0.75rem;
+  color: var(--subtext1);
+}
+
+.dev-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Sélecteur de protocole montage distant */
+.remote-proto-selector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.remote-proto-tab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s ease;
+}
+
+.remote-proto-tab:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.remote-proto-tab.active {
+  background: rgba(137, 180, 250, 0.12);
+  border-color: var(--sapphire);
+  color: var(--sapphire);
+}
+
+/* Modale des disques et partitions */
+.storage-mounts-modal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.storage-mount-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+}
+
+.storage-mount-card:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+}

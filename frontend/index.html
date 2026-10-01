@@ -571,19 +571,31 @@
           </button>
 
 
-          <div class="files-category-title">Système & Stockage</div>
-          <button type="button" class="files-nav-item" id="fnav-root" onclick="navigateToPath('/')">
-            <span>🗄️</span> racine (/)
-          </button>
-          <button type="button" class="files-nav-item" id="fnav-shares" onclick="navigateToPath('/mnt/storage/shares')">
-            <span>📂</span> /mnt/storage/shares
-          </button>
-          <button type="button" class="files-nav-item" id="fnav-media" onclick="navigateToPath('/mnt/storage/media')">
-            <span>🎬</span> /mnt/storage/media
-          </button>
-          <button type="button" class="files-nav-item" id="fnav-nixos" onclick="navigateToPath('/etc/nixos')">
-            <span>❄️</span> /etc/nixos
-          </button>
+          <div class="files-category-title" style="display:flex; justify-content:space-between; align-items:center;">
+            <span>💾 Disques & Points de Montage</span>
+            <button type="button" class="files-sidebar-action-btn" onclick="openStorageMountsModal()" title="Gérer ou épingler des partitions et grappes RAID">⚙️</button>
+          </div>
+          <div id="files-pinned-mounts-container" class="files-sidebar-mounts-list">
+            <button type="button" class="files-nav-item" id="fnav-root" onclick="navigateToPath('/')">
+              <span>🗄️</span> racine (/)
+            </button>
+            <button type="button" class="files-nav-item" id="fnav-shares" onclick="navigateToPath('/mnt/storage/shares')">
+              <span>📂</span> /mnt/storage/shares
+            </button>
+          </div>
+
+          <div class="files-category-title" style="display:flex; justify-content:space-between; align-items:center; margin-top:16px;">
+            <span>🌐 Partages Réseau & sFTP</span>
+            <div style="display:flex; gap:4px;">
+              <button type="button" class="files-sidebar-action-btn" onclick="openNetworkDiscoveryModal()" title="Radar / Découverte de partages réseau LAN">🔍</button>
+              <button type="button" class="files-sidebar-action-btn" onclick="openCreateRemoteMountModal()" title="Connecter un sFTP ou partage SMB distant">➕</button>
+            </div>
+          </div>
+          <div id="files-remote-mounts-container" class="files-sidebar-remote-list">
+            <div style="padding:6px 10px; font-size:0.75rem; color:var(--subtext0); font-style:italic;">
+              Aucun partage distant monté.
+            </div>
+          </div>
 
           <div class="files-category-title" style="margin-top:16px;">Gestion des Fichiers</div>
           <button type="button" class="files-nav-item" id="fnav-trash" onclick="navigateToTrash()">
@@ -608,6 +620,12 @@
               </button>
               <button type="button" class="btn btn-secondary btn-xs" onclick="document.getElementById('files-upload-input').click()" title="Téléverser des fichiers de votre PC vers ce dossier">
                 📤 Téléverser
+              </button>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="openNetworkDiscoveryModal()" title="Découvrir les partages réseau LAN et monter un serveur sFTP/SMB">
+                <span>🌐</span> Réseau & sFTP
+              </button>
+              <button type="button" class="btn btn-secondary btn-xs" id="btn-pin-current-folder" onclick="pinCurrentFolder()" title="Épingler ce dossier ou disque au volet latéral">
+                <span>📌</span> Épingler
               </button>
               <input type="file" id="files-upload-input" multiple style="display:none;" onchange="handleFileSelect(event)">
               <div class="files-breadcrumbs" id="files-breadcrumbs"></div>
@@ -657,9 +675,10 @@
               <thead>
                 <tr>
                   <th style="width:36px; text-align:center;"><input type="checkbox" id="files-select-all" class="file-table-checkbox" onclick="toggleSelectAllFiles(event)" title="Tout sélectionner / désélectionner"></th>
-                  <th>Nom</th>
-                  <th>Taille</th>
-                  <th>Date de modification</th>
+                  <th onclick="toggleSortFiles('name')" class="sortable-th" id="th-sort-name" style="cursor:pointer;" title="Trier par nom">Nom <span class="sort-indicator">↕️</span></th>
+                  <th onclick="toggleSortFiles('size')" class="sortable-th" id="th-sort-size" style="cursor:pointer;" title="Trier par taille">Taille <span class="sort-indicator">↕️</span></th>
+                  <th onclick="toggleSortFiles('date')" class="sortable-th" id="th-sort-date" style="cursor:pointer;" title="Trier par date de modification">Date de modification <span class="sort-indicator">↕️</span></th>
+                  <th onclick="toggleSortFiles('type')" class="sortable-th" id="th-sort-type" style="cursor:pointer;" title="Trier par format / type">Type <span class="sort-indicator">↕️</span></th>
                   <th>Permissions</th>
                 </tr>
               </thead>
@@ -7513,9 +7532,195 @@
     </div>
   </div>
 
+
+  <!-- ================= MODALE : RADAR / DÉCOUVERTE RÉSEAU LOCAL (LAN) ================= -->
+  <div class="file-modal-overlay" id="modal-network-discovery" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-network-discovery')">
+    <div class="file-modal-window" style="max-width: 820px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(137, 180, 250, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-primary" style="font-size:0.75rem; font-weight:800;">RADAR LAN</span>
+          <span class="file-modal-title">Découverte de Partages Réseau Local & Serveurs</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeNetworkDiscoveryModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:20px;">
+        <!-- Entête avec radar et bouton scan -->
+        <div class="net-discovery-header-bar">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div class="radar-scan-icon" id="radar-scan-icon">📡</div>
+            <div>
+              <div style="font-weight:700; color:var(--text); font-size:1rem;" id="net-discovery-status-text">Prêt à scanner le réseau local</div>
+              <div style="font-size:0.8rem; color:var(--subtext0);">Détecte automatiquement les partages Windows (SMB), serveurs sFTP/SSH et stockages NAS.</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="openCreateRemoteMountModal()">
+              <span>➕</span> Montage Manuel
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" id="btn-start-net-scan" onclick="startNetworkDiscoveryScan()">
+              <span id="btn-net-scan-spinner">🔍</span> Lancer la Découverte
+            </button>
+          </div>
+        </div>
+
+        <!-- Radar animé pendant le scan -->
+        <div id="radar-animation-box" class="radar-animation-box" style="display:none;">
+          <div class="radar-circle circle-1"></div>
+          <div class="radar-circle circle-2"></div>
+          <div class="radar-circle circle-3"></div>
+          <div class="radar-sweep"></div>
+          <div class="radar-center-dot"></div>
+          <div class="radar-scanning-text">Analyse des protocoles SMB (445), sFTP (22), mDNS et ARP en cours...</div>
+        </div>
+
+        <!-- Filtre de recherche -->
+        <div style="margin-top:16px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
+          <div style="font-size:0.85rem; font-weight:700; color:var(--text);" id="net-discovery-count-text">
+            Périphériques détectés (0)
+          </div>
+          <input type="text" id="net-discovery-filter" class="form-input" style="max-width:240px; padding:6px 12px; font-size:0.8rem;" placeholder="Filtrer par nom ou IP..." oninput="filterDiscoveredDevices()">
+        </div>
+
+        <!-- Grille des périphériques découverts -->
+        <div id="net-discovered-grid" class="net-discovered-grid">
+          <div style="grid-column:1/-1; padding:35px; text-align:center; color:var(--subtext0); background:var(--mantle); border-radius:var(--radius-md); border:1px dashed rgba(255,255,255,0.08);">
+            <div style="font-size:2rem; margin-bottom:8px;">🌐</div>
+            <div style="font-weight:600; color:var(--text); margin-bottom:4px;">Aucun scan lancé pour l instant</div>
+            <div style="font-size:0.8rem;">Cliquez sur <strong>« Lancer la Découverte »</strong> pour sonder les partages Windows, serveurs sFTP et NAS de votre réseau local.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:12px 20px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:0.78rem; color:var(--subtext0);">💡 Les partages connectés apparaîtront directement dans le volet latéral de l explorateur.</span>
+        <button type="button" class="btn btn-secondary" onclick="closeNetworkDiscoveryModal()">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODALE : MONTER UN SERVEUR sFTP OU PARTAGE SMB ================= -->
+  <div class="file-modal-overlay" id="modal-remote-mount" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-remote-mount')">
+    <div class="file-modal-window" style="max-width: 600px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(137, 180, 250, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-primary" style="font-size:0.75rem; font-weight:800;" id="remote-mount-proto-badge">sFTP / SMB</span>
+          <span class="file-modal-title">Connecter un Partage Réseau Distant</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeRemoteMountModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:20px;">
+        <!-- Sélecteur de protocole -->
+        <div class="remote-proto-selector">
+          <button type="button" class="remote-proto-tab active" id="btn-proto-sftp" onclick="switchRemoteProto('sftp')">
+            <span style="font-size:1.2rem;">⚡</span>
+            <div>
+              <div style="font-weight:700;">Serveur sFTP (SSH)</div>
+              <div style="font-size:0.72rem; color:var(--subtext0);">Chiffré, via FUSE sshfs</div>
+            </div>
+          </button>
+          <button type="button" class="remote-proto-tab" id="btn-proto-smb" onclick="switchRemoteProto('smb')">
+            <span style="font-size:1.2rem;">🪟</span>
+            <div>
+              <div style="font-weight:700;">Partage SMB / Windows</div>
+              <div style="font-size:0.72rem; color:var(--subtext0);">CIFS / Samba / NAS externe</div>
+            </div>
+          </button>
+        </div>
+
+        <form id="form-remote-mount" onsubmit="handleRemoteMountSubmit(event)" style="margin-top:16px;">
+          <input type="hidden" id="remote-mount-proto" value="sftp">
+
+          <div class="form-group" style="margin-bottom:12px;">
+            <label class="form-label" style="font-size:0.82rem; font-weight:600;">Nom d affichage du point d accès :</label>
+            <input type="text" id="remote-mount-name" class="form-input" placeholder="ex: Backup OVH ou NAS Bureau" required>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 2fr 1fr; gap:10px; margin-bottom:12px;">
+            <div class="form-group">
+              <label class="form-label" style="font-size:0.82rem; font-weight:600;">Adresse de l hôte / IP :</label>
+              <input type="text" id="remote-mount-host" class="form-input" placeholder="ex: 192.168.1.50 ou sftp.mon-serveur.com" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" style="font-size:0.82rem; font-weight:600;">Port :</label>
+              <input type="number" id="remote-mount-port" class="form-input" value="22" required>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom:12px;">
+            <label class="form-label" style="font-size:0.82rem; font-weight:600;" id="remote-mount-path-label">Dossier distant sur le serveur :</label>
+            <input type="text" id="remote-mount-path" class="form-input" value="/" placeholder="ex: / ou /partage">
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:12px;">
+            <div class="form-group">
+              <label class="form-label" style="font-size:0.82rem; font-weight:600;">Nom d utilisateur :</label>
+              <input type="text" id="remote-mount-user" class="form-input" placeholder="ex: root, ubuntu, backup" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" style="font-size:0.82rem; font-weight:600;">Mot de passe :</label>
+              <input type="password" id="remote-mount-pass" class="form-input" placeholder="Laisser vide si clé SSH">
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom:12px;">
+            <label class="form-label" style="font-size:0.82rem; font-weight:600;">Clé privée SSH (Optionnel pour sFTP) :</label>
+            <input type="text" id="remote-mount-key" class="form-input" placeholder="ex: /home/chomiam/.ssh/id_rsa">
+          </div>
+
+          <div style="display:flex; align-items:center; gap:8px; margin-top:14px; padding:10px; background:var(--mantle); border-radius:var(--radius-sm);">
+            <input type="checkbox" id="remote-mount-auto" checked style="cursor:pointer;">
+            <label for="remote-mount-auto" style="font-size:0.8rem; color:var(--text); cursor:pointer;">
+              <strong>Reconnexion automatique</strong> : remonter ce partage automatiquement au démarrage.
+            </label>
+          </div>
+
+          <div style="margin-top:10px; font-size:0.75rem; color:var(--subtext0);">
+            📍 Le partage sera monté dans : <code id="remote-mount-preview-path" style="color:var(--teal);">/mnt/remote/sftp/...</code>
+          </div>
+
+          <div class="file-modal-footer" style="padding:14px 0 0 0; margin-top:16px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end; gap:8px;">
+            <button type="button" class="btn btn-secondary" onclick="closeRemoteMountModal()">Annuler</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-remote-mount">
+              <span>🔗</span> Tester & Monter le Partage
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODALE : GESTION DES DISQUES & POINTS DE MONTAGE ÉPINGLÉS ================= -->
+  <div class="file-modal-overlay" id="modal-storage-mounts" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-storage-mounts')">
+    <div class="file-modal-window" style="max-width: 720px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(137, 180, 250, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-primary" style="font-size:0.75rem; font-weight:800;">DISQUES & POOLS</span>
+          <span class="file-modal-title">Gérer les Points de Montage Épinglés</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeStorageMountsModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:20px;">
+        <div style="font-size:0.85rem; color:var(--subtext0); margin-bottom:16px;">
+          Activez ou désactivez les partitions, pools RAID et disques pour les garder sous la main dans la barre latérale du gestionnaire de fichiers.
+        </div>
+
+        <div id="storage-mounts-modal-list" class="storage-mounts-modal-list">
+          <div style="text-align:center; padding:30px; color:var(--subtext0);">Chargement des points de montage...</div>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:12px 20px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end;">
+        <button type="button" class="btn btn-primary" onclick="closeStorageMountsModal()">Terminé</button>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /#app-shell -->
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20261001_14"></script>
+  <script src="/js/app.js?v=20261001_15"></script>
 </body>
 </html>

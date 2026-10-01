@@ -225,6 +225,13 @@ pub fn api_routes() -> Router {
         .route("/files/trash/restore", post(handle_trash_restore))
         .route("/files/trash/delete", post(handle_trash_delete))
         .route("/files/trash/empty", post(handle_trash_empty))
+        .route("/files/storage-mounts", get(handle_storage_mounts_list))
+        .route("/files/pinned-mounts", get(handle_pinned_mounts_list).post(handle_pinned_mounts_add).delete(handle_pinned_mounts_remove))
+        .route("/files/network/discover", get(handle_network_discover))
+        .route("/files/remote-mounts", get(handle_remote_mounts_list).post(handle_remote_mounts_create))
+        .route("/files/remote-mounts/:id", delete(handle_remote_mounts_delete))
+        .route("/files/remote-mounts/:id/mount", post(handle_remote_mounts_mount))
+        .route("/files/remote-mounts/:id/unmount", post(handle_remote_mounts_unmount))
         .route("/youtube/info", post(handle_youtube_info))
         .route("/youtube/download", post(handle_youtube_download))
         .route("/youtube/status/:job_id", get(handle_youtube_status))
@@ -2454,6 +2461,174 @@ async fn handle_sftp_disconnect_session(
             success: true,
             data: Some(()),
             message: Some(format!("Session PID {} déconnectée.", body.pid)),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+
+// =========================================================================
+// HANDLERS : POINTS DE MONTAGE & DISQUES ÉPINGLÉS
+// =========================================================================
+
+async fn handle_storage_mounts_list() -> Json<ApiResponse<Vec<crate::remote_shares::StorageMountItem>>> {
+    let mounts = crate::remote_shares::get_storage_mounts();
+    Json(ApiResponse {
+        success: true,
+        data: Some(mounts),
+        message: None,
+    })
+}
+
+async fn handle_pinned_mounts_list() -> Json<ApiResponse<Vec<crate::remote_shares::PinnedMount>>> {
+    let pinned = crate::remote_shares::load_pinned_mounts();
+    Json(ApiResponse {
+        success: true,
+        data: Some(pinned),
+        message: None,
+    })
+}
+
+async fn handle_pinned_mounts_add(
+    Json(body): Json<crate::remote_shares::PinMountRequest>,
+) -> Json<ApiResponse<crate::remote_shares::PinnedMount>> {
+    match crate::remote_shares::pin_mount(&body.path, body.label.as_deref(), body.icon.as_deref()) {
+        Ok(pin) => Json(ApiResponse {
+            success: true,
+            data: Some(pin),
+            message: Some("Point de montage épinglé au gestionnaire de fichiers.".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_pinned_mounts_remove(
+    Json(body): Json<crate::remote_shares::UnpinMountRequest>,
+) -> Json<ApiResponse<()>> {
+    match crate::remote_shares::unpin_mount(&body.path) {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            data: Some(()),
+            message: Some("Point de montage retiré des épinglés.".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+// =========================================================================
+// HANDLERS : DÉCOUVERTE RÉSEAU & MONTAGES DISTANTS (sFTP / SMB)
+// =========================================================================
+
+async fn handle_network_discover() -> Json<ApiResponse<Vec<crate::remote_shares::DiscoveredDevice>>> {
+    let devices = tokio::task::spawn_blocking(crate::remote_shares::discover_network_devices)
+        .await
+        .unwrap_or_default();
+    Json(ApiResponse {
+        success: true,
+        data: Some(devices),
+        message: None,
+    })
+}
+
+async fn handle_remote_mounts_list() -> Json<ApiResponse<Vec<crate::remote_shares::RemoteMountConfig>>> {
+    let mounts = crate::remote_shares::load_remote_mounts();
+    Json(ApiResponse {
+        success: true,
+        data: Some(mounts),
+        message: None,
+    })
+}
+
+async fn handle_remote_mounts_create(
+    Json(body): Json<crate::remote_shares::CreateRemoteMountRequest>,
+) -> Json<ApiResponse<crate::remote_shares::RemoteMountConfig>> {
+    match tokio::task::spawn_blocking(move || crate::remote_shares::create_and_mount_remote(body)).await {
+        Ok(Ok(cfg)) => Json(ApiResponse {
+            success: true,
+            data: Some(cfg),
+            message: Some("Partage distant connecté et monté avec succès.".into()),
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(join_err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur d execution : {}", join_err)),
+        }),
+    }
+}
+
+async fn handle_remote_mounts_delete(
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Json<ApiResponse<()>> {
+    match crate::remote_shares::delete_remote_mount(&id) {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            data: Some(()),
+            message: Some("Partage distant démonté et supprimé.".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_remote_mounts_mount(
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Json<ApiResponse<()>> {
+    let mounts = crate::remote_shares::load_remote_mounts();
+    if let Some(m) = mounts.into_iter().find(|m| m.id == id) {
+        match tokio::task::spawn_blocking(move || crate::remote_shares::execute_mount(&m)).await {
+            Ok(Ok(_)) => Json(ApiResponse {
+                success: true,
+                data: Some(()),
+                message: Some("Partage connecté.".into()),
+            }),
+            Ok(Err(err)) => Json(ApiResponse {
+                success: false,
+                data: None,
+                message: Some(err),
+            }),
+            Err(e) => Json(ApiResponse {
+                success: false,
+                data: None,
+                message: Some(e.to_string()),
+            }),
+        }
+    } else {
+        Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some("Partage introuvable".into()),
+        })
+    }
+}
+
+async fn handle_remote_mounts_unmount(
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Json<ApiResponse<()>> {
+    match crate::remote_shares::unmount_remote(&id) {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            data: Some(()),
+            message: Some("Partage démonté.".into()),
         }),
         Err(err) => Json(ApiResponse {
             success: false,

@@ -387,6 +387,8 @@ function initApp() {
   fetchPowerStatus();
   fetchTrashCount();
   initDragAndDrop();
+  loadPinnedMounts();
+  loadRemoteMounts();
 }
 
 function setupPolling() {
@@ -3453,7 +3455,13 @@ let trashOverview = null;
 let selectedTrashItem = null;
 let currentFolderParent = null;
 let currentEntries = [];
-let fileViewMode = "grid";
+let fileViewMode = localStorage.getItem("steveos_file_view_mode") || "grid";
+let fileSortColumn = localStorage.getItem("steveos_file_sort_col") || "name";
+let fileSortDirection = localStorage.getItem("steveos_file_sort_dir") || "asc";
+let pinnedMountsList = [];
+let remoteMountsList = [];
+let storageMountsList = [];
+let discoveredDevicesList = [];
 let fileClipboard = null; // { action: 'copy' | 'cut', path: string, name: string, paths?: string[] }
 let selectedFileItem = null;
 let selectedFilePaths = new Set();
@@ -3561,10 +3569,32 @@ function renderFilesList(entries) {
 
   if (!gridWrap || !tableBody) return;
 
-  if (entries.length === 0) {
+  // Tri des éléments
+  const sortedEntries = [...entries].sort((a, b) => {
+    if (a.is_dir && !b.is_dir) return -1;
+    if (!a.is_dir && b.is_dir) return 1;
+
+    let res = 0;
+    if (fileSortColumn === "name") {
+      res = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+    } else if (fileSortColumn === "size") {
+      res = (a.size_bytes || 0) - (b.size_bytes || 0);
+    } else if (fileSortColumn === "date") {
+      res = (a.modified || "").localeCompare(b.modified || "");
+    } else if (fileSortColumn === "type") {
+      const typeA = getFileTypeLabel(a);
+      const typeB = getFileTypeLabel(b);
+      res = typeA.localeCompare(typeB);
+    }
+    return fileSortDirection === "asc" ? res : -res;
+  });
+
+  updateSortIndicators();
+
+  if (sortedEntries.length === 0) {
     const emptyHtml = `<div style="grid-column:1/-1; padding:40px; text-align:center; color:var(--subtext0);">📁 Dossier vide</div>`;
     gridWrap.innerHTML = emptyHtml;
-    tableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--subtext0); padding:30px;">📁 Dossier vide</td></tr>`;
+    tableBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--subtext0); padding:30px;">📁 Dossier vide</td></tr>`;
     updateSelectionUI();
     return;
   }
@@ -3613,6 +3643,7 @@ function renderFilesList(entries) {
         </td>
         <td style="color:var(--subtext0); font-family:var(--font-mono); font-size:0.8rem;">${escapeHtml(item.size_human)}</td>
         <td style="color:var(--subtext0); font-size:0.8rem;">${escapeHtml(item.modified)}</td>
+        <td><span class="badge ${item.is_dir ? "badge-primary" : "badge-secondary"}" style="font-size:0.75rem;">${escapeHtml(getFileTypeLabel(item))}</span></td>
         <td><code style="color:var(--mauve); font-size:0.75rem;">${escapeHtml(item.permissions)}</code></td>
       </tr>
     `;
@@ -3832,6 +3863,10 @@ function refreshCurrentFolder() {
 
 function setFileViewMode(mode) {
   fileViewMode = mode;
+  try {
+    localStorage.setItem("steveos_file_view_mode", mode);
+  } catch (e) {}
+
   const btnGrid = document.getElementById("btn-view-grid");
   const btnTable = document.getElementById("btn-view-table");
 
@@ -3839,6 +3874,51 @@ function setFileViewMode(mode) {
   if (btnTable) btnTable.classList.toggle("active", mode === "table");
 
   renderFilesList(currentEntries);
+}
+
+function toggleSortFiles(column) {
+  if (fileSortColumn === column) {
+    fileSortDirection = fileSortDirection === "asc" ? "desc" : "asc";
+  } else {
+    fileSortColumn = column;
+    fileSortDirection = "asc";
+  }
+  try {
+    localStorage.setItem("steveos_file_sort_col", fileSortColumn);
+    localStorage.setItem("steveos_file_sort_dir", fileSortDirection);
+  } catch (e) {}
+
+  updateSortIndicators();
+  renderFilesList(currentEntries);
+}
+
+function updateSortIndicators() {
+  ["name", "size", "date", "type"].forEach(col => {
+    const th = document.getElementById(`th-sort-${col}`);
+    if (!th) return;
+    const indicator = th.querySelector(".sort-indicator");
+    if (!indicator) return;
+    if (fileSortColumn === col) {
+      indicator.textContent = fileSortDirection === "asc" ? "▲" : "▼";
+      th.classList.add("sorted");
+    } else {
+      indicator.textContent = "↕️";
+      th.classList.remove("sorted");
+    }
+  });
+}
+
+function getFileTypeLabel(item) {
+  if (item.is_dir) return "Dossier";
+  const name = item.name.toLowerCase();
+  const ext = name.split(".").pop() || "";
+  if (isArchiveFile(name)) return `Archive (${ext.toUpperCase()})`;
+  if (isImageFile(name, item.category)) return `Image (${ext.toUpperCase()})`;
+  if (isVideoFile(name, item.category)) return `Vidéo (${ext.toUpperCase()})`;
+  if (isAudioFile(name, item.category)) return `Audio (${ext.toUpperCase()})`;
+  if (isDocumentFile(name, item.category)) return `Document (${ext.toUpperCase()})`;
+  if (item.category === "code") return `Code (${ext.toUpperCase()})`;
+  return ext ? ext.toUpperCase() : "Fichier";
 }
 
 function filterFilesList() {
@@ -18780,4 +18860,602 @@ async function disconnectSftpSession(pid) {
     console.error("Erreur déconnexion session sFTP:", err);
     showToast("Erreur : " + err.message, "error");
   }
+}
+
+
+// =========================================================================
+// GESTION DES POINTS DE MONTAGE & DISQUES ÉPINGLÉS (PINNED MOUNTS)
+// =========================================================================
+
+async function loadPinnedMounts() {
+  try {
+    const res = await fetch("/api/files/pinned-mounts");
+    const json = await res.json();
+    if (json.success && json.data) {
+      pinnedMountsList = json.data;
+      renderPinnedMounts(pinnedMountsList);
+    }
+  } catch (err) {
+    console.error("Erreur chargement montages épinglés:", err);
+  }
+}
+
+function renderPinnedMounts(pins) {
+  const container = document.getElementById("files-pinned-mounts-container");
+  if (!container) return;
+
+  if (!pins || pins.length === 0) {
+    container.innerHTML = `
+      <div style="padding:6px 10px; font-size:0.75rem; color:var(--subtext0); font-style:italic;">
+        Aucun disque épinglé.
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = pins.map(p => {
+    const cleanPath = p.path.replace(/\/+$/, "") || "/";
+    const isActive = currentFolderPath === p.path || currentFolderPath === cleanPath;
+
+    return `
+      <div class="files-mount-item ${isActive ? "active" : ""}" data-mount-path="${escapeHtml(p.path)}" onclick="navigateToPath('${escapeHtml(p.path)}')" title="Accéder à : ${escapeHtml(p.path)}">
+        <div class="files-mount-left">
+          <span class="files-mount-icon">${escapeHtml(p.icon || "💾")}</span>
+          <div class="files-mount-info">
+            <span class="files-mount-label">${escapeHtml(p.label)}</span>
+            <span class="files-mount-meta">${escapeHtml(p.path)}</span>
+          </div>
+        </div>
+        <button type="button" class="files-mount-unpin-btn" onclick="unpinMountAction('${escapeHtml(p.path)}', event)" title="Désépingler ce point de montage">
+          ✕
+        </button>
+      </div>
+    `;
+  }).join("");
+}
+
+async function pinCurrentFolder() {
+  if (!currentFolderPath) return;
+  const cleanPath = currentFolderPath.replace(/\/+$/, "") || "/";
+  const defaultLabel = cleanPath === "/" ? "Système Root" : cleanPath.split("/").pop();
+
+  try {
+    const res = await fetch("/api/files/pinned-mounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path: currentFolderPath,
+        label: defaultLabel,
+        icon: currentFolderPath.includes("raid") ? "💽" : (currentFolderPath.includes("remote") ? "🌐" : "💾")
+      })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || "Échec de l épinglage");
+
+    showToast(`Dossier « ${defaultLabel} » épinglé au volet latéral !`, "success");
+    await loadPinnedMounts();
+  } catch (err) {
+    showToast("Erreur : " + err.message, "error");
+  }
+}
+
+async function unpinMountAction(path, event) {
+  if (event) event.stopPropagation();
+
+  try {
+    const res = await fetch("/api/files/pinned-mounts", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: path })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || "Échec");
+
+    showToast("Point de montage retiré des favoris.", "info");
+    await loadPinnedMounts();
+  } catch (err) {
+    showToast("Erreur : " + err.message, "error");
+  }
+}
+
+// Modale de gestion des points de montage système
+async function openStorageMountsModal() {
+  const container = document.getElementById("storage-mounts-modal-list");
+  if (container) {
+    container.innerHTML = `<div style="text-align:center; padding:30px; color:var(--subtext0);">Chargement des points de montage...</div>`;
+  }
+  document.getElementById("modal-storage-mounts").style.display = "flex";
+
+  try {
+    const res = await fetch("/api/files/storage-mounts");
+    const json = await res.json();
+    if (json.success && json.data) {
+      storageMountsList = json.data;
+      renderStorageMountsModalList(storageMountsList);
+    }
+  } catch (err) {
+    if (container) container.innerHTML = `<div style="color:var(--red); padding:20px;">Erreur : ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function closeStorageMountsModal() {
+  document.getElementById("modal-storage-mounts").style.display = "none";
+}
+
+function renderStorageMountsModalList(mounts) {
+  const container = document.getElementById("storage-mounts-modal-list");
+  if (!container) return;
+
+  if (!mounts || mounts.length === 0) {
+    container.innerHTML = `<div style="text-align:center; color:var(--subtext0); padding:20px;">Aucun point de montage détecté.</div>`;
+    return;
+  }
+
+  container.innerHTML = mounts.map(m => {
+    let barColorClass = "";
+    if (m.usage_percent > 90) barColorClass = "crit";
+    else if (m.usage_percent > 75) barColorClass = "warn";
+
+    return `
+      <div class="storage-mount-card">
+        <div style="display:flex; align-items:center; gap:12px; min-width:0; flex:1;">
+          <div style="font-size:1.6rem; width:40px; height:40px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.05); border-radius:8px;">
+            ${escapeHtml(m.icon)}
+          </div>
+          <div style="min-width:0; flex:1;">
+            <div style="font-weight:700; color:var(--text); font-size:0.92rem; display:flex; align-items:center; gap:8px;">
+              <span>${escapeHtml(m.label)}</span>
+              <span class="badge badge-secondary" style="font-size:0.7rem;">${escapeHtml(m.filesystem)}</span>
+            </div>
+            <div style="font-size:0.78rem; color:var(--subtext0); font-family:var(--font-mono); margin-top:2px;">
+              ${escapeHtml(m.mount_point)} &bull; ${escapeHtml(m.used_human)} / ${escapeHtml(m.total_human)} (${m.usage_percent}%)
+            </div>
+            <div class="files-mount-bar-wrap" style="height:5px; margin-top:6px; max-width:260px;">
+              <div class="files-mount-bar-fill ${barColorClass}" style="width:${Math.min(100, m.usage_percent)}%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <button type="button" class="btn ${m.is_pinned ? "btn-secondary" : "btn-primary"} btn-xs" onclick="togglePinStorageMount('${escapeHtml(m.mount_point)}', '${escapeHtml(m.label)}', '${escapeHtml(m.icon)}', ${m.is_pinned})">
+            ${m.is_pinned ? "<span>📌</span> Épinglé" : "<span>➕</span> Épingler"}
+          </button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+async function togglePinStorageMount(path, label, icon, isPinned) {
+  try {
+    if (isPinned) {
+      await fetch("/api/files/pinned-mounts", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: path })
+      });
+      showToast(`Point de montage retiré des favoris.`, "info");
+    } else {
+      await fetch("/api/files/pinned-mounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: path, label: label, icon: icon })
+      });
+      showToast(`Point de montage « ${label} » épinglé !`, "success");
+    }
+
+    await loadPinnedMounts();
+    const res = await fetch("/api/files/storage-mounts");
+    const json = await res.json();
+    if (json.success) renderStorageMountsModalList(json.data);
+  } catch (err) {
+    showToast("Erreur : " + err.message, "error");
+  }
+}
+
+// =========================================================================
+// MONTAGES DISTANTS sFTP & SMB
+// =========================================================================
+
+async function loadRemoteMounts() {
+  try {
+    const res = await fetch("/api/files/remote-mounts");
+    const json = await res.json();
+    if (json.success && json.data) {
+      remoteMountsList = json.data;
+      renderRemoteMounts(remoteMountsList);
+    }
+  } catch (err) {
+    console.error("Erreur chargement partages distants:", err);
+  }
+}
+
+function renderRemoteMounts(mounts) {
+  const container = document.getElementById("files-remote-mounts-container");
+  if (!container) return;
+
+  if (!mounts || mounts.length === 0) {
+    container.innerHTML = `
+      <div style="padding:6px 10px; font-size:0.75rem; color:var(--subtext0); font-style:italic;">
+        Aucun partage distant monté.
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = mounts.map(m => {
+    const isActive = currentFolderPath.startsWith(m.mount_point);
+    const dotClass = m.is_mounted ? "online" : "offline";
+
+    return `
+      <div class="files-remote-item ${isActive ? "active" : ""}" data-mount-path="${escapeHtml(m.mount_point)}" onclick="navigateToPath('${escapeHtml(m.mount_point)}')" title="${escapeHtml(m.name)} (${escapeHtml(m.host)}) - ${escapeHtml(m.status_text)}">
+        <div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1;">
+          <span class="remote-status-dot ${dotClass}" title="${m.is_mounted ? "Connecté & Monté" : "Déconnecté"}"></span>
+          <span style="font-size:0.95rem;">${m.protocol === "sftp" ? "⚡" : "🪟"}</span>
+          <div style="min-width:0; flex:1;">
+            <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:0.8rem;">
+              ${escapeHtml(m.name)}
+            </div>
+            <div style="font-size:0.68rem; color:var(--subtext0); font-family:var(--font-mono);">
+              ${escapeHtml(m.host)} &bull; ${escapeHtml(m.protocol.toUpperCase())}
+            </div>
+          </div>
+        </div>
+        <div style="display:flex; gap:2px;">
+          ${m.is_mounted ? `
+            <button type="button" class="files-mount-unpin-btn" onclick="unmountRemoteAction('${escapeHtml(m.id)}', event)" title="Démonter ce partage">
+              ⏏️
+            </button>
+          ` : `
+            <button type="button" class="files-mount-unpin-btn" onclick="remountRemoteAction('${escapeHtml(m.id)}', event)" title="Reconnecter ce partage">
+              🔄
+            </button>
+          `}
+          <button type="button" class="files-mount-unpin-btn" onclick="deleteRemoteMountAction('${escapeHtml(m.id)}', '${escapeHtml(m.name)}', event)" title="Supprimer ce partage">
+            🗑️
+          </button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function openCreateRemoteMountModal(prefill = {}) {
+  const form = document.getElementById("form-remote-mount");
+  if (form) form.reset();
+
+  const proto = prefill.protocol || "sftp";
+  switchRemoteProto(proto);
+
+  if (prefill.host) document.getElementById("remote-mount-host").value = prefill.host;
+  if (prefill.port) document.getElementById("remote-mount-port").value = prefill.port;
+  if (prefill.name) document.getElementById("remote-mount-name").value = prefill.name;
+  if (prefill.remote_path) document.getElementById("remote-mount-path").value = prefill.remote_path;
+  if (prefill.username) document.getElementById("remote-mount-user").value = prefill.username;
+
+  updateRemoteMountPreview();
+  document.getElementById("modal-remote-mount").style.display = "flex";
+}
+
+function closeRemoteMountModal() {
+  document.getElementById("modal-remote-mount").style.display = "none";
+}
+
+function switchRemoteProto(proto) {
+  document.getElementById("remote-mount-proto").value = proto;
+  const isSftp = proto === "sftp";
+
+  const btnSftp = document.getElementById("btn-proto-sftp");
+  const btnSmb = document.getElementById("btn-proto-smb");
+  if (btnSftp) btnSftp.classList.toggle("active", isSftp);
+  if (btnSmb) btnSmb.classList.toggle("active", !isSftp);
+
+  const badge = document.getElementById("remote-mount-proto-badge");
+  if (badge) {
+    badge.textContent = isSftp ? "sFTP / SSH" : "SMB / Windows";
+    badge.className = `badge ${isSftp ? "badge-primary" : "badge-success"}`;
+  }
+
+  const portInput = document.getElementById("remote-mount-port");
+  if (portInput) {
+    if (isSftp && portInput.value === "445") portInput.value = "22";
+    if (!isSftp && portInput.value === "22") portInput.value = "445";
+  }
+
+  const pathLabel = document.getElementById("remote-mount-path-label");
+  if (pathLabel) {
+    pathLabel.textContent = isSftp ? "Dossier distant sur le serveur sFTP :" : "Nom du partage SMB (ex: public, data) :";
+  }
+
+  const pathInput = document.getElementById("remote-mount-path");
+  if (pathInput) {
+    pathInput.placeholder = isSftp ? "ex: / ou /home/user" : "ex: public ou medias";
+  }
+
+  updateRemoteMountPreview();
+}
+
+function updateRemoteMountPreview() {
+  const name = document.getElementById("remote-mount-name")?.value.trim() || "partage";
+  const proto = document.getElementById("remote-mount-proto")?.value || "sftp";
+  const slug = name.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+  const preview = document.getElementById("remote-mount-preview-path");
+  if (preview) {
+    preview.textContent = `/mnt/remote/${proto}/${slug}`;
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const nameInput = document.getElementById("remote-mount-name");
+  if (nameInput) {
+    nameInput.addEventListener("input", updateRemoteMountPreview);
+  }
+});
+
+async function handleRemoteMountSubmit(event) {
+  if (event) event.preventDefault();
+
+  const proto = document.getElementById("remote-mount-proto").value;
+  const name = document.getElementById("remote-mount-name").value.trim();
+  const host = document.getElementById("remote-mount-host").value.trim();
+  const port = parseInt(document.getElementById("remote-mount-port").value, 10) || (proto === "sftp" ? 22 : 445);
+  const remotePath = document.getElementById("remote-mount-path").value.trim();
+  const user = document.getElementById("remote-mount-user").value.trim();
+  const pass = document.getElementById("remote-mount-pass").value;
+  const key = document.getElementById("remote-mount-key").value.trim();
+  const autoMount = document.getElementById("remote-mount-auto").checked;
+
+  const btn = document.getElementById("btn-submit-remote-mount");
+  const oldText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<span>⏳</span> Connexion et montage...`;
+
+  try {
+    const res = await fetch("/api/files/remote-mounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: name,
+        protocol: proto,
+        host: host,
+        port: port,
+        remote_path: remotePath,
+        username: user,
+        password: pass || null,
+        ssh_key_path: key || null,
+        auto_mount: autoMount
+      })
+    });
+
+    const json = await res.json();
+    if (!json.success || !json.data) throw new Error(json.message || "Échec de connexion au partage distant");
+
+    showToast(`Partage « ${name} » monté avec succès !`, "success");
+    closeRemoteMountModal();
+    await loadRemoteMounts();
+    await loadPinnedMounts();
+
+    // Naviguer directement dans le dossier monté
+    navigateToPath(json.data.mount_point);
+  } catch (err) {
+    console.error("Erreur montage distant:", err);
+    showToast("Erreur : " + err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = oldText;
+  }
+}
+
+async function unmountRemoteAction(id, event) {
+  if (event) event.stopPropagation();
+
+  try {
+    const res = await fetch(`/api/files/remote-mounts/${encodeURIComponent(id)}/unmount`, { method: "POST" });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || "Échec");
+
+    showToast("Partage démonté.", "info");
+    await loadRemoteMounts();
+  } catch (err) {
+    showToast("Erreur : " + err.message, "error");
+  }
+}
+
+async function remountRemoteAction(id, event) {
+  if (event) event.stopPropagation();
+
+  try {
+    const res = await fetch(`/api/files/remote-mounts/${encodeURIComponent(id)}/mount`, { method: "POST" });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || "Échec");
+
+    showToast("Partage reconnecté et monté.", "success");
+    await loadRemoteMounts();
+  } catch (err) {
+    showToast("Erreur : " + err.message, "error");
+  }
+}
+
+async function deleteRemoteMountAction(id, name, event) {
+  if (event) event.stopPropagation();
+  if (!confirm(`Supprimer le point d accès distant « ${name} » ?
+
+🛡️ Les données sur le serveur distant ne seront pas altérées, seul le point de montage local est retiré.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/files/remote-mounts/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || "Échec");
+
+    showToast(`Partage distant « ${name} » supprimé.`, "info");
+    await loadRemoteMounts();
+    await loadPinnedMounts();
+  } catch (err) {
+    showToast("Erreur : " + err.message, "error");
+  }
+}
+
+// =========================================================================
+// RADAR & DÉCOUVERTE RÉSEAU LOCAL (LAN)
+// =========================================================================
+
+function openNetworkDiscoveryModal() {
+  document.getElementById("modal-network-discovery").style.display = "flex";
+  if (discoveredDevicesList.length === 0) {
+    startNetworkDiscoveryScan();
+  } else {
+    renderDiscoveredDevices(discoveredDevicesList);
+  }
+}
+
+function closeNetworkDiscoveryModal() {
+  document.getElementById("modal-network-discovery").style.display = "none";
+}
+
+async function startNetworkDiscoveryScan() {
+  const radarBox = document.getElementById("radar-animation-box");
+  const statusText = document.getElementById("net-discovery-status-text");
+  const spinner = document.getElementById("btn-net-scan-spinner");
+  const scanBtn = document.getElementById("btn-start-net-scan");
+
+  if (radarBox) radarBox.style.display = "flex";
+  if (statusText) statusText.textContent = "Sondage des partages réseau LAN en cours...";
+  if (spinner) spinner.textContent = "⏳";
+  if (scanBtn) scanBtn.disabled = true;
+
+  try {
+    const res = await fetch("/api/files/network/discover");
+    const json = await res.json();
+
+    if (json.success && json.data) {
+      discoveredDevicesList = json.data;
+      renderDiscoveredDevices(discoveredDevicesList);
+      if (statusText) statusText.textContent = `Scan terminé : ${discoveredDevicesList.length} périphérique${discoveredDevicesList.length > 1 ? "s" : ""} identifié${discoveredDevicesList.length > 1 ? "s" : ""}`;
+    } else {
+      throw new Error(json.message || "Erreur de scan");
+    }
+  } catch (err) {
+    console.error("Erreur découverte réseau:", err);
+    showToast("Erreur lors de la découverte réseau : " + err.message, "error");
+    if (statusText) statusText.textContent = "Échec du scan réseau";
+  } finally {
+    if (radarBox) radarBox.style.display = "none";
+    if (spinner) spinner.textContent = "🔍";
+    if (scanBtn) scanBtn.disabled = false;
+  }
+}
+
+function renderDiscoveredDevices(devices) {
+  const grid = document.getElementById("net-discovered-grid");
+  const countEl = document.getElementById("net-discovery-count-text");
+  if (!grid) return;
+
+  if (countEl) {
+    countEl.textContent = `Périphériques détectés (${devices.length})`;
+  }
+
+  if (!devices || devices.length === 0) {
+    grid.innerHTML = `
+      <div style="grid-column:1/-1; padding:35px; text-align:center; color:var(--subtext0); background:var(--mantle); border-radius:var(--radius-md); border:1px dashed rgba(255,255,255,0.08);">
+        <div style="font-size:2rem; margin-bottom:8px;">🔎</div>
+        <div style="font-weight:600; color:var(--text); margin-bottom:4px;">Aucun partage détecté pour l instant</div>
+        <div style="font-size:0.8rem;">Assurez-vous que vos autres PC, NAS ou serveurs sont sous tension et connectés au même réseau local.</div>
+      </div>
+    `;
+    return;
+  }
+
+  grid.innerHTML = devices.map(dev => {
+    let icon = "💻";
+    if (dev.device_type.includes("NAS")) icon = "🗄️";
+    else if (dev.device_type.includes("SSH")) icon = "🐧";
+    else if (dev.device_type.includes("Routeur")) icon = "📡";
+
+    const badges = [];
+    if (dev.smb_available) {
+      badges.push(`<span class="badge badge-success" style="font-size:0.7rem;">🪟 SMB (445)</span>`);
+    }
+    if (dev.sftp_available) {
+      badges.push(`<span class="badge badge-primary" style="font-size:0.7rem;">⚡ sFTP (22)</span>`);
+    }
+    if (dev.nfs_available) {
+      badges.push(`<span class="badge badge-purple" style="font-size:0.7rem;">📦 NFS (2049)</span>`);
+    }
+
+    let sharesHtml = "";
+    if (dev.smb_shares && dev.smb_shares.length > 0) {
+      sharesHtml = `
+        <div class="dev-card-shares-list">
+          <div style="font-weight:600; font-size:0.72rem; color:var(--subtext0); margin-bottom:4px;">Partages SMB publics :</div>
+          <div style="display:flex; flex-wrap:wrap; gap:4px;">
+            ${dev.smb_shares.map(s => `<span class="badge badge-secondary" style="font-size:0.68rem; cursor:pointer;" onclick="connectFromDiscovery('${escapeHtml(dev.ip)}', 'smb', '${escapeHtml(s)}')" title="Monter ce dossier">📁 ${escapeHtml(s)}</span>`).join(" ")}
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="discovered-device-card">
+        <div class="dev-card-header">
+          <div class="dev-card-icon">${icon}</div>
+          <div style="min-width:0; flex:1;">
+            <div class="dev-card-title" title="${escapeHtml(dev.hostname)}">${escapeHtml(dev.hostname)}</div>
+            <div class="dev-card-ip">${escapeHtml(dev.ip)}</div>
+          </div>
+        </div>
+
+        <div style="font-size:0.75rem; color:var(--subtext1);">
+          ${escapeHtml(dev.device_type)}
+        </div>
+
+        <div class="dev-card-badges">
+          ${badges.join(" ")}
+        </div>
+
+        ${sharesHtml}
+
+        <div class="dev-card-actions">
+          ${dev.sftp_available ? `
+            <button type="button" class="btn btn-primary btn-xs" onclick="connectFromDiscovery('${escapeHtml(dev.ip)}', 'sftp')" title="Monter via sFTP (SSH)">
+              <span>⚡</span> sFTP
+            </button>
+          ` : ""}
+          ${dev.smb_available ? `
+            <button type="button" class="btn btn-secondary btn-xs" onclick="connectFromDiscovery('${escapeHtml(dev.ip)}', 'smb')" title="Monter un partage SMB">
+              <span>🪟</span> SMB
+            </button>
+          ` : ""}
+          <button type="button" class="btn btn-secondary btn-xs" onclick="copyTextToClipboard('${escapeHtml(dev.ip)}', 'Adresse IP copiée !')" title="Copier l adresse IP">
+            📋 IP
+          </button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function filterDiscoveredDevices() {
+  const query = (document.getElementById("net-discovery-filter")?.value || "").toLowerCase().trim();
+  if (!query) {
+    renderDiscoveredDevices(discoveredDevicesList);
+    return;
+  }
+
+  const filtered = discoveredDevicesList.filter(d => 
+    d.hostname.toLowerCase().includes(query) || d.ip.includes(query) || d.device_type.toLowerCase().includes(query)
+  );
+  renderDiscoveredDevices(filtered);
+}
+
+function connectFromDiscovery(ip, proto, shareName = "") {
+  closeNetworkDiscoveryModal();
+  openCreateRemoteMountModal({
+    host: ip,
+    protocol: proto,
+    name: shareName ? `${shareName} sur ${ip}` : `Partage ${ip}`,
+    remote_path: shareName ? `/${shareName}` : "/",
+    port: proto === "sftp" ? 22 : 445
+  });
 }

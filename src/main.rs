@@ -45,6 +45,7 @@ mod generations;
 mod users;
 mod samba;
 mod sftp;
+mod remote_shares;
 
 use axum::Router;
 use std::env;
