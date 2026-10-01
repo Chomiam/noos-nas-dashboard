@@ -8471,6 +8471,184 @@ function addDockerConfigEnvRow(key = '', val = '') {
   container.appendChild(row);
 }
 
+let dockerDeployDismissTimeout = null;
+
+function startDockerDeployToast(appId, appName, icon, port) {
+  if (dockerDeployDismissTimeout) {
+    clearTimeout(dockerDeployDismissTimeout);
+    dockerDeployDismissTimeout = null;
+  }
+
+  const toast = document.getElementById("docker-deploy-floating-toast");
+  const card = document.getElementById("docker-deploy-toast-card");
+  const iconImg = document.getElementById("docker-deploy-toast-icon");
+  const title = document.getElementById("docker-deploy-toast-title");
+  const subtitle = document.getElementById("docker-deploy-toast-subtitle");
+  const badge = document.getElementById("docker-deploy-toast-badge");
+  const bar = document.getElementById("docker-deploy-toast-bar");
+  const actions = document.getElementById("docker-deploy-toast-actions");
+
+  if (!toast) return;
+
+  if (card) {
+    card.className = "docker-deploy-toast-card";
+  }
+  if (iconImg) {
+    iconImg.src = icon || "/favicon.ico";
+  }
+  if (title) {
+    title.textContent = `Déploiement : ${appName || appId}`;
+  }
+  if (subtitle) {
+    subtitle.textContent = "Docker Compose v2 • Initialisation...";
+  }
+  if (badge) {
+    badge.className = "badge badge-warning";
+    badge.textContent = "⏳ En cours (20%)";
+  }
+  if (bar) {
+    bar.style.width = "20%";
+  }
+  if (actions) {
+    actions.style.display = "none";
+  }
+
+  for (let i = 1; i <= 4; i++) {
+    const stepEl = document.getElementById(`deploy-step-${i}`);
+    if (stepEl) {
+      if (i === 1) {
+        stepEl.className = "deploy-step-item active";
+        stepEl.querySelector(".step-status-icon").textContent = "⏳";
+      } else {
+        stepEl.className = "deploy-step-item";
+        stepEl.querySelector(".step-status-icon").textContent = "⚪";
+      }
+    }
+  }
+
+  toast.style.display = "block";
+
+  setTimeout(() => {
+    const step1 = document.getElementById("deploy-step-1");
+    const step2 = document.getElementById("deploy-step-2");
+    if (step1) {
+      step1.className = "deploy-step-item completed";
+      step1.querySelector(".step-status-icon").textContent = "✓";
+    }
+    if (step2) {
+      step2.className = "deploy-step-item active";
+      step2.querySelector(".step-status-icon").textContent = "⏳";
+    }
+    if (bar) bar.style.width = "45%";
+    if (badge && badge.textContent.includes("En cours")) badge.textContent = "⏳ En cours (45%)";
+    if (subtitle) subtitle.textContent = "Configuration des volumes persistants...";
+  }, 450);
+
+  setTimeout(() => {
+    const step2 = document.getElementById("deploy-step-2");
+    const step3 = document.getElementById("deploy-step-3");
+    if (step2) {
+      step2.className = "deploy-step-item completed";
+      step2.querySelector(".step-status-icon").textContent = "✓";
+    }
+    if (step3) {
+      step3.className = "deploy-step-item active";
+      step3.querySelector(".step-status-icon").textContent = "⏳";
+    }
+    if (bar) bar.style.width = "75%";
+    if (badge && badge.textContent.includes("En cours")) badge.textContent = "⏳ Lancement Compose (75%)";
+    if (subtitle) subtitle.textContent = "Démarrage du conteneur (docker compose up -d)...";
+  }, 1000);
+}
+
+function completeDockerDeployToast(success, message, port, appId, appName) {
+  const card = document.getElementById("docker-deploy-toast-card");
+  const title = document.getElementById("docker-deploy-toast-title");
+  const subtitle = document.getElementById("docker-deploy-toast-subtitle");
+  const badge = document.getElementById("docker-deploy-toast-badge");
+  const bar = document.getElementById("docker-deploy-toast-bar");
+  const actions = document.getElementById("docker-deploy-toast-actions");
+  const openBtn = document.getElementById("docker-deploy-toast-open-btn");
+
+  const step1 = document.getElementById("deploy-step-1");
+  const step2 = document.getElementById("deploy-step-2");
+  const step3 = document.getElementById("deploy-step-3");
+  const step4 = document.getElementById("deploy-step-4");
+
+  if (success) {
+    if (step1) { step1.className = "deploy-step-item completed"; step1.querySelector(".step-status-icon").textContent = "✓"; }
+    if (step2) { step2.className = "deploy-step-item completed"; step2.querySelector(".step-status-icon").textContent = "✓"; }
+    if (step3) { step3.className = "deploy-step-item completed"; step3.querySelector(".step-status-icon").textContent = "✓"; }
+    if (step4) { step4.className = "deploy-step-item completed"; step4.querySelector(".step-status-icon").textContent = "✓"; }
+
+    if (bar) bar.style.width = "100%";
+    if (card) {
+      card.classList.remove("status-error");
+      card.classList.add("status-success");
+    }
+    if (title) title.textContent = `✨ ${appName || appId} déployé avec succès !`;
+    if (subtitle) subtitle.textContent = "Conteneur actif sur votre NAS STEvE_OS";
+    if (badge) {
+      badge.className = "badge badge-success";
+      badge.textContent = "🟢 Prêt (100%)";
+    }
+
+    if (actions) {
+      actions.style.display = "flex";
+      if (openBtn) {
+        if (port) {
+          openBtn.href = `http://${window.location.hostname}:${port}`;
+          openBtn.innerHTML = `<span>🚀</span> Ouvrir (Port ${port}) ↗`;
+          openBtn.style.display = "inline-flex";
+        } else {
+          openBtn.style.display = "none";
+        }
+      }
+    }
+
+    dockerDeployDismissTimeout = setTimeout(() => {
+      dismissDockerDeployToast();
+    }, 12000);
+
+  } else {
+    if (step3) {
+      step3.className = "deploy-step-item error";
+      step3.querySelector(".step-status-icon").textContent = "❌";
+    }
+    if (step4) {
+      step4.className = "deploy-step-item error";
+      step4.querySelector(".step-status-icon").textContent = "❌";
+      const txt = step4.querySelector(".step-text");
+      if (txt) txt.textContent = message || "Échec d'exécution Docker Compose";
+    }
+    if (card) {
+      card.classList.remove("status-success");
+      card.classList.add("status-error");
+    }
+    if (title) title.textContent = `❌ Échec du déploiement (${appName || appId})`;
+    if (subtitle) subtitle.textContent = message || "Erreur de démarrage Docker Compose";
+    if (badge) {
+      badge.className = "badge badge-danger";
+      badge.textContent = "🔴 Erreur";
+    }
+    if (actions) {
+      actions.style.display = "flex";
+      if (openBtn) openBtn.style.display = "none";
+    }
+  }
+}
+
+function dismissDockerDeployToast() {
+  const toast = document.getElementById("docker-deploy-floating-toast");
+  if (toast) {
+    toast.style.animation = "slideOutBottomRight 0.3s cubic-bezier(0.16, 1, 0.3, 1)";
+    setTimeout(() => {
+      toast.style.display = "none";
+      toast.style.animation = "";
+    }, 280);
+  }
+}
+
 async function submitDockerDeploy() {
   const appId = document.getElementById("config-app-id").value.trim();
   if (!appId) {
@@ -8480,6 +8658,11 @@ async function submitDockerDeploy() {
 
   const portVal = document.getElementById("config-app-port").value.trim();
   const dataDir = document.getElementById("config-app-data-dir").value.trim();
+
+  const titleEl = document.getElementById("config-app-title");
+  const appTitle = titleEl ? titleEl.textContent.replace("Configuration : ", "").trim() : appId;
+  const iconEl = document.getElementById("config-app-icon");
+  const appIcon = iconEl ? iconEl.src : "/favicon.ico";
 
   const envVars = {};
   const rows = document.querySelectorAll("#config-env-rows-container .docker-env-row");
@@ -8497,8 +8680,9 @@ async function submitDockerDeploy() {
     btn.textContent = "⏳ Déploiement en cours...";
   }
 
-  showToast(`Déploiement de ${appId} en cours...`, "info");
+  // Fermer la fenêtre de configuration et afficher la popup de progression flottante
   closeDockerConfigModal();
+  startDockerDeployToast(appId, appTitle, appIcon, portVal);
 
   try {
     const mediaSection = document.getElementById("config-media-section");
@@ -8536,12 +8720,15 @@ async function submitDockerDeploy() {
 
     const json = await res.json();
     if (json.success) {
-      showToast(json.data || `Application ${appId} configurée avec succès !`, "success");
-      setTimeout(() => refreshContainersAndStore(), 2500);
+      completeDockerDeployToast(true, json.data, portVal, appId, appTitle);
+      showToast(json.data || `Application ${appTitle} configurée et démarrée avec succès !`, "success");
+      setTimeout(() => refreshContainersAndStore(), 2000);
     } else {
+      completeDockerDeployToast(false, json.message || "Erreur de démarrage Docker Compose", portVal, appId, appTitle);
       showToast(`Erreur de déploiement : ${json.message}`, "error");
     }
   } catch (err) {
+    completeDockerDeployToast(false, String(err), portVal, appId, appTitle);
     showToast(`Erreur requête : ${err}`, "error");
   } finally {
     if (btn) {

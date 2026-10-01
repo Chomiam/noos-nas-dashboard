@@ -529,10 +529,12 @@ html[data-initial-tab="tab-updates"] #tab-updates { display: block !important; }
   display: flex;
   flex-direction: column;
   gap: 10px;
-  z-index: 999;
+  z-index: 100050 !important;
+  pointer-events: none;
 }
 
 .toast {
+  pointer-events: auto;
   background: var(--surface1);
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: var(--text);
@@ -6364,7 +6366,7 @@ body.authenticated .app-shell {
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 99999;
+  z-index: 100050 !important;
   width: 90%;
   max-width: 580px;
   background: rgba(24, 24, 37, 0.94);
@@ -7028,7 +7030,7 @@ body.app-updating-reload #app-shell {
   position: fixed;
   bottom: 24px;
   right: 24px;
-  z-index: 99999;
+  z-index: 100050 !important;
   width: 410px;
   max-width: calc(100vw - 32px);
   pointer-events: auto;
@@ -8400,7 +8402,7 @@ body.app-updating-reload #app-shell {
   position: fixed;
   bottom: 24px;
   right: 24px;
-  z-index: 9999;
+  z-index: 100050 !important;
   width: 330px;
   max-width: calc(100vw - 48px);
   animation: slideInUp 0.3s ease;
@@ -10808,4 +10810,192 @@ body.app-updating-reload #app-shell {
 .skeleton-line {
   background: rgba(255, 255, 255, 0.08);
   border-radius: 4px;
+}
+
+/* ================= POPUP FLOTTANTE EN BAS À DROITE : DÉPLOIEMENT DOCKER ================= */
+.docker-deploy-floating-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 100050 !important;
+  width: 410px;
+  max-width: calc(100vw - 32px);
+  pointer-events: auto;
+  animation: slideInBottomRight 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.3s ease;
+}
+
+.docker-deploy-toast-card {
+  background: rgba(24, 24, 37, 0.96);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(203, 166, 247, 0.4);
+  border-radius: 16px;
+  padding: 16px 18px;
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.7), 0 0 30px rgba(203, 166, 247, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.docker-deploy-toast-card.status-success {
+  border-color: rgba(166, 227, 161, 0.55);
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.7), 0 0 30px rgba(166, 227, 161, 0.25);
+}
+
+.docker-deploy-toast-card.status-error {
+  border-color: rgba(243, 139, 168, 0.65);
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.7), 0 0 30px rgba(243, 139, 168, 0.3);
+}
+
+.docker-deploy-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.docker-deploy-icon-wrap {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: rgba(203, 166, 247, 0.12);
+  border: 1px solid rgba(203, 166, 247, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  padding: 4px;
+}
+
+.docker-deploy-img-icon {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.docker-deploy-pulse-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--peach);
+  box-shadow: 0 0 8px var(--peach);
+  animation: pulseDot 1.5s infinite;
+}
+
+.docker-deploy-toast-card.status-success .docker-deploy-pulse-dot {
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: none;
+}
+
+.docker-deploy-toast-card.status-error .docker-deploy-pulse-dot {
+  background: var(--red);
+  box-shadow: 0 0 8px var(--red);
+  animation: none;
+}
+
+.docker-deploy-titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.docker-deploy-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.docker-deploy-subtitle {
+  font-size: 0.75rem;
+  color: var(--subtext0);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.docker-deploy-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.docker-deploy-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--subtext0);
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 1.1rem;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  line-height: 1;
+}
+
+.docker-deploy-close-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.docker-deploy-progress-wrap {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.docker-deploy-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--mauve), var(--sapphire), var(--green));
+  transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  border-radius: 999px;
+}
+
+.docker-deploy-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--subtext0);
+  padding: 4px 0;
+}
+
+.deploy-step-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: color 0.2s ease;
+}
+
+.deploy-step-item.active {
+  color: var(--peach);
+  font-weight: 600;
+}
+
+.deploy-step-item.completed {
+  color: var(--green);
+}
+
+.deploy-step-item.error {
+  color: var(--red);
+  font-weight: 600;
+}
+
+.docker-deploy-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
