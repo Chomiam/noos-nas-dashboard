@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" media="print" onload="this.media='all'">
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"></noscript>
-  <link rel="stylesheet" href="/css/style.css?v=20261001_01">
+  <link rel="stylesheet" href="/css/style.css?v=20261001_02">
   <script>
     (function() {
       try {
@@ -3510,9 +3510,9 @@
     </div>
   </div>
 
-  <!-- MODALE MONTAGE ET INITIALISATION DE VOLUME -->
+  <!-- MODALE MONTAGE ET INITIALISATION DE VOLUME (Layout Horizontal Catppuccin) -->
   <div class="file-modal-overlay" id="mount-volume-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'mount-volume-modal')">
-    <div class="file-modal-window format-window">
+    <div class="file-modal-window mount-volume-horizontal-window">
       <div class="file-modal-header" style="border-bottom:1px solid rgba(137, 180, 250, 0.2);">
         <div style="display:flex; align-items:center; gap:10px;">
           <span class="badge badge-primary" id="mount-modal-badge" style="font-size:0.75rem; font-weight:800; letter-spacing:0.5px;">MONTAGE NAS</span>
@@ -3521,206 +3521,240 @@
         <button type="button" class="btn-close-modal" onclick="closeMountVolumeModal()" title="Fermer la fenêtre">&times;</button>
       </div>
 
-      <div class="storage-wizard-body">
+      <div class="storage-wizard-body" style="padding: 20px 24px;">
         <input type="hidden" id="mount-target-name">
         <input type="hidden" id="mount-target-device">
         <input type="hidden" id="mount-target-level">
         <input type="hidden" id="mount-target-format" value="false">
         <input type="hidden" id="mount-target-detected-fs" value="">
 
-        <div class="form-group" id="mount-device-input-wrap" style="display:none; margin-bottom:14px;">
-          <label class="form-label" for="mount-custom-device">
-            <span>Périphérique ou Partition à Monter</span>
-            <span class="label-tag">Périphérique</span>
-          </label>
-          <div class="input-with-icon">
-            <span class="input-icon-prefix">🖴</span>
-            <input type="text" id="mount-custom-device" class="form-control font-mono" value="/dev/sdb1" placeholder="/dev/sdb1 ou /dev/md0">
-          </div>
-          <div class="form-hint">
-            <span>Chemin du disque ou de la partition (ex: /dev/sdb1, /dev/md0, /dev/disk/by-uuid/...).</span>
-          </div>
-        </div>
-
-        <div class="storage-modal-infobox" id="mount-modal-info">
-          <span class="infobox-icon">🛡️</span>
-          <div class="infobox-text" id="mount-modal-info-text">
-            Ce volume de stockage va être initialisé et monté pour accueillir vos fichiers, partages Samba et médias.
-          </div>
-        </div>
-
-        <div id="mount-vg-options-wrap">
-          <div class="form-group">
-            <label class="form-label" for="mount-select-raid">
-              <span>Configuration RAID &amp; Redondance</span>
-              <span class="label-tag">Topologie</span>
-            </label>
-            <select id="mount-select-raid" class="form-control" onchange="updateMountRaidHint()">
-              <option value="raid5" selected>🛡️ RAID 5 (Recommandé : 10.9 To utiles protégés avec parité sur 4 disques)</option>
-              <option value="linear">⚡ Linéaire / JBOD (14.6 To utiles sans tolérance de panne)</option>
-            </select>
-            <div class="form-hint" id="mount-raid-hint">
-              <span>🛡️</span> <span>Tolérance de panne : 1 disque de secours. Le système reste opérationnel en cas de panne matérielle.</span>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label" for="mount-input-lvname">
-              <span>Nom du Volume Logique (LV)</span>
-              <span class="label-tag">LVM2</span>
-            </label>
-            <div class="input-with-icon">
-              <span class="input-icon-prefix">🏷️</span>
-              <input type="text" id="mount-input-lvname" class="form-control font-mono" value="storage" placeholder="ex: storage">
-            </div>
-            <div class="form-hint">
-              <span>Identifiant du volume logique dans le pool LVM.</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Alerte Formatage Destructif si mode formatage -->
-        <div id="mount-format-warning-box" style="display:none; background:rgba(243, 139, 168, 0.12); border:1px solid rgba(243, 139, 168, 0.35); border-radius:var(--radius-md); padding:14px; margin-bottom:14px;">
-          <div style="display:flex; align-items:flex-start; gap:10px;">
-            <span style="font-size:1.5rem; line-height:1;">⚠️</span>
-            <div>
-              <strong style="color:var(--red); font-size:0.95rem;">ATTENTION : Opération de Formatage Destructive</strong>
-              <div style="font-size:0.83rem; color:var(--text); margin-top:4px; line-height:1.4;">
-                Toutes les données présentes sur ce volume seront définitivement effacées. Ne continuez pas si ce disque contient des données d'une autre machine !
+        <!-- Grille Horizontale 2 Colonnes -->
+        <div class="mount-horizontal-layout">
+          
+          <!-- COLONNE GAUCHE : Configuration & Cible Système de Fichiers -->
+          <div class="mount-layout-col">
+            
+            <div class="storage-modal-infobox" id="mount-modal-info" style="margin-bottom:14px;">
+              <span class="infobox-icon">🛡️</span>
+              <div class="infobox-text" id="mount-modal-info-text">
+                Ce volume de stockage va être initialisé et monté pour accueillir vos fichiers, partages Samba et médias.
               </div>
             </div>
-          </div>
-        </div>
 
-        <!-- Alerte Données Préservées si mode montage existant -->
-        <div id="mount-preserve-info-box" style="display:none; background:rgba(166, 227, 161, 0.12); border:1px solid rgba(166, 227, 161, 0.3); border-radius:var(--radius-md); padding:12px 14px; margin-bottom:14px;">
-          <div style="display:flex; align-items:center; gap:10px;">
-            <span style="font-size:1.3rem;">🛡️</span>
-            <div>
-              <strong style="color:var(--green); font-size:0.9rem;">Préservation intégrale des données existantes</strong>
-              <div style="font-size:0.82rem; color:var(--text); margin-top:2px;">
-                Ce volume sera monté sans aucun formatage. Système de fichiers détecté : <strong id="mount-detected-fs-label" class="badge badge-primary">BTRFS</strong>
+            <div class="form-group" id="mount-device-input-wrap" style="display:none; margin-bottom:12px;">
+              <label class="form-label" for="mount-custom-device">
+                <span>Périphérique ou Partition à Monter</span>
+                <span class="label-tag">Périphérique</span>
+              </label>
+              <div class="input-with-icon">
+                <span class="input-icon-prefix">🖴</span>
+                <input type="text" id="mount-custom-device" class="form-control font-mono" value="/dev/sdb1" placeholder="/dev/sdb1 ou /dev/md0">
+              </div>
+              <div class="form-hint">
+                <span>Chemin du disque ou de la partition (ex: /dev/sdb1, /dev/md0...).</span>
               </div>
             </div>
-          </div>
-        </div>
 
-        <div class="form-group" id="mount-fstype-group">
-          <label class="form-label" for="mount-select-fstype">
-            <span>Système de Fichiers Cible</span>
-            <span class="label-tag">Formatage</span>
-          </label>
-          <select id="mount-select-fstype" class="form-control" onchange="updateMountFsHint()">
-            <option value="btrfs" selected>🚀 Btrfs (Recommandé NAS : Snapshots, Compression Zstd, Auto-guérison)</option>
-            <option value="ext4">🐧 Ext4 (Standard Linux : Ultra-éprouvé, Stabilité maximale)</option>
-            <option value="xfs">⚡ XFS (Hautes performances : Gros fichiers multimédia &amp; Streaming)</option>
-          </select>
-          <div class="form-hint" id="mount-fs-hint">
-            <span>✨</span> <span>Btrfs active la compression transparente Zstd pour économiser jusqu'à 30% d'espace disque.</span>
-          </div>
-        </div>
-
-        <div class="form-group" id="mount-format-confirm-group" style="display:none; margin-bottom:16px;">
-          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.88rem; color:var(--text);">
-            <input type="checkbox" id="mount-confirm-format-checkbox" onchange="toggleMountSubmitBtn()" style="accent-color:var(--red); width:18px; height:18px;">
-            <span>Je confirme vouloir formater ce volume et effacer irrémédiablement son contenu.</span>
-          </label>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="mount-input-path">
-            <span>Point de Montage Système</span>
-            <span class="label-tag">Dossier /mnt</span>
-          </label>
-          <div class="input-with-icon">
-            <span class="input-icon-prefix">📁</span>
-            <input type="text" id="mount-input-path" class="form-control font-mono" value="/mnt/storage" placeholder="/mnt/storage">
-          </div>
-          <div class="form-hint">
-            <span>Les partages Samba, sFTP et dossiers médias y seront immédiatement rattachés.</span>
-          </div>
-        </div>
-
-        <!-- Section Drapeaux de Montage (Flags) & Persistance NixOS -->
-        <div class="mount-options-card">
-          <div class="mount-options-header">
-            <span style="font-weight:700; color:var(--text); font-size:0.88rem; display:flex; align-items:center; gap:6px;">
-              <span>⚙️</span> Options &amp; Drapeaux de Montage (Flags)
-            </span>
-            <span class="badge badge-accent" style="font-size:0.7rem;">NixOS Déclaratif</span>
-          </div>
-
-          <div class="mount-preset-selector" style="margin-bottom:12px;">
-            <label class="form-label" style="font-size:0.78rem; margin-bottom:4px;">Profil d'options prédéfini</label>
-            <select id="mount-flags-preset" class="form-control form-control-sm" onchange="onMountPresetChanged()">
-              <option value="nas-optimal" selected>🚀 Profil NAS Optimal (nofail, noatime, defaults, zstd)</option>
-              <option value="readonly">🛡️ Profil Sécurisé / Lecture Seule (ro, nofail, defaults)</option>
-              <option value="custom">⚙️ Configuration personnalisée des drapeaux</option>
-            </select>
-          </div>
-
-          <div class="mount-flags-grid" id="mount-flags-grid">
-            <label class="mount-flag-checkbox-item">
-              <input type="checkbox" id="flag-nofail" checked onchange="onMountFlagManualChange()">
-              <div class="mount-flag-info">
-                <span class="mount-flag-name"><code>nofail</code> <span class="badge badge-success" style="font-size:0.65rem;">Indispensable</span></span>
-                <span class="mount-flag-desc">Ne bloque JAMAIS le démarrage du NAS si le disque est débranché ou manquant.</span>
+            <!-- Alerte Formatage Destructif si mode formatage -->
+            <div id="mount-format-warning-box" style="display:none; background:rgba(243, 139, 168, 0.12); border:1px solid rgba(243, 139, 168, 0.35); border-radius:var(--radius-md); padding:12px 14px; margin-bottom:12px;">
+              <div style="display:flex; align-items:flex-start; gap:10px;">
+                <span style="font-size:1.4rem; line-height:1;">⚠️</span>
+                <div>
+                  <strong style="color:var(--red); font-size:0.9rem;">ATTENTION : Opération de Formatage Destructive</strong>
+                  <div style="font-size:0.8rem; color:var(--text); margin-top:3px; line-height:1.4;">
+                    Toutes les données présentes sur ce volume seront définitivement effacées.
+                  </div>
+                </div>
               </div>
-            </label>
+            </div>
 
-            <label class="mount-flag-checkbox-item">
-              <input type="checkbox" id="flag-noatime" checked onchange="onMountFlagManualChange()">
-              <div class="mount-flag-info">
-                <span class="mount-flag-name"><code>noatime</code> <span class="badge badge-success" style="font-size:0.65rem;">Recommandé</span></span>
-                <span class="mount-flag-desc">Désactive la date de dernier accès : préserve les disques/SSD et maximise les débits.</span>
+            <!-- Alerte Données Préservées si mode montage existant -->
+            <div id="mount-preserve-info-box" style="display:none; background:rgba(166, 227, 161, 0.12); border:1px solid rgba(166, 227, 161, 0.3); border-radius:var(--radius-md); padding:12px 14px; margin-bottom:12px;">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span style="font-size:1.3rem;">🛡️</span>
+                <div>
+                  <strong style="color:var(--green); font-size:0.88rem;">Préservation intégrale des données existantes</strong>
+                  <div style="font-size:0.8rem; color:var(--text); margin-top:2px;">
+                    Ce volume sera monté sans formater. FS détecté : <strong id="mount-detected-fs-label" class="badge badge-primary">BTRFS</strong>
+                  </div>
+                </div>
               </div>
-            </label>
+            </div>
 
-            <label class="mount-flag-checkbox-item">
-              <input type="checkbox" id="flag-defaults" checked onchange="onMountFlagManualChange()">
-              <div class="mount-flag-info">
-                <span class="mount-flag-name"><code>defaults</code></span>
-                <span class="mount-flag-desc">Options standard du noyau Linux (rw, suid, dev, exec, auto, nouser, async).</span>
+            <div id="mount-vg-options-wrap" style="margin-bottom:12px;">
+              <div class="form-group" style="margin-bottom:12px;">
+                <label class="form-label" for="mount-select-raid">
+                  <span>Configuration RAID &amp; Redondance</span>
+                  <span class="label-tag">Topologie</span>
+                </label>
+                <select id="mount-select-raid" class="form-control" onchange="updateMountRaidHint()">
+                  <option value="raid5" selected>🛡️ RAID 5 (Recommandé : Parité protégée)</option>
+                  <option value="linear">⚡ Linéaire / JBOD (Plein volume sans tolérance)</option>
+                </select>
+                <div class="form-hint" id="mount-raid-hint">
+                  <span>🛡️</span> <span>Tolérance de panne : 1 disque de secours. Le système reste opérationnel en cas de panne matérielle.</span>
+                </div>
               </div>
-            </label>
 
-            <label class="mount-flag-checkbox-item" id="flag-compress-wrap">
-              <input type="checkbox" id="flag-compress" checked onchange="onMountFlagManualChange()">
-              <div class="mount-flag-info">
-                <span class="mount-flag-name"><code>compress=zstd</code> <span class="badge badge-accent" style="font-size:0.65rem;">Btrfs</span></span>
-                <span class="mount-flag-desc">Compression transparente Zstandard (économise 20% à 35% d'espace disque).</span>
+              <div class="form-group" style="margin-bottom:12px;">
+                <label class="form-label" for="mount-input-lvname">
+                  <span>Nom du Volume Logique (LV)</span>
+                  <span class="label-tag">LVM2</span>
+                </label>
+                <div class="input-with-icon">
+                  <span class="input-icon-prefix">🏷️</span>
+                  <input type="text" id="mount-input-lvname" class="form-control font-mono" value="storage" placeholder="ex: storage">
+                </div>
               </div>
-            </label>
+            </div>
+
+            <div class="form-group" id="mount-fstype-group" style="margin-bottom:12px;">
+              <label class="form-label" for="mount-select-fstype">
+                <span>Système de Fichiers Cible</span>
+                <span class="label-tag">Formatage</span>
+              </label>
+              <select id="mount-select-fstype" class="form-control" onchange="updateMountFsHint()">
+                <option value="btrfs" selected>🚀 Btrfs (Recommandé NAS : Snapshots, Compression Zstd, Auto-guérison)</option>
+                <option value="ext4">🐧 Ext4 (Standard Linux : Ultra-éprouvé, Stabilité maximale)</option>
+                <option value="xfs">⚡ XFS (Hautes performances : Gros fichiers multimédia &amp; Streaming)</option>
+              </select>
+              <div class="form-hint" id="mount-fs-hint">
+                <span>✨</span> <span>Btrfs active la compression transparente Zstd pour économiser jusqu'à 30% d'espace disque.</span>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom:12px;">
+              <label class="form-label" for="mount-input-path">
+                <span>Point de Montage Système</span>
+                <span class="label-tag">Dossier /mnt</span>
+              </label>
+              <div class="input-with-icon">
+                <span class="input-icon-prefix">📁</span>
+                <input type="text" id="mount-input-path" class="form-control font-mono" value="/mnt/storage" placeholder="/mnt/storage">
+              </div>
+              <div class="form-hint">
+                <span>Rattachement automatique des partages Samba, sFTP et dossiers multimédia.</span>
+              </div>
+            </div>
+
+            <div class="form-group" id="mount-format-confirm-group" style="display:none; margin-top:14px; margin-bottom:0;">
+              <label class="mount-confirm-destructive-box">
+                <input type="checkbox" id="mount-confirm-format-checkbox" onchange="toggleMountSubmitBtn()" style="accent-color:var(--red); width:18px; height:18px;">
+                <span style="font-size:0.84rem; color:var(--red); font-weight:600;">Je confirme vouloir formater ce volume et effacer irrémédiablement son contenu.</span>
+              </label>
+            </div>
+
           </div>
 
-          <!-- Champ options additionnelles -->
-          <div style="margin-top:10px;">
-            <input type="text" id="mount-custom-options" class="form-control form-control-sm font-mono" placeholder="Options supplémentaires (ex: commit=60,nodev)" style="font-size:0.78rem;">
-          </div>
-
-          <!-- Sauvegarde déclarative NixOS -->
-          <div style="margin-top:14px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08);">
-            <label class="mount-flag-checkbox-item" style="background:rgba(203,166,247,0.08); border-color:rgba(203,166,247,0.25);">
-              <input type="checkbox" id="mount-checkbox-persist" checked>
-              <div class="mount-flag-info">
-                <span class="mount-flag-name" style="color:var(--mauve); font-weight:700;">💾 Sauvegarder durablement dans NixOS (<code>mounts.json</code>)</span>
-                <span class="mount-flag-desc">Inscrit déclarativement ce montage dans <code>mounts.json</code> lu par <code>mounts.nix</code> pour être remonté automatiquement à chaque démarrage du NAS.</span>
+          <!-- COLONNE DROITE : Drapeaux de montage (Flags) sur des lignes + Persistance -->
+          <div class="mount-layout-col">
+            <div class="mount-options-card" style="margin-top:0;">
+              <div class="mount-options-header">
+                <span style="font-weight:700; color:var(--text); font-size:0.88rem; display:flex; align-items:center; gap:6px;">
+                  <span>⚙️</span> Drapeaux de Montage (Flags de Volume)
+                </span>
+                <span class="badge badge-accent" style="font-size:0.7rem;">NixOS Déclaratif</span>
               </div>
-            </label>
-          </div>
-        </div>
 
-        <div style="background:rgba(166,227,161,0.08); border:1px solid rgba(166,227,161,0.22); border-radius:var(--radius-md); padding:10px 14px; margin-top:16px; display:flex; align-items:center; gap:10px; font-size:0.8rem; color:var(--text);">
-          <span style="font-size:1.1rem; color:var(--green);">🛡️</span>
-          <span>Les permissions <code>2775 (setgid)</code> seront attribuées pour un accès lecture/écriture complet sans restriction.</span>
+              <div class="mount-preset-selector" style="margin-bottom:12px;">
+                <label class="form-label" style="font-size:0.78rem; margin-bottom:4px;">Profil d'options prédéfini</label>
+                <select id="mount-flags-preset" class="form-control form-control-sm" onchange="onMountPresetChanged()">
+                  <option value="nas-optimal" selected>🚀 Profil NAS Optimal (nofail, noatime, defaults, zstd)</option>
+                  <option value="readonly">🛡️ Profil Sécurisé / Lecture Seule (ro, nofail, defaults)</option>
+                  <option value="custom">⚙️ Configuration personnalisée des drapeaux</option>
+                </select>
+              </div>
+
+              <!-- Drapeaux de volumes présentés sur des lignes horizontales soignées -->
+              <div class="mount-flags-rows-list" id="mount-flags-grid">
+                
+                <label class="mount-flag-row" for="flag-nofail">
+                  <div class="mount-flag-row-left">
+                    <div class="mount-flag-row-header">
+                      <code>nofail</code>
+                      <span class="badge badge-success" style="font-size:0.65rem;">Indispensable</span>
+                    </div>
+                    <div class="mount-flag-row-desc">Ne bloque JAMAIS le boot du NAS si le disque est absent ou débranché.</div>
+                  </div>
+                  <input type="checkbox" id="flag-nofail" checked onchange="onMountFlagManualChange()" class="mount-flag-checkbox">
+                </label>
+
+                <label class="mount-flag-row" for="flag-noatime">
+                  <div class="mount-flag-row-left">
+                    <div class="mount-flag-row-header">
+                      <code>noatime</code>
+                      <span class="badge badge-success" style="font-size:0.65rem;">Recommandé</span>
+                    </div>
+                    <div class="mount-flag-row-desc">Désactive la date d'accès : préserve les disques/SSD et maximise les débits I/O.</div>
+                  </div>
+                  <input type="checkbox" id="flag-noatime" checked onchange="onMountFlagManualChange()" class="mount-flag-checkbox">
+                </label>
+
+                <label class="mount-flag-row" for="flag-defaults">
+                  <div class="mount-flag-row-left">
+                    <div class="mount-flag-row-header">
+                      <code>defaults</code>
+                      <span class="badge badge-secondary" style="font-size:0.65rem;">Standard</span>
+                    </div>
+                    <div class="mount-flag-row-desc">Options standard du noyau Linux (rw, suid, dev, exec, auto, nouser, async).</div>
+                  </div>
+                  <input type="checkbox" id="flag-defaults" checked onchange="onMountFlagManualChange()" class="mount-flag-checkbox">
+                </label>
+
+                <label class="mount-flag-row" id="flag-compress-wrap" for="flag-compress">
+                  <div class="mount-flag-row-left">
+                    <div class="mount-flag-row-header">
+                      <code>compress=zstd</code>
+                      <span class="badge badge-accent" style="font-size:0.65rem;">Btrfs</span>
+                    </div>
+                    <div class="mount-flag-row-desc">Compression transparente Zstandard (économise 20% à 35% d'espace disque).</div>
+                  </div>
+                  <input type="checkbox" id="flag-compress" checked onchange="onMountFlagManualChange()" class="mount-flag-checkbox">
+                </label>
+
+              </div>
+
+              <!-- Champ options additionnelles -->
+              <div style="margin-top:10px;">
+                <label class="form-label" for="mount-custom-options" style="font-size:0.75rem; margin-bottom:3px;">Options de montage additionnelles :</label>
+                <input type="text" id="mount-custom-options" class="form-control form-control-sm font-mono" placeholder="ex: commit=60,nodev" style="font-size:0.78rem;">
+              </div>
+
+              <!-- Sauvegarde déclarative NixOS -->
+              <div style="margin-top:14px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08);">
+                <label class="mount-flag-row mount-persist-row" for="mount-checkbox-persist">
+                  <div class="mount-flag-row-left">
+                    <div class="mount-flag-row-header">
+                      <span style="color:var(--mauve); font-weight:700; font-size:0.84rem;">💾 Sauvegarder dans NixOS (<code>mounts.json</code>)</span>
+                    </div>
+                    <div class="mount-flag-row-desc">Inscrit déclarativement ce montage dans <code>mounts.nix</code> pour remontage automatique à chaque démarrage du NAS.</div>
+                  </div>
+                  <input type="checkbox" id="mount-checkbox-persist" checked class="mount-flag-checkbox">
+                </label>
+              </div>
+            </div>
+
+            <div style="background:rgba(166,227,161,0.08); border:1px solid rgba(166,227,161,0.22); border-radius:var(--radius-md); padding:10px 14px; margin-top:12px; display:flex; align-items:center; gap:10px; font-size:0.78rem; color:var(--text);">
+              <span style="font-size:1.1rem; color:var(--green);">🛡️</span>
+              <span>Permissions <code>2775 (setgid)</code> attribuées pour accès lecture/écriture complet sans restriction.</span>
+            </div>
+
+          </div>
+
         </div>
       </div>
 
-      <div class="file-modal-footer" style="padding:16px 22px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end; gap:12px; background:var(--mantle);">
-        <button type="button" class="btn btn-secondary" onclick="closeMountVolumeModal()">Annuler</button>
-        <button type="button" class="btn btn-primary" id="btn-submit-mount" onclick="submitMountVolume()" style="padding:10px 20px; font-weight:700;">
-          🚀 Initialiser &amp; Monter dans /mnt/storage
-        </button>
+      <div class="file-modal-footer" style="padding:16px 24px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center; background:var(--mantle); flex-wrap:wrap; gap:12px;">
+        <div style="font-size:0.8rem; color:var(--subtext0); display:flex; align-items:center; gap:6px;">
+          <span>📁</span>
+          <span>Cible : <code id="mount-footer-summary" style="color:var(--teal);">/mnt/storage</code></span>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <button type="button" class="btn btn-secondary" onclick="closeMountVolumeModal()">Annuler</button>
+          <button type="button" class="btn btn-primary" id="btn-submit-mount" onclick="submitMountVolume()" style="padding:10px 22px; font-weight:700;">
+            🚀 Initialiser &amp; Monter dans /mnt/storage
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -6266,6 +6300,6 @@
 </div><!-- /#app-shell -->
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20261001_05"></script>
+  <script src="/js/app.js?v=20261001_06"></script>
 </body>
 </html>

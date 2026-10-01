@@ -3502,6 +3502,135 @@ select.form-control option,
   flex-direction: column;
 }
 
+/* Modale de Montage Panoramique Horizontale (Catppuccin Mocha) */
+.mount-volume-horizontal-window {
+  width: 940px !important;
+  max-width: 96vw !important;
+  background: var(--base);
+  border: 1px solid rgba(137, 180, 250, 0.28);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 32px 85px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mount-horizontal-layout {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 22px;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .mount-horizontal-layout {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .mount-volume-horizontal-window {
+    width: 96vw !important;
+  }
+}
+
+.mount-layout-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.mount-confirm-destructive-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  background: rgba(243, 139, 168, 0.1);
+  border: 1px solid rgba(243, 139, 168, 0.3);
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.mount-confirm-destructive-box:hover {
+  background: rgba(243, 139, 168, 0.18);
+  border-color: var(--red);
+}
+
+/* Lignes horizontales pour les drapeaux de montage (Flags) */
+.mount-flags-rows-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mount-flag-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  background: rgba(30, 30, 46, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  user-select: none;
+}
+
+.mount-flag-row:hover {
+  background: rgba(49, 50, 68, 0.7);
+  border-color: rgba(137, 180, 250, 0.35);
+  transform: translateX(2px);
+}
+
+.mount-flag-row-left {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+
+.mount-flag-row-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mount-flag-row-header code {
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--mauve);
+  background: rgba(203, 166, 247, 0.12);
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(203, 166, 247, 0.2);
+}
+
+.mount-flag-row-desc {
+  font-size: 0.73rem;
+  color: var(--subtext0);
+  line-height: 1.35;
+}
+
+.mount-flag-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--mauve);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.mount-persist-row {
+  background: rgba(203, 166, 247, 0.08) !important;
+  border-color: rgba(203, 166, 247, 0.25) !important;
+}
+
+.mount-persist-row:hover {
+  background: rgba(203, 166, 247, 0.15) !important;
+  border-color: var(--mauve) !important;
+}
+
 .format-window .file-modal-header {
   padding: 16px 22px;
   background: linear-gradient(180deg, rgba(30, 30, 46, 0.98) 0%, rgba(24, 24, 37, 0.98) 100%);

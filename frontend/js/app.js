@@ -1514,12 +1514,28 @@ async function loadStorage() {
                     ? `<span style="font-size:0.82rem; color:var(--green); font-weight:700; margin-right:6px;">📁 Monté sur ${escapeHtml(r.mountpoint)}</span>
                        <button type="button" class="btn btn-secondary btn-xs" onclick="openRepairPermissionsModal('${escapeHtml(r.mountpoint)}')"><span>🛡️</span> Permissions 2775</button>
                        <button type="button" class="btn btn-secondary btn-xs" onclick="umountVolume('${escapeHtml(r.mountpoint)}')"><span>⏏️</span> Démonter</button>`
-                    : `<button type="button" class="btn btn-primary btn-xs" onclick="openMountVolumeModal('${escapeHtml(r.name)}', '${escapeHtml(r.device)}', '${escapeHtml(r.level)}', false, '${escapeHtml(r.filesystem || '')}')">
-                         <span>⚡</span> Monter sans formater
-                       </button>
-                       <button type="button" class="btn btn-danger btn-xs" style="border:1px solid rgba(243,139,168,0.4); background:rgba(243,139,168,0.1); color:var(--red);" onclick="openMountVolumeModal('${escapeHtml(r.name)}', '${escapeHtml(r.device)}', '${escapeHtml(r.level)}', true, '${escapeHtml(r.filesystem || '')}')">
-                         <span>⚠️</span> Formater le volume
-                       </button>`}
+                    : (() => {
+                        const isFormatted = Boolean(
+                          r.filesystem &&
+                          r.filesystem.trim() !== "" &&
+                          !r.filesystem.toLowerCase().includes("non") &&
+                          !r.filesystem.toLowerCase().includes("inconnu") &&
+                          !r.filesystem.toLowerCase().includes("unknown") &&
+                          r.filesystem.toLowerCase() !== "none"
+                        );
+                        return `
+                          ${isFormatted ? `
+                            <button type="button" class="btn btn-primary btn-xs" onclick="openMountVolumeModal('${escapeHtml(r.name)}', '${escapeHtml(r.device)}', '${escapeHtml(r.level)}', false, '${escapeHtml(r.filesystem || '')}')">
+                              <span>⚡</span> Monter sans formater
+                            </button>
+                          ` : `
+                            <span class="badge badge-secondary" style="font-size:0.75rem; color:var(--subtext0); background:rgba(255,255,255,0.06);">⚠️ Formatage requis</span>
+                          `}
+                          <button type="button" class="btn btn-danger btn-xs" style="border:1px solid rgba(243,139,168,0.4); background:rgba(243,139,168,0.1); color:var(--red);" onclick="openMountVolumeModal('${escapeHtml(r.name)}', '${escapeHtml(r.device)}', '${escapeHtml(r.level)}', true, '${escapeHtml(r.filesystem || '')}')">
+                            <span>⚠️</span> Formater le volume
+                          </button>
+                        `;
+                      })()}
                 </div>
               </div>
 
@@ -6399,6 +6415,11 @@ function openMountVolumeModal(name, device, level, forceFormat = false, detected
   if (pathInput) {
     const cleanPool = (name || "storage").toLowerCase().replace(/[^a-z0-9_-]/g, "");
     pathInput.value = `/mnt/${cleanPool || "storage"}`;
+    const footerSummary = document.getElementById("mount-footer-summary");
+    if (footerSummary) footerSummary.textContent = pathInput.value;
+    pathInput.oninput = () => {
+      if (footerSummary) footerSummary.textContent = pathInput.value || "/mnt/storage";
+    };
   }
 
   // Réinitialiser les drapeaux sur NAS Optimal
