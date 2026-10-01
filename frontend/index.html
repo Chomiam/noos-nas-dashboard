@@ -4780,6 +4780,41 @@
     </div>
   </div>
 
+  <!-- ================= BANNIÈRE / POPUP FLOTTANTE D'ERREUR SYSTÈME DÉTAILLÉE ================= -->
+  <div class="system-error-toast" id="system-error-toast" style="display:none;" onmouseenter="pauseSystemErrorCountdown()" onmouseleave="resumeSystemErrorCountdown()">
+    <div class="system-error-header">
+      <div class="system-error-title-wrap">
+        <div class="system-error-icon-box">🛑</div>
+        <div>
+          <div class="system-error-title" id="system-error-title">Échec de l'Opération Système</div>
+          <div class="system-error-subtitle" id="system-error-subtitle">Détails de l'anomalie rencontrée</div>
+        </div>
+      </div>
+      <div class="system-error-actions">
+        <button type="button" class="btn btn-secondary btn-xs" id="btn-copy-system-error" onclick="copySystemErrorDetails()" title="Copier le rapport d'erreur complet">
+          <span id="copy-error-btn-icon">📋</span> <span id="copy-error-btn-label">Copier</span>
+        </button>
+        <button type="button" class="btn-error-close" onclick="dismissSystemError()" title="Fermer la notification">&times;</button>
+      </div>
+    </div>
+    <div class="system-error-body">
+      <!-- Résumé clair -->
+      <div class="system-error-summary" id="system-error-summary"></div>
+      <!-- Bloc terminal monospace avec détails techniques -->
+      <div class="system-error-terminal-wrap" id="system-error-terminal-wrap" style="display:none;">
+        <div class="system-error-terminal-header">
+          <span>Sortie console & Trace d'erreur</span>
+          <button type="button" class="btn-terminal-toggle" id="btn-toggle-error-terminal" onclick="toggleErrorTerminal()">Agrandir ↕</button>
+        </div>
+        <pre class="system-error-terminal" id="system-error-terminal"></pre>
+      </div>
+    </div>
+    <!-- Barre de décompte visuel des 10 secondes -->
+    <div class="system-error-countdown-wrap">
+      <div class="system-error-countdown-bar" id="system-error-countdown-bar"></div>
+    </div>
+  </div>
+
 
   <!-- MODAL : CRÉATION DE SERVEUR DE JEU -->
   <div class="file-modal-overlay" id="modal-create-game" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-create-game')">

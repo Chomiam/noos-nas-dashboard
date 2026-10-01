@@ -2089,7 +2089,7 @@ async function submitFormatDisk() {
       closeFormatDiskModal();
       loadStorage();
     } else {
-      showToast("Échec du formatage : " + (json.message || "Erreur"), "error");
+      showSystemError("Échec du formatage", "Le formatage du disque a échoué.", json.message || "Erreur de formatage", 12000);
     }
   } catch (err) {
     showToast("Erreur lors du formatage : " + err, "error");
@@ -2313,18 +2313,191 @@ function copyLogs() {
   }
 }
 
+// ==========================================================================
+// BANNIÈRE / POPUP D'ERREUR SYSTÈME DÉTAILLÉE FLOTTANTE (DURÉE >= 10s)
+// ==========================================================================
+let systemErrorDismissTimer = null;
+let systemErrorDuration = 10000;
+let systemErrorRemaining = 10000;
+let systemErrorStartTime = 0;
+let systemErrorIsPaused = false;
+let currentSystemErrorFullText = "";
+
+function showSystemError(title, summary, technicalDetails = null, durationMs = 10000) {
+  const toast = document.getElementById("system-error-toast");
+  if (!toast) {
+    showToast(`${title} : ${summary}`, "error");
+    return;
+  }
+
+  let mainSummary = summary || "Une erreur est survenue lors de l'opération système.";
+  let techDetails = technicalDetails;
+
+  if (!techDetails && mainSummary) {
+    if (mainSummary.includes("ERROR:") || mainSummary.includes("WARNING:") || mainSummary.includes("failed to") || mainSummary.includes("No such file") || mainSummary.includes("Échec du formatage")) {
+      const parts = mainSummary.split(/(?=ERROR:|WARNING:|failed to|cannot open)/);
+      if (parts.length > 1) {
+        mainSummary = parts[0].trim().replace(/:\s*$/, "");
+        techDetails = parts.slice(1).join("\n").trim();
+      } else {
+        techDetails = mainSummary;
+        mainSummary = "L'opération a été interrompue par une erreur système.";
+      }
+    }
+  }
+
+  currentSystemErrorFullText = `[${title}]\n${mainSummary}\n\n${techDetails ? `Détails techniques :\n${techDetails}` : ""}`;
+
+  const titleEl = document.getElementById("system-error-title");
+  const summaryEl = document.getElementById("system-error-summary");
+  const techWrap = document.getElementById("system-error-terminal-wrap");
+  const techEl = document.getElementById("system-error-terminal");
+  const bar = document.getElementById("system-error-countdown-bar");
+
+  if (titleEl) titleEl.textContent = title || "Échec de l'opération";
+  if (summaryEl) summaryEl.textContent = mainSummary;
+
+  if (techDetails && techDetails.trim().length > 0) {
+    if (techEl) techEl.textContent = techDetails.trim();
+    if (techWrap) techWrap.style.display = "block";
+  } else {
+    if (techWrap) techWrap.style.display = "none";
+  }
+
+  toast.classList.remove("toast-fading-out");
+  toast.style.display = "block";
+
+  if (bar) {
+    bar.style.transition = "none";
+    bar.style.width = "100%";
+    setTimeout(() => {
+      bar.style.transition = `width ${durationMs}ms linear`;
+      bar.style.width = "0%";
+    }, 50);
+  }
+
+  systemErrorDuration = durationMs;
+  systemErrorRemaining = durationMs;
+  systemErrorStartTime = Date.now();
+  systemErrorIsPaused = false;
+
+  if (systemErrorDismissTimer) clearTimeout(systemErrorDismissTimer);
+  systemErrorDismissTimer = setTimeout(() => {
+    dismissSystemError();
+  }, durationMs);
+}
+
+function pauseSystemErrorCountdown() {
+  if (systemErrorIsPaused) return;
+  systemErrorIsPaused = true;
+  const elapsed = Date.now() - systemErrorStartTime;
+  systemErrorRemaining = Math.max(1000, systemErrorRemaining - elapsed);
+  if (systemErrorDismissTimer) clearTimeout(systemErrorDismissTimer);
+
+  const bar = document.getElementById("system-error-countdown-bar");
+  if (bar) {
+    const computedWidth = window.getComputedStyle(bar).width;
+    bar.style.transition = "none";
+    bar.style.width = computedWidth;
+  }
+}
+
+function resumeSystemErrorCountdown() {
+  if (!systemErrorIsPaused) return;
+  systemErrorIsPaused = false;
+  systemErrorStartTime = Date.now();
+
+  const bar = document.getElementById("system-error-countdown-bar");
+  if (bar) {
+    bar.style.transition = `width ${systemErrorRemaining}ms linear`;
+    bar.style.width = "0%";
+  }
+
+  if (systemErrorDismissTimer) clearTimeout(systemErrorDismissTimer);
+  systemErrorDismissTimer = setTimeout(() => {
+    dismissSystemError();
+  }, systemErrorRemaining);
+}
+
+function dismissSystemError() {
+  if (systemErrorDismissTimer) {
+    clearTimeout(systemErrorDismissTimer);
+    systemErrorDismissTimer = null;
+  }
+  const toast = document.getElementById("system-error-toast");
+  if (toast) {
+    toast.classList.add("toast-fading-out");
+    setTimeout(() => {
+      toast.style.display = "none";
+      toast.classList.remove("toast-fading-out");
+    }, 450);
+  }
+}
+
+function copySystemErrorDetails() {
+  if (!currentSystemErrorFullText) return;
+  navigator.clipboard.writeText(currentSystemErrorFullText).then(() => {
+    const icon = document.getElementById("copy-error-btn-icon");
+    const label = document.getElementById("copy-error-btn-label");
+    if (icon) icon.textContent = "✅";
+    if (label) label.textContent = "Copié !";
+    setTimeout(() => {
+      if (icon) icon.textContent = "📋";
+      if (label) label.textContent = "Copier";
+    }, 2000);
+  }).catch(() => {});
+}
+
+function toggleErrorTerminal() {
+  const term = document.getElementById("system-error-terminal");
+  const btn = document.getElementById("btn-toggle-error-terminal");
+  if (!term || !btn) return;
+  if (term.classList.contains("expanded")) {
+    term.classList.remove("expanded");
+    btn.textContent = "Agrandir ↕";
+  } else {
+    term.classList.add("expanded");
+    btn.textContent = "Réduire ↕";
+  }
+}
+
 function showToast(message, type = "info") {
+  if (type === "error" && message && (message.length > 70 || message.includes("ERROR:") || message.includes("\n"))) {
+    showSystemError("Erreur Système", message, null, 10000);
+    return;
+  }
+
   const container = document.getElementById("toast-container");
   if (!container) return;
 
   const toast = document.createElement("div");
-  toast.className = "toast";
-  toast.innerHTML = `<span>${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span> <span>${escapeHtml(message)}</span>`;
+  toast.className = `toast toast-${type}`;
+  const icon = type === "success" ? "✅" : type === "error" ? "❌" : "ℹ️";
+
+  if (type === "error") {
+    toast.innerHTML = `
+      <div style="display:flex; align-items:center; gap:8px; flex:1;">
+        <span>${icon}</span>
+        <span style="flex:1;">${escapeHtml(message)}</span>
+      </div>
+      <button type="button" style="background:none; border:none; color:inherit; font-size:1.1rem; cursor:pointer; opacity:0.7; margin-left:8px; line-height:1;" onclick="this.closest('.toast').remove()">&times;</button>
+    `;
+  } else {
+    toast.innerHTML = `<span>${icon}</span> <span>${escapeHtml(message)}</span>`;
+  }
+
   container.appendChild(toast);
 
+  // Les erreurs restent affichées au moins 10 secondes (10000ms), le reste 3.5 secondes
+  const duration = type === "error" ? 10000 : 3500;
+
   setTimeout(() => {
-    toast.remove();
-  }, 3500);
+    if (toast.parentNode) {
+      toast.style.opacity = "0";
+      toast.style.transform = "translateY(10px)";
+      setTimeout(() => toast.remove(), 300);
+    }
+  }, duration);
 }
 
 function escapeHtml(str) {
@@ -6102,7 +6275,7 @@ async function submitMountVolume() {
       closeMountVolumeModal();
       loadStorage();
     } else {
-      showToast("Échec du montage : " + (json.message || "Erreur"), "error");
+      showSystemError("Échec du montage du volume", "Le montage du périphérique a été interrompu par le système.", json.message || "Erreur inconnue", 12000);
     }
   } catch (e) {
     showToast("Erreur de connexion : " + e, "error");

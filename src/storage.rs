@@ -1,7 +1,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1279,35 +1279,31 @@ pub fn repair_path_permissions(req: &RepairPermissionsRequest) -> Result<String,
     }
 }
 
-pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
-    let _ = &req.name;
-    let clean_dev = req.device.trim();
-    let mount_target = req.mountpoint.as_deref().unwrap_or("/mnt/storage").trim();
-    if mount_target.is_empty() || !mount_target.starts_with('/') {
-        return Err("Point de montage invalide.".into());
-    }
+fn resolve_and_activate_block_device(clean_dev: &str, req: &MountVolumeRequest) -> Result<String, String> {
+    let stripped = clean_dev.trim_start_matches("/dev/");
 
-    if mount_target == "/" || mount_target == "/boot" || mount_target.starts_with("/nix") {
-        return Err("Interdiction : Impossible de monter sur un répertoire système.".into());
-    }
-
-    let vg_name = clean_dev.trim_start_matches("/dev/");
+    // Cas A : groupe LVM / RAID (ex: "vg1" ou "/dev/vg1")
     let is_vg = Command::new("vgs")
-        .args([vg_name])
+        .args([stripped])
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
 
-    let final_block_device = if is_vg {
+    if is_vg {
+        let vg_name = stripped;
+        // Activation obligatoire de tous les volumes logiques du Volume Group
+        let _ = Command::new("vgchange").args(["-ay", vg_name]).output();
+        let _ = Command::new("udevadm").args(["settle", "--timeout=2"]).output();
+
         let lv_out = Command::new("lvs")
             .args(["-o", "lv_name", "--noheadings", vg_name])
             .output()
             .map_err(|e| format!("Erreur lvs : {}", e))?;
         let lvs_str = String::from_utf8_lossy(&lv_out.stdout);
-        let first_lv = lvs_str.lines().map(|l| l.trim()).find(|l| !l.is_empty());
+        let first_lv = lvs_str.lines().map(|l| l.trim()).find(|l| !l.is_empty()).map(|s| s.to_string());
 
-        if let Some(lv) = first_lv {
-            format!("/dev/{}/{}", vg_name, lv)
+        let chosen_lv = if let Some(lv) = first_lv {
+            lv
         } else {
             let chosen_lv_name = req.lv_name.as_deref().unwrap_or("storage");
             let raid_type = req.raid_type.as_deref().unwrap_or("raid5");
@@ -1332,16 +1328,110 @@ pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
                 return Err(format!("Échec de création du volume logique : {}", err));
             }
 
-            std::thread::sleep(std::time::Duration::from_millis(1000));
-            format!("/dev/{}/{}", vg_name, chosen_lv_name)
+            let _ = Command::new("vgchange").args(["-ay", vg_name]).output();
+            let _ = Command::new("udevadm").args(["settle", "--timeout=2"]).output();
+            chosen_lv_name.to_string()
+        };
+
+        let candidate_dev = format!("/dev/{}/{}", vg_name, chosen_lv);
+        let candidate_mapper = format!("/dev/mapper/{}-{}", vg_name.replace('-', "--"), chosen_lv.replace('-', "--"));
+
+        if Path::new(&candidate_dev).exists() {
+            return Ok(candidate_dev);
+        } else if Path::new(&candidate_mapper).exists() {
+            return Ok(candidate_mapper);
+        } else {
+            let _ = Command::new("udevadm").args(["settle", "--timeout=3"]).output();
+            if Path::new(&candidate_dev).exists() {
+                return Ok(candidate_dev);
+            } else if Path::new(&candidate_mapper).exists() {
+                return Ok(candidate_mapper);
+            }
+            return Err(format!("Volume logique actif mais périphérique introuvable ('{}' ou '{}').", candidate_dev, candidate_mapper));
         }
+    }
+
+    // Cas B : chemin explicite d'un volume logique LVM (ex: "/dev/vg1/storage" ou "vg1/storage")
+    if stripped.contains('/') && !stripped.starts_with("disk/") {
+        let parts: Vec<&str> = stripped.split('/').collect();
+        if parts.len() == 2 {
+            let vg = parts[0];
+            let lv = parts[1];
+            let _ = Command::new("vgchange").args(["-ay", vg]).output();
+            let _ = Command::new("lvchange").args(["-ay", &format!("{}/{}", vg, lv)]).output();
+            let _ = Command::new("udevadm").args(["settle", "--timeout=2"]).output();
+
+            let candidate_dev = format!("/dev/{}/{}", vg, lv);
+            let candidate_mapper = format!("/dev/mapper/{}-{}", vg.replace('-', "--"), lv.replace('-', "--"));
+            if Path::new(&candidate_dev).exists() {
+                return Ok(candidate_dev);
+            } else if Path::new(&candidate_mapper).exists() {
+                return Ok(candidate_mapper);
+            }
+        }
+    }
+
+    // Cas C : périphérique standard ou /dev/mapper existant
+    if Path::new(clean_dev).exists() {
+        return Ok(clean_dev.to_string());
+    }
+
+    if clean_dev.starts_with("/dev/mapper/") {
+        let _ = Command::new("udevadm").args(["settle", "--timeout=2"]).output();
+        if Path::new(clean_dev).exists() {
+            return Ok(clean_dev.to_string());
+        }
+    }
+
+    Err(format!("Le périphérique bloc '{}' est introuvable sur le système. Vérifiez qu'il est bien connecté ou actif.", clean_dev))
+}
+
+pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
+    let _ = &req.name;
+    let clean_dev = req.device.trim();
+    let mount_target = req.mountpoint.as_deref().unwrap_or("/mnt/storage").trim();
+    if mount_target.is_empty() || !mount_target.starts_with('/') {
+        return Err("Point de montage invalide.".into());
+    }
+
+    if mount_target == "/" || mount_target == "/boot" || mount_target.starts_with("/nix") {
+        return Err("Interdiction : Impossible de monter sur un répertoire système.".into());
+    }
+
+    let final_block_device = resolve_and_activate_block_device(clean_dev, req)?;
+
+    // 1. Contrôle strict de présence physique du fichier de périphérique bloc
+    if !Path::new(&final_block_device).exists() {
+        return Err(format!(
+            "Le périphérique bloc '{}' est introuvable sur le système. Vérifiez qu'il est bien connecté et actif.",
+            final_block_device
+        ));
+    }
+
+    // 2. Détection du système de fichiers existant (blkid + lsblk en fallback)
+    let blkid_out = Command::new("blkid").args(["-o", "value", "-s", "TYPE", &final_block_device]).output();
+    let blkid_fs = blkid_out.as_ref().ok().and_then(|o| {
+        if o.status.success() && !o.stdout.is_empty() {
+            Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+        } else {
+            None
+        }
+    });
+
+    let lsblk_fs = if blkid_fs.is_none() {
+        Command::new("lsblk")
+            .args(["-no", "FSTYPE", &final_block_device])
+            .output()
+            .ok()
+            .and_then(|o| {
+                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if s.is_empty() { None } else { Some(s) }
+            })
     } else {
-        clean_dev.to_string()
+        None
     };
 
-    let blkid_out = Command::new("blkid").args(["-o", "value", "-s", "TYPE", &final_block_device]).output();
-    let has_fs = blkid_out.as_ref().map(|o| !o.stdout.is_empty()).unwrap_or(false);
-
+    let has_fs = blkid_fs.is_some() || lsblk_fs.is_some();
     let fs_type = req.fs_type.as_deref().unwrap_or("btrfs");
 
     if !has_fs {
@@ -1355,7 +1445,7 @@ pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
 
         if let Ok(out) = fmt_status {
             if !out.status.success() {
-                let err = String::from_utf8_lossy(&out.stderr);
+                let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
                 return Err(format!("Échec du formatage en {} : {}", fs_type, err));
             }
         }
