@@ -15514,6 +15514,9 @@ async function loadUsersAndGroups(showNotice = false) {
       if (usersRes.current_user) {
         currentLoggedInUser = usersRes.current_user;
       }
+      if (usersRes.main_admin_user) {
+        mainAdminUser = usersRes.main_admin_user;
+      }
       updateUsersHeroStats();
       renderUsersList();
     } else {
@@ -15738,9 +15741,9 @@ function renderUsersList() {
           </div>
 
           <!-- ACTIONS CARD -->
-          ${isRoot ? `
+          ${(isRoot || (typeof mainAdminUser !== 'undefined' && u.username === mainAdminUser)) ? `
             <div style="display: flex; gap: 8px; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 14px; font-size: 0.8rem; color: var(--subtext0);">
-              <span>🛡️ Superviseur système (NixOS)</span>
+              <span>${isRoot ? '🛡️ Superviseur système' : '👑 Administrateur principal'} (NixOS)</span>
               <span style="padding: 2px 8px; border-radius: 4px; background: rgba(243, 139, 168, 0.15); color: var(--red); font-size: 0.72rem; font-weight: 600;">🔒 Immuable</span>
             </div>
           ` : `
@@ -15804,7 +15807,7 @@ function renderUsersList() {
             <div style="color: var(--subtext0); font-size: 0.75rem;">${u.shell.endsWith('nologin') ? 'Pas de shell' : escapeHtml(u.shell.split('/').pop())}</div>
           </td>
           <td style="padding: 12px 16px; text-align: right;">
-            ${isRoot ? `
+            ${(isRoot || (typeof mainAdminUser !== 'undefined' && u.username === mainAdminUser)) ? `
               <span style="padding: 3px 8px; border-radius: 4px; background: rgba(243, 139, 168, 0.15); color: var(--red); font-size: 0.72rem; font-weight: 600;">🔒 Immuable</span>
             ` : `
               <div style="display: flex; gap: 6px; justify-content: flex-end;">
@@ -16420,11 +16423,24 @@ async function toggleUserLock(username) {
 // --------------------------------------------------------------------------
 // MODAL SUPPRESSION UTILISATEUR
 // --------------------------------------------------------------------------
+let mainAdminUser = "chomiam";
+
 function openDeleteUserModal(username) {
-  document.getElementById('du-username').value = username;
-  document.getElementById('du-username-label').textContent = username;
-  document.getElementById('du-delete-home').checked = true;
-  document.getElementById('du-delete-share').checked = false;
+  const inputUser = document.getElementById('du-username');
+  const labelUser = document.getElementById('du-username-label');
+  const checkHome = document.getElementById('du-delete-home');
+  const checkShare = document.getElementById('du-delete-share');
+
+  if (inputUser) inputUser.value = username;
+  if (labelUser) labelUser.textContent = username;
+  if (checkHome) checkHome.checked = true;
+  if (checkShare) checkShare.checked = false;
+
+  const confirmBtn = document.getElementById('btn-confirm-delete-user');
+  if (confirmBtn) {
+    confirmBtn.disabled = false;
+    confirmBtn.innerHTML = '<span>🗑️</span> Confirmer la Suppression';
+  }
 
   const modal = document.getElementById('modal-delete-user');
   if (modal) modal.style.display = 'flex';
@@ -16437,25 +16453,48 @@ function closeDeleteUserModal() {
 
 async function confirmDeleteUser() {
   const username = document.getElementById('du-username')?.value;
-  if (!username) return;
+  if (!username) {
+    showToast("Nom d'utilisateur introuvable", "error");
+    return;
+  }
 
   const deleteHome = document.getElementById('du-delete-home')?.checked || false;
   const deleteShare = document.getElementById('du-delete-share')?.checked || false;
 
+  const confirmBtn = document.getElementById('btn-confirm-delete-user');
+  const originalHtml = confirmBtn ? confirmBtn.innerHTML : '<span>🗑️</span> Confirmer la Suppression';
+
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span class="spinner-inline">⏳</span> Suppression en cours...';
+  }
+
   try {
-    const res = await fetch(`/api/users/${username}?delete_home=${deleteHome}&delete_share=${deleteShare}`, {
+    const res = await fetch(`/api/users/${encodeURIComponent(username)}?delete_home=${deleteHome}&delete_share=${deleteShare}`, {
       method: 'DELETE'
-    }).then(r => r.json());
+    }).then(async r => {
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok && !data.error) {
+        data.error = `Erreur HTTP ${r.status}`;
+      }
+      return data;
+    });
 
     if (res && res.success) {
-      showToast(`Utilisateur '${username}' supprimé avec succès.`, "success");
+      showToast(res.message || `Utilisateur '${username}' supprimé avec succès.`, "success");
       closeDeleteUserModal();
-      loadUsersAndGroups();
+      await loadUsersAndGroups();
     } else {
       showToast(res.error || "Erreur lors de la suppression", "error");
     }
   } catch (err) {
-    showToast("Erreur de communication", "error");
+    console.error("Erreur confirmDeleteUser :", err);
+    showToast("Erreur de communication avec le serveur", "error");
+  } finally {
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.innerHTML = originalHtml;
+    }
   }
 }
 

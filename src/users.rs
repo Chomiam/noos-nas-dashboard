@@ -582,11 +582,13 @@ pub async fn handle_users_list(headers: HeaderMap) -> Response {
     };
 
     let users = list_all_users().await;
+    let main_admin_user = std::env::var("STEVEOS_USER").unwrap_or_else(|_| "chomiam".to_string());
     (
         StatusCode::OK,
         Json(serde_json::json!({
             "success": true,
             "current_user": session.username,
+            "main_admin_user": main_admin_user,
             "users": users
         })),
     )
@@ -1264,60 +1266,95 @@ pub async fn handle_users_delete(
             .into_response();
     }
 
-    // Révoquer immédiatement toutes les sessions
-    auth::revoke_user_sessions(&username).await;
-
-    // Supprimer de Samba
-    let smbpasswd_bin = find_bin("smbpasswd");
-    let _ = Command::new(smbpasswd_bin).args(["-x", &username]).status();
-
-    // Suppression Linux
-    let userdel_bin = find_bin("userdel");
-    let mut userdel_cmd = Command::new(userdel_bin);
-    if params.delete_home.unwrap_or(false) {
-        userdel_cmd.arg("-r");
-    }
-    userdel_cmd.arg(&username);
-
-    match userdel_cmd.output() {
-        Ok(out) if out.status.success() => {
-            let mut reg = load_registry();
-            reg.users.remove(&username);
-            save_registry(&reg);
-
-            if params.delete_share.unwrap_or(false) {
-                let share_path = format!("/mnt/storage/shares/{}", username);
-                let _ = std::fs::remove_dir_all(&share_path);
-            }
-
-            (
-                StatusCode::OK,
-                Json(serde_json::json!({
-                    "success": true,
-                    "message": format!("Utilisateur '{}' supprimé avec succès.", username)
-                })),
-            )
-                .into_response()
-        }
-        Ok(out) => {
-            let err = String::from_utf8_lossy(&out.stderr);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
+    if let Ok(main_admin) = std::env::var("STEVEOS_USER") {
+        if username == main_admin {
+            return (
+                StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
                     "success": false,
-                    "error": format!("Échec de userdel : {}", err)
+                    "error": format!("Le compte administrateur principal '{}' défini dans vars.nix est immuable et ne peut pas être supprimé.", username)
                 })),
             )
-                .into_response()
+                .into_response();
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
+    }
+
+    // 1. Révoquer immédiatement toutes les sessions web
+    auth::revoke_user_sessions(&username).await;
+
+    // 2. Tuer immédiatement tous les processus actifs et fermer la session systemd
+    let _ = Command::new("loginctl").args(["terminate-user", &username]).status();
+    let _ = Command::new("pkill").args(["-9", "-u", &username]).status();
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+
+    // 3. Supprimer de Samba (smbpasswd et pdbedit)
+    let smbpasswd_bin = find_bin("smbpasswd");
+    let _ = Command::new(&smbpasswd_bin).args(["-x", &username]).status();
+    let pdbedit_bin = find_bin("pdbedit");
+    let _ = Command::new(&pdbedit_bin).args(["-x", "-u", &username]).status();
+
+    // 4. Suppression du compte Linux via userdel avec forçage (-f)
+    let userdel_bin = find_bin("userdel");
+    let mut userdel_cmd = Command::new(userdel_bin);
+    userdel_cmd.arg("-f");
+    userdel_cmd.arg(&username);
+
+    let userdel_res = userdel_cmd.output();
+    let userdel_ok = match userdel_res {
+        Ok(ref out) => {
+            // Code 0 = succès, Code 6 = l'utilisateur n'existait pas dans /etc/passwd (déjà purgé ou virtuel)
+            out.status.success() || out.status.code() == Some(6)
+        }
+        Err(_) => false,
+    };
+
+    // 5. Suppression du répertoire personnel /home/<username> si demandée
+    let delete_home = params.delete_home.unwrap_or(false);
+    if delete_home {
+        let home_path = format!("/home/{}", username);
+        if std::path::Path::new(&home_path).exists() {
+            let _ = Command::new("rm").args(["-rf", &home_path]).status();
+            let _ = std::fs::remove_dir_all(&home_path);
+        }
+    }
+
+    // 6. Suppression du répertoire de partage /mnt/storage/shares/<username> si demandée
+    if params.delete_share.unwrap_or(false) {
+        let share_path = format!("/mnt/storage/shares/{}", username);
+        if std::path::Path::new(&share_path).exists() {
+            let _ = Command::new("rm").args(["-rf", &share_path]).status();
+            let _ = std::fs::remove_dir_all(&share_path);
+        }
+    }
+
+    // 7. Retrait systématique du registre persistant STEvE_OS
+    let mut reg = load_registry();
+    reg.users.remove(&username);
+    save_registry(&reg);
+
+    // 8. Retourner la confirmation
+    if userdel_ok {
+        (
+            StatusCode::OK,
             Json(serde_json::json!({
-                "success": false,
-                "error": format!("Impossible d'exécuter userdel : {}", e)
+                "success": true,
+                "message": format!("Utilisateur '{}' supprimé avec succès.", username)
             })),
         )
-            .into_response(),
+            .into_response()
+    } else {
+        let stderr = userdel_res
+            .as_ref()
+            .map(|o| String::from_utf8_lossy(&o.stderr).trim().to_string())
+            .unwrap_or_default();
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "message": format!("Utilisateur '{}' retiré avec succès.{}", username, if stderr.is_empty() { String::new() } else { format!(" (Note : {})", stderr) })
+            })),
+        )
+            .into_response()
     }
 }
 
