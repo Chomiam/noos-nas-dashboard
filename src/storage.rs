@@ -1,7 +1,31 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::Command;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedMount {
+    pub id: String,
+    pub name: String,
+    pub device: String,
+    #[serde(default, rename = "deviceUuid")]
+    pub device_uuid: Option<String>,
+    #[serde(rename = "mountPoint")]
+    pub mount_point: String,
+    #[serde(rename = "fsType")]
+    pub fs_type: String,
+    #[serde(default)]
+    pub options: Vec<String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub created_at: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageOverview {
@@ -9,6 +33,8 @@ pub struct StorageOverview {
     pub physical_disks: Vec<PhysicalDiskInfo>,
     pub logical_raids: Vec<LogicalRaidInfo>,
     pub active_sync: Option<RaidSyncProgress>,
+    #[serde(default)]
+    pub persisted_mounts: Vec<PersistedMount>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +56,8 @@ pub struct StoragePool {
     pub permissions_mode: String,
     pub is_user_writable: bool,
     pub needs_permission_repair: bool,
+    #[serde(default)]
+    pub is_persisted: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,11 +134,106 @@ pub struct MountVolumeRequest {
     pub fs_type: Option<String>,
     pub raid_type: Option<String>,
     pub lv_name: Option<String>,
+    pub options: Option<Vec<String>>,
+    pub persist: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UmountVolumeRequest {
     pub mountpoint: String,
+    pub remove_persist: Option<bool>,
+}
+
+// --------------------------------------------------------------------------
+// PERSISTANCE DÉCLARATIVE NIXOS (mounts.json)
+// --------------------------------------------------------------------------
+pub fn get_mounts_json_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    // 1. Emplacement persistant standardisé
+    paths.push(PathBuf::from("/var/lib/steveos/mounts.json"));
+
+    // 2. Dossier de configuration résolu
+    let cfg_dir = crate::updates::resolve_config_dir();
+    let cfg_mounts = cfg_dir.join("mounts.json");
+    if !paths.contains(&cfg_mounts) {
+        paths.push(cfg_mounts);
+    }
+
+    // 3. Emplacements connus
+    let u = target_user();
+    let user_dev_mounts = PathBuf::from(format!("/home/{}/Projects/steveos-nas/mounts.json", u));
+    if !paths.contains(&user_dev_mounts) {
+        paths.push(user_dev_mounts);
+    }
+
+    for p in &[
+        "/etc/nixos/mounts.json",
+        "/etc/nixos/steveos-nas/mounts.json",
+        "./mounts.json",
+        "../mounts.json",
+    ] {
+        let pb = PathBuf::from(p);
+        if !paths.contains(&pb) {
+            paths.push(pb);
+        }
+    }
+    paths
+}
+
+pub fn load_persisted_mounts() -> Vec<PersistedMount> {
+    for path in get_mounts_json_paths() {
+        if path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(mounts) = serde_json::from_str::<Vec<PersistedMount>>(&content) {
+                    return mounts;
+                }
+            }
+        }
+    }
+    Vec::new()
+}
+
+pub fn save_persisted_mounts(mounts: &[PersistedMount]) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(mounts).map_err(|e| e.to_string())?;
+    let _ = std::fs::create_dir_all("/var/lib/steveos");
+
+    let mut written = false;
+    for path in get_mounts_json_paths() {
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+        }
+        if std::fs::write(&path, &json).is_ok() {
+            written = true;
+        }
+    }
+
+    if written {
+        Ok(())
+    } else {
+        Err("Impossible de sauvegarder mounts.json sur le disque".into())
+    }
+}
+
+fn sanitize_runtime_mount_options(options: &[String]) -> String {
+    let filtered: Vec<&str> = options
+        .iter()
+        .map(|s| s.trim())
+        .filter(|&opt| {
+            !opt.is_empty()
+                && opt != "nofail"
+                && !opt.starts_with("x-systemd.")
+                && opt != "auto"
+                && opt != "noauto"
+        })
+        .collect();
+
+    if filtered.is_empty() {
+        "defaults,noatime".to_string()
+    } else {
+        filtered.join(",")
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -133,16 +256,24 @@ pub struct CreateRaidRequest {
 // LECTURE ET SCAN CONSOLIDÉ DU STOCKAGE
 // --------------------------------------------------------------------------
 pub fn get_storage_overview() -> StorageOverview {
-    let pools = scan_storage_pools();
+    let mut pools = scan_storage_pools();
     let logical_raids = scan_logical_raids(&pools);
     let physical_disks = scan_physical_disks(&logical_raids);
     let active_sync = logical_raids.iter().find_map(|r| r.sync_progress.clone());
+    let persisted_mounts = load_persisted_mounts();
+
+    for pool in &mut pools {
+        if persisted_mounts.iter().any(|m| m.mount_point == pool.mountpoint) {
+            pool.is_persisted = true;
+        }
+    }
 
     StorageOverview {
         pools,
         physical_disks,
         logical_raids,
         active_sync,
+        persisted_mounts,
     }
 }
 
@@ -196,6 +327,7 @@ fn scan_storage_pools() -> Vec<StoragePool> {
                             permissions_mode,
                             is_user_writable,
                             needs_permission_repair,
+                            is_persisted: false,
                         });
                     }
                 }
@@ -931,6 +1063,32 @@ pub fn create_raid(req: &CreateRaidRequest) -> Result<String, String> {
     let _ = Command::new("mkdir").args(["-p", &mountpoint]).output();
     let _ = Command::new("mount").args([&md_device, &mountpoint]).output();
 
+    let primary_user = target_user();
+    let _ = Command::new("chown").args(["-R", &format!("{}:storage", primary_user), &mountpoint]).output();
+    let _ = Command::new("chmod").args(["2775", &mountpoint]).output();
+
+    let mut opts = vec!["defaults".to_string(), "noatime".to_string(), "nofail".to_string()];
+    if fs_type == "btrfs" {
+        opts.push("compress=zstd".to_string());
+    }
+
+    let mut mounts = load_persisted_mounts();
+    mounts.retain(|m| m.mount_point != mountpoint && m.device != md_device);
+    let mount_id = format!("mount-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs());
+
+    mounts.push(PersistedMount {
+        id: mount_id,
+        name: clean_name.clone(),
+        device: md_device.clone(),
+        device_uuid: None,
+        mount_point: mountpoint.clone(),
+        fs_type: fs_type.clone(),
+        options: opts,
+        enabled: true,
+        created_at: Some("Aujourd'hui".to_string()),
+    });
+    let _ = save_persisted_mounts(&mounts);
+
     Ok(format!(
         "Pool RAID {} ({}) créé avec succès avec {} disques, formaté en {} et monté sur {} !",
         clean_name,
@@ -1203,10 +1361,26 @@ pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
         }
     }
 
+    let detected_fs = if has_fs {
+        String::from_utf8_lossy(&blkid_out.as_ref().unwrap().stdout).trim().to_string()
+    } else {
+        fs_type.to_string()
+    };
+
+    let effective_options: Vec<String> = req.options.clone().unwrap_or_else(|| {
+        let mut opts = vec!["defaults".to_string(), "noatime".to_string(), "nofail".to_string()];
+        if detected_fs == "btrfs" {
+            opts.push("compress=zstd".to_string());
+        }
+        opts
+    });
+
+    let runtime_opts_str = sanitize_runtime_mount_options(&effective_options);
+
     let _ = Command::new("mkdir").args(["-p", mount_target]).output();
 
     let mount_out = Command::new("mount")
-        .args(["-o", "defaults,noatime", &final_block_device, mount_target])
+        .args(["-o", &runtime_opts_str, &final_block_device, mount_target])
         .output()
         .map_err(|e| format!("Impossible d'exécuter mount : {}", e))?;
 
@@ -1219,6 +1393,41 @@ pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
     let primary_user = target_user();
     let _ = Command::new("chown").args(["-R", &format!("{}:storage", primary_user), mount_target]).output();
     let _ = Command::new("chmod").args(["2775", mount_target]).output();
+
+    // Persistance déclarative dans mounts.json
+    let should_persist = req.persist.unwrap_or(true);
+    if should_persist {
+        let uuid = Command::new("blkid")
+            .args(["-s", "UUID", "-o", "value", &final_block_device])
+            .output()
+            .ok()
+            .and_then(|o| {
+                let u = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if u.is_empty() { None } else { Some(u) }
+            });
+
+        let mut mounts = load_persisted_mounts();
+        mounts.retain(|m| m.mount_point != mount_target && m.device != final_block_device);
+
+        let pool_name = mount_target.trim_start_matches("/mnt/").trim_start_matches('/').to_string();
+        let mount_id = format!("mount-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs());
+
+        mounts.push(PersistedMount {
+            id: mount_id,
+            name: if pool_name.is_empty() { "storage".to_string() } else { pool_name },
+            device: final_block_device.clone(),
+            device_uuid: uuid,
+            mount_point: mount_target.to_string(),
+            fs_type: if detected_fs.is_empty() { "auto".to_string() } else { detected_fs },
+            options: effective_options,
+            enabled: true,
+            created_at: Some("Aujourd'hui".to_string()),
+        });
+
+        if let Err(e) = save_persisted_mounts(&mounts) {
+            eprintln!("[STORAGE] Avertissement: échec sauvegarde mounts.json: {}", e);
+        }
+    }
 
     Ok(format!(
         "Le volume {} a été monté avec succès sur {} !",
@@ -1238,6 +1447,17 @@ pub fn umount_volume(req: &UmountVolumeRequest) -> Result<String, String> {
         .map_err(|e| format!("Impossible d'exécuter umount : {}", e))?;
 
     if out.status.success() {
+        let should_remove = req.remove_persist.unwrap_or(true);
+        if should_remove {
+            let mut mounts = load_persisted_mounts();
+            let initial_len = mounts.len();
+            mounts.retain(|m| m.mount_point != target && m.device != target);
+            if mounts.len() != initial_len {
+                if let Err(e) = save_persisted_mounts(&mounts) {
+                    eprintln!("[STORAGE] Avertissement: échec suppression mounts.json: {}", e);
+                }
+            }
+        }
         Ok(format!("Le point de montage {} a été démonté avec succès.", target))
     } else {
         let err = String::from_utf8_lossy(&out.stderr);

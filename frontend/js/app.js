@@ -1348,17 +1348,33 @@ async function loadStorage() {
       if (storageFree) storageFree.textContent = `${mainPool.free_human} libres sur ${mainPool.mountpoint}`;
     }
 
+    // Persisted Mounts Map
+    const persistedMountsList = data.persisted_mounts || [];
+    const persistedMountPoints = new Set(persistedMountsList.map(m => m.mountPoint));
+    const persistedDevices = new Set(persistedMountsList.map(m => m.device));
+
     // Bannière de synchronisation active
     updateRaidSyncBanner(data.active_sync);
 
-    // 1. Grille des Grappes RAID Logiques
+    // Identifier tous les disques membres de n'importe quelle grappe RAID
+    const allRaidMemberDiskNames = new Set();
+    if (data.logical_raids) {
+      data.logical_raids.forEach(r => {
+        (r.members || []).forEach(m => {
+          allRaidMemberDiskNames.add(m);
+          allRaidMemberDiskNames.add(m.replace("/dev/", ""));
+        });
+      });
+    }
+
+    // 1. SECTION 1 : Grappes RAID & Cadres Dédiés avec Disques Membres
     const raidsContainer = document.getElementById("logical-raids-container");
     if (raidsContainer) {
       if (!data.logical_raids || data.logical_raids.length === 0) {
         raidsContainer.innerHTML = `
-          <div style="grid-column: 1 / -1; padding: 26px; text-align: center; background: var(--surface0); border-radius: var(--radius-md); border: 1px dashed rgba(255,255,255,0.12);">
+          <div style="padding: 26px; text-align: center; background: var(--surface0); border-radius: var(--radius-md); border: 1px dashed rgba(255,255,255,0.12);">
             <div style="font-size: 2.2rem; margin-bottom: 8px;">🛡️</div>
-            <div style="font-weight: 700; color: var(--text); font-size: 1.05rem; margin-bottom: 4px;">Aucune grappe RAID configurée</div>
+            <div style="font-weight: 700; color: var(--text); font-size: 1.05rem; margin-bottom: 4px;">Aucune grappe RAID active</div>
             <div style="font-size: 0.84rem; color: var(--subtext0); max-width: 480px; margin: 0 auto 16px auto;">
               Vos disques de stockage sont disponibles. Créez un pool RAID pour sécuriser vos données contre les pannes matérielles.
             </div>
@@ -1373,56 +1389,105 @@ async function loadStorage() {
           if (r.health.includes("sync") || r.health.includes("Reconstruction")) healthBadgeClass = "badge-warning";
           if (r.health.includes("Dégradé") || r.status.includes("degraded")) healthBadgeClass = "badge-danger";
 
-          const membersPills = (r.members || []).map(m => {
-            const shortName = m.replace("/dev/", "");
-            return `<span class="member-disk-pill">💿 ${escapeHtml(shortName)}</span>`;
-          }).join("");
+          const isPersisted = r.mountpoint && (persistedMountPoints.has(r.mountpoint) || persistedDevices.has(r.device));
+          const persistBadge = isPersisted 
+            ? `<span class="badge badge-accent" title="Inscrit déclarativement dans mounts.json (NixOS)">💾 NixOS Persistant</span>` 
+            : "";
+
+          // Trouver les disques physiques membres réels correspondants
+          const memberDisks = (data.physical_disks || []).filter(d => {
+            return (r.members || []).some(m => m.includes(d.name) || m.includes(d.path));
+          });
+
+          const memberDisksHtml = memberDisks.length > 0 ? memberDisks.map((d, idx) => {
+            const isLast = idx === memberDisks.length - 1;
+            const branchIcon = isLast ? "└──" : "├──";
+            const isStandby = d.power_state.toLowerCase().includes("veille") || d.power_state.toLowerCase().includes("standby");
+            const isNvme = d.disk_type.includes("NVMe");
+            const driveIcon = isNvme ? "⚡" : "💿";
+
+            let tempColor = "var(--green)";
+            if (d.temperature_c > 45) tempColor = "var(--peach)";
+            if (d.temperature_c > 52) tempColor = "var(--red)";
+            const tempVal = d.temperature_c > 0 ? `${d.temperature_c} °C` : (isStandby ? "Veille" : "N/A");
+
+            const spindownBtn = d.is_rotational
+              ? `<button type="button" class="btn btn-secondary btn-xs" onclick="triggerSpindown('${escapeHtml(d.name)}')"><span>🌙</span> Veille</button>`
+              : "";
+
+            return `
+              <div class="raid-member-disk-row">
+                <div class="raid-member-left">
+                  <span class="raid-tree-branch">${branchIcon}</span>
+                  <span style="font-size:1.1rem;">${driveIcon}</span>
+                  <div class="raid-member-info">
+                    <div class="raid-member-model">${escapeHtml(d.model)} <span class="badge badge-secondary" style="font-size:0.68rem; margin-left:4px;">${escapeHtml(d.bay_label || d.name)}</span></div>
+                    <div class="raid-member-dev">${escapeHtml(d.path)} &bull; S/N: <code>${escapeHtml(d.serial)}</code></div>
+                  </div>
+                </div>
+
+                <div class="raid-member-middle">
+                  <span class="raid-tele-pill"><strong>${escapeHtml(d.size_human)}</strong></span>
+                  <span class="raid-tele-pill" style="color:${tempColor};">🌡️ ${tempVal}</span>
+                  <span class="raid-tele-pill" style="color:var(--teal);">🛡️ ${escapeHtml(d.smart_status)}</span>
+                  <span class="badge ${isStandby ? 'badge-warning' : 'badge-success'}">${isStandby ? '🌙 Veille' : '✅ Actif'}</span>
+                </div>
+
+                <div class="raid-member-actions">
+                  ${spindownBtn}
+                </div>
+              </div>
+            `;
+          }).join("") : `
+            <div style="font-size:0.8rem; color:var(--subtext0); padding:8px 0;">
+              Membres déclarés : ${(r.members || []).map(m => `<span class="member-disk-pill">💿 ${escapeHtml(m)}</span>`).join(" ")}
+            </div>
+          `;
 
           return `
-            <div class="raid-card">
-              <div class="raid-card-header">
-                <div>
-                  <div class="raid-card-title">
+            <div class="raid-cluster-frame">
+              <div class="raid-cluster-header">
+                <div class="raid-cluster-title-wrap">
+                  <div class="raid-cluster-title">
                     <span>🛡️ ${escapeHtml(r.name)}</span>
-                    <span class="badge badge-accent" style="font-size:0.72rem;">${escapeHtml(r.level)}</span>
+                    <span class="badge badge-accent" style="font-size:0.75rem; font-weight:700;">${escapeHtml(r.level)}</span>
+                    <span class="badge ${healthBadgeClass}">${escapeHtml(r.health)}</span>
+                    <span class="badge badge-secondary" style="font-size:0.72rem;">${escapeHtml(r.filesystem.toUpperCase())}</span>
+                    ${persistBadge}
                   </div>
-                  <div class="raid-card-device">${escapeHtml(r.device)} &bull; ${escapeHtml(r.filesystem)}</div>
+                  <div class="raid-cluster-device-sub">${escapeHtml(r.device)}</div>
                 </div>
-                <span class="badge ${healthBadgeClass}">${escapeHtml(r.health)}</span>
-              </div>
 
-              <div class="metric-value-row" style="margin: 8px 0 4px 0;">
-                <span class="metric-value" style="font-size:1.35rem;">${r.usage_percent}%</span>
-                <span class="metric-unit">${escapeHtml(r.used_bytes ? formatFileSize(r.used_bytes) : "0 o")} / ${escapeHtml(r.size_human)}</span>
-              </div>
-
-              <div class="metric-progress-wrap">
-                <div class="metric-progress-bar ${r.usage_percent > 85 ? 'progress-red' : 'progress-peach'}" style="width: ${Math.min(r.usage_percent, 100)}%;"></div>
-              </div>
-
-              <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.78rem; color:var(--subtext0); margin-top:2px;">
-                <span>Point de montage : <strong>${escapeHtml(r.mountpoint || 'Non monté')}</strong></span>
-                <span>${escapeHtml(r.free_bytes ? formatFileSize(r.free_bytes) : r.size_human)} libres</span>
-              </div>
-
-              <div style="margin-top:4px;">
-                <div style="font-size:0.72rem; color:var(--subtext0); margin-bottom:4px;">Disques physiques membres :</div>
-                <div class="member-disks-wrap">${membersPills}</div>
-              </div>
-
-              <div class="raid-card-actions" style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px; margin-top:8px;">
-                <div>
-                  ${r.mountpoint 
-                    ? `<span style="font-size:0.8rem; color:var(--green); font-weight:600;">📁 Monté sur ${escapeHtml(r.mountpoint)}</span>`
-                    : `<span style="font-size:0.8rem; color:var(--peach); font-weight:600;">⚠️ Volume non monté</span>`}
-                </div>
-                <div>
+                <div class="raid-cluster-actions" style="display:flex; align-items:center; gap:8px;">
                   ${r.mountpoint
-                    ? `<div style="display:inline-flex; gap:6px;">
-  <button type="button" class="btn btn-secondary btn-xs" onclick="openRepairPermissionsModal('${escapeHtml(r.mountpoint)}')"><span>🛡️</span> Permissions</button>
-  <button type="button" class="btn btn-secondary btn-xs" onclick="umountVolume('${escapeHtml(r.mountpoint)}')"><span>⏏️</span> Démonter</button>
-</div>`
+                    ? `<span style="font-size:0.82rem; color:var(--green); font-weight:700; margin-right:6px;">📁 Monté sur ${escapeHtml(r.mountpoint)}</span>
+                       <button type="button" class="btn btn-secondary btn-xs" onclick="openRepairPermissionsModal('${escapeHtml(r.mountpoint)}')"><span>🛡️</span> Permissions 2775</button>
+                       <button type="button" class="btn btn-secondary btn-xs" onclick="umountVolume('${escapeHtml(r.mountpoint)}')"><span>⏏️</span> Démonter</button>`
                     : `<button type="button" class="btn btn-primary btn-xs" onclick="openMountVolumeModal('${escapeHtml(r.name)}', '${escapeHtml(r.device)}', '${escapeHtml(r.level)}')"><span>📁</span> Monter dans /mnt</button>`}
+                </div>
+              </div>
+
+              <!-- Jauge d'espace et métriques -->
+              <div class="raid-cluster-metrics">
+                <div class="raid-cluster-metrics-header">
+                  <div>
+                    <span class="raid-cluster-metrics-val">${r.usage_percent}%</span>
+                    <span class="raid-cluster-metrics-sub" style="margin-left:8px;">${escapeHtml(r.used_bytes ? formatFileSize(r.used_bytes) : "0 o")} utilisés sur ${escapeHtml(r.size_human)}</span>
+                  </div>
+                  <span style="font-size:0.8rem; color:var(--subtext0);">${escapeHtml(r.free_bytes ? formatFileSize(r.free_bytes) : r.size_human)} libres</span>
+                </div>
+                <div class="metric-progress-wrap" style="height:8px; margin:0;">
+                  <div class="metric-progress-bar ${r.usage_percent > 85 ? 'progress-red' : 'progress-peach'}" style="width: ${Math.min(r.usage_percent, 100)}%;"></div>
+                </div>
+              </div>
+
+              <!-- Cadre Dédié des Disques Physiques Membres -->
+              <div class="raid-members-section">
+                <div class="raid-members-title">
+                  <span>💿 Disques Physiques Membres de la Grappe (${(r.members || []).length} disques protégés)</span>
+                </div>
+                <div class="raid-members-list">
+                  ${memberDisksHtml}
                 </div>
               </div>
             </div>
@@ -1431,14 +1496,118 @@ async function loadStorage() {
       }
     }
 
-    // 2. Grille des Systèmes de Fichiers & Montages
+    // 2. SECTION 2 : Disques Physiques Autonomes & Volumes Simples (Hors RAID)
+    const standaloneContainer = document.getElementById("standalone-disks-container");
+    const standaloneCountBadge = document.getElementById("standalone-disks-count-badge");
+    const standaloneDisks = (data.physical_disks || []).filter(d => {
+      return !allRaidMemberDiskNames.has(d.name) && !allRaidMemberDiskNames.has(d.path);
+    });
+
+    if (standaloneCountBadge) {
+      standaloneCountBadge.textContent = `${standaloneDisks.length} Disques Autonomes`;
+    }
+
+    if (standaloneContainer) {
+      if (standaloneDisks.length === 0) {
+        standaloneContainer.innerHTML = `
+          <div style="padding: 20px; text-align: center; color: var(--subtext0); font-size: 0.88rem;">
+            Tous les disques physiques sont membres d'une grappe RAID.
+          </div>
+        `;
+      } else {
+        standaloneContainer.innerHTML = standaloneDisks.map(d => {
+          const isStandby = d.power_state.toLowerCase().includes("veille") || d.power_state.toLowerCase().includes("standby");
+          const isNvme = d.disk_type.includes("NVMe");
+          const driveIcon = isNvme ? "⚡" : "💿";
+
+          let tempColor = "var(--green)";
+          if (d.temperature_c > 45) tempColor = "var(--peach)";
+          if (d.temperature_c > 52) tempColor = "var(--red)";
+          const tempVal = d.temperature_c > 0 ? `${d.temperature_c} °C` : (isStandby ? "Veille" : "N/A");
+
+          // Partitions & Mountpoints
+          let mountedPart = (d.partitions || []).find(p => p.mountpoint);
+          let diskMountpoint = mountedPart ? mountedPart.mountpoint : null;
+          let isPersisted = diskMountpoint && persistedMountPoints.has(diskMountpoint);
+
+          const persistBadge = isPersisted
+            ? `<span class="badge badge-accent" title="Inscrit déclarativement dans mounts.json">💾 NixOS Persistant</span>`
+            : "";
+
+          let roleBadge = `<span class="badge badge-secondary">${escapeHtml(d.role)}</span>`;
+          if (d.is_system) {
+            roleBadge = `<span class="badge badge-primary">🔒 Système NixOS</span>`;
+          } else if (d.role.includes("Libre")) {
+            roleBadge = `<span class="badge badge-success">✨ Libre</span>`;
+          }
+
+          const spindownBtn = d.is_rotational
+            ? `<button type="button" class="btn btn-secondary btn-xs" onclick="triggerSpindown('${escapeHtml(d.name)}')"><span>🌙</span> Veille</button>`
+            : "";
+
+          const formatBtn = !d.is_system
+            ? `<button type="button" class="btn btn-danger btn-xs" onclick="openFormatDiskModalFor('${escapeHtml(d.path)}')"><span>🧹</span> Formater</button>`
+            : "";
+
+          const mountBtn = (!d.is_system && !diskMountpoint)
+            ? `<button type="button" class="btn btn-primary btn-xs" onclick="openMountVolumeModal('${escapeHtml(d.model || d.name)}', '${escapeHtml(d.path)}', '${escapeHtml(d.disk_type)}')"><span>➕</span> Monter dans /mnt</button>`
+            : (diskMountpoint && !d.is_system
+              ? `<button type="button" class="btn btn-secondary btn-xs" onclick="umountVolume('${escapeHtml(diskMountpoint)}')"><span>⏏️</span> Démonter</button>`
+              : "");
+
+          return `
+            <div class="storage-disk-row ${d.is_system ? 'is-system' : ''}">
+              <div class="storage-disk-row-left">
+                <div class="storage-disk-icon-box">${driveIcon}</div>
+                <div class="storage-disk-meta">
+                  <div class="storage-disk-title-line">
+                    <span class="badge badge-secondary" style="font-size:0.7rem; font-weight:700;">${escapeHtml(d.bay_label || d.name)}</span>
+                    <span class="storage-disk-name">${escapeHtml(d.model)}</span>
+                    ${roleBadge}
+                    ${persistBadge}
+                  </div>
+                  <div class="storage-disk-details">
+                    <code>${escapeHtml(d.path)}</code> &bull; ${escapeHtml(d.disk_type)} &bull; S/N: <code>${escapeHtml(d.serial)}</code>
+                    ${diskMountpoint ? ` &bull; <strong style="color:var(--green);">Monté sur ${escapeHtml(diskMountpoint)}</strong>` : ''}
+                  </div>
+                </div>
+              </div>
+
+              <div class="storage-disk-row-middle">
+                <span class="raid-tele-pill" style="font-size:0.85rem; font-weight:700; color:var(--text);">${escapeHtml(d.size_human)}</span>
+                <span class="raid-tele-pill" style="color:${tempColor};">🌡️ ${tempVal}</span>
+                <span class="raid-tele-pill" style="color:var(--teal);">🛡️ ${escapeHtml(d.smart_status)}</span>
+                <span class="badge ${isStandby ? 'badge-warning' : 'badge-success'}">${isStandby ? '🌙 Veille' : '✅ Actif'}</span>
+              </div>
+
+              <div class="storage-disk-row-actions">
+                ${spindownBtn}
+                ${mountBtn}
+                ${formatBtn}
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+    }
+
+    // 3. SECTION 3 : Systèmes de Fichiers & Points de Montage
     const poolsContainer = document.getElementById("pools-container");
     if (poolsContainer) {
-      poolsContainer.innerHTML = data.pools.map(p => `
+      poolsContainer.innerHTML = data.pools.map(p => {
+        const isPersisted = p.is_persisted || persistedMountPoints.has(p.mountpoint);
+        const persistBadge = isPersisted
+          ? `<span class="badge badge-accent" style="font-size:0.7rem;">💾 NixOS Persistant</span>`
+          : "";
+
+        return `
         <div class="pool-card">
           <div class="pool-header">
             <div>
-              <div class="pool-name">📁 ${escapeHtml(p.name)} (${escapeHtml(p.mountpoint)})</div>
+              <div class="pool-name" style="display:flex; align-items:center; gap:6px;">
+                📁 ${escapeHtml(p.name)} (${escapeHtml(p.mountpoint)})
+                ${persistBadge}
+              </div>
               <div style="font-size:0.78rem; color:var(--subtext0);">Système: ${escapeHtml(p.filesystem)}</div>
             </div>
             <span class="badge ${p.health === 'ONLINE' ? 'badge-success' : 'badge-warning'}">${escapeHtml(p.health)}</span>
@@ -1457,7 +1626,6 @@ async function loadStorage() {
             <span>Mode: <code>${escapeHtml(p.permissions_mode || '0755')}</code></span>
           </div>
 
-          <!-- Barre de diagnostic des permissions -->
           <div style="margin-top:10px; border-top:1px solid rgba(255,255,255,0.06); padding-top:8px;">
             ${p.needs_permission_repair
               ? `<div style="display:flex; justify-content:space-between; align-items:center; background:rgba(250,179,135,0.12); border:1px solid rgba(250,179,135,0.3); border-radius:6px; padding:6px 10px; font-size:0.76rem;">
@@ -1470,145 +1638,7 @@ async function loadStorage() {
                  </div>`}
           </div>
         </div>
-      `).join("");
-    }
-
-    // 3. Mise à jour du compteur de disques
-    const countBadge = document.getElementById("disks-count-badge");
-    if (countBadge && data.physical_disks) {
-      const hddCount = data.physical_disks.filter(d => d.is_rotational).length;
-      const ssdCount = data.physical_disks.length - hddCount;
-      countBadge.textContent = `${data.physical_disks.length} Disques (${hddCount} HDD SATA • ${ssdCount} NVMe)`;
-    }
-
-    // 4. Grille des Baies de Disques Physiques
-    const disksContainer = document.getElementById("disks-container");
-    if (disksContainer && data.physical_disks) {
-      disksContainer.innerHTML = data.physical_disks.map(d => {
-        const isStandby = d.power_state.toLowerCase().includes("veille") || d.power_state.toLowerCase().includes("standby");
-        const stateBadge = isStandby 
-          ? `<span class="badge badge-warning">🌙 Veille</span>`
-          : `<span class="badge badge-success"><span class="status-pulse-dot"></span> Actif</span>`;
-
-        let roleBadge = `<span class="badge badge-secondary">${escapeHtml(d.role)}</span>`;
-        if (d.is_system) {
-          roleBadge = `<span class="badge badge-primary">🔒 Système NixOS</span>`;
-        } else if (d.role.includes("Membre")) {
-          roleBadge = `<span class="badge badge-accent">🛡️ ${escapeHtml(d.role)}</span>`;
-        } else if (d.role.includes("Libre")) {
-          roleBadge = `<span class="badge badge-success">✨ Libre</span>`;
-        }
-
-        const spindownBtn = d.is_rotational
-          ? `<button type="button" class="btn btn-secondary btn-xs" onclick="triggerSpindown('${escapeHtml(d.name)}')"><span>🌙</span> Mettre en veille</button>`
-          : `<span style="font-size:0.74rem; color:var(--subtext0);">⚡ Flash NVMe</span>`;
-
-        const formatBtn = !d.is_system
-          ? `<button type="button" class="btn btn-danger btn-xs" onclick="openFormatDiskModalFor('${escapeHtml(d.path)}')"><span>🧹</span> Formater...</button>`
-          : `<span class="bay-protected-badge" title="Disque système protégé"><span>🔒</span> Protégé</span>`;
-
-        const isNvme = d.disk_type.includes("NVMe");
-        const driveIcon = isNvme ? "⚡" : "💿";
-
-        let tempClass = "tele-green";
-        if (d.temperature_c > 45) tempClass = "tele-orange";
-        if (d.temperature_c > 52) tempClass = "tele-red";
-        const tempDisplay = d.temperature_c > 0 ? `${d.temperature_c} °C` : (isStandby ? "Veille" : "N/A");
-
-        const smartClass = d.smart_status.includes("PASS") || d.smart_status.includes("Sain") ? "tele-green" : "tele-red";
-
-        return `
-          <div class="disk-bay-card">
-            <div class="bay-card-header">
-              <div class="bay-identifier-wrap">
-                <span class="bay-badge"><span class="bay-slot-icon">🖴</span> ${escapeHtml(d.bay_label || d.name)}</span>
-                <span class="bay-dev-code">${escapeHtml(d.path)}</span>
-              </div>
-              <div class="bay-badges-row">
-                ${roleBadge}
-                ${stateBadge}
-              </div>
-            </div>
-
-            <div class="bay-hero-body">
-              <div class="bay-graphic-box">${driveIcon}</div>
-              <div class="bay-info-hero">
-                <div class="bay-capacity-val">${escapeHtml(d.size_human)}</div>
-                <div class="bay-model-name" title="${escapeHtml(d.model)}">${escapeHtml(d.model)}</div>
-                <div class="bay-serial-text">S/N : <code>${escapeHtml(d.serial)}</code></div>
-              </div>
-            </div>
-
-            <div class="bay-telemetry-grid">
-              <div class="bay-tele-item">
-                <span class="bay-tele-label">🌡️ Température</span>
-                <span class="bay-tele-val ${tempClass}">${tempDisplay}</span>
-              </div>
-              <div class="bay-tele-item">
-                <span class="bay-tele-label">🛡️ S.M.A.R.T.</span>
-                <span class="bay-tele-val ${smartClass}">${escapeHtml(d.smart_status)}</span>
-              </div>
-              <div class="bay-tele-item">
-                <span class="bay-tele-label">⚙️ Technologie</span>
-                <span class="bay-tele-val">${escapeHtml(d.disk_type)}</span>
-              </div>
-              <div class="bay-tele-item">
-                <span class="bay-tele-label">💤 Mode</span>
-                <span class="bay-tele-val">${escapeHtml(d.power_state)}</span>
-              </div>
-            </div>
-
-            <div class="bay-actions-footer">
-              <div>${spindownBtn}</div>
-              <div>${formatBtn}</div>
-            </div>
-          </div>
-        `;
-      }).join("");
-    }
-
-    // 5. Tableau Détaillé des Disques Physiques
-    const tableBody = document.getElementById("disks-table-body");
-    if (tableBody && data.physical_disks) {
-      tableBody.innerHTML = data.physical_disks.map(d => {
-        const isStandby = d.power_state.toLowerCase().includes("veille") || d.power_state.toLowerCase().includes("standby");
-        const isNvme = d.disk_type.includes("NVMe");
-        const driveIcon = isNvme ? "⚡" : "💿";
-
-        const spindownBtn = d.is_rotational
-          ? `<button type="button" class="btn btn-secondary btn-xs" onclick="triggerSpindown('${escapeHtml(d.name)}')">🌙 Veille</button>`
-          : `<span style="font-size:0.72rem; color:var(--subtext0);">Flash</span>`;
-
-        const formatBtn = !d.is_system
-          ? `<button type="button" class="btn btn-danger btn-xs" onclick="openFormatDiskModalFor('${escapeHtml(d.path)}')">🧹 Formater</button>`
-          : `<span class="badge badge-secondary" style="font-size:0.7rem;">🔒 Protégé</span>`;
-
-        let tempColor = "var(--green)";
-        if (d.temperature_c > 45) tempColor = "var(--peach)";
-        if (d.temperature_c > 52) tempColor = "var(--red)";
-
-        return `
-          <tr>
-            <td><span class="bay-badge">${escapeHtml(d.bay_label || d.name)}</span></td>
-            <td><strong style="font-family:var(--font-mono); font-size:0.85rem;">${escapeHtml(d.path)}</strong></td>
-            <td>
-              <div style="font-weight:600; font-size:0.84rem;">${escapeHtml(d.model)}</div>
-              <div style="font-size:0.72rem; color:var(--subtext0); font-family:var(--font-mono);">S/N: ${escapeHtml(d.serial)}</div>
-            </td>
-            <td><strong style="font-family:var(--font-mono); font-size:0.95rem;">${escapeHtml(d.size_human)}</strong></td>
-            <td>${driveIcon} ${escapeHtml(d.disk_type)}</td>
-            <td><span class="badge ${d.is_system ? 'badge-primary' : (d.role.includes('Membre') ? 'badge-accent' : 'badge-secondary')}">${escapeHtml(d.role)}</span></td>
-            <td><strong style="color:${tempColor}; font-family:var(--font-mono);">${d.temperature_c > 0 ? d.temperature_c + ' °C' : 'N/A'}</strong></td>
-            <td><span class="badge ${d.smart_status.includes('PASS') || d.smart_status.includes('Sain') ? 'badge-success' : 'badge-danger'}">${escapeHtml(d.smart_status)}</span></td>
-            <td><span class="badge ${isStandby ? 'badge-warning' : 'badge-success'}">${isStandby ? '🌙 Veille' : '⚡ Actif'}</span></td>
-            <td style="text-align:right;">
-              <div style="display:inline-flex; gap:6px;">
-                ${spindownBtn}
-                ${formatBtn}
-              </div>
-            </td>
-          </tr>
-        `;
+      `;
       }).join("");
     }
   } catch (err) {
@@ -5662,6 +5692,35 @@ function updateMountFsHint() {
   }
 }
 
+function onMountPresetChanged() {
+  const preset = document.getElementById("mount-flags-preset")?.value;
+  const nofail = document.getElementById("flag-nofail");
+  const noatime = document.getElementById("flag-noatime");
+  const defaults = document.getElementById("flag-defaults");
+  const compress = document.getElementById("flag-compress");
+  const custom = document.getElementById("mount-custom-options");
+  const fsType = document.getElementById("mount-select-fstype")?.value || "btrfs";
+
+  if (preset === "nas-optimal") {
+    if (nofail) nofail.checked = true;
+    if (noatime) noatime.checked = true;
+    if (defaults) defaults.checked = true;
+    if (compress) compress.checked = (fsType === "btrfs");
+    if (custom) custom.value = "";
+  } else if (preset === "readonly") {
+    if (nofail) nofail.checked = true;
+    if (noatime) noatime.checked = false;
+    if (defaults) defaults.checked = true;
+    if (compress) compress.checked = false;
+    if (custom) custom.value = "ro";
+  }
+}
+
+function onMountFlagManualChange() {
+  const preset = document.getElementById("mount-flags-preset");
+  if (preset) preset.value = "custom";
+}
+
 function openMountVolumeModal(name, device, level) {
   const modal = document.getElementById("mount-volume-modal");
   const title = document.getElementById("mount-modal-title");
@@ -5671,6 +5730,7 @@ function openMountVolumeModal(name, device, level) {
   const infoText = document.getElementById("mount-modal-info-text");
   const vgOptions = document.getElementById("mount-vg-options-wrap");
   const btn = document.getElementById("btn-submit-mount");
+  const pathInput = document.getElementById("mount-input-path");
 
   if (!modal) return;
 
@@ -5683,15 +5743,38 @@ function openMountVolumeModal(name, device, level) {
   const isVg = (level || "").toLowerCase().includes("grappe") || (level || "").toLowerCase().includes("pool");
   if (vgOptions) vgOptions.style.display = isVg ? "block" : "none";
 
+  const devWrap = document.getElementById("mount-device-input-wrap");
+  const customDevInput = document.getElementById("mount-custom-device");
+  if (!device) {
+    if (devWrap) devWrap.style.display = "block";
+    if (customDevInput && !customDevInput.value) customDevInput.value = "/dev/sdb1";
+  } else {
+    if (devWrap) devWrap.style.display = "none";
+  }
+
+  // Suggérer un nom propre dans /mnt/
+  if (pathInput) {
+    const cleanPool = (name || "storage").toLowerCase().replace(/[^a-z0-9_-]/g, "");
+    pathInput.value = `/mnt/${cleanPool || "storage"}`;
+  }
+
+  // Réinitialiser les drapeaux sur NAS Optimal
+  const presetSel = document.getElementById("mount-flags-preset");
+  if (presetSel) presetSel.value = "nas-optimal";
+  onMountPresetChanged();
+
+  const persistCheck = document.getElementById("mount-checkbox-persist");
+  if (persistCheck) persistCheck.checked = true;
+
   if (infoText) {
     if (isVg) {
-      infoText.innerHTML = `Ce groupe de stockage <strong>${escapeHtml(name)}</strong> (14.6 To bruts sur 4 disques) va être initialisé avec un volume logique <strong>RAID 5</strong> (10.9 To utiles protégés avec parité) et monté directement dans <code>/mnt/storage</code>.`;
+      infoText.innerHTML = `Ce groupe de stockage <strong>${escapeHtml(name)}</strong> va être initialisé avec un volume logique <strong>RAID 5</strong> et monté durablement dans <code>${escapeHtml(pathInput?.value || '/mnt/storage')}</code>.`;
     } else {
-      infoText.innerHTML = `Le volume <strong>${escapeHtml(device)}</strong> (${escapeHtml(level)}) sera monté et accessible pour vos partages et fichiers dans <code>/mnt/storage</code>.`;
+      infoText.innerHTML = `Le périphérique <strong>${escapeHtml(device)}</strong> (${escapeHtml(level)}) sera monté et accessible pour vos partages et fichiers dans <code>${escapeHtml(pathInput?.value || '/mnt/storage')}</code>.`;
     }
   }
 
-  if (btn) btn.textContent = isVg ? "🚀 Initialiser & Monter dans /mnt/storage" : "📁 Monter le volume";
+  if (btn) btn.textContent = isVg ? "🚀 Initialiser & Monter dans /mnt" : "📁 Monter le volume";
 
   modal.style.display = "flex";
 }
@@ -5703,7 +5786,7 @@ function closeMountVolumeModal() {
 
 async function submitMountVolume() {
   const name = document.getElementById("mount-target-name")?.value;
-  const device = document.getElementById("mount-target-device")?.value;
+  const device = (document.getElementById("mount-target-device")?.value || document.getElementById("mount-custom-device")?.value || "").trim();
   const raidSelect = document.getElementById("mount-select-raid");
   const lvInput = document.getElementById("mount-input-lvname");
   const fstypeSelect = document.getElementById("mount-select-fstype");
@@ -5712,9 +5795,30 @@ async function submitMountVolume() {
 
   if (!device) return;
 
+  // Récupérer les drapeaux sélectionnés
+  const options = [];
+  if (document.getElementById("flag-defaults")?.checked) options.push("defaults");
+  if (document.getElementById("flag-noatime")?.checked) options.push("noatime");
+  if (document.getElementById("flag-nofail")?.checked) options.push("nofail");
+
+  const fsTypeVal = fstypeSelect?.value || "btrfs";
+  if (fsTypeVal === "btrfs" && document.getElementById("flag-compress")?.checked) {
+    options.push("compress=zstd");
+  }
+
+  const customOpts = document.getElementById("mount-custom-options")?.value.trim();
+  if (customOpts) {
+    customOpts.split(",").forEach(opt => {
+      const clean = opt.trim();
+      if (clean && !options.includes(clean)) options.push(clean);
+    });
+  }
+
+  const persist = document.getElementById("mount-checkbox-persist")?.checked ?? true;
+
   if (btn) {
     btn.disabled = true;
-    btn.textContent = "Montage et initialisation en cours...";
+    btn.textContent = "Montage et enregistrement...";
   }
 
   try {
@@ -5725,9 +5829,11 @@ async function submitMountVolume() {
         name: name || "storage",
         device: device,
         mountpoint: pathInput?.value || "/mnt/storage",
-        fs_type: fstypeSelect?.value || "btrfs",
+        fs_type: fsTypeVal,
         raid_type: raidSelect?.value || "raid5",
         lv_name: lvInput?.value || "storage",
+        options: options,
+        persist: persist
       })
     });
 

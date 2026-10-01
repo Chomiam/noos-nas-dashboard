@@ -1157,6 +1157,9 @@
           <button type="button" class="btn btn-primary" onclick="openCreateRaidModal()">
             <span>➕</span> Créer un Pool RAID
           </button>
+          <button type="button" class="btn btn-secondary" id="btn-top-mount-volume" onclick="openMountVolumeModal('Volume Manuel', '', 'Volume simple')">
+            <span>📁</span> Monter un Volume dans /mnt
+          </button>
           <button type="button" class="btn btn-secondary" onclick="openFormatDiskModal()">
             <span>🧹</span> Formater un Disque
           </button>
@@ -1183,80 +1186,49 @@
         </div>
       </div>
 
-      <!-- SECTION 1 : VOLUMES LOGIQUES & GRAPPES RAID -->
+      <!-- SECTION 1 : VOLUMES LOGIQUES & GRAPPES RAID (CADRE DÉDIÉ AVEC DISQUES MEMBRES) -->
       <div class="section-card">
         <div class="section-header">
           <div class="section-title-wrap">
             <div class="section-icon-box" style="background:rgba(203,166,247,0.15); color:var(--mauve);">🛡️</div>
             <div>
-              <div class="section-title">Volumes Logiques & Grappes RAID</div>
-              <div class="section-subtitle">Surveillance des grappes de stockage redondantes (RAID 0, 1, 5, 6, 10, Btrfs), résilience et points de montage</div>
+              <div class="section-title">Grappes RAID &amp; Volumes Redondants</div>
+              <div class="section-subtitle">Surveillance des grappes de stockage, tolérance de panne, points de montage déclaratifs et cadre des disques physiques membres</div>
             </div>
           </div>
         </div>
-        <div class="raids-grid" id="logical-raids-container"></div>
+        <div id="logical-raids-container"></div>
       </div>
 
-      <!-- SECTION 2 : SYSTÈMES DE FICHIERS & POINTS DE MONTAGE -->
-      <div class="section-card">
-        <div class="section-header">
-          <div class="section-title-wrap">
-            <div class="section-icon-box">💾</div>
-            <div>
-              <div class="section-title">Systèmes de Fichiers & Points de Montage Actifs</div>
-              <div class="section-subtitle">Espace alloué sur le système NixOS, dossiers utilisateurs et montages actifs</div>
-            </div>
-          </div>
-        </div>
-        <div class="pools-grid" id="pools-container"></div>
-      </div>
-
-      <!-- SECTION 3 : VOLUMES PHYSIQUES & DISQUES BRUTS -->
+      <!-- SECTION 2 : DISQUES PHYSIQUES INDÉPENDANTS (HORS RAID) -->
       <div class="section-card">
         <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
           <div class="section-title-wrap">
             <div class="section-icon-box" style="background:rgba(137,180,250,0.15); color:var(--blue);">💿</div>
             <div>
-              <div class="section-title">Volumes Physiques & Contrôle d'Énergie</div>
-              <div class="section-subtitle">Inventaire des baies de stockage SATA et slots NVMe, télémétrie S.M.A.R.T. et gestion de l'alimentation</div>
+              <div class="section-title">Disques Physiques Autonomes &amp; Volumes Simples (Hors RAID)</div>
+              <div class="section-subtitle">Affichage en ligne des disques non groupés, SSD système NixOS, disques de travail et médias amovibles</div>
             </div>
           </div>
           <div style="display:flex; align-items:center; gap:10px;">
-            <span class="badge badge-accent" id="disks-count-badge" style="font-size:0.76rem; font-weight:700;">6 Disques</span>
-            <div class="view-toggle-group">
-              <button type="button" class="view-toggle-btn active" id="btn-view-grid" onclick="setDisksView('grid')" title="Vue en Baies (Cartes)">
-                <span>⊞</span> Baies
-              </button>
-              <button type="button" class="view-toggle-btn" id="btn-view-table" onclick="setDisksView('table')" title="Vue Tableau Détaillé">
-                <span>☰</span> Tableau
-              </button>
+            <span class="badge badge-accent" id="standalone-disks-count-badge" style="font-size:0.76rem; font-weight:700;">Disques Autonomes</span>
+          </div>
+        </div>
+        <div id="standalone-disks-container"></div>
+      </div>
+
+      <!-- SECTION 3 : SYSTÈMES DE FICHIERS & POINTS DE MONTAGE ACTIFS -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <div class="section-icon-box">💾</div>
+            <div>
+              <div class="section-title">Systèmes de Fichiers &amp; Points de Montage Actifs</div>
+              <div class="section-subtitle">Espace alloué sur le système NixOS, dossiers utilisateurs et montages durables <code>/mnt</code></div>
             </div>
           </div>
         </div>
-
-        <!-- Vue 1 : Grille des Baies de Disques -->
-        <div class="disks-grid" id="disks-container"></div>
-
-        <!-- Vue 2 : Tableau Détaillé des Disques -->
-        <div class="disks-table-wrap" id="disks-table-container" style="display:none;">
-          <table class="storage-disks-table">
-            <thead>
-              <tr>
-                <th>Baie / Slot</th>
-                <th>Périphérique</th>
-                <th>Modèle / Série</th>
-                <th>Capacité</th>
-                <th>Technologie</th>
-                <th>Rôle / Pool</th>
-                <th>Température</th>
-                <th>Santé SMART</th>
-                <th>Alimentation</th>
-                <th style="text-align:right;">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="disks-table-body"></tbody>
-          </table>
-        </div>
+        <div class="pools-grid" id="pools-container"></div>
       </div>
     </div>
 
@@ -3404,6 +3376,20 @@
         <input type="hidden" id="mount-target-device">
         <input type="hidden" id="mount-target-level">
 
+        <div class="form-group" id="mount-device-input-wrap" style="display:none; margin-bottom:14px;">
+          <label class="form-label" for="mount-custom-device">
+            <span>Périphérique ou Partition à Monter</span>
+            <span class="label-tag">Périphérique</span>
+          </label>
+          <div class="input-with-icon">
+            <span class="input-icon-prefix">🖴</span>
+            <input type="text" id="mount-custom-device" class="form-control font-mono" value="/dev/sdb1" placeholder="/dev/sdb1 ou /dev/md0">
+          </div>
+          <div class="form-hint">
+            <span>Chemin du disque ou de la partition (ex: /dev/sdb1, /dev/md0, /dev/disk/by-uuid/...).</span>
+          </div>
+        </div>
+
         <div class="storage-modal-infobox" id="mount-modal-info">
           <span class="infobox-icon">🛡️</span>
           <div class="infobox-text" id="mount-modal-info-text">
@@ -3467,6 +3453,75 @@
           </div>
           <div class="form-hint">
             <span>Les partages Samba, sFTP et dossiers médias y seront immédiatement rattachés.</span>
+          </div>
+        </div>
+
+        <!-- Section Drapeaux de Montage (Flags) & Persistance NixOS -->
+        <div class="mount-options-card">
+          <div class="mount-options-header">
+            <span style="font-weight:700; color:var(--text); font-size:0.88rem; display:flex; align-items:center; gap:6px;">
+              <span>⚙️</span> Options &amp; Drapeaux de Montage (Flags)
+            </span>
+            <span class="badge badge-accent" style="font-size:0.7rem;">NixOS Déclaratif</span>
+          </div>
+
+          <div class="mount-preset-selector" style="margin-bottom:12px;">
+            <label class="form-label" style="font-size:0.78rem; margin-bottom:4px;">Profil d'options prédéfini</label>
+            <select id="mount-flags-preset" class="form-control form-control-sm" onchange="onMountPresetChanged()">
+              <option value="nas-optimal" selected>🚀 Profil NAS Optimal (nofail, noatime, defaults, zstd)</option>
+              <option value="readonly">🛡️ Profil Sécurisé / Lecture Seule (ro, nofail, defaults)</option>
+              <option value="custom">⚙️ Configuration personnalisée des drapeaux</option>
+            </select>
+          </div>
+
+          <div class="mount-flags-grid" id="mount-flags-grid">
+            <label class="mount-flag-checkbox-item">
+              <input type="checkbox" id="flag-nofail" checked onchange="onMountFlagManualChange()">
+              <div class="mount-flag-info">
+                <span class="mount-flag-name"><code>nofail</code> <span class="badge badge-success" style="font-size:0.65rem;">Indispensable</span></span>
+                <span class="mount-flag-desc">Ne bloque JAMAIS le démarrage du NAS si le disque est débranché ou manquant.</span>
+              </div>
+            </label>
+
+            <label class="mount-flag-checkbox-item">
+              <input type="checkbox" id="flag-noatime" checked onchange="onMountFlagManualChange()">
+              <div class="mount-flag-info">
+                <span class="mount-flag-name"><code>noatime</code> <span class="badge badge-success" style="font-size:0.65rem;">Recommandé</span></span>
+                <span class="mount-flag-desc">Désactive la date de dernier accès : préserve les disques/SSD et maximise les débits.</span>
+              </div>
+            </label>
+
+            <label class="mount-flag-checkbox-item">
+              <input type="checkbox" id="flag-defaults" checked onchange="onMountFlagManualChange()">
+              <div class="mount-flag-info">
+                <span class="mount-flag-name"><code>defaults</code></span>
+                <span class="mount-flag-desc">Options standard du noyau Linux (rw, suid, dev, exec, auto, nouser, async).</span>
+              </div>
+            </label>
+
+            <label class="mount-flag-checkbox-item" id="flag-compress-wrap">
+              <input type="checkbox" id="flag-compress" checked onchange="onMountFlagManualChange()">
+              <div class="mount-flag-info">
+                <span class="mount-flag-name"><code>compress=zstd</code> <span class="badge badge-accent" style="font-size:0.65rem;">Btrfs</span></span>
+                <span class="mount-flag-desc">Compression transparente Zstandard (économise 20% à 35% d'espace disque).</span>
+              </div>
+            </label>
+          </div>
+
+          <!-- Champ options additionnelles -->
+          <div style="margin-top:10px;">
+            <input type="text" id="mount-custom-options" class="form-control form-control-sm font-mono" placeholder="Options supplémentaires (ex: commit=60,nodev)" style="font-size:0.78rem;">
+          </div>
+
+          <!-- Sauvegarde déclarative NixOS -->
+          <div style="margin-top:14px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08);">
+            <label class="mount-flag-checkbox-item" style="background:rgba(203,166,247,0.08); border-color:rgba(203,166,247,0.25);">
+              <input type="checkbox" id="mount-checkbox-persist" checked>
+              <div class="mount-flag-info">
+                <span class="mount-flag-name" style="color:var(--mauve); font-weight:700;">💾 Sauvegarder durablement dans NixOS (<code>mounts.json</code>)</span>
+                <span class="mount-flag-desc">Inscrit déclarativement ce montage dans <code>mounts.json</code> lu par <code>mounts.nix</code> pour être remonté automatiquement à chaque démarrage du NAS.</span>
+              </div>
+            </label>
           </div>
         </div>
 

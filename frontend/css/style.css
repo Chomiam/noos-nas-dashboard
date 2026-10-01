@@ -2854,6 +2854,361 @@ kbd {
   gap: 4px;
 }
 
+/* ==========================================================================
+   RAID CLUSTERS & STORAGE ROW-BASED VIEW (Catppuccin Mocha)
+   ========================================================================== */
+
+.raid-cluster-frame {
+  background: var(--surface0);
+  border: 1px solid rgba(203, 166, 247, 0.28);
+  border-radius: var(--radius-lg);
+  padding: 20px 22px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25), 0 0 15px rgba(203, 166, 247, 0.04);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.raid-cluster-frame::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(180deg, var(--mauve), var(--blue));
+}
+
+.raid-cluster-frame:hover {
+  border-color: rgba(203, 166, 247, 0.45);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35), 0 0 20px rgba(203, 166, 247, 0.08);
+}
+
+.raid-cluster-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.raid-cluster-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.raid-cluster-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.raid-cluster-device-sub {
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  color: var(--subtext0);
+}
+
+.raid-cluster-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.raid-cluster-metrics {
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  margin-bottom: 16px;
+}
+
+.raid-cluster-metrics-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.raid-cluster-metrics-val {
+  font-size: 1.45rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.raid-cluster-metrics-sub {
+  font-size: 0.82rem;
+  color: var(--subtext0);
+}
+
+/* Cadre Dédié des Disques Physiques Membres du RAID */
+.raid-members-section {
+  background: rgba(17, 17, 27, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-top: 14px;
+}
+
+.raid-members-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--mauve);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.raid-members-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.raid-member-disk-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface0);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  gap: 12px;
+  flex-wrap: wrap;
+  transition: all 0.15s ease;
+}
+
+.raid-member-disk-row:hover {
+  background: var(--surface1);
+  border-color: rgba(203, 166, 247, 0.2);
+}
+
+.raid-member-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 260px;
+}
+
+.raid-tree-branch {
+  font-family: var(--font-mono);
+  color: var(--surface2);
+  font-size: 0.9rem;
+  user-select: none;
+}
+
+.raid-member-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.raid-member-model {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.raid-member-dev {
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--subtext0);
+}
+
+.raid-member-middle {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.raid-tele-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.76rem;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-family: var(--font-mono);
+  color: var(--subtext0);
+}
+
+.raid-member-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Ligne Disque Physique Autonome / Hors RAID (.storage-disk-row) */
+.storage-disk-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface0);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  margin-bottom: 10px;
+  gap: 14px;
+  flex-wrap: wrap;
+  transition: all 0.2s ease;
+}
+
+.storage-disk-row:hover {
+  background: var(--surface1);
+  border-color: rgba(137, 180, 250, 0.3);
+  transform: translateY(-1px);
+}
+
+.storage-disk-row.is-system {
+  border-left: 4px solid var(--blue);
+}
+
+.storage-disk-row-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 280px;
+}
+
+.storage-disk-icon-box {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-sm);
+  background: rgba(137, 180, 250, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.35rem;
+  color: var(--blue);
+  flex-shrink: 0;
+}
+
+.storage-disk-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.storage-disk-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.storage-disk-name {
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+.storage-disk-details {
+  font-size: 0.76rem;
+  color: var(--subtext0);
+}
+
+.storage-disk-row-middle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.storage-disk-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Modale de montage : flags et persistance */
+.mount-options-card {
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-top: 14px;
+}
+
+.mount-options-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.mount-flags-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 650px) {
+  .mount-flags-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mount-flag-checkbox-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--surface0);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.mount-flag-checkbox-item:hover {
+  background: var(--surface1);
+  border-color: rgba(203, 166, 247, 0.25);
+}
+
+.mount-flag-checkbox-item input[type="checkbox"] {
+  margin-top: 2px;
+  accent-color: var(--mauve);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.mount-flag-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mount-flag-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mount-flag-desc {
+  font-size: 0.72rem;
+  color: var(--subtext0);
+  line-height: 1.35;
+}
+
 /* Modale Assistant RAID */
 .storage-wizard-window {
   width: 740px;
