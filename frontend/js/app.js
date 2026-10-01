@@ -317,6 +317,7 @@ function handleHashNavigation() {
 document.addEventListener("DOMContentLoaded", () => {
   applyInitialTabStateEarly();
   checkAuthSession();
+  checkActiveStorageJobOnLoad();
 });
 
 window.addEventListener("hashchange", () => {
@@ -1404,6 +1405,9 @@ async function loadStorage() {
     const persistedMountPoints = new Set(persistedMountsList.map(m => m.mountPoint));
     const persistedDevices = new Set(persistedMountsList.map(m => m.device));
 
+    // Bannière de tâche de stockage active (destruction / création)
+    updateStorageRaidJobPanel(activeStorageJob);
+
     // Bannière de synchronisation active
     updateRaidSyncBanner(data.active_sync);
 
@@ -2192,8 +2196,11 @@ async function submitCreateRaid() {
 
     const json = await res.json();
     if (json.success) {
-      showToast(json.data || "Pool RAID créé avec succès !", "success");
+      showToast("🛠️ Tâche d'assemblage RAID lancée en arrière-plan !", "success", 4000);
       closeCreateRaidModal();
+      activeStorageJob = json.data;
+      updateStorageJobView(json.data);
+      startPollingStorageJob();
       loadStorage();
     } else {
       if (errEl) errEl.textContent = json.message || "Échec de création du RAID";
@@ -6722,7 +6729,10 @@ async function submitDestroyRaid() {
     const json = await res.json();
     if (json.success) {
       closeDestroyRaidModal();
-      showToast(json.data || "Grappe RAID cassée et dissoute avec succès !", "success", 7000);
+      showToast("🧨 Tâche de dissolution RAID lancée en arrière-plan !", "success", 4000);
+      activeStorageJob = json.data;
+      updateStorageJobView(json.data);
+      startPollingStorageJob();
       loadStorage();
     } else {
       showSystemError("Échec de la dissolution du RAID", "Le système n'a pas pu dissoudre la grappe RAID.", json.message || "Erreur inconnue", 12000);
@@ -16892,4 +16902,218 @@ async function applyCustomDns() {
       btn.innerHTML = `<span>🚀</span> Appliquer le DNS Personnalisé à chaud`;
     }
   }
+}
+
+
+// ==========================================================================
+// MOTEUR DE TÂCHES ASYNCHRONES DE STOCKAGE (DISSOLUTION & ASSEMBLAGE RAID)
+// ==========================================================================
+
+let storageJobPollingTimer = null;
+let storageToastDismissTimer = null;
+let activeStorageJob = null;
+
+function startPollingStorageJob() {
+  if (storageJobPollingTimer) clearInterval(storageJobPollingTimer);
+  pollStorageJob();
+  storageJobPollingTimer = setInterval(pollStorageJob, 1200);
+}
+
+async function pollStorageJob() {
+  try {
+    const res = await fetch("/api/storage/jobs/active");
+    if (!res.ok) return;
+    const json = await res.json();
+    if (json.success && json.data) {
+      activeStorageJob = json.data;
+      updateStorageJobView(json.data);
+      if (json.data.status === "completed" || json.data.status === "failed") {
+        if (storageJobPollingTimer) {
+          clearInterval(storageJobPollingTimer);
+          storageJobPollingTimer = null;
+        }
+        loadStorage();
+        scheduleStorageToastDismiss(10000);
+      }
+    } else {
+      activeStorageJob = null;
+      hideStorageJobView();
+      if (storageJobPollingTimer) {
+        clearInterval(storageJobPollingTimer);
+        storageJobPollingTimer = null;
+      }
+    }
+  } catch (err) {
+    console.warn("[STORAGE] Erreur polling tâche stockage:", err);
+  }
+}
+
+function updateStorageJobView(job) {
+  const toast = document.getElementById("storage-floating-toast");
+  const toastTitle = document.getElementById("storage-toast-title");
+  const toastPercent = document.getElementById("storage-toast-percent");
+  const toastDetail = document.getElementById("storage-toast-detail");
+  const toastBar = document.getElementById("storage-toast-progress-bar");
+  const toastIcon = document.getElementById("storage-toast-icon");
+  const toastClose = document.getElementById("btn-close-storage-toast");
+
+  if (toast) {
+    toast.style.display = "block";
+    toast.classList.remove("theme-destroy", "theme-create", "toast-fading-out");
+    if (job.job_type === "destroy_raid") {
+      toast.classList.add("theme-destroy");
+    } else {
+      toast.classList.add("theme-create");
+    }
+
+    if (job.status === "completed") {
+      if (toastIcon) toastIcon.textContent = "✨";
+      if (toastTitle) toastTitle.textContent = "Opération terminée avec succès !";
+      if (toastPercent) toastPercent.textContent = "100%";
+      if (toastDetail) toastDetail.textContent = job.result_message || job.step_detail;
+      if (toastBar) toastBar.style.width = "100%";
+      if (toastClose) toastClose.style.display = "block";
+    } else if (job.status === "failed") {
+      if (toastIcon) toastIcon.textContent = "🛑";
+      if (toastTitle) toastTitle.textContent = "Échec de l'opération de stockage";
+      if (toastPercent) toastPercent.textContent = `${job.progress_percent}%`;
+      if (toastDetail) toastDetail.textContent = job.error || job.step_detail;
+      if (toastBar) toastBar.style.width = `${job.progress_percent}%`;
+      if (toastClose) toastClose.style.display = "block";
+    } else {
+      if (toastIcon) toastIcon.textContent = job.job_type === "destroy_raid" ? "🧨" : "🛠️";
+      const isResumed = job.status === "resumed";
+      const prefix = isResumed ? "⚡ [Reprise reboot] " : "";
+      if (toastTitle) {
+        toastTitle.textContent = `${prefix}${job.job_type === "destroy_raid" ? "Dissolution" : "Assemblage"} : ${job.target_name}`;
+      }
+      if (toastPercent) toastPercent.textContent = `${job.progress_percent}%`;
+      if (toastDetail) toastDetail.textContent = `Étape ${job.current_step}/${job.total_steps} : ${job.step_detail}`;
+      if (toastBar) toastBar.style.width = `${job.progress_percent}%`;
+      if (toastClose) toastClose.style.display = "none";
+    }
+  }
+
+  // Mettre à jour le panneau intégré dans Stockage & Disque
+  updateStorageRaidJobPanel(job);
+}
+
+function updateStorageRaidJobPanel(job) {
+  const panel = document.getElementById("storage-raid-job-panel");
+  if (!panel) return;
+
+  if (!job || (job.status !== "running" && job.status !== "resumed" && job.status !== "completed" && job.status !== "failed")) {
+    panel.style.display = "none";
+    return;
+  }
+
+  panel.style.display = "block";
+  panel.className = `storage-raid-job-panel ${job.job_type === "destroy_raid" ? "panel-destroy" : "panel-create"}`;
+
+  const isDestroy = job.job_type === "destroy_raid";
+  const icon = isDestroy ? "🧨" : "🛠️";
+  const badgeClass = isDestroy ? "badge-destroy" : "badge-create";
+  const isResumed = job.status === "resumed";
+  const statusBadge = isResumed
+    ? `<span class="storage-raid-job-badge badge-destroy">⚡ Reprise suite au redémarrage</span>`
+    : `<span class="storage-raid-job-badge ${badgeClass}">⚙️ Tâche d'arrière-plan sécurisée</span>`;
+
+  const total = job.total_steps || (isDestroy ? 6 : 5);
+  let stepsHtml = "";
+  for (let s = 1; s <= total; s++) {
+    let cls = "stepper-pill";
+    let iconStep = `○`;
+    if (s < job.current_step || job.status === "completed") {
+      cls += " step-done";
+      iconStep = "✔";
+    } else if (s === job.current_step && job.status !== "completed" && job.status !== "failed") {
+      cls += " step-active";
+      iconStep = "⏳";
+    }
+    stepsHtml += `<div class="${cls}"><span>${iconStep}</span> Étape ${s}</div>`;
+  }
+
+  panel.innerHTML = `
+    <div class="storage-raid-job-header">
+      <div class="storage-raid-job-title-wrap">
+        <span style="font-size:1.3rem;">${icon}</span>
+        <div>
+          <div class="storage-raid-job-title">${isDestroy ? "Dissolution et Destruction de Grappe RAID" : "Création et Assemblage de Grappe RAID"} : <span style="color:var(--mauve); font-weight:800;">${job.target_name}</span></div>
+          <div style="font-size:0.75rem; color:var(--subtext0); margin-top:2px;">Disques cibles : ${job.member_devices && job.member_devices.length ? job.member_devices.join(", ") : job.target_device}</div>
+        </div>
+        ${statusBadge}
+      </div>
+      <div class="storage-raid-job-percent">${job.progress_percent}%</div>
+    </div>
+    <div class="storage-raid-job-stepper">
+      ${stepsHtml}
+    </div>
+    <div class="storage-raid-job-progress-wrap">
+      <div class="storage-raid-job-progress-bar" style="width: ${job.progress_percent}%;"></div>
+    </div>
+    <div class="storage-raid-job-footer">
+      <div><strong>Phase active :</strong> ${job.step_name} — <em>${job.step_detail}</em></div>
+      <div>ID: <code>${job.id}</code></div>
+    </div>
+  `;
+}
+
+function hideStorageJobView() {
+  const toast = document.getElementById("storage-floating-toast");
+  if (toast) toast.style.display = "none";
+  const panel = document.getElementById("storage-raid-job-panel");
+  if (panel) panel.style.display = "none";
+}
+
+function scheduleStorageToastDismiss(delayMs) {
+  if (storageToastDismissTimer) clearTimeout(storageToastDismissTimer);
+  storageToastDismissTimer = setTimeout(() => {
+    dismissStorageJobToast();
+  }, delayMs);
+}
+
+async function dismissStorageJobToast() {
+  if (storageToastDismissTimer) {
+    clearTimeout(storageToastDismissTimer);
+    storageToastDismissTimer = null;
+  }
+  const toast = document.getElementById("storage-floating-toast");
+  if (toast) {
+    toast.classList.add("toast-fading-out");
+    setTimeout(() => {
+      toast.style.display = "none";
+      toast.classList.remove("toast-fading-out");
+    }, 450);
+  }
+  try {
+    await fetch("/api/storage/jobs/dismiss", { method: "POST" });
+  } catch (e) {}
+}
+
+async function checkActiveStorageJobOnLoad() {
+  try {
+    const res = await fetch("/api/storage/jobs/active");
+    if (!res.ok) return;
+    const json = await res.json();
+    if (json.success && json.data) {
+      const job = json.data;
+      if (job.status === "running" || job.status === "resumed") {
+        activeStorageJob = job;
+        updateStorageJobView(job);
+        startPollingStorageJob();
+      } else if (job.status === "completed") {
+        let elapsedSec = 0;
+        if (job.completed_at) {
+          const nowSec = Math.floor(Date.now() / 1000);
+          elapsedSec = Math.max(0, nowSec - job.completed_at);
+        }
+        if (elapsedSec < 15) {
+          updateStorageJobView(job);
+          scheduleStorageToastDismiss(Math.max(2000, (15 - elapsedSec) * 1000));
+        } else {
+          dismissStorageJobToast();
+        }
+      }
+    }
+  } catch (e) {}
 }

@@ -46,7 +46,7 @@ use crate::network::{
     NetworkOverview, TrafficHistoryOverview,
 };
 use crate::services::{control_service, get_service_logs, get_services_overview, ServicesOverview};
-use crate::storage::{create_partition, create_raid, delete_partition, destroy_raid, eject_removable, format_disk, get_raid_sync_progress, get_storage_overview, mount_volume, repair_path_permissions, trigger_disk_spindown, umount_volume, CreatePartitionRequest, CreateRaidRequest, DeletePartitionRequest, DestroyRaidRequest, EjectRemovableRequest, FormatDiskRequest, MountVolumeRequest, RaidSyncProgress, RepairPermissionsRequest, StorageOverview, UmountVolumeRequest};
+use crate::storage::{create_partition, delete_partition, dismiss_storage_job, eject_removable, format_disk, get_active_storage_job, get_raid_sync_progress, get_storage_overview, mount_volume, repair_path_permissions, start_create_raid_job, start_destroy_raid_job, trigger_disk_spindown, umount_volume, CreatePartitionRequest, CreateRaidRequest, DeletePartitionRequest, DestroyRaidRequest, EjectRemovableRequest, FormatDiskRequest, MountVolumeRequest, RaidSyncProgress, RepairPermissionsRequest, StorageJob, StorageOverview, UmountVolumeRequest};
 use crate::generations;
 use crate::system::{cancel_power, get_gpu_info, get_power_status, get_system_info, schedule_power, GpuInfo, ImmediatePowerRequest, PowerStatusResponse, SchedulePowerRequest, SystemInfo};
 use crate::terminal::{autocomplete, execute_command, CompleteRequest, CompleteResponse, ExecRequest, ExecResponse};
@@ -118,6 +118,8 @@ pub fn api_routes() -> Router {
         .route("/storage", get(handle_storage))
         .route("/storage/raids/progress", get(handle_raid_progress))
         .route("/storage/disks/format", post(handle_format_disk))
+        .route("/storage/jobs/active", get(handle_get_active_storage_job))
+        .route("/storage/jobs/dismiss", post(handle_dismiss_storage_job))
         .route("/storage/raids/create", post(handle_create_raid))
         .route("/storage/raids/destroy", post(handle_destroy_raid))
         .route("/storage/mount", post(handle_mount_volume))
@@ -906,11 +908,28 @@ async fn handle_format_disk(Json(payload): Json<FormatDiskRequest>) -> Json<ApiR
     }
 }
 
-async fn handle_create_raid(Json(payload): Json<CreateRaidRequest>) -> Json<ApiResponse<String>> {
-    match create_raid(&payload) {
-        Ok(msg) => Json(ApiResponse {
+async fn handle_get_active_storage_job() -> Json<ApiResponse<Option<StorageJob>>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(get_active_storage_job()),
+        message: None,
+    })
+}
+
+async fn handle_dismiss_storage_job() -> Json<ApiResponse<String>> {
+    dismiss_storage_job();
+    Json(ApiResponse {
+        success: true,
+        data: Some("Tâche de stockage acquittée.".to_string()),
+        message: None,
+    })
+}
+
+async fn handle_create_raid(Json(payload): Json<CreateRaidRequest>) -> Json<ApiResponse<StorageJob>> {
+    match start_create_raid_job(payload) {
+        Ok(job) => Json(ApiResponse {
             success: true,
-            data: Some(msg),
+            data: Some(job),
             message: None,
         }),
         Err(err) => Json(ApiResponse {
@@ -921,11 +940,11 @@ async fn handle_create_raid(Json(payload): Json<CreateRaidRequest>) -> Json<ApiR
     }
 }
 
-async fn handle_destroy_raid(Json(payload): Json<DestroyRaidRequest>) -> Json<ApiResponse<String>> {
-    match destroy_raid(&payload) {
-        Ok(msg) => Json(ApiResponse {
+async fn handle_destroy_raid(Json(payload): Json<DestroyRaidRequest>) -> Json<ApiResponse<StorageJob>> {
+    match start_destroy_raid_job(payload) {
+        Ok(job) => Json(ApiResponse {
             success: true,
-            data: Some(msg),
+            data: Some(job),
             message: None,
         }),
         Err(err) => Json(ApiResponse {

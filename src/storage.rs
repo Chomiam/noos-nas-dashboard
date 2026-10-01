@@ -313,7 +313,7 @@ pub struct FormatDiskRequest {
     pub label: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct CreateRaidRequest {
     pub name: String,
     pub level: String, // "raid0", "raid1", "raid5", "raid6", "raid10", "linear"
@@ -322,12 +322,77 @@ pub struct CreateRaidRequest {
     pub mountpoint: String, // ex: "/mnt/storage"
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct DestroyRaidRequest {
     pub name: String,
     pub device: String,
     #[serde(default)]
     pub wipe_members: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum StorageJobType {
+    #[serde(rename = "destroy_raid")]
+    DestroyRaid,
+    #[serde(rename = "create_raid")]
+    CreateRaid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum StorageJobStatus {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "resumed")]
+    Resumed,
+    #[serde(rename = "completed")]
+    Completed,
+    #[serde(rename = "failed")]
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DestroyRaidParams {
+    pub name: String,
+    pub device: String,
+    pub wipe_members: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateRaidParams {
+    pub name: String,
+    pub level: String,
+    pub devices: Vec<String>,
+    pub fs_type: String,
+    pub mountpoint: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageJob {
+    pub id: String,
+    pub job_type: StorageJobType,
+    pub status: StorageJobStatus,
+    pub current_step: usize,
+    pub total_steps: usize,
+    pub step_name: String,
+    pub step_detail: String,
+    pub progress_percent: u8,
+    pub target_name: String,
+    pub target_device: String,
+    pub member_devices: Vec<String>,
+    #[serde(default)]
+    pub destroy_params: Option<DestroyRaidParams>,
+    #[serde(default)]
+    pub create_params: Option<CreateRaidParams>,
+    pub started_at: u64,
+    pub updated_at: u64,
+    #[serde(default)]
+    pub completed_at: Option<u64>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub result_message: Option<String>,
 }
 
 // --------------------------------------------------------------------------
@@ -1196,7 +1261,227 @@ pub fn format_disk(req: &FormatDiskRequest) -> Result<String, String> {
     }
 }
 
-pub fn create_raid(req: &CreateRaidRequest) -> Result<String, String> {
+static ACTIVE_STORAGE_JOB: std::sync::Mutex<Option<StorageJob>> = std::sync::Mutex::new(None);
+
+pub fn get_storage_jobs_file_path() -> PathBuf {
+    let p = PathBuf::from("/var/lib/steveos/storage_jobs.json");
+    if let Some(parent) = p.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    p
+}
+
+pub fn load_persisted_storage_job() -> Option<StorageJob> {
+    let p = get_storage_jobs_file_path();
+    if p.exists() {
+        if let Ok(c) = std::fs::read_to_string(&p) {
+            if let Ok(job) = serde_json::from_str::<StorageJob>(&c) {
+                return Some(job);
+            }
+        }
+    }
+    let tmp = PathBuf::from("/tmp/steveos_storage_jobs.json");
+    if tmp.exists() {
+        if let Ok(c) = std::fs::read_to_string(&tmp) {
+            if let Ok(job) = serde_json::from_str::<StorageJob>(&c) {
+                return Some(job);
+            }
+        }
+    }
+    None
+}
+
+pub fn save_persisted_storage_job(job: &StorageJob) {
+    if let Ok(json) = serde_json::to_string_pretty(job) {
+        let p = get_storage_jobs_file_path();
+        if std::fs::write(&p, &json).is_err() {
+            let _ = std::fs::write("/tmp/steveos_storage_jobs.json", json);
+        }
+    }
+}
+
+pub fn get_active_storage_job() -> Option<StorageJob> {
+    if let Ok(guard) = ACTIVE_STORAGE_JOB.lock() {
+        if let Some(ref j) = *guard {
+            return Some(j.clone());
+        }
+    }
+    let loaded = load_persisted_storage_job();
+    if let Some(ref j) = loaded {
+        if let Ok(mut guard) = ACTIVE_STORAGE_JOB.lock() {
+            *guard = Some(j.clone());
+        }
+    }
+    loaded
+}
+
+pub fn dismiss_storage_job() {
+    if let Ok(mut guard) = ACTIVE_STORAGE_JOB.lock() {
+        *guard = None;
+    }
+    let p = get_storage_jobs_file_path();
+    let _ = std::fs::remove_file(p);
+    let _ = std::fs::remove_file("/tmp/steveos_storage_jobs.json");
+}
+
+fn update_job_step(
+    job_id: &str,
+    step: usize,
+    total: usize,
+    percent: u8,
+    name: &str,
+    detail: &str,
+) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+    if let Ok(mut guard) = ACTIVE_STORAGE_JOB.lock() {
+        if let Some(ref mut j) = *guard {
+            if j.id == job_id {
+                j.current_step = step;
+                j.total_steps = total;
+                j.progress_percent = percent;
+                j.step_name = name.to_string();
+                j.step_detail = detail.to_string();
+                j.updated_at = now;
+                save_persisted_storage_job(j);
+            }
+        }
+    }
+}
+
+fn complete_job(job_id: &str, result_message: &str) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+    if let Ok(mut guard) = ACTIVE_STORAGE_JOB.lock() {
+        if let Some(ref mut j) = *guard {
+            if j.id == job_id {
+                j.status = StorageJobStatus::Completed;
+                j.progress_percent = 100;
+                j.completed_at = Some(now);
+                j.updated_at = now;
+                j.step_name = "Opération terminée avec succès".to_string();
+                j.step_detail = result_message.to_string();
+                j.result_message = Some(result_message.to_string());
+                save_persisted_storage_job(j);
+            }
+        }
+    }
+}
+
+fn fail_job(job_id: &str, error_message: &str) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+    if let Ok(mut guard) = ACTIVE_STORAGE_JOB.lock() {
+        if let Some(ref mut j) = *guard {
+            if j.id == job_id {
+                j.status = StorageJobStatus::Failed;
+                j.completed_at = Some(now);
+                j.updated_at = now;
+                j.step_name = "Échec de l'opération".to_string();
+                j.step_detail = error_message.to_string();
+                j.error = Some(error_message.to_string());
+                save_persisted_storage_job(j);
+            }
+        }
+    }
+}
+
+pub fn start_destroy_raid_job(req: DestroyRaidRequest) -> Result<StorageJob, String> {
+    let clean_name = req.name.trim().to_string();
+    let clean_dev = req.device.trim().to_string();
+
+    if clean_name.is_empty() && clean_dev.is_empty() {
+        return Err("Identifiant ou chemin de la grappe RAID manquant.".into());
+    }
+
+    if is_system_device(&clean_dev) || is_system_device(&clean_name) {
+        return Err("Interdiction absolue : Impossible de détruire une grappe ou un volume contenant le système NixOS.".into());
+    }
+
+    if let Some(existing) = get_active_storage_job() {
+        if existing.status == StorageJobStatus::Running || existing.status == StorageJobStatus::Resumed {
+            return Err(format!("Une opération de stockage est déjà en cours d'exécution : {} ({})", existing.step_name, existing.target_name));
+        }
+    }
+
+    let wipe = req.wipe_members.unwrap_or(true);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+    let job_id = format!("job-destroy-{}", now);
+
+    let mut members = Vec::new();
+    if clean_dev.starts_with("/dev/md") || clean_name.starts_with("md") {
+        let md_target = if clean_dev.starts_with("/dev/md") { &clean_dev } else { &format!("/dev/{}", clean_name) };
+        if let Ok(detail_out) = Command::new("mdadm").args(["--detail", md_target]).output() {
+            let str_out = String::from_utf8_lossy(&detail_out.stdout);
+            for line in str_out.lines() {
+                let trimmed = line.trim();
+                if trimmed.contains("/dev/") {
+                    for token in trimmed.split_whitespace() {
+                        if token.starts_with("/dev/") && !token.starts_with("/dev/md") {
+                            members.push(token.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        let stripped = clean_dev.trim_start_matches("/dev/");
+        let vg_cand = if clean_dev.starts_with("/dev/mapper/") {
+            clean_dev.trim_start_matches("/dev/mapper/").split('-').next().unwrap_or("").to_string()
+        } else if stripped.contains('/') {
+            stripped.split('/').next().unwrap_or("").to_string()
+        } else {
+            clean_name.clone()
+        };
+        if !vg_cand.is_empty() {
+            if let Ok(pv_out) = Command::new("pvs").args(["--noheadings", "-o", "pv_name,vg_name"]).output() {
+                let str_out = String::from_utf8_lossy(&pv_out.stdout);
+                for line in str_out.lines() {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 2 && parts[1] == vg_cand {
+                        members.push(parts[0].to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    let job = StorageJob {
+        id: job_id.clone(),
+        job_type: StorageJobType::DestroyRaid,
+        status: StorageJobStatus::Running,
+        current_step: 1,
+        total_steps: 6,
+        step_name: "Initialisation et démontage".to_string(),
+        step_detail: format!("Préparation de la dissolution de la grappe '{}'...", clean_name),
+        progress_percent: 5,
+        target_name: clean_name.clone(),
+        target_device: clean_dev.clone(),
+        member_devices: members,
+        destroy_params: Some(DestroyRaidParams {
+            name: clean_name,
+            device: clean_dev,
+            wipe_members: wipe,
+        }),
+        create_params: None,
+        started_at: now,
+        updated_at: now,
+        completed_at: None,
+        error: None,
+        result_message: None,
+    };
+
+    save_persisted_storage_job(&job);
+    if let Ok(mut guard) = ACTIVE_STORAGE_JOB.lock() {
+        *guard = Some(job.clone());
+    }
+
+    let job_clone = job.clone();
+    std::thread::spawn(move || {
+        run_destroy_raid_worker(job_clone);
+    });
+
+    Ok(job)
+}
+
+pub fn start_create_raid_job(req: CreateRaidRequest) -> Result<StorageJob, String> {
     for dev in &req.devices {
         if is_system_device(dev) {
             return Err(format!("Interdiction : Le périphérique {} fait partie du système NixOS.", dev));
@@ -1207,160 +1492,122 @@ pub fn create_raid(req: &CreateRaidRequest) -> Result<String, String> {
         return Err("Une grappe RAID nécessite au moins 2 disques.".into());
     }
 
-    let clean_name = req.name.trim().to_lowercase().replace(' ', "-");
-    let md_device = format!("/dev/md/{}", clean_name);
-
-    // Démonter et effacer les signatures
-    for dev in &req.devices {
-        let _ = Command::new("umount").args(["-f", dev]).output();
-        let _ = Command::new("wipefs").args(["-a", dev]).output();
-        let _ = Command::new("mdadm").args(["--zero-superblock", "--force", dev]).output();
-    }
-
-    let _ = Command::new("modprobe").args(["raid0", "raid1", "raid456", "raid10"]).output();
-
-    let raid_level = match req.level.to_lowercase().as_str() {
-        "raid0" | "0" => "0",
-        "raid1" | "1" => "1",
-        "raid5" | "5" => "5",
-        "raid6" | "6" => "6",
-        "raid10" | "10" => "10",
-        "linear" => "linear",
-        _ => return Err("Niveau de RAID invalide.".into()),
-    };
-
-    let dev_count = req.devices.len().to_string();
-    let mut args = vec![
-        "--create".to_string(),
-        md_device.clone(),
-        format!("--level={}", raid_level),
-        format!("--raid-devices={}", dev_count),
-    ];
-    for d in &req.devices {
-        args.push(d.clone());
-    }
-    args.push("--run".to_string());
-
-    let create_out = Command::new("mdadm")
-        .args(&args)
-        .output()
-        .map_err(|e| format!("Impossible d'exécuter mdadm : {}", e))?;
-
-    if !create_out.status.success() {
-        let err = String::from_utf8_lossy(&create_out.stderr);
-        return Err(format!("Échec de création du RAID : {}", err));
-    }
-
-    // Attendre 1.5s que le périphérique soit exposé
-    std::thread::sleep(std::time::Duration::from_millis(1500));
-
-    // Formater le volume RAID
-    let label = clean_name.to_uppercase();
-    let fs_type = req.fs_type.to_lowercase();
-    let fmt_status = if fs_type == "btrfs" {
-        Command::new("mkfs.btrfs").args(["-f", "-L", &label, &md_device]).output()
-    } else {
-        Command::new("mkfs.ext4").args(["-F", "-L", &label, &md_device]).output()
-    };
-
-    if let Ok(out) = fmt_status {
-        if !out.status.success() {
-            let err = String::from_utf8_lossy(&out.stderr);
-            return Err(format!("Le RAID a été créé mais le formatage a échoué : {}", err));
+    if let Some(existing) = get_active_storage_job() {
+        if existing.status == StorageJobStatus::Running || existing.status == StorageJobStatus::Resumed {
+            return Err(format!("Une opération de stockage est déjà en cours d'exécution : {} ({})", existing.step_name, existing.target_name));
         }
     }
 
-    // Créer le point de montage et monter
+    let clean_name = req.name.trim().to_lowercase().replace(' ', "-");
+    let md_device = format!("/dev/md/{}", clean_name);
     let mountpoint = if req.mountpoint.is_empty() {
         format!("/mnt/{}", clean_name)
     } else {
         req.mountpoint.clone()
     };
 
-    let _ = Command::new("mkdir").args(["-p", &mountpoint]).output();
-    let _ = Command::new("mount").args([&md_device, &mountpoint]).output();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+    let job_id = format!("job-create-{}", now);
 
-    let primary_user = target_user();
-    let _ = Command::new("chown").args(["-R", &format!("{}:storage", primary_user), &mountpoint]).output();
-    let _ = Command::new("chmod").args(["2775", &mountpoint]).output();
+    let job = StorageJob {
+        id: job_id.clone(),
+        job_type: StorageJobType::CreateRaid,
+        status: StorageJobStatus::Running,
+        current_step: 1,
+        total_steps: 5,
+        step_name: "Préparation des disques".to_string(),
+        step_detail: format!("Nettoyage préalable de {} disque(s) pour la grappe '{}'...", req.devices.len(), clean_name),
+        progress_percent: 5,
+        target_name: clean_name.clone(),
+        target_device: md_device.clone(),
+        member_devices: req.devices.clone(),
+        destroy_params: None,
+        create_params: Some(CreateRaidParams {
+            name: clean_name,
+            level: req.level,
+            devices: req.devices,
+            fs_type: req.fs_type,
+            mountpoint,
+        }),
+        started_at: now,
+        updated_at: now,
+        completed_at: None,
+        error: None,
+        result_message: None,
+    };
 
-    let mut opts = vec!["defaults".to_string(), "noatime".to_string(), "nofail".to_string()];
-    if fs_type == "btrfs" {
-        opts.push("compress=zstd".to_string());
+    save_persisted_storage_job(&job);
+    if let Ok(mut guard) = ACTIVE_STORAGE_JOB.lock() {
+        *guard = Some(job.clone());
     }
 
-    let mut mounts = load_persisted_mounts();
-    mounts.retain(|m| m.mount_point != mountpoint && m.device != md_device);
-    let mount_id = format!("mount-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs());
-
-    mounts.push(PersistedMount {
-        id: mount_id,
-        name: clean_name.clone(),
-        device: md_device.clone(),
-        device_uuid: None,
-        mount_point: mountpoint.clone(),
-        fs_type: fs_type.clone(),
-        options: opts,
-        enabled: true,
-        created_at: Some("Aujourd'hui".to_string()),
+    let job_clone = job.clone();
+    std::thread::spawn(move || {
+        run_create_raid_worker(job_clone);
     });
-    let _ = save_persisted_mounts(&mounts);
 
-    Ok(format!(
-        "Pool RAID {} ({}) créé avec succès avec {} disques, formaté en {} et monté sur {} !",
-        clean_name,
-        req.level.to_uppercase(),
-        req.devices.len(),
-        fs_type.to_uppercase(),
-        mountpoint
-    ))
+    Ok(job)
 }
 
-pub fn destroy_raid(req: &DestroyRaidRequest) -> Result<String, String> {
-    let clean_name = req.name.trim();
-    let clean_dev = req.device.trim();
+fn run_destroy_raid_worker(job: StorageJob) {
+    let job_id = &job.id;
+    let params = match job.destroy_params {
+        Some(ref p) => p,
+        None => {
+            fail_job(job_id, "Paramètres de destruction manquants.");
+            return;
+        }
+    };
 
-    if clean_name.is_empty() && clean_dev.is_empty() {
-        return Err("Identifiant ou chemin de la grappe RAID manquant.".into());
-    }
+    let clean_name = &params.name;
+    let clean_dev = &params.device;
+    let do_wipe = params.wipe_members;
 
-    // Sécurité absolue : protection du système NixOS
     if is_system_device(clean_dev) || is_system_device(clean_name) {
-        return Err("Interdiction absolue : Impossible de détruire une grappe ou un volume contenant le système NixOS.".into());
+        fail_job(job_id, "Interdiction : Le volume ciblé contient le système NixOS.");
+        return;
     }
 
-    // 1. Démonter automatiquement si le volume est actuellement monté
-    if let Ok(output) = Command::new("findmnt").args(["-n", "-o", "SOURCE,TARGET"]).output() {
-        let str_out = String::from_utf8_lossy(&output.stdout);
-        for line in str_out.lines() {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 2 {
-                let src = parts[0];
-                let mnt = parts[1];
-                if mnt != "/" && mnt != "/boot" && !mnt.starts_with("/nix") {
-                    let matches_dev = src == clean_dev || (!clean_dev.is_empty() && src.contains(clean_dev.trim_start_matches("/dev/")));
-                    let matches_name = !clean_name.is_empty() && (src.contains(clean_name) || mnt.ends_with(clean_name));
-                    if matches_dev || matches_name {
-                        let _ = Command::new("umount").args(["-f", mnt]).output();
+    // Étape 1 : Démontage forcé propre
+    if job.current_step <= 1 {
+        update_job_step(job_id, 1, 6, 15, "Démontage des partitions", &format!("Démontage automatique de '{}'...", clean_name));
+        if let Ok(output) = Command::new("findmnt").args(["-n", "-o", "SOURCE,TARGET"]).output() {
+            let str_out = String::from_utf8_lossy(&output.stdout);
+            for line in str_out.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let src = parts[0];
+                    let mnt = parts[1];
+                    if mnt != "/" && mnt != "/boot" && !mnt.starts_with("/nix") {
+                        let matches_dev = src == clean_dev || (!clean_dev.is_empty() && src.contains(clean_dev.trim_start_matches("/dev/")));
+                        let matches_name = !clean_name.is_empty() && (src.contains(clean_name) || mnt.ends_with(clean_name));
+                        if matches_dev || matches_name {
+                            let _ = Command::new("umount").args(["-f", mnt]).output();
+                        }
                     }
                 }
             }
         }
+        std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
-    // Retirer également des points de montage déclaratifs NixOS (mounts.json)
-    let mut mounts = load_persisted_mounts();
-    mounts.retain(|m| {
-        m.device != clean_dev
-            && !m.name.contains(clean_name)
-            && (!clean_dev.is_empty() && !m.device.contains(clean_dev.trim_start_matches("/dev/")))
-    });
-    let _ = save_persisted_mounts(&mounts);
+    // Étape 2 : Nettoyage déclaratif mounts.json
+    if job.current_step <= 2 {
+        update_job_step(job_id, 2, 6, 30, "Nettoyage déclaratif", "Suppression des entrées déclaratives dans mounts.json...");
+        let mut mounts = load_persisted_mounts();
+        let init_len = mounts.len();
+        mounts.retain(|m| {
+            m.device != *clean_dev
+                && !m.name.contains(clean_name)
+                && (!clean_dev.is_empty() && !m.device.contains(clean_dev.trim_start_matches("/dev/")))
+        });
+        if mounts.len() != init_len {
+            let _ = save_persisted_mounts(&mounts);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(400));
+    }
 
-    let do_wipe = req.wipe_members.unwrap_or(true);
-    
-
-    // 2. Identifier le type de grappe (LVM2, mdadm ou Btrfs)
+    // Détermination de la technologie (LVM2, mdadm, ou générique)
     let stripped = clean_dev.trim_start_matches("/dev/");
     let (vg_cand, lv_cand) = if clean_dev.starts_with("/dev/mapper/") {
         let mapper_name = clean_dev.trim_start_matches("/dev/mapper/");
@@ -1396,125 +1643,339 @@ pub fn destroy_raid(req: &DestroyRaidRequest) -> Result<String, String> {
         (if clean_name.is_empty() { stripped.to_string() } else { clean_name.to_string() }, None)
     };
 
-    // Cas A : LVM2 (Volume Group / Logical Volume)
     let is_vg = Command::new("vgs").args([&vg_cand]).output().map(|o| o.status.success()).unwrap_or(false);
+    let mut members_to_wipe = job.member_devices.clone();
+
+    // Cas A : LVM2
     if is_vg {
         let vg_name = &vg_cand;
 
-        // Récupérer la liste des disques physiques (PVs) membres avant suppression
-        let mut pv_members = Vec::new();
-        if let Ok(pv_out) = Command::new("pvs").args(["--noheadings", "-o", "pv_name,vg_name"]).output() {
-            let str_out = String::from_utf8_lossy(&pv_out.stdout);
-            for line in str_out.lines() {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 2 && parts[1] == vg_name {
-                    pv_members.push(parts[0].to_string());
+        if members_to_wipe.is_empty() {
+            if let Ok(pv_out) = Command::new("pvs").args(["--noheadings", "-o", "pv_name,vg_name"]).output() {
+                let str_out = String::from_utf8_lossy(&pv_out.stdout);
+                for line in str_out.lines() {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 2 && parts[1] == vg_name {
+                        members_to_wipe.push(parts[0].to_string());
+                    }
                 }
             }
         }
 
-        // Si un LV précis est ciblé
-        if let Some(ref lv) = lv_cand {
-            let _ = Command::new("lvchange").args(["-an", "-f", &format!("{}/{}", vg_name, lv)]).output();
-            let rm_lv = Command::new("lvremove").args(["-y", "-f", &format!("{}/{}", vg_name, lv)]).output();
-            if let Ok(ref out) = rm_lv {
-                if !out.status.success() {
-                    let err = String::from_utf8_lossy(&out.stderr);
-                    return Err(format!("Échec de suppression du volume logique {}/{} : {}", vg_name, lv, err));
-                }
+        // Étape 3 : Suppression logique LVM
+        if job.current_step <= 3 {
+            update_job_step(job_id, 3, 6, 55, "Suppression logique LVM", &format!("Désactivation et suppression des volumes LVM de '{}'...", vg_name));
+            if let Some(ref lv) = lv_cand {
+                let _ = Command::new("lvchange").args(["-an", "-f", &format!("{}/{}", vg_name, lv)]).output();
+                let _ = Command::new("lvremove").args(["-y", "-f", &format!("{}/{}", vg_name, lv)]).output();
             }
+
+            let remaining_lvs = Command::new("lvs").args(["-o", "lv_name", "--noheadings", vg_name]).output();
+            let has_other_lvs = remaining_lvs.map(|o| {
+                let s = String::from_utf8_lossy(&o.stdout);
+                s.lines().any(|l| !l.trim().is_empty())
+            }).unwrap_or(false);
+
+            if !has_other_lvs || lv_cand.is_none() {
+                let _ = Command::new("vgchange").args(["-an", "-f", vg_name]).output();
+                let _ = Command::new("vgremove").args(["-y", "-f", vg_name]).output();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
         }
 
-        // Vérifier s'il reste d'autres LVs dans le VG
-        let remaining_lvs = Command::new("lvs").args(["-o", "lv_name", "--noheadings", vg_name]).output();
-        let has_other_lvs = remaining_lvs.map(|o| {
-            let s = String::from_utf8_lossy(&o.stdout);
-            s.lines().any(|l| !l.trim().is_empty())
-        }).unwrap_or(false);
-
-        let destroyed_desc = if !has_other_lvs || lv_cand.is_none() {
-            // Supprimer le Volume Group entier
-            let _ = Command::new("vgchange").args(["-an", "-f", vg_name]).output();
-            let rm_vg = Command::new("vgremove").args(["-y", "-f", vg_name]).output();
-            if let Ok(ref out) = rm_vg {
-                if !out.status.success() {
-                    let err = String::from_utf8_lossy(&out.stderr);
-                    return Err(format!("Échec de suppression du groupe de volumes {} : {}", vg_name, err));
-                }
-            }
-
-            // Supprimer les Physical Volumes et effacer les signatures de partition
-            for pv in &pv_members {
+        // Étape 4 : Suppression des Physical Volumes LVM
+        if job.current_step <= 4 {
+            update_job_step(job_id, 4, 6, 75, "Suppression des Physical Volumes", "Libération des PVs membres LVM2...");
+            for pv in &members_to_wipe {
                 if !is_system_device(pv) {
                     let _ = Command::new("pvremove").args(["-y", "-ff", pv]).output();
-                    if do_wipe {
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(400));
+        }
+
+        // Étape 5 : Effacement signatures
+        if job.current_step <= 5 {
+            update_job_step(job_id, 5, 6, 90, "Effacement des signatures", "Nettoyage des superblocks et tables de partition (wipefs)...");
+            if do_wipe {
+                for pv in &members_to_wipe {
+                    if !is_system_device(pv) {
                         let _ = Command::new("wipefs").args(["-a", "-f", pv]).output();
                     }
                 }
             }
-            format!("Grappe LVM2 '{}' et disques membres ({})", vg_name, pv_members.join(", "))
-        } else {
-            format!("Volume logique '{}/{}'", vg_name, lv_cand.unwrap_or_default())
-        };
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
 
+        // Étape 6 : Settle
+        update_job_step(job_id, 6, 6, 98, "Synchronisation du système", "Actualisation des nœuds de périphériques et udev...");
         let _ = Command::new("vgmknodes").output();
         let _ = Command::new("udevadm").args(["settle", "--timeout=3"]).output();
 
-        return Ok(format!("{} cassée et dissoute avec succès. Les disques sont réinitialisés.", destroyed_desc));
+        complete_job(job_id, &format!("Grappe LVM2 '{}' dissoute avec succès. {} disque(s) libéré(s) : {}.", vg_name, members_to_wipe.len(), members_to_wipe.join(", ")));
+        return;
     }
 
-    // Cas B : mdadm (/dev/mdX ou /dev/md/...)
+    // Cas B : mdadm
     if clean_dev.starts_with("/dev/md") || clean_name.starts_with("md") {
         let md_target = if clean_dev.starts_with("/dev/md") { clean_dev } else { &format!("/dev/{}", clean_name) };
 
-        // Récupérer les disques membres via mdadm --detail
-        let mut md_members = Vec::new();
-        if let Ok(detail_out) = Command::new("mdadm").args(["--detail", md_target]).output() {
-            let str_out = String::from_utf8_lossy(&detail_out.stdout);
-            for line in str_out.lines() {
-                let trimmed = line.trim();
-                if trimmed.contains("/dev/") {
-                    for token in trimmed.split_whitespace() {
-                        if token.starts_with("/dev/") && !token.starts_with("/dev/md") {
-                            md_members.push(token.to_string());
+        if members_to_wipe.is_empty() {
+            if let Ok(detail_out) = Command::new("mdadm").args(["--detail", md_target]).output() {
+                let str_out = String::from_utf8_lossy(&detail_out.stdout);
+                for line in str_out.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.contains("/dev/") {
+                        for token in trimmed.split_whitespace() {
+                            if token.starts_with("/dev/") && !token.starts_with("/dev/md") {
+                                members_to_wipe.push(token.to_string());
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Arrêter la grappe
-        let stop_out = Command::new("mdadm").args(["--stop", md_target]).output()
-            .map_err(|e| format!("Impossible d'exécuter mdadm --stop : {}", e))?;
-        if !stop_out.status.success() {
-            let err = String::from_utf8_lossy(&stop_out.stderr);
-            return Err(format!("Échec de l'arrêt de la grappe RAID mdadm : {}", err));
+        // Étape 3 : Arrêt mdadm
+        if job.current_step <= 3 {
+            update_job_step(job_id, 3, 6, 55, "Arrêt de la grappe logicielle", &format!("Arrêt de la grappe logicielle mdadm '{}'...", md_target));
+            let _ = Command::new("mdadm").args(["--stop", md_target]).output();
+            std::thread::sleep(std::time::Duration::from_millis(500));
         }
 
-        // Effacer les superblocs et signatures sur chaque membre
-        for m in &md_members {
-            if !is_system_device(m) {
-                let _ = Command::new("mdadm").args(["--zero-superblock", "--force", m]).output();
-                if do_wipe {
-                    let _ = Command::new("wipefs").args(["-a", "-f", m]).output();
+        // Étape 4 : Suppression superblocks mdadm
+        if job.current_step <= 4 {
+            update_job_step(job_id, 4, 6, 75, "Suppression des superblocks", "Effacement des superblocks mdadm sur chaque membre...");
+            for m in &members_to_wipe {
+                if !is_system_device(m) {
+                    let _ = Command::new("mdadm").args(["--zero-superblock", "--force", m]).output();
                 }
             }
+            std::thread::sleep(std::time::Duration::from_millis(400));
         }
 
+        // Étape 5 : Wipefs
+        if job.current_step <= 5 {
+            update_job_step(job_id, 5, 6, 90, "Effacement des signatures", "Nettoyage des signatures de partitions (wipefs)...");
+            if do_wipe {
+                for m in &members_to_wipe {
+                    if !is_system_device(m) {
+                        let _ = Command::new("wipefs").args(["-a", "-f", m]).output();
+                    }
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+
+        // Étape 6 : Settle
+        update_job_step(job_id, 6, 6, 98, "Synchronisation du système", "Actualisation des périphériques blocs udev...");
         let _ = Command::new("udevadm").args(["settle", "--timeout=3"]).output();
-        return Ok(format!("Grappe RAID mdadm '{}' dissoute avec succès. Disques libérés : {}.", md_target, md_members.join(", ")));
+
+        complete_job(job_id, &format!("Grappe RAID mdadm '{}' dissoute avec succès. Disques libérés : {}.", md_target, members_to_wipe.join(", ")));
+        return;
     }
 
     // Cas C : Périphérique bloc générique ou Btrfs multi-disques
     if Path::new(clean_dev).exists() {
         if do_wipe && !is_system_device(clean_dev) {
+            update_job_step(job_id, 5, 6, 90, "Effacement des signatures", "Nettoyage du périphérique bloc...");
             let _ = Command::new("wipefs").args(["-a", "-f", clean_dev]).output();
             let _ = Command::new("udevadm").args(["settle", "--timeout=2"]).output();
-            return Ok(format!("Périphérique '{}' réinitialisé et libéré avec succès.", clean_dev));
+            complete_job(job_id, &format!("Périphérique '{}' réinitialisé et libéré avec succès.", clean_dev));
+            return;
         }
     }
 
-    Err(format!("Impossible d'identifier la grappe RAID '{}' ({}) pour dissolution.", clean_name, clean_dev))
+    fail_job(job_id, &format!("Impossible d'identifier la grappe RAID '{}' ({}) pour dissolution.", clean_name, clean_dev));
+}
+
+fn run_create_raid_worker(job: StorageJob) {
+    let job_id = &job.id;
+    let params = match job.create_params {
+        Some(ref p) => p,
+        None => {
+            fail_job(job_id, "Paramètres de création manquants.");
+            return;
+        }
+    };
+
+    let clean_name = &params.name;
+    let md_device = format!("/dev/md/{}", clean_name);
+    let mountpoint = &params.mountpoint;
+    let fs_type = params.fs_type.to_lowercase();
+    let raid_level = match params.level.to_lowercase().as_str() {
+        "raid0" | "0" => "0",
+        "raid1" | "1" => "1",
+        "raid5" | "5" => "5",
+        "raid6" | "6" => "6",
+        "raid10" | "10" => "10",
+        "linear" => "linear",
+        _ => {
+            fail_job(job_id, "Niveau de RAID invalide.");
+            return;
+        }
+    };
+
+    // Étape 1 : Nettoyage préalable des disques sélectionnés
+    if job.current_step <= 1 {
+        update_job_step(job_id, 1, 5, 15, "Nettoyage des disques", "Démontage et suppression des anciennes signatures...");
+        for dev in &params.devices {
+            let _ = Command::new("umount").args(["-f", dev]).output();
+            let _ = Command::new("wipefs").args(["-a", dev]).output();
+            let _ = Command::new("mdadm").args(["--zero-superblock", "--force", dev]).output();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+
+    // Étape 2 : Assemblage de la grappe logicielle mdadm
+    if job.current_step <= 2 {
+        update_job_step(job_id, 2, 5, 40, "Assemblage de la grappe", &format!("Création de la grappe RAID{} ({}) avec mdadm...", raid_level, clean_name));
+        let _ = Command::new("modprobe").args(["raid0", "raid1", "raid456", "raid10"]).output();
+
+        let dev_count = params.devices.len().to_string();
+        let mut args = vec![
+            "--create".to_string(),
+            md_device.clone(),
+            format!("--level={}", raid_level),
+            format!("--raid-devices={}", dev_count),
+        ];
+        for d in &params.devices {
+            args.push(d.clone());
+        }
+        args.push("--run".to_string());
+
+        let create_out = Command::new("mdadm").args(&args).output();
+        match create_out {
+            Ok(ref o) if !o.status.success() => {
+                let err = String::from_utf8_lossy(&o.stderr);
+                if !err.contains("already") && !Path::new(&md_device).exists() {
+                    fail_job(job_id, &format!("Échec de création du RAID mdadm : {}", err));
+                    return;
+                }
+            }
+            Err(e) => {
+                fail_job(job_id, &format!("Impossible d'exécuter mdadm : {}", e));
+                return;
+            }
+            _ => {}
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        let _ = Command::new("udevadm").args(["settle", "--timeout=3"]).output();
+    }
+
+    // Étape 3 : Formatage du système de fichiers
+    if job.current_step <= 3 {
+        update_job_step(job_id, 3, 5, 65, "Formatage du volume", &format!("Formatage du volume {} en {}...", md_device, fs_type.to_uppercase()));
+        let label = clean_name.to_uppercase();
+        let fmt_status = if fs_type == "btrfs" {
+            Command::new("mkfs.btrfs").args(["-f", "-L", &label, &md_device]).output()
+        } else if fs_type == "xfs" {
+            Command::new("mkfs.xfs").args(["-f", "-L", &label, &md_device]).output()
+        } else {
+            Command::new("mkfs.ext4").args(["-F", "-L", &label, &md_device]).output()
+        };
+
+        if let Ok(out) = fmt_status {
+            if !out.status.success() {
+                let err = String::from_utf8_lossy(&out.stderr);
+                fail_job(job_id, &format!("Le RAID a été créé mais le formatage a échoué : {}", err));
+                return;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+
+    // Étape 4 : Point de montage et permissions
+    if job.current_step <= 4 {
+        update_job_step(job_id, 4, 5, 85, "Montage et permissions", &format!("Montage sur {} et configuration des droits...", mountpoint));
+        let _ = Command::new("mkdir").args(["-p", mountpoint]).output();
+        let _ = Command::new("mount").args([&md_device, mountpoint]).output();
+
+        let primary_user = target_user();
+        let _ = Command::new("chown").args(["-R", &format!("{}:storage", primary_user), mountpoint]).output();
+        let _ = Command::new("chmod").args(["2775", mountpoint]).output();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+    }
+
+    // Étape 5 : Persistance déclarative mounts.json
+    update_job_step(job_id, 5, 5, 98, "Persistance déclarative", "Enregistrement dans mounts.json et synchronisation...");
+    let mut opts = vec!["defaults".to_string(), "noatime".to_string(), "nofail".to_string()];
+    if fs_type == "btrfs" {
+        opts.push("compress=zstd".to_string());
+    }
+
+    let mut mounts = load_persisted_mounts();
+    mounts.retain(|m| m.mount_point != *mountpoint && m.device != md_device);
+    let mount_id = format!("mount-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs());
+
+    mounts.push(PersistedMount {
+        id: mount_id,
+        name: clean_name.clone(),
+        device: md_device.clone(),
+        device_uuid: None,
+        mount_point: mountpoint.clone(),
+        fs_type: fs_type.clone(),
+        options: opts,
+        enabled: true,
+        created_at: Some("Aujourd'hui".to_string()),
+    });
+    let _ = save_persisted_mounts(&mounts);
+    let _ = Command::new("udevadm").args(["settle", "--timeout=3"]).output();
+
+    complete_job(job_id, &format!(
+        "Pool RAID {} ({}) créé avec succès avec {} disque(s), formaté en {} et monté sur {} !",
+        clean_name,
+        params.level.to_uppercase(),
+        params.devices.len(),
+        fs_type.to_uppercase(),
+        mountpoint
+    ));
+}
+
+pub fn init_storage_tasks_tracker() {
+    if let Some(mut job) = load_persisted_storage_job() {
+        if job.status == StorageJobStatus::Running || job.status == StorageJobStatus::Pending || job.status == StorageJobStatus::Resumed {
+            eprintln!("[STORAGE] Tâche de stockage interrompue détectée au démarrage : {} (type: {:?}, étape: {}/{})", job.id, job.job_type, job.current_step, job.total_steps);
+            job.status = StorageJobStatus::Resumed;
+            job.step_detail = format!("[Reprise suite au redémarrage] Reprise à l'étape {}/{} : {}", job.current_step, job.total_steps, job.step_name);
+            job.updated_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+            save_persisted_storage_job(&job);
+
+            if let Ok(mut guard) = ACTIVE_STORAGE_JOB.lock() {
+                *guard = Some(job.clone());
+            }
+
+            let job_clone = job.clone();
+            std::thread::spawn(move || {
+                match job_clone.job_type {
+                    StorageJobType::DestroyRaid => run_destroy_raid_worker(job_clone),
+                    StorageJobType::CreateRaid => run_create_raid_worker(job_clone),
+                }
+            });
+        } else if job.status == StorageJobStatus::Completed {
+            if let Some(completed_at) = job.completed_at {
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+                if now.saturating_sub(completed_at) > 30 {
+                    dismiss_storage_job();
+                } else if let Ok(mut guard) = ACTIVE_STORAGE_JOB.lock() {
+                    *guard = Some(job);
+                }
+            }
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub fn create_raid(req: &CreateRaidRequest) -> Result<String, String> {
+    let job = start_create_raid_job(req.clone())?;
+    Ok(format!("Tâche de création de grappe lancée avec succès (ID: {}).", job.id))
+}
+
+#[allow(dead_code)]
+pub fn destroy_raid(req: &DestroyRaidRequest) -> Result<String, String> {
+    let job = start_destroy_raid_job(req.clone())?;
+    Ok(format!("Tâche de dissolution de grappe lancée avec succès (ID: {}).", job.id))
 }
 
 pub fn trigger_disk_spindown(disk_name: &str) -> Result<String, String> {

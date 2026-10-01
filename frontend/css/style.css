@@ -12948,3 +12948,260 @@ body.app-updating-reload #app-shell {
     margin-left: auto;
   }
 }
+
+
+/* ================= POPUP / TOAST FLOTTANT STOCKAGE & RAID ================= */
+
+.storage-floating-toast.toast-fading-out {
+  opacity: 0 !important;
+  transform: translate(-50%, 30px) !important;
+  pointer-events: none !important;
+  transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.storage-floating-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100050 !important;
+  width: 90%;
+  max-width: 600px;
+  background: rgba(24, 24, 37, 0.95);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(203, 166, 247, 0.4);
+  border-radius: 999px;
+  padding: 10px 22px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(203, 166, 247, 0.2);
+  animation: slideUpToast 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.3s ease;
+}
+
+.storage-floating-toast.theme-destroy {
+  border-color: rgba(243, 139, 168, 0.5);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.65), 0 0 24px rgba(243, 139, 168, 0.25);
+}
+
+.storage-floating-toast.theme-destroy .storage-toast-progress-bar {
+  background: linear-gradient(90deg, #f38ba8, #fab387);
+}
+
+.storage-floating-toast.theme-create {
+  border-color: rgba(166, 227, 161, 0.5);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.65), 0 0 24px rgba(166, 227, 161, 0.25);
+}
+
+.storage-floating-toast.theme-create .storage-toast-progress-bar {
+  background: linear-gradient(90deg, #a6e3a1, #89dceb);
+}
+
+.storage-toast-content {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.storage-toast-icon-box {
+  font-size: 1.5rem;
+  line-height: 1;
+  animation: pulseDot 1.5s infinite;
+}
+
+.storage-toast-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.storage-toast-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.storage-toast-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.storage-toast-percent {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--mauve);
+  font-variant-numeric: tabular-nums;
+}
+
+.storage-toast-detail {
+  font-size: 0.74rem;
+  color: var(--subtext0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.storage-toast-progress-wrap {
+  width: 100%;
+  height: 5px;
+  background: var(--surface0);
+  border-radius: 999px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.storage-toast-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #cba6f7, #89b4fa);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.storage-toast-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ================= PANNEAU DE PROGRESSION RAID DANS L'ONGLET STOCKAGE ================= */
+
+.storage-raid-job-panel {
+  background: rgba(30, 30, 46, 0.75);
+  border: 1px solid rgba(203, 166, 247, 0.35);
+  border-radius: 14px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  animation: fadeIn 0.3s ease;
+}
+
+.storage-raid-job-panel.panel-destroy {
+  border-color: rgba(243, 139, 168, 0.45);
+  background: linear-gradient(180deg, rgba(243, 139, 168, 0.08) 0%, rgba(30, 30, 46, 0.85) 100%);
+}
+
+.storage-raid-job-panel.panel-create {
+  border-color: rgba(166, 227, 161, 0.45);
+  background: linear-gradient(180deg, rgba(166, 227, 161, 0.08) 0%, rgba(30, 30, 46, 0.85) 100%);
+}
+
+.storage-raid-job-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.storage-raid-job-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.storage-raid-job-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.storage-raid-job-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(203, 166, 247, 0.15);
+  color: var(--mauve);
+  border: 1px solid rgba(203, 166, 247, 0.3);
+}
+
+.storage-raid-job-badge.badge-destroy {
+  background: rgba(243, 139, 168, 0.15);
+  color: var(--red);
+  border-color: rgba(243, 139, 168, 0.3);
+}
+
+.storage-raid-job-badge.badge-create {
+  background: rgba(166, 227, 161, 0.15);
+  color: var(--green);
+  border-color: rgba(166, 227, 161, 0.3);
+}
+
+.storage-raid-job-percent {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--mauve);
+}
+
+.storage-raid-job-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.stepper-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--surface0);
+  color: var(--subtext0);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.stepper-pill.step-done {
+  background: rgba(166, 227, 161, 0.12);
+  color: var(--green);
+  border-color: rgba(166, 227, 161, 0.3);
+}
+
+.stepper-pill.step-active {
+  background: rgba(203, 166, 247, 0.2);
+  color: var(--mauve);
+  border-color: var(--mauve);
+  font-weight: 700;
+  box-shadow: 0 0 10px rgba(203, 166, 247, 0.25);
+}
+
+.storage-raid-job-progress-wrap {
+  width: 100%;
+  height: 7px;
+  background: var(--surface0);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.storage-raid-job-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--mauve), var(--blue));
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.panel-destroy .storage-raid-job-progress-bar {
+  background: linear-gradient(90deg, var(--red), var(--peach));
+}
+
+.panel-create .storage-raid-job-progress-bar {
+  background: linear-gradient(90deg, var(--green), var(--teal));
+}
+
+.storage-raid-job-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  color: var(--subtext0);
+}

@@ -1197,6 +1197,8 @@
             </div>
           </div>
         </div>
+        <!-- PANNEAU DE PROGRESSION D'OPÉRATION RAID (ASYNCHRONE / PERSISTANTE) -->
+        <div id="storage-raid-job-panel" class="storage-raid-job-panel" style="display:none;"></div>
         <div id="logical-raids-container"></div>
       </div>
 
@@ -5111,6 +5113,29 @@
     </div>
   </div>
 
+  <!-- ================= POPUP / TOAST FLOTTANT OPÉRATION STOCKAGE (ASYNCHRONE / PERSISTANT) ================= -->
+  <div class="storage-floating-toast" id="storage-floating-toast" style="display:none;">
+    <div class="storage-toast-content">
+      <div class="storage-toast-icon-box" id="storage-toast-icon">🧨</div>
+      <div class="storage-toast-info">
+        <div class="storage-toast-header-row">
+          <span class="storage-toast-title" id="storage-toast-title">Dissolution de la grappe RAID...</span>
+          <span class="storage-toast-percent" id="storage-toast-percent">15%</span>
+        </div>
+        <div class="storage-toast-detail" id="storage-toast-detail">Démontage automatique des partitions...</div>
+        <div class="storage-toast-progress-wrap">
+          <div class="storage-toast-progress-bar" id="storage-toast-progress-bar" style="width: 15%;"></div>
+        </div>
+      </div>
+      <div class="storage-toast-actions">
+        <button type="button" class="btn btn-primary btn-xs" onclick="switchTab('tab-storage')" title="Ouvrir la gestion du stockage">
+          <span>🛡️</span> Stockage
+        </button>
+        <button type="button" class="btn-toast-close" id="btn-close-storage-toast" onclick="dismissStorageJobToast()" style="display:none;" title="Fermer la notification">&times;</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ================= POPUP / TOAST FLOTTANT DE MISE À JOUR (PERSISTANT) ================= -->
   <div class="update-floating-toast" id="update-floating-toast" style="display:none;">
     <div class="update-toast-content">
@@ -6438,6 +6463,6 @@
 </div><!-- /#app-shell -->
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20261001_09"></script>
+  <script src="/js/app.js?v=20261001_10"></script>
 </body>
 </html>

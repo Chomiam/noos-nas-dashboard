@@ -63,6 +63,7 @@ async fn main() {
 
     let port = parse_port();
     updates::init_update_tracker();
+    storage::init_storage_tasks_tracker();
 
     let frontend_dir = env::var("STEVEOS_FRONTEND_DIR").unwrap_or_else(|_| "frontend".to_string());
 
