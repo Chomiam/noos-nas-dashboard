@@ -6033,6 +6033,88 @@
     </div>
   </div>
 
+  <!-- ================= MODALE MONTAGE PÉRIPHÉRIQUE AMOVIBLE ================= -->
+  <div class="file-modal-overlay" id="modal-mount-removable" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-mount-removable')">
+    <div class="file-modal-window removable-mount-window">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(137, 180, 250, 0.2);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-primary" style="font-size:0.75rem; font-weight:800;" id="removable-modal-badge">MÉDIA AMOVIBLE</span>
+          <span class="file-modal-title" id="removable-modal-title">Monter le Périphérique</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeMountRemovableModal()" title="Fermer la fenêtre">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding: 20px;">
+        <input type="hidden" id="removable-mount-device-path">
+        <input type="hidden" id="removable-mount-device-name">
+        <input type="hidden" id="removable-mount-detected-fs">
+
+        <!-- Carte d'identification du média amovible -->
+        <div class="removable-mount-summary-card">
+          <div class="removable-mount-icon-box" id="removable-mount-icon">🔌</div>
+          <div style="flex:1; min-width:0;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <strong style="color:var(--text); font-size:1.05rem;" id="removable-mount-model">Périphérique USB</strong>
+              <span class="badge badge-secondary" id="removable-mount-size">-- Go</span>
+              <span class="badge badge-accent" id="removable-mount-fs-badge">AUTO</span>
+            </div>
+            <div style="font-size:0.82rem; color:var(--subtext0); margin-top:4px; font-family:var(--font-mono);">
+              Périphérique : <code id="removable-mount-dev-label" style="color:var(--teal); font-weight:700;">/dev/...</code>
+              <span id="removable-mount-label-wrap" style="display:none;"> &bull; Étiquette : <strong id="removable-mount-label" style="color:var(--mauve);">--</strong></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Point de montage personnalisé -->
+        <div class="form-group" style="margin-top:18px;">
+          <label class="form-label" for="removable-mount-path" style="display:flex; justify-content:space-between; align-items:center;">
+            <span>Point de Montage :</span>
+            <span class="label-tag" style="background:rgba(137, 180, 250, 0.15); color:var(--blue);">Dossier Cible</span>
+          </label>
+          <div style="position:relative; display:flex; align-items:center;">
+            <input type="text" id="removable-mount-path" class="form-control font-mono" value="/media/usb" placeholder="/media/usb" style="padding-left:14px; font-weight:600; color:var(--text);">
+            <button type="button" class="btn btn-secondary btn-xs" style="position:absolute; right:8px; top:50%; transform:translateY(-50%);" onclick="resetRemovableMountPath()" title="Réinitialiser le chemin suggéré">
+              ↺ Suggéré
+            </button>
+          </div>
+          <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+            <span style="font-size:0.75rem; color:var(--subtext0); align-self:center;">Raccourcis :</span>
+            <button type="button" class="btn btn-secondary btn-xs font-mono" onclick="setRemovableMountPrefix('/media')">/media/...</button>
+            <button type="button" class="btn btn-secondary btn-xs font-mono" onclick="setRemovableMountPrefix('/mnt')">/mnt/...</button>
+          </div>
+        </div>
+
+        <!-- Info-box rassurante préservation intégrale -->
+        <div style="background:rgba(166, 227, 161, 0.1); border:1px solid rgba(166, 227, 161, 0.3); border-radius:var(--radius-md); padding:12px 14px; margin-top:16px; display:flex; align-items:flex-start; gap:10px;">
+          <span style="font-size:1.3rem; line-height:1;">🛡️</span>
+          <div style="font-size:0.83rem; color:var(--text); line-height:1.45;">
+            <strong style="color:var(--green);">Préservation intégrale des données</strong> : 
+            Ce processus monte directement vos fichiers sans modification ni formatage. Vos données existantes sont protégées et accessibles immédiatement.
+          </div>
+        </div>
+
+        <!-- Options simplifiées -->
+        <div style="margin-top:16px; display:flex; flex-direction:column; gap:10px;">
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.85rem; color:var(--text);">
+            <input type="checkbox" id="removable-mount-opt-rw" checked style="accent-color:var(--teal); width:17px; height:17px;">
+            <span>Permissions complètes en écriture pour l'utilisateur NAS (recommandé)</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.85rem; color:var(--subtext0);">
+            <input type="checkbox" id="removable-mount-opt-persist" style="accent-color:var(--mauve); width:17px; height:17px;">
+            <span>Conserver ce point de montage après redémarrage (recommandé si disque branché en continu)</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 20px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+        <button type="button" class="btn btn-secondary" onclick="closeMountRemovableModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-mount-removable" onclick="submitMountRemovable()">
+          <span>⚡</span> Monter le Périphérique
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- ================= TOAST NOTIFICATION DÉCONNEXION PÉRIPHÉRIQUE SÉCURISÉE ================= -->
   <div id="safe-removal-toast" class="safe-removal-toast" style="display:none;">
     <div class="safe-removal-icon">✅</div>
@@ -6047,6 +6129,6 @@
 </div><!-- /#app-shell -->
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20261001_01"></script>
+  <script src="/js/app.js?v=20261001_02"></script>
 </body>
 </html>

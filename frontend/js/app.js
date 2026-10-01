@@ -1767,19 +1767,87 @@ async function loadStorage() {
           <div class="removable-devices-grid">
             ${removableList.map(dev => {
               const icon = dev.is_optical ? "💿" : "🔌";
-              const isMounted = dev.is_mounted || (dev.partitions || []).some(p => p.mountpoint) || dev.mountpoint;
-              const mountedPart = (dev.partitions || []).find(p => p.mountpoint);
+              const partsList = dev.partitions || [];
+              const isMounted = dev.is_mounted || partsList.some(p => p.mountpoint) || !!dev.mountpoint;
+              const mountedPart = partsList.find(p => p.mountpoint);
+              const unmountedPart = partsList.find(p => !p.mountpoint);
               const mountPath = dev.mountpoint || (mountedPart ? mountedPart.mountpoint : null);
 
-              const partsHtml = (dev.partitions || []).length > 0
-                ? `<div style="font-size:0.78rem; color:var(--subtext0); margin-top:6px;">
-                     Partitions : ${(dev.partitions || []).map(p => `
-                       <span class="member-disk-pill" style="font-family:var(--font-mono); font-size:0.75rem;">
-                         ${escapeHtml(p.name)} (${escapeHtml(p.size_human)}) ${p.fstype ? `&bull; ${escapeHtml(p.fstype.toUpperCase())}` : ''} ${p.mountpoint ? `&bull; <strong style="color:var(--green);">${escapeHtml(p.mountpoint)}</strong>` : ''}
-                       </span>
-                     `).join(" ")}
+              const partsHtml = partsList.length > 0
+                ? `<div class="removable-partitions-list">
+                     ${partsList.map(p => {
+                       const pMounted = !!p.mountpoint;
+                       return `
+                         <div class="removable-partition-row">
+                           <div class="removable-part-left">
+                             <code style="color:var(--text); font-weight:700;">${escapeHtml(p.name)}</code>
+                             <span class="badge badge-secondary" style="font-size:0.7rem;">${escapeHtml(p.size_human)}</span>
+                             ${p.fstype ? `<span class="badge badge-primary" style="font-size:0.7rem;">${escapeHtml(p.fstype.toUpperCase())}</span>` : ''}
+                             ${p.label ? `<span class="badge badge-accent" style="font-size:0.7rem;">${escapeHtml(p.label)}</span>` : ''}
+                             ${pMounted 
+                               ? `<span class="badge badge-success" style="font-size:0.7rem;">✅ ${escapeHtml(p.mountpoint)}</span>` 
+                               : `<span class="badge badge-warning" style="font-size:0.7rem;">⏸️ Non monté</span>`}
+                           </div>
+                           <div class="removable-part-right">
+                             ${pMounted
+                               ? `<button type="button" class="btn btn-secondary btn-xs" onclick="openFilesAtPath('${escapeHtml(p.mountpoint)}')" title="Ouvrir dans l'explorateur de fichiers">
+                                    <span>📁</span> Explorer
+                                  </button>
+                                  <button type="button" class="btn btn-secondary btn-xs" onclick="umountVolume('${escapeHtml(p.mountpoint)}')" title="Démonter cette partition">
+                                    <span>⏸️</span> Démonter
+                                  </button>`
+                               : `<button type="button" class="btn btn-glow-mount btn-xs" onclick="openMountRemovableModal('${escapeHtml(p.path)}', '${escapeHtml(p.name)}', '${escapeHtml(dev.model || dev.name)}', '${escapeHtml(p.fstype || '')}', '${escapeHtml(p.label || '')}', '${escapeHtml(p.size_human)}')" title="Monter cette partition">
+                                    <span>⚡</span> Monter
+                                  </button>`}
+                           </div>
+                         </div>
+                       `;
+                     }).join("")}
                    </div>`
                 : "";
+
+              let actionButtonsHtml = "";
+              if (partsList.length === 0) {
+                if (isMounted) {
+                  actionButtonsHtml = `
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="openFilesAtPath('${escapeHtml(mountPath)}')">
+                      <span>📁</span> Explorer
+                    </button>
+                    <button type="button" class="btn btn-warning btn-sm" onclick="ejectRemovableDevice('${escapeHtml(dev.path)}', '${escapeHtml(dev.model || dev.name)}')">
+                      <span>⏏️</span> Éjecter
+                    </button>
+                  `;
+                } else {
+                  actionButtonsHtml = `
+                    <button type="button" class="btn btn-glow-mount btn-sm" onclick="openMountRemovableModal('${escapeHtml(dev.path)}', '${escapeHtml(dev.name)}', '${escapeHtml(dev.model || dev.name)}', '${escapeHtml(dev.fstype || '')}', '${escapeHtml(dev.label || '')}', '${escapeHtml(dev.size_human)}')">
+                      <span>⚡</span> Monter
+                    </button>
+                    <button type="button" class="btn btn-warning btn-sm" onclick="ejectRemovableDevice('${escapeHtml(dev.path)}', '${escapeHtml(dev.model || dev.name)}')">
+                      <span>⏏️</span> Éjecter
+                    </button>
+                  `;
+                }
+              } else {
+                actionButtonsHtml = `
+                  ${unmountedPart ? `
+                    <button type="button" class="btn btn-glow-mount btn-sm" onclick="openMountRemovableModal('${escapeHtml(unmountedPart.path)}', '${escapeHtml(unmountedPart.name)}', '${escapeHtml(dev.model || dev.name)}', '${escapeHtml(unmountedPart.fstype || '')}', '${escapeHtml(unmountedPart.label || '')}', '${escapeHtml(unmountedPart.size_human)}')">
+                      <span>⚡</span> Monter
+                    </button>
+                  ` : ''}
+                  ${mountedPart ? `
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="openFilesAtPath('${escapeHtml(mountedPart.mountpoint)}')">
+                      <span>📁</span> Explorer
+                    </button>
+                  ` : ''}
+                  <button type="button" class="btn btn-warning btn-sm" onclick="ejectRemovableDevice('${escapeHtml(dev.path)}', '${escapeHtml(dev.model || dev.name)}')">
+                    <span>⏏️</span> Éjecter
+                  </button>
+                `;
+              }
+
+              const statusText = isMounted
+                ? (mountPath ? `✅ Prêt &bull; <strong style="color:var(--green); font-family:var(--font-mono);">${escapeHtml(mountPath)}</strong>` : `✅ Connecté et monté`)
+                : `⏸️ Périphérique détecté (non monté)`;
 
               return `
                 <div class="removable-device-card ${dev.is_optical ? 'is-optical' : 'is-usb'}">
@@ -1805,11 +1873,11 @@ async function loadStorage() {
 
                   <div class="removable-card-bottom">
                     <div style="font-size:0.8rem; color:var(--subtext0);">
-                      ${isMounted ? 'Données prêtes et accessibles' : 'Prêt à être utilisé ou retiré'}
+                      ${statusText}
                     </div>
-                    <button type="button" class="btn btn-warning btn-sm" onclick="ejectRemovableDevice('${escapeHtml(dev.path)}', '${escapeHtml(dev.model || dev.name)}')">
-                      <span>⏏️</span> Éjecter en toute sécurité
-                    </button>
+                    <div class="removable-card-actions">
+                      ${actionButtonsHtml}
+                    </div>
                   </div>
                 </div>
               `;
@@ -16058,5 +16126,168 @@ async function ejectRemovableDevice(devPath, devName) {
     }
   } catch (err) {
     showToast(`Erreur réseau lors de l'éjection : ${err.message}`, "error", 10000);
+  }
+}
+
+
+/* ==========================================================================
+   GESTION DU MONTAGE DES PÉRIPHÉRIQUES AMOVIBLES (USB, OPTIQUE)
+   ========================================================================== */
+
+let suggestedRemovableMountPath = "/media/usb";
+
+function openMountRemovableModal(devicePath, deviceName, deviceModel, fstype, label, sizeHuman) {
+  const modal = document.getElementById("modal-mount-removable");
+  if (!modal) return;
+
+  const pathHidden = document.getElementById("removable-mount-device-path");
+  const nameHidden = document.getElementById("removable-mount-device-name");
+  const fsHidden = document.getElementById("removable-mount-detected-fs");
+  const modelEl = document.getElementById("removable-mount-model");
+  const sizeEl = document.getElementById("removable-mount-size");
+  const fsBadge = document.getElementById("removable-mount-fs-badge");
+  const devLabel = document.getElementById("removable-mount-dev-label");
+  const labelWrap = document.getElementById("removable-mount-label-wrap");
+  const labelEl = document.getElementById("removable-mount-label");
+  const mountInput = document.getElementById("removable-mount-path");
+  const iconEl = document.getElementById("removable-mount-icon");
+  const titleEl = document.getElementById("removable-modal-title");
+  const badgeEl = document.getElementById("removable-modal-badge");
+
+  const isOptical = (devicePath || "").includes("sr") || (deviceName || "").startsWith("sr");
+  if (iconEl) iconEl.textContent = isOptical ? "💿" : "🔌";
+  if (badgeEl) badgeEl.textContent = isOptical ? "DISQUE OPTIQUE" : "MÉDIA AMOVIBLE";
+  if (titleEl) titleEl.textContent = isOptical ? "Monter le Disque Optique" : `Monter : ${deviceModel || deviceName}`;
+
+  if (pathHidden) pathHidden.value = devicePath || "";
+  if (nameHidden) nameHidden.value = deviceName || "";
+  if (fsHidden) fsHidden.value = fstype || "";
+
+  if (modelEl) modelEl.textContent = deviceModel || deviceName || "Périphérique Amovible";
+  if (sizeEl) sizeEl.textContent = sizeHuman || "--";
+  if (fsBadge) {
+    fsBadge.textContent = (fstype || "AUTO").toUpperCase();
+    fsBadge.className = fstype ? "badge badge-accent" : "badge badge-secondary";
+  }
+  if (devLabel) devLabel.textContent = devicePath || "";
+
+  if (labelWrap && labelEl) {
+    if (label && label.trim()) {
+      labelWrap.style.display = "inline";
+      labelEl.textContent = label.trim();
+    } else {
+      labelWrap.style.display = "none";
+    }
+  }
+
+  // Calcul du point de montage suggéré propre
+  let cleanName = (label && label.trim()) ? label.trim() : (deviceName || "usb");
+  cleanName = cleanName.toLowerCase().replace(/[^a-z0-9_-]/g, "_").replace(/^_+|_+$/g, "");
+  if (!cleanName) cleanName = "usb";
+
+  suggestedRemovableMountPath = `/media/${cleanName}`;
+  if (mountInput) {
+    mountInput.value = suggestedRemovableMountPath;
+  }
+
+  const rwCheckbox = document.getElementById("removable-mount-opt-rw");
+  if (rwCheckbox) rwCheckbox.checked = true;
+
+  const persistCheckbox = document.getElementById("removable-mount-opt-persist");
+  if (persistCheckbox) persistCheckbox.checked = false;
+
+  const btn = document.getElementById("btn-submit-mount-removable");
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = `<span>⚡</span> Monter le Périphérique`;
+  }
+
+  modal.style.display = "flex";
+}
+
+function closeMountRemovableModal() {
+  const modal = document.getElementById("modal-mount-removable");
+  if (modal) modal.style.display = "none";
+}
+
+function resetRemovableMountPath() {
+  const mountInput = document.getElementById("removable-mount-path");
+  if (mountInput) mountInput.value = suggestedRemovableMountPath;
+}
+
+function setRemovableMountPrefix(prefix) {
+  const mountInput = document.getElementById("removable-mount-path");
+  if (!mountInput) return;
+  const current = mountInput.value.trim();
+  const baseName = current.split("/").filter(Boolean).pop() || "usb";
+  mountInput.value = `${prefix.replace(/\/+$/, "")}/${baseName}`;
+}
+
+async function submitMountRemovable() {
+  const devicePath = document.getElementById("removable-mount-device-path")?.value;
+  const deviceName = document.getElementById("removable-mount-device-name")?.value;
+  const detectedFs = document.getElementById("removable-mount-detected-fs")?.value;
+  const mountInput = document.getElementById("removable-mount-path");
+  const rwOpt = document.getElementById("removable-mount-opt-rw")?.checked ?? true;
+  const persistOpt = document.getElementById("removable-mount-opt-persist")?.checked ?? false;
+  const btn = document.getElementById("btn-submit-mount-removable");
+
+  const mountpoint = (mountInput?.value || "").trim();
+  if (!devicePath || !mountpoint) {
+    showToast("Veuillez spécifier un point de montage valide.", "warning");
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" style="display:inline-block; width:14px; height:14px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:spin 0.75s linear infinite; margin-right:6px;"></span> Montage en cours...`;
+  }
+
+  const options = ["defaults", "noatime"];
+  if (rwOpt) {
+    options.push("rw");
+  }
+
+  try {
+    const res = await fetch("/api/storage/mount", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: deviceName || "removable",
+        device: devicePath,
+        mountpoint: mountpoint,
+        fs_type: detectedFs || "auto",
+        options: options,
+        persist: persistOpt,
+        force_format: false
+      })
+    });
+
+    const json = await res.json();
+    if (json.success) {
+      closeMountRemovableModal();
+      showToast(`✅ Périphérique monté avec succès sur ${mountpoint} !`, "success", 6000);
+      loadStorage();
+    } else {
+      showSystemError("Échec du montage amovible", `Impossible de monter ${devicePath} sur ${mountpoint}`, json.message || "Erreur inconnue", 12000);
+    }
+  } catch (err) {
+    showToast(`Erreur réseau lors du montage : ${err.message}`, "error", 10000);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<span>⚡</span> Monter le Périphérique`;
+    }
+  }
+}
+
+function openFilesAtPath(path) {
+  if (!path) return;
+  try {
+    localStorage.setItem("steveos_files_path", path);
+  } catch (e) {}
+  switchTab("tab-files");
+  if (typeof navigateToPath === "function") {
+    navigateToPath(path);
   }
 }

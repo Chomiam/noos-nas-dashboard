@@ -1381,6 +1381,34 @@ fn resolve_gid_name(gid: u32) -> String {
     gid.to_string()
 }
 
+fn get_user_uid_gid(username: &str) -> (u32, u32) {
+    if let Ok(passwd) = std::fs::read_to_string("/etc/passwd") {
+        for line in passwd.lines() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() >= 4 && parts[0] == username {
+                let uid = parts[2].parse::<u32>().unwrap_or(1000);
+                let gid = parts[3].parse::<u32>().unwrap_or(100);
+                return (uid, gid);
+            }
+        }
+    }
+    (1000, 100)
+}
+
+fn get_storage_gid() -> Option<u32> {
+    if let Ok(group) = std::fs::read_to_string("/etc/group") {
+        for line in group.lines() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() >= 3 && parts[0] == "storage" {
+                if let Ok(gid) = parts[2].parse::<u32>() {
+                    return Some(gid);
+                }
+            }
+        }
+    }
+    None
+}
+
 pub fn check_path_permissions(path: &str, target_user: &str) -> (String, String, String, bool, bool) {
     use std::os::unix::fs::MetadataExt;
     if let Ok(meta) = std::fs::metadata(path) {
@@ -1673,13 +1701,36 @@ pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
         fs_type.to_string()
     };
 
-    let effective_options: Vec<String> = req.options.clone().unwrap_or_else(|| {
+    let primary_user = target_user();
+    let (p_uid, p_gid) = get_user_uid_gid(&primary_user);
+    let storage_gid = get_storage_gid().unwrap_or(p_gid);
+
+    let fs_lower = detected_fs.to_lowercase();
+    let is_non_posix_fs = fs_lower == "vfat" || fs_lower == "fat" || fs_lower == "msdos" || fs_lower == "exfat" || fs_lower.starts_with("ntfs");
+
+    let mut effective_options: Vec<String> = req.options.clone().unwrap_or_else(|| {
         let mut opts = vec!["defaults".to_string(), "noatime".to_string(), "nofail".to_string()];
         if detected_fs == "btrfs" {
             opts.push("compress=zstd".to_string());
         }
         opts
     });
+
+    if is_non_posix_fs {
+        if !effective_options.iter().any(|o| o.starts_with("uid=")) {
+            effective_options.push(format!("uid={}", p_uid));
+        }
+        if !effective_options.iter().any(|o| o.starts_with("gid=")) {
+            effective_options.push(format!("gid={}", storage_gid));
+        }
+        if !effective_options.iter().any(|o| o.starts_with("dmask=") || o.starts_with("umask=")) {
+            effective_options.push("dmask=0002".to_string());
+            effective_options.push("fmask=0113".to_string());
+        }
+        if fs_lower.starts_with("ntfs") && !effective_options.iter().any(|o| o == "rw") {
+            effective_options.push("rw".to_string());
+        }
+    }
 
     let runtime_opts_str = sanitize_runtime_mount_options(&effective_options);
 
@@ -1715,7 +1766,7 @@ pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
         let mut mounts = load_persisted_mounts();
         mounts.retain(|m| m.mount_point != mount_target && m.device != final_block_device);
 
-        let pool_name = mount_target.trim_start_matches("/mnt/").trim_start_matches('/').to_string();
+        let pool_name = mount_target.trim_start_matches("/mnt/").trim_start_matches("/media/").trim_start_matches('/').to_string();
         let mount_id = format!("mount-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs());
 
         mounts.push(PersistedMount {
