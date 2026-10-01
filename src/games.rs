@@ -1742,21 +1742,25 @@ pub fn list_game_servers() -> Vec<GameServer> {
                     s.status = "error".into();
                     s.exit_code = Some(exit_code);
                     s.status_detail = Some("Conteneur défaillant (Dead)".into());
-                } else if exit_code != 0 {
+                } else if exit_code == 0 || exit_code == 130 || exit_code == 143 {
+                    s.status = "stopped".into();
+                    s.exit_code = Some(exit_code);
+                    let detail = match exit_code {
+                        130 => "Arrêté proprement (Signal SIGINT / 130)".to_string(),
+                        143 => "Arrêté proprement (Signal SIGTERM / 143)".to_string(),
+                        _ => "Arrêté proprement".to_string(),
+                    };
+                    s.status_detail = Some(detail);
+                } else {
                     s.status = "error".into();
                     s.exit_code = Some(exit_code);
                     let detail = match exit_code {
                         137 => "Arrêté de force (SIGKILL / 137)".to_string(),
                         139 => "Crash critique (Segmentation Fault / 139)".to_string(),
-                        143 => "Arrêté par signal SIGTERM (143)".to_string(),
                         1 => "Erreur applicative (Code 1 - Vérifier les logs)".to_string(),
                         code => format!("Arrêt anormal (Code {})", code),
                     };
                     s.status_detail = Some(detail);
-                } else {
-                    s.status = "stopped".into();
-                    s.exit_code = Some(0);
-                    s.status_detail = Some("Arrêté proprement".into());
                 }
             }
         } else {
@@ -2360,13 +2364,21 @@ pub fn control_game_server(id: &str, action: &str) -> Result<String, String> {
         STARTING_SERVERS.lock().unwrap().remove(id);
     }
 
-    let status = Command::new("docker")
-        .args([cmd, &container_name])
-        .status()
-        .map_err(|e| {
-            STARTING_SERVERS.lock().unwrap().remove(id);
-            format!("Échec d'exécution docker {} : {}", cmd, e)
-        })?;
+    let status = match action {
+        "stop" => Command::new("docker")
+            .args(["stop", "-t", "30", &container_name])
+            .status(),
+        "restart" => Command::new("docker")
+            .args(["restart", "-t", "30", &container_name])
+            .status(),
+        _ => Command::new("docker")
+            .args([cmd, &container_name])
+            .status(),
+    }
+    .map_err(|e| {
+        STARTING_SERVERS.lock().unwrap().remove(id);
+        format!("Échec d'exécution docker {} : {}", cmd, e)
+    })?;
 
     if status.success() {
         Ok(format!("Action '{}' exécutée avec succès.", action))
