@@ -1517,58 +1517,161 @@ pub fn repair_path_permissions(req: &RepairPermissionsRequest) -> Result<String,
 }
 
 fn resolve_and_activate_block_device(clean_dev: &str, req: &MountVolumeRequest) -> Result<String, String> {
+    // 0. Si le périphérique existe déjà directement comme nœud de bloc valide
+    if Path::new(clean_dev).exists() {
+        return Ok(clean_dev.to_string());
+    }
+
+    // Charger systématiquement les modules noyau RAID & Device Mapper indispensables
+    let _ = Command::new("modprobe")
+        .args(["dm-mod", "dm-raid", "raid0", "raid1", "raid456", "raid10"])
+        .output();
+
     let stripped = clean_dev.trim_start_matches("/dev/");
 
-    // Cas A : groupe LVM / RAID (ex: "vg1" ou "/dev/vg1")
+    // Identifier si la cible fait référence à du LVM (ex: "vg1", "/dev/vg1", "vg1/storage", "/dev/vg1/storage", "/dev/mapper/vg1-storage")
+    let (vg_candidate, lv_candidate) = if clean_dev.starts_with("/dev/mapper/") {
+        let mapper_name = clean_dev.trim_start_matches("/dev/mapper/");
+        let mut parts = Vec::new();
+        let mut current = String::new();
+        let mut chars = mapper_name.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '-' {
+                if chars.peek() == Some(&'-') {
+                    chars.next();
+                    current.push('-');
+                } else {
+                    parts.push(current);
+                    current = String::new();
+                }
+            } else {
+                current.push(c);
+            }
+        }
+        parts.push(current);
+        if parts.len() == 2 {
+            (parts[0].clone(), Some(parts[1].clone()))
+        } else {
+            (mapper_name.to_string(), None)
+        }
+    } else if stripped.contains('/') && !stripped.starts_with("disk/") {
+        let parts: Vec<&str> = stripped.split('/').collect();
+        (parts[0].to_string(), if parts.len() > 1 { Some(parts[1].to_string()) } else { None })
+    } else {
+        (stripped.to_string(), None)
+    };
+
+    // Vérifier si vg_candidate est un Volume Group LVM valide
     let is_vg = Command::new("vgs")
-        .args([stripped])
+        .args([&vg_candidate])
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
 
     if is_vg {
-        let vg_name = stripped;
-        // Activation obligatoire de tous les volumes logiques du Volume Group
-        let _ = Command::new("vgchange").args(["-ay", vg_name]).output();
-        let _ = Command::new("udevadm").args(["settle", "--timeout=2"]).output();
+        let vg_name = &vg_candidate;
+        // Activation préalable globale du Volume Group
+        let _ = Command::new("vgchange")
+            .args(["-ay", "-K", "--activationmode", "degraded", vg_name])
+            .output();
 
-        let lv_out = Command::new("lvs")
-            .args(["-o", "lv_name", "--noheadings", vg_name])
-            .output()
-            .map_err(|e| format!("Erreur lvs : {}", e))?;
-        let lvs_str = String::from_utf8_lossy(&lv_out.stdout);
-        let first_lv = lvs_str.lines().map(|l| l.trim()).find(|l| !l.is_empty()).map(|s| s.to_string());
-
-        let chosen_lv = if let Some(lv) = first_lv {
-            lv
-        } else {
-            let chosen_lv_name = req.lv_name.as_deref().unwrap_or("storage");
-            let raid_type = req.raid_type.as_deref().unwrap_or("raid5");
-
-            let _ = Command::new("modprobe").args(["dm-raid", "raid456"]).output();
-
-            let create_args = if raid_type == "raid5" {
-                vec!["--type", "raid5", "-l", "100%FREE", "-n", chosen_lv_name, vg_name]
-            } else if raid_type == "linear" {
-                vec!["-l", "100%FREE", "-n", chosen_lv_name, vg_name]
-            } else {
-                vec!["--type", raid_type, "-l", "100%FREE", "-n", chosen_lv_name, vg_name]
-            };
-
-            let lv_create_out = Command::new("lvcreate")
-                .args(&create_args)
+        let chosen_lv = if let Some(ref lv) = lv_candidate {
+            // Un LV précis a été demandé dans le chemin (ex: "/dev/vg1/storage")
+            let lv_exists = Command::new("lvs")
+                .args(["-o", "lv_name", "--noheadings", &format!("{}/{}", vg_name, lv)])
                 .output()
-                .map_err(|e| format!("Impossible d'exécuter lvcreate : {}", e))?;
+                .map(|o| o.status.success() && !o.stdout.is_empty())
+                .unwrap_or(false);
 
-            if !lv_create_out.status.success() {
-                let err = String::from_utf8_lossy(&lv_create_out.stderr);
-                return Err(format!("Échec de création du volume logique : {}", err));
+            if lv_exists {
+                // Activer spécifiquement le volume logique
+                let act_res = Command::new("lvchange")
+                    .args(["-ay", "-K", "--activationmode", "degraded", &format!("{}/{}", vg_name, lv)])
+                    .output();
+                if let Ok(ref out) = act_res {
+                    if !out.status.success() {
+                        let err = String::from_utf8_lossy(&out.stderr);
+                        eprintln!("[storage] Avertissement lvchange: {}", err);
+                    }
+                }
+                lv.clone()
+            } else if req.force_format == Some(true) {
+                // Le LV n'existe pas encore mais un formatage/création a été demandé
+                let raid_type = req.raid_type.as_deref().unwrap_or("raid5");
+                let create_args = if raid_type == "raid5" {
+                    vec!["--type", "raid5", "-l", "100%FREE", "-n", lv.as_str(), vg_name]
+                } else if raid_type == "linear" {
+                    vec!["-l", "100%FREE", "-n", lv.as_str(), vg_name]
+                } else {
+                    vec!["--type", raid_type, "-l", "100%FREE", "-n", lv.as_str(), vg_name]
+                };
+
+                let lv_create_out = Command::new("lvcreate")
+                    .args(&create_args)
+                    .output()
+                    .map_err(|e| format!("Impossible d'exécuter lvcreate : {}", e))?;
+
+                if !lv_create_out.status.success() {
+                    let err = String::from_utf8_lossy(&lv_create_out.stderr);
+                    return Err(format!("Échec de création du volume logique '{}/{}' : {}", vg_name, lv, err));
+                }
+
+                let _ = Command::new("vgchange")
+                    .args(["-ay", "-K", "--activationmode", "degraded", vg_name])
+                    .output();
+                lv.clone()
+            } else {
+                return Err(format!(
+                    "Le volume logique '{}/{}' n'existe pas dans le groupe '{}'. Cochez l'option de formatage pour l'allouer et l'initialiser.",
+                    vg_name, lv, vg_name
+                ));
             }
+        } else {
+            // Aucun LV dans le chemin (ex: "/dev/vg1") : rechercher le premier LV existant
+            let lv_out = Command::new("lvs")
+                .args(["-o", "lv_name", "--noheadings", vg_name])
+                .output()
+                .map_err(|e| format!("Erreur lvs : {}", e))?;
+            let lvs_str = String::from_utf8_lossy(&lv_out.stdout);
+            let first_lv = lvs_str.lines().map(|l| l.trim()).find(|l| !l.is_empty()).map(|s| s.to_string());
 
-            let _ = Command::new("vgchange").args(["-ay", vg_name]).output();
-            let _ = Command::new("udevadm").args(["settle", "--timeout=2"]).output();
-            chosen_lv_name.to_string()
+            if let Some(lv) = first_lv {
+                let _ = Command::new("lvchange")
+                    .args(["-ay", "-K", "--activationmode", "degraded", &format!("{}/{}", vg_name, lv)])
+                    .output();
+                lv
+            } else {
+                let chosen_lv_name = req.lv_name.as_deref().unwrap_or("storage");
+                let raid_type = req.raid_type.as_deref().unwrap_or("raid5");
+
+                let create_args = if raid_type == "raid5" {
+                    vec!["--type", "raid5", "-l", "100%FREE", "-n", chosen_lv_name, vg_name]
+                } else if raid_type == "linear" {
+                    vec!["-l", "100%FREE", "-n", chosen_lv_name, vg_name]
+                } else {
+                    vec!["--type", raid_type, "-l", "100%FREE", "-n", chosen_lv_name, vg_name]
+                };
+
+                let lv_create_out = Command::new("lvcreate")
+                    .args(&create_args)
+                    .output()
+                    .map_err(|e| format!("Impossible d'exécuter lvcreate : {}", e))?;
+
+                if !lv_create_out.status.success() {
+                    let err = String::from_utf8_lossy(&lv_create_out.stderr);
+                    return Err(format!("Échec de création du volume logique : {}", err));
+                }
+
+                let _ = Command::new("vgchange")
+                    .args(["-ay", "-K", "--activationmode", "degraded", vg_name])
+                    .output();
+                chosen_lv_name.to_string()
+            }
         };
+
+        // Forcer la création synchrone des nœuds /dev avec vgmknodes et settle
+        let _ = Command::new("vgmknodes").output();
+        let _ = Command::new("udevadm").args(["settle", "--timeout=3"]).output();
 
         let candidate_dev = format!("/dev/{}/{}", vg_name, chosen_lv);
         let candidate_mapper = format!("/dev/mapper/{}-{}", vg_name.replace('-', "--"), chosen_lv.replace('-', "--"));
@@ -1578,46 +1681,53 @@ fn resolve_and_activate_block_device(clean_dev: &str, req: &MountVolumeRequest) 
         } else if Path::new(&candidate_mapper).exists() {
             return Ok(candidate_mapper);
         } else {
-            let _ = Command::new("udevadm").args(["settle", "--timeout=3"]).output();
-            if Path::new(&candidate_dev).exists() {
-                return Ok(candidate_dev);
-            } else if Path::new(&candidate_mapper).exists() {
-                return Ok(candidate_mapper);
-            }
-            return Err(format!("Volume logique actif mais périphérique introuvable ('{}' ou '{}').", candidate_dev, candidate_mapper));
-        }
-    }
-
-    // Cas B : chemin explicite d'un volume logique LVM (ex: "/dev/vg1/storage" ou "vg1/storage")
-    if stripped.contains('/') && !stripped.starts_with("disk/") {
-        let parts: Vec<&str> = stripped.split('/').collect();
-        if parts.len() == 2 {
-            let vg = parts[0];
-            let lv = parts[1];
-            let _ = Command::new("vgchange").args(["-ay", vg]).output();
-            let _ = Command::new("lvchange").args(["-ay", &format!("{}/{}", vg, lv)]).output();
+            // Deuxième tentative avec léger délai de synchronisation
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let _ = Command::new("vgmknodes").output();
             let _ = Command::new("udevadm").args(["settle", "--timeout=2"]).output();
 
-            let candidate_dev = format!("/dev/{}/{}", vg, lv);
-            let candidate_mapper = format!("/dev/mapper/{}-{}", vg.replace('-', "--"), lv.replace('-', "--"));
             if Path::new(&candidate_dev).exists() {
                 return Ok(candidate_dev);
             } else if Path::new(&candidate_mapper).exists() {
                 return Ok(candidate_mapper);
             }
+
+            // Ultime recherche via dmsetup pour un mappeur actif
+            let dm_out = Command::new("dmsetup")
+                .args(["info", "-C", "--noheadings", "-o", "devname", &format!("{}-{}", vg_name.replace('-', "--"), chosen_lv.replace('-', "--"))])
+                .output();
+            if let Ok(dm) = dm_out {
+                let dm_name = String::from_utf8_lossy(&dm.stdout).trim().to_string();
+                if !dm_name.is_empty() {
+                    let dm_path = format!("/dev/{}", dm_name);
+                    if Path::new(&dm_path).exists() {
+                        return Ok(dm_path);
+                    }
+                }
+            }
+
+            return Err(format!(
+                "Volume logique '{}/{}' activé mais périphérique de bloc introuvable ('{}' ou '{}').",
+                vg_name, chosen_lv, candidate_dev, candidate_mapper
+            ));
         }
     }
 
     // Cas C : périphérique standard ou /dev/mapper existant
-    if Path::new(clean_dev).exists() {
-        return Ok(clean_dev.to_string());
-    }
-
     if clean_dev.starts_with("/dev/mapper/") {
         let _ = Command::new("udevadm").args(["settle", "--timeout=2"]).output();
         if Path::new(clean_dev).exists() {
             return Ok(clean_dev.to_string());
         }
+    }
+
+    if Path::new(clean_dev).exists() {
+        return Ok(clean_dev.to_string());
+    }
+
+    let _ = Command::new("udevadm").args(["settle", "--timeout=2"]).output();
+    if Path::new(clean_dev).exists() {
+        return Ok(clean_dev.to_string());
     }
 
     Err(format!("Le périphérique bloc '{}' est introuvable sur le système. Vérifiez qu'il est bien connecté ou actif.", clean_dev))
