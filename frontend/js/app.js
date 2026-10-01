@@ -1962,6 +1962,8 @@ async function pollRaidSyncProgress() {
 // --------------------------------------------------------------------------
 // MODALE ASSISTANT CRÉATION DE POOL RAID
 // --------------------------------------------------------------------------
+let currentSelectedFsType = "btrfs";
+
 function openCreateRaidModal() {
   const modal = document.getElementById("create-raid-modal");
   const checklist = document.getElementById("raid-disks-checklist");
@@ -1974,32 +1976,100 @@ function openCreateRaidModal() {
   const eligibleDisks = cachedStorageDisks.filter(d => !d.is_system);
 
   if (eligibleDisks.length === 0) {
-    checklist.innerHTML = `<div style="color:var(--subtext0); padding:10px; text-align:center;">Aucun disque de stockage disponible pour le RAID.</div>`;
+    checklist.innerHTML = `<div style="color:var(--subtext0); padding:20px; text-align:center; background:rgba(30,30,46,0.5); border-radius:10px;">⚠️ Aucun disque physique supplémentaire disponible pour créer un RAID.</div>`;
   } else {
     checklist.innerHTML = eligibleDisks.map((d, idx) => {
       // Par défaut pour 4 disques, tous cochés pour RAID 5
-      const checked = idx < 4 ? "checked" : "";
+      const isChecked = idx < 4;
+      const busType = d.tran ? d.tran.toUpperCase() : (d.path.includes("nvme") ? "NVMe" : "SATA 6Gb/s");
       return `
-        <label class="raid-disk-check-item">
-          <div style="display:flex; align-items:center; gap:10px;">
-            <input type="checkbox" class="raid-disk-checkbox" value="${escapeHtml(d.path)}" data-size="${escapeHtml(d.size_human)}" onchange="updateRaidPreview()" ${checked} style="accent-color:var(--mauve); width:16px; height:16px;">
-            <div>
-              <strong style="color:var(--text); font-size:0.88rem;">${escapeHtml(d.path)}</strong>
-              <span style="font-size:0.75rem; color:var(--subtext0); margin-left:6px;">${escapeHtml(d.model)}</span>
+        <div class="raid-disk-row-card ${isChecked ? "selected" : ""}" id="raid-disk-row-${idx}" onclick="toggleRaidDiskRow('${escapeHtml(d.path)}', ${idx})">
+          <div class="raid-disk-row-left">
+            <div class="raid-disk-checkbox-custom" id="raid-cb-box-${idx}">
+              ${isChecked ? "✔" : ""}
+            </div>
+            <input type="checkbox" class="raid-disk-checkbox" id="raid-disk-cb-${idx}" value="${escapeHtml(d.path)}" data-size="${escapeHtml(d.size_human)}" data-model="${escapeHtml(d.model)}" data-idx="${idx}" ${isChecked ? "checked" : ""} style="display:none;" onchange="updateRaidPreview()">
+            <div class="raid-disk-icon-box">
+              <span>💿</span>
+              <span class="raid-disk-led"></span>
+            </div>
+            <div class="raid-disk-meta">
+              <div class="raid-disk-title-line">
+                <span class="raid-disk-path">${escapeHtml(d.path)}</span>
+                <span class="raid-disk-bus-badge">${escapeHtml(busType)}</span>
+                <span class="badge badge-success" style="font-size:0.65rem; padding:1px 6px;">Prêt</span>
+              </div>
+              <div class="raid-disk-model">${escapeHtml(d.model || "Disque de stockage standard")}</div>
             </div>
           </div>
-          <span class="badge badge-secondary">${escapeHtml(d.size_human)}</span>
-        </label>
+          <div class="raid-disk-row-right">
+            <span class="raid-disk-size-pill">${escapeHtml(d.size_human)}</span>
+          </div>
+        </div>
       `;
     }).join("");
   }
 
   currentSelectedRaidLevel = "raid5";
+  currentSelectedFsType = "btrfs";
   updateRaidLevelPickerUI();
+  updateFsTypePickerUI();
+  onRaidNameInput();
   updateRaidPreview();
-  updateMountRaidHint();
-  updateMountFsHint();
   modal.style.display = "flex";
+}
+
+function toggleRaidDiskRow(path, idx) {
+  const cb = document.getElementById(`raid-disk-cb-${idx}`);
+  const row = document.getElementById(`raid-disk-row-${idx}`);
+  const box = document.getElementById(`raid-cb-box-${idx}`);
+  if (!cb || !row || !box) return;
+
+  cb.checked = !cb.checked;
+  row.classList.toggle("selected", cb.checked);
+  box.textContent = cb.checked ? "✔" : "";
+  updateRaidPreview();
+}
+
+function toggleSelectAllRaidDisks(selectAll) {
+  const checkboxes = document.querySelectorAll(".raid-disk-checkbox");
+  checkboxes.forEach((cb) => {
+    cb.checked = selectAll;
+    const idx = cb.getAttribute("data-idx");
+    const row = document.getElementById(`raid-disk-row-${idx}`);
+    const box = document.getElementById(`raid-cb-box-${idx}`);
+    if (row) row.classList.toggle("selected", selectAll);
+    if (box) box.textContent = selectAll ? "✔" : "";
+  });
+  updateRaidPreview();
+}
+
+function selectFsType(fs) {
+  currentSelectedFsType = fs;
+  const input = document.getElementById("raid-input-fstype");
+  if (input) input.value = fs;
+  updateFsTypePickerUI();
+}
+
+function updateFsTypePickerUI() {
+  const cards = document.querySelectorAll(".fs-type-card");
+  cards.forEach(c => {
+    c.classList.toggle("active", c.getAttribute("data-fs") === currentSelectedFsType);
+  });
+}
+
+function onRaidNameInput() {
+  const nameInput = document.getElementById("raid-input-name");
+  const hintDev = document.getElementById("raid-hint-dev");
+  const mountInput = document.getElementById("raid-input-mount");
+
+  const rawName = (nameInput?.value || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+  const cleanName = rawName || "storage-data";
+
+  if (hintDev) hintDev.textContent = `/dev/md/${cleanName}`;
+  if (mountInput && (!mountInput.value || mountInput.value.startsWith("/mnt/"))) {
+    mountInput.value = `/mnt/${cleanName}`;
+  }
 }
 
 function closeCreateRaidModal() {
@@ -2034,19 +2104,24 @@ function updateRaidLevelPickerUI() {
 }
 
 function updateRaidPreview() {
-  const checkboxes = document.querySelectorAll(".raid-disk-checkbox:checked");
-  const count = checkboxes.length;
+  const checkedBoxes = Array.from(document.querySelectorAll(".raid-disk-checkbox:checked"));
+  const count = checkedBoxes.length;
+
+  const countBadge = document.getElementById("raid-disks-selected-count");
+  if (countBadge) countBadge.textContent = count;
 
   const rawEl = document.getElementById("raid-preview-raw");
   const netEl = document.getElementById("raid-preview-net");
+  const parityEl = document.getElementById("raid-preview-parity");
   const resEl = document.getElementById("raid-preview-resilience");
   const btnSubmit = document.getElementById("btn-submit-raid");
   const errEl = document.getElementById("raid-submit-error");
+  const guidanceEl = document.getElementById("raid-visual-guidance");
 
   // Estimation de taille moyenne par disque (ex: 3.6 To -> 3.64)
   let unitSize = 3.64; // To
-  if (checkboxes.length > 0) {
-    const s0 = checkboxes[0].getAttribute("data-size") || "3,6T";
+  if (checkedBoxes.length > 0) {
+    const s0 = checkedBoxes[0].getAttribute("data-size") || "3,6T";
     const num = parseFloat(s0.replace(",", ".").replace("T", "").replace("G", ""));
     if (!isNaN(num) && num > 0) {
       unitSize = s0.includes("G") ? num / 1024 : num;
@@ -2055,21 +2130,27 @@ function updateRaidPreview() {
 
   const rawTotal = (count * unitSize).toFixed(1);
   let netTotal = 0;
+  let parityTotal = 0;
   let resilienceText = "Sélectionnez des disques";
   let resilienceBadge = "badge-secondary";
   let isValid = false;
   let minReq = 2;
+  let dataPercent = 100;
+  let parityPercent = 0;
 
   switch (currentSelectedRaidLevel) {
     case "raid5":
       minReq = 3;
       if (count >= 3) {
         netTotal = ((count - 1) * unitSize).toFixed(1);
-        resilienceText = "Tolère la panne de 1 disque complet";
+        parityTotal = (1 * unitSize).toFixed(1);
+        dataPercent = Math.round(((count - 1) / count) * 100);
+        parityPercent = 100 - dataPercent;
+        resilienceText = "🛡️ Tolère la panne de 1 disque sans perte (Parité simple)";
         resilienceBadge = "badge-success";
         isValid = true;
       } else {
-        resilienceText = "RAID 5 requiert au moins 3 disques";
+        resilienceText = "RAID 5 requiert au moins 3 disques physiques";
         resilienceBadge = "badge-danger";
       }
       break;
@@ -2078,7 +2159,10 @@ function updateRaidPreview() {
       minReq = 2;
       if (count >= 2) {
         netTotal = unitSize.toFixed(1);
-        resilienceText = "Miroir 1:1 (Tolère la panne de 1 disque)";
+        parityTotal = ((count - 1) * unitSize).toFixed(1);
+        dataPercent = Math.round((1 / count) * 100);
+        parityPercent = 100 - dataPercent;
+        resilienceText = `🛡️ Miroir 1:${count-1} (Tolère ${count-1} panne(s) simultanée(s))`;
         resilienceBadge = "badge-success";
         isValid = true;
       } else {
@@ -2091,11 +2175,14 @@ function updateRaidPreview() {
       minReq = 4;
       if (count >= 4) {
         netTotal = ((count - 2) * unitSize).toFixed(1);
-        resilienceText = "Tolère la panne simultanée de 2 disques";
+        parityTotal = (2 * unitSize).toFixed(1);
+        dataPercent = Math.round(((count - 2) / count) * 100);
+        parityPercent = 100 - dataPercent;
+        resilienceText = "🛡️🛡️ Tolère la panne simultanée de 2 disques (Double parité P+Q)";
         resilienceBadge = "badge-success";
         isValid = true;
       } else {
-        resilienceText = "RAID 6 requiert au moins 4 disques";
+        resilienceText = "RAID 6 requiert au moins 4 disques physiques";
         resilienceBadge = "badge-danger";
       }
       break;
@@ -2104,7 +2191,10 @@ function updateRaidPreview() {
       minReq = 4;
       if (count >= 4 && count % 2 === 0) {
         netTotal = ((count / 2) * unitSize).toFixed(1);
-        resilienceText = "Performance maximale + Tolérance aux pannes";
+        parityTotal = ((count / 2) * unitSize).toFixed(1);
+        dataPercent = 50;
+        parityPercent = 50;
+        resilienceText = "⚡🛡️ Performance maximale + Tolère 1 panne par paire miroir";
         resilienceBadge = "badge-accent";
         isValid = true;
       } else {
@@ -2117,7 +2207,10 @@ function updateRaidPreview() {
       minReq = 2;
       if (count >= 2) {
         netTotal = (count * unitSize).toFixed(1);
-        resilienceText = "0 parité (Perte totale si 1 disque lâche)";
+        parityTotal = 0;
+        dataPercent = 100;
+        parityPercent = 0;
+        resilienceText = "⚠️ 0 tolérance aux pannes (Perte totale si 1 disque flanche)";
         resilienceBadge = "badge-danger";
         isValid = true;
       } else {
@@ -2130,7 +2223,10 @@ function updateRaidPreview() {
       minReq = 1;
       if (count >= 1) {
         netTotal = (count * unitSize).toFixed(1);
-        resilienceText = "Concaténation simple (JBOD)";
+        parityTotal = 0;
+        dataPercent = 100;
+        parityPercent = 0;
+        resilienceText = "📦 Concaténation JBOD (0 redondance)";
         resilienceBadge = "badge-warning";
         isValid = true;
       }
@@ -2139,19 +2235,173 @@ function updateRaidPreview() {
 
   if (rawEl) rawEl.textContent = `${rawTotal} To`;
   if (netEl) netEl.textContent = `${netTotal} To`;
+  if (parityEl) parityEl.textContent = `${parityTotal} To`;
   if (resEl) {
     resEl.textContent = resilienceText;
     resEl.className = `badge ${resilienceBadge}`;
   }
 
+  // Mise à jour de la jauge bicolore
+  const splitDataSeg = document.getElementById("split-data-seg");
+  const splitParitySeg = document.getElementById("split-parity-seg");
+  const splitDataLabel = document.getElementById("split-data-label");
+  const splitParityLabel = document.getElementById("split-parity-label");
+
+  if (splitDataSeg && splitParitySeg) {
+    if (count > 0 && isValid) {
+      splitDataSeg.style.width = `${dataPercent}%`;
+      splitParitySeg.style.width = `${parityPercent}%`;
+      if (splitDataLabel) splitDataLabel.textContent = `Données Utiles ${dataPercent}% (${netTotal} To)`;
+      if (splitParityLabel) splitParityLabel.textContent = parityPercent > 0 ? `Parité ${parityPercent}% (${parityTotal} To)` : `0% Parité`;
+    } else {
+      splitDataSeg.style.width = "100%";
+      splitParitySeg.style.width = "0%";
+      if (splitDataLabel) splitDataLabel.textContent = `Sélectionnez au moins ${minReq} disques`;
+      if (splitParityLabel) splitParityLabel.textContent = "";
+    }
+  }
+
+  // Rendu ultra-graphique des disques et blocs logiques
+  renderRaidVisualDiagram(currentSelectedRaidLevel, checkedBoxes, minReq, unitSize);
+
   if (btnSubmit) {
     btnSubmit.disabled = !isValid;
     btnSubmit.classList.toggle("disabled", !isValid);
+    if (isValid) {
+      btnSubmit.innerHTML = `🚀 Créer et Initialiser la Grappe RAID (${count} Disques - ${netTotal} To Utiles)`;
+    } else {
+      btnSubmit.innerHTML = `🚀 Créer et Initialiser la Grappe RAID (Sélection incomplète)`;
+    }
   }
 
   if (errEl) {
-    errEl.textContent = isValid ? "" : `Sélection insuffisante (${count}/${minReq} disques requis pour ${currentSelectedRaidLevel.toUpperCase()}).`;
+    errEl.textContent = isValid ? "" : `⚠️ Configuration incomplète : ${count}/${minReq} disques requis pour ${currentSelectedRaidLevel.toUpperCase()}.`;
   }
+
+  if (guidanceEl) {
+    if (!isValid && count > 0) {
+      guidanceEl.style.display = "flex";
+      guidanceEl.innerHTML = `<span>⚠️</span> <span>Pour assembler une grappe en <strong>${currentSelectedRaidLevel.toUpperCase()}</strong>, cochez au moins <strong>${minReq} disques</strong> physiques (actuellement : ${count}).</span>`;
+    } else {
+      guidanceEl.style.display = "none";
+    }
+  }
+}
+
+// RENDU GRAPHIQUE SPECTACULAIRE DU SCHÉMA DES DISQUES ET BLOCS DE PARITÉ
+function renderRaidVisualDiagram(level, checkedBoxes, minReq, unitSize) {
+  const rack = document.getElementById("raid-disk-rack-visual");
+  if (!rack) return;
+
+  const count = checkedBoxes.length;
+
+  if (count === 0) {
+    rack.innerHTML = `
+      <div style="grid-column: 1 / -1; padding: 30px; text-align: center; color: var(--subtext0);">
+        <div style="font-size: 2rem; margin-bottom: 8px;">🗄️</div>
+        <strong>Aucun disque sélectionné</strong>
+        <div style="font-size: 0.78rem; margin-top: 4px;">Cochez des disques dans la liste ci-dessus pour visualiser la répartition des blocs de données et de parité.</div>
+      </div>
+    `;
+    return;
+  }
+
+  let html = "";
+
+  // Génération des baies pour chaque disque physique coché
+  checkedBoxes.forEach((cb, idx) => {
+    const devPath = cb.value;
+    const size = cb.getAttribute("data-size") || "4 To";
+
+    let blocksHtml = "";
+    // Génération de 4 tranches/blocs illustrant le striping et la parité
+    for (let stripe = 0; stripe < 4; stripe++) {
+      let blockClass = "block-data";
+      let blockLabel = `DATA [D${stripe * count + idx + 1}]`;
+
+      if (level === "raid0") {
+        blockClass = "block-data";
+        blockLabel = `STRIPE A${stripe + 1}`;
+      } else if (level === "raid1") {
+        if (idx === 0) {
+          blockClass = "block-data";
+          blockLabel = `DATA [D${stripe + 1}]`;
+        } else {
+          blockClass = "block-mirror";
+          blockLabel = `MIROIR [M${stripe + 1}]`;
+        }
+      } else if (level === "raid5") {
+        // Parité distribuée en diagonale
+        const parityDiskIndex = (3 - stripe) % count;
+        if (idx === parityDiskIndex) {
+          blockClass = "block-parity";
+          blockLabel = `PARITÉ [P${stripe + 1}]`;
+        } else {
+          blockClass = "block-data";
+          blockLabel = `DATA [D${stripe + 1}.${idx + 1}]`;
+        }
+      } else if (level === "raid6") {
+        // Double parité P + Q
+        const pIndex = (4 - stripe) % count;
+        const qIndex = (5 - stripe) % count;
+        if (idx === pIndex) {
+          blockClass = "block-parity";
+          blockLabel = `PARITÉ [P${stripe + 1}]`;
+        } else if (idx === qIndex) {
+          blockClass = "block-parity";
+          blockLabel = `PARITÉ [Q${stripe + 1}]`;
+        } else {
+          blockClass = "block-data";
+          blockLabel = `DATA [D${stripe + 1}.${idx + 1}]`;
+        }
+      } else if (level === "raid10") {
+        const pairId = Math.floor(idx / 2) + 1;
+        if (idx % 2 === 0) {
+          blockClass = "block-data";
+          blockLabel = `DATA P${pairId}.${stripe + 1}`;
+        } else {
+          blockClass = "block-mirror";
+          blockLabel = `MIR P${pairId}.${stripe + 1}`;
+        }
+      } else {
+        blockClass = "block-data";
+        blockLabel = `BLOC ${stripe + 1}`;
+      }
+
+      blocksHtml += `<div class="disk-block-stripe ${blockClass}">${blockLabel}</div>`;
+    }
+
+    html += `
+      <div class="disk-bay-slot">
+        <div class="disk-bay-header">
+          <div>
+            <div class="disk-bay-name">${escapeHtml(devPath)}</div>
+            <div class="disk-bay-size">Baie #${idx + 1} • ${escapeHtml(size)}</div>
+          </div>
+          <span class="disk-bay-led" title="Disque sain et prêt"></span>
+        </div>
+        <div class="disk-blocks-stack">
+          ${blocksHtml}
+        </div>
+      </div>
+    `;
+  });
+
+  // Emplacements fantômes (Ghost slots) si le nombre requis n'est pas atteint
+  if (count < minReq) {
+    const missing = minReq - count;
+    for (let m = 0; m < missing; m++) {
+      html += `
+        <div class="disk-bay-slot ghost-slot">
+          <div class="ghost-icon">➕</div>
+          <div class="ghost-text">Disque #${count + m + 1} Requis</div>
+          <div style="font-size:0.68rem; color:var(--subtext0);">Cochez 1 disque supplémentaire</div>
+        </div>
+      `;
+    }
+  }
+
+  rack.innerHTML = html;
 }
 
 async function submitCreateRaid() {
