@@ -654,9 +654,27 @@
                 <span>🔍</span>
                 <input type="text" id="files-filter-input" class="files-search-input" placeholder="Filtrer..." oninput="filterFilesList()">
               </div>
-              <div style="display:flex; gap:4px;">
-                <button type="button" class="btn btn-secondary btn-xs active" id="btn-view-grid" onclick="setFileViewMode('grid')" title="Vue Grille">🔲</button>
-                <button type="button" class="btn btn-secondary btn-xs" id="btn-view-table" onclick="setFileViewMode('table')" title="Vue Liste">📋</button>
+              <div class="files-view-toggle" role="group" aria-label="Mode d affichage des fichiers">
+                <button type="button" class="files-btn-view-toggle active" id="btn-view-grid" onclick="setFileViewMode('grid')" title="Affichage en Grille de cartes">
+                  <svg class="view-toggle-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="7" height="7" rx="1.5"></rect>
+                    <rect x="14" y="3" width="7" height="7" rx="1.5"></rect>
+                    <rect x="14" y="14" width="7" height="7" rx="1.5"></rect>
+                    <rect x="3" y="14" width="7" height="7" rx="1.5"></rect>
+                  </svg>
+                  <span>Grille</span>
+                </button>
+                <button type="button" class="files-btn-view-toggle" id="btn-view-table" onclick="setFileViewMode('table')" title="Affichage en Liste détaillée">
+                  <svg class="view-toggle-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="9" y1="6" x2="21" y2="6"></line>
+                    <line x1="9" y1="12" x2="21" y2="12"></line>
+                    <line x1="9" y1="18" x2="21" y2="18"></line>
+                    <circle cx="4.5" cy="6" r="1.5" fill="currentColor"></circle>
+                    <circle cx="4.5" cy="12" r="1.5" fill="currentColor"></circle>
+                    <circle cx="4.5" cy="18" r="1.5" fill="currentColor"></circle>
+                  </svg>
+                  <span>Liste</span>
+                </button>
               </div>
             </div>
           </div>
@@ -7721,6 +7739,6 @@
 </div><!-- /#app-shell -->
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20261001_15"></script>
+  <script src="/js/app.js?v=20261001_16"></script>
 </body>
 </html>

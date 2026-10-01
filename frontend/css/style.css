@@ -15484,3 +15484,62 @@ body.app-updating-reload #app-shell {
 .storage-mount-card:hover {
   border-color: rgba(255, 255, 255, 0.15);
 }
+
+/* ==========================================================================
+   BOUTONS DE BASCULE VUE GRILLE / LISTE (EXPLORATEUR DE FICHIERS)
+   ========================================================================== */
+
+.files-view-toggle {
+  background: var(--mantle);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.files-btn-view-toggle {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--subtext0);
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.files-btn-view-toggle:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.files-btn-view-toggle.active {
+  background: linear-gradient(135deg, rgba(137, 180, 250, 0.22) 0%, rgba(180, 190, 254, 0.14) 100%);
+  color: var(--sapphire);
+  border-color: rgba(137, 180, 250, 0.4);
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(137, 180, 250, 0.18);
+}
+
+.files-btn-view-toggle.active .view-toggle-icon {
+  stroke: var(--sapphire);
+  filter: drop-shadow(0 0 5px rgba(137, 180, 250, 0.45));
+}
+
+.view-toggle-icon {
+  display: block;
+  flex-shrink: 0;
+  transition: stroke 0.2s ease, transform 0.2s ease;
+}
+
+.files-btn-view-toggle:hover .view-toggle-icon {
+  transform: scale(1.1);
+}

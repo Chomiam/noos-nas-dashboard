@@ -389,6 +389,7 @@ function initApp() {
   initDragAndDrop();
   loadPinnedMounts();
   loadRemoteMounts();
+  setFileViewMode(fileViewMode);
 }
 
 function setupPolling() {
