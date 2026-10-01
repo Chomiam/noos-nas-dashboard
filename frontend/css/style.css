@@ -11853,3 +11853,369 @@ body.app-updating-reload #app-shell {
 .deploy-step-item.is-clickable:hover {
   background: rgba(243, 139, 168, 0.12);
 }
+
+/* ==========================================================================
+   VISUAL PARTITION BARS & GROUPED DISK PARTITIONS (Catppuccin Mocha)
+   ========================================================================== */
+
+.standalone-disk-card {
+  background: var(--surface0);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  margin-bottom: 18px;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+}
+
+.standalone-disk-card:hover {
+  border-color: rgba(137, 180, 250, 0.3);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+
+.standalone-disk-card.is-system {
+  border-left: 4px solid var(--blue);
+}
+
+.disk-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.disk-card-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.disk-card-icon {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.disk-card-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.disk-card-sub {
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  color: var(--subtext0);
+  margin-top: 2px;
+}
+
+.disk-card-telemetry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Barre de partitionnement visuelle proportionnelle */
+.disk-partition-bar-wrap {
+  margin: 14px 0 16px 0;
+}
+
+.disk-partition-bar-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--subtext0);
+  margin-bottom: 6px;
+  font-family: var(--font-mono);
+}
+
+.disk-partition-bar {
+  display: flex;
+  height: 24px;
+  background: rgba(17, 17, 27, 0.7);
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.4);
+}
+
+.partition-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  padding: 0 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-right: 1px solid rgba(0, 0, 0, 0.3);
+  transition: all 0.2s ease;
+  position: relative;
+  cursor: pointer;
+}
+
+.partition-segment:hover {
+  filter: brightness(1.15);
+  z-index: 2;
+}
+
+.partition-segment.is-sys {
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+}
+
+.partition-segment.is-mounted {
+  background: linear-gradient(90deg, #10b981, #059669);
+}
+
+.partition-segment.is-unmounted {
+  background: linear-gradient(90deg, #8b5cf6, #7c3aed);
+}
+
+.partition-segment.is-free {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.04),
+    rgba(255, 255, 255, 0.04) 10px,
+    rgba(255, 255, 255, 0.08) 10px,
+    rgba(255, 255, 255, 0.08) 20px
+  );
+  color: var(--subtext0);
+}
+
+/* Liste tabulaire des partitions */
+.disk-partitions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(17, 17, 27, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+
+.disk-partition-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface0);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  gap: 12px;
+  flex-wrap: wrap;
+  transition: all 0.15s ease;
+}
+
+.disk-partition-item:hover {
+  background: var(--surface1);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.disk-partition-item.is-free-space {
+  background: rgba(166, 227, 161, 0.04);
+  border: 1px dashed rgba(166, 227, 161, 0.3);
+}
+
+.part-col-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 220px;
+}
+
+.part-col-middle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.part-col-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ==========================================================================
+   PÉRIPHÉRIQUES AMOVIBLES & MÉDIAS EXTERNES (Catppuccin Mocha)
+   ========================================================================== */
+
+.removable-devices-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+}
+
+.removable-device-card {
+  background: var(--surface0);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.removable-device-card:hover {
+  border-color: rgba(166, 227, 161, 0.35);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.32);
+}
+
+.removable-device-card.is-optical {
+  border-left: 4px solid var(--mauve);
+}
+
+.removable-device-card.is-usb {
+  border-left: 4px solid var(--teal);
+}
+
+.removable-card-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.removable-icon-box {
+  font-size: 2rem;
+  line-height: 1;
+  padding: 8px;
+  background: var(--mantle);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.removable-info-wrap {
+  flex: 1;
+}
+
+.removable-model {
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.removable-dev-path {
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  color: var(--subtext0);
+}
+
+.removable-badges-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.removable-card-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 12px;
+  gap: 10px;
+}
+
+/* ==========================================================================
+   TOAST DE DÉCONNEXION SÉCURISÉE (Popup 10 secondes)
+   ========================================================================== */
+
+.safe-removal-toast {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  z-index: 99999;
+  background: #181825;
+  border: 2px solid var(--green);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  min-width: 380px;
+  max-width: 480px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), 0 0 24px rgba(166, 227, 161, 0.25);
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  animation: toastSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  overflow: hidden;
+}
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.safe-removal-icon {
+  font-size: 1.8rem;
+  line-height: 1;
+  color: var(--green);
+}
+
+.safe-removal-content {
+  flex: 1;
+}
+
+.safe-removal-title {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+
+.safe-removal-message {
+  font-size: 0.84rem;
+  color: var(--subtext0);
+  line-height: 1.35;
+}
+
+.safe-removal-close {
+  background: transparent;
+  border: none;
+  color: var(--subtext0);
+  font-size: 1.3rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+  transition: color 0.15s ease;
+}
+
+.safe-removal-close:hover {
+  color: var(--text);
+}
+
+.safe-removal-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--green), var(--teal));
+  width: 100%;
+  animation: toastShrink 10s linear forwards;
+}
+
+@keyframes toastShrink {
+  from { width: 100%; }
+  to { width: 0%; }
+}

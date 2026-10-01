@@ -45,7 +45,7 @@ use crate::network::{
     NetworkOverview, TrafficHistoryOverview,
 };
 use crate::services::{control_service, get_service_logs, get_services_overview, ServicesOverview};
-use crate::storage::{create_raid, format_disk, get_raid_sync_progress, get_storage_overview, mount_volume, repair_path_permissions, trigger_disk_spindown, umount_volume, CreateRaidRequest, FormatDiskRequest, MountVolumeRequest, RaidSyncProgress, RepairPermissionsRequest, StorageOverview, UmountVolumeRequest};
+use crate::storage::{create_partition, create_raid, delete_partition, eject_removable, format_disk, get_raid_sync_progress, get_storage_overview, mount_volume, repair_path_permissions, trigger_disk_spindown, umount_volume, CreatePartitionRequest, CreateRaidRequest, DeletePartitionRequest, EjectRemovableRequest, FormatDiskRequest, MountVolumeRequest, RaidSyncProgress, RepairPermissionsRequest, StorageOverview, UmountVolumeRequest};
 use crate::generations;
 use crate::system::{cancel_power, get_gpu_info, get_power_status, get_system_info, schedule_power, GpuInfo, ImmediatePowerRequest, PowerStatusResponse, SchedulePowerRequest, SystemInfo};
 use crate::terminal::{autocomplete, execute_command, CompleteRequest, CompleteResponse, ExecRequest, ExecResponse};
@@ -120,6 +120,9 @@ pub fn api_routes() -> Router {
         .route("/storage/raids/create", post(handle_create_raid))
         .route("/storage/mount", post(handle_mount_volume))
         .route("/storage/umount", post(handle_umount_volume))
+        .route("/storage/partition/create", post(handle_create_partition))
+        .route("/storage/partition/delete", post(handle_delete_partition))
+        .route("/storage/removable/eject", post(handle_eject_removable))
         .route("/storage/permissions/repair", post(handle_repair_permissions))
         .route("/services", get(handle_services))
         .route("/docker/containers", get(handle_docker_containers))
@@ -795,6 +798,52 @@ async fn handle_raid_progress() -> Json<ApiResponse<Option<RaidSyncProgress>>> {
 
 async fn handle_repair_permissions(Json(payload): Json<RepairPermissionsRequest>) -> Json<ApiResponse<String>> {
     match repair_path_permissions(&payload) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+
+async fn handle_create_partition(Json(payload): Json<CreatePartitionRequest>) -> Json<ApiResponse<String>> {
+    match create_partition(&payload) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_delete_partition(Json(payload): Json<DeletePartitionRequest>) -> Json<ApiResponse<String>> {
+    match delete_partition(&payload) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_eject_removable(Json(payload): Json<EjectRemovableRequest>) -> Json<ApiResponse<String>> {
+    match eject_removable(&payload) {
         Ok(msg) => Json(ApiResponse {
             success: true,
             data: Some(msg),

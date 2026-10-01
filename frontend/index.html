@@ -1217,18 +1217,25 @@
         <div id="standalone-disks-container"></div>
       </div>
 
-      <!-- SECTION 3 : SYSTÈMES DE FICHIERS & POINTS DE MONTAGE ACTIFS -->
+      <!-- SECTION 3 : PÉRIPHÉRIQUES AMOVIBLES & MÉDIAS EXTERNES -->
       <div class="section-card">
         <div class="section-header">
           <div class="section-title-wrap">
-            <div class="section-icon-box">💾</div>
+            <div class="section-icon-box">🔌</div>
             <div>
-              <div class="section-title">Systèmes de Fichiers &amp; Points de Montage Actifs</div>
-              <div class="section-subtitle">Espace alloué sur le système NixOS, dossiers utilisateurs et montages durables <code>/mnt</code></div>
+              <div class="section-title">Périphériques Amovibles &amp; Médias Externes</div>
+              <div class="section-subtitle">Clés USB, disques durs et SSD externes, lecteurs optiques CD / DVD / Blu-ray</div>
             </div>
           </div>
+          <div class="section-actions">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="loadStorageOverview()">
+              <span>🔄</span> Actualiser les Médias
+            </button>
+          </div>
         </div>
-        <div class="pools-grid" id="pools-container"></div>
+        <div id="removable-devices-container">
+          <!-- Injecté dynamiquement par JS -->
+        </div>
       </div>
     </div>
 
@@ -3371,7 +3378,7 @@
     <div class="file-modal-window format-window">
       <div class="file-modal-header" style="border-bottom:1px solid rgba(137, 180, 250, 0.2);">
         <div style="display:flex; align-items:center; gap:10px;">
-          <span class="badge badge-primary" style="font-size:0.75rem; font-weight:800; letter-spacing:0.5px;">MONTAGE NAS</span>
+          <span class="badge badge-primary" id="mount-modal-badge" style="font-size:0.75rem; font-weight:800; letter-spacing:0.5px;">MONTAGE NAS</span>
           <span class="file-modal-title" id="mount-modal-title">Initialiser &amp; Monter le volume</span>
         </div>
         <button type="button" class="btn-close-modal" onclick="closeMountVolumeModal()" title="Fermer la fenêtre">&times;</button>
@@ -3381,6 +3388,8 @@
         <input type="hidden" id="mount-target-name">
         <input type="hidden" id="mount-target-device">
         <input type="hidden" id="mount-target-level">
+        <input type="hidden" id="mount-target-format" value="false">
+        <input type="hidden" id="mount-target-detected-fs" value="">
 
         <div class="form-group" id="mount-device-input-wrap" style="display:none; margin-bottom:14px;">
           <label class="form-label" for="mount-custom-device">
@@ -3433,7 +3442,33 @@
           </div>
         </div>
 
-        <div class="form-group">
+        <!-- Alerte Formatage Destructif si mode formatage -->
+        <div id="mount-format-warning-box" style="display:none; background:rgba(243, 139, 168, 0.12); border:1px solid rgba(243, 139, 168, 0.35); border-radius:var(--radius-md); padding:14px; margin-bottom:14px;">
+          <div style="display:flex; align-items:flex-start; gap:10px;">
+            <span style="font-size:1.5rem; line-height:1;">⚠️</span>
+            <div>
+              <strong style="color:var(--red); font-size:0.95rem;">ATTENTION : Opération de Formatage Destructive</strong>
+              <div style="font-size:0.83rem; color:var(--text); margin-top:4px; line-height:1.4;">
+                Toutes les données présentes sur ce volume seront définitivement effacées. Ne continuez pas si ce disque contient des données d'une autre machine !
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Alerte Données Préservées si mode montage existant -->
+        <div id="mount-preserve-info-box" style="display:none; background:rgba(166, 227, 161, 0.12); border:1px solid rgba(166, 227, 161, 0.3); border-radius:var(--radius-md); padding:12px 14px; margin-bottom:14px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-size:1.3rem;">🛡️</span>
+            <div>
+              <strong style="color:var(--green); font-size:0.9rem;">Préservation intégrale des données existantes</strong>
+              <div style="font-size:0.82rem; color:var(--text); margin-top:2px;">
+                Ce volume sera monté sans aucun formatage. Système de fichiers détecté : <strong id="mount-detected-fs-label" class="badge badge-primary">BTRFS</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group" id="mount-fstype-group">
           <label class="form-label" for="mount-select-fstype">
             <span>Système de Fichiers Cible</span>
             <span class="label-tag">Formatage</span>
@@ -3446,6 +3481,13 @@
           <div class="form-hint" id="mount-fs-hint">
             <span>✨</span> <span>Btrfs active la compression transparente Zstd pour économiser jusqu'à 30% d'espace disque.</span>
           </div>
+        </div>
+
+        <div class="form-group" id="mount-format-confirm-group" style="display:none; margin-bottom:16px;">
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.88rem; color:var(--text);">
+            <input type="checkbox" id="mount-confirm-format-checkbox" onchange="toggleMountSubmitBtn()" style="accent-color:var(--red); width:18px; height:18px;">
+            <span>Je confirme vouloir formater ce volume et effacer irrémédiablement son contenu.</span>
+          </label>
         </div>
 
         <div class="form-group">
@@ -5867,7 +5909,142 @@
     </div>
   </div>
 
-  </div><!-- /#app-shell -->
+  
+  <!-- ================= MODALE CRÉATION DE PARTITION ================= -->
+  <div class="file-modal-overlay" id="modal-create-partition" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-create-partition')">
+    <div class="file-modal-window format-window">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(137, 180, 250, 0.2);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-primary" style="font-size:0.75rem; font-weight:800;">PARTITIONNEMENT</span>
+          <span class="file-modal-title">Créer une Nouvelle Partition</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeCreatePartitionModal()" title="Fermer la fenêtre">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body">
+        <input type="hidden" id="part-create-disk-path">
+
+        <div class="storage-modal-infobox">
+          <span class="infobox-icon">🖴</span>
+          <div class="infobox-text">
+            Disque cible : <strong id="part-create-disk-label" class="font-mono">/dev/sda</strong>
+            <div style="font-size:0.8rem; color:var(--subtext0); margin-top:2px;">
+              Espace libre non alloué disponible : <strong id="part-create-free-label" style="color:var(--green);">0 Go</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:14px;">
+          <label class="form-label" for="part-create-size">
+            <span>Taille de la Partition</span>
+            <span class="label-tag">Allocation</span>
+          </label>
+          <div style="display:flex; gap:10px;">
+            <input type="number" id="part-create-size" class="form-control font-mono" min="100" value="10000" placeholder="ex: 50000">
+            <select id="part-create-unit" class="form-control" style="width:110px;">
+              <option value="gb" selected>Go (GB)</option>
+              <option value="mb">Mo (MB)</option>
+            </select>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <button type="button" class="btn btn-secondary btn-xs" onclick="setPartSizePercent(25)">25%</button>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="setPartSizePercent(50)">50%</button>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="setPartSizePercent(75)">75%</button>
+            <button type="button" class="btn btn-primary btn-xs" onclick="setPartSizePercent(100)">100% (Tout l'espace)</button>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px;">
+          <div class="form-group">
+            <label class="form-label" for="part-create-fstype">Système de Fichiers :</label>
+            <select id="part-create-fstype" class="form-control">
+              <option value="btrfs" selected>🚀 Btrfs (Recommandé NAS)</option>
+              <option value="ext4">🐧 Ext4 (Standard Linux)</option>
+              <option value="xfs">⚡ XFS (Performances I/O)</option>
+              <option value="vfat">💾 VFAT / FAT32 (Universel)</option>
+              <option value="exfat">📁 exFAT (Compatible PC/Mac)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="part-create-label">Nom / Étiquette :</label>
+            <input type="text" id="part-create-label" class="form-control font-mono" value="DATA" placeholder="ex: DATA, BACKUP">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:14px;">
+          <label class="form-label" for="part-create-mountpoint">
+            <span>Point de montage automatique (Optionnel)</span>
+            <span class="label-tag">/mnt</span>
+          </label>
+          <input type="text" id="part-create-mountpoint" class="form-control font-mono" value="/mnt/data" placeholder="ex: /mnt/data (laisser vide pour ne pas monter)">
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 20px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeCreatePartitionModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-create-part" onclick="submitCreatePartition()">
+          ➕ Créer &amp; Formater la Partition
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODALE SUPPRESSION DE PARTITION ================= -->
+  <div class="file-modal-overlay" id="modal-delete-partition" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-delete-partition')">
+    <div class="file-modal-window format-window">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(243, 139, 168, 0.2);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-danger" style="font-size:0.75rem; font-weight:800;">SUPPRESSION</span>
+          <span class="file-modal-title">Supprimer une Partition</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeDeletePartitionModal()" title="Fermer la fenêtre">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body">
+        <input type="hidden" id="part-delete-path">
+
+        <div style="background:rgba(243, 139, 168, 0.12); border:1px solid rgba(243, 139, 168, 0.35); border-radius:var(--radius-md); padding:16px; margin-bottom:16px;">
+          <div style="display:flex; align-items:flex-start; gap:12px;">
+            <span style="font-size:1.8rem; line-height:1;">⚠️</span>
+            <div>
+              <strong style="color:var(--red); font-size:1rem;">Attention : Destruction de Données</strong>
+              <div style="font-size:0.86rem; color:var(--text); margin-top:4px; line-height:1.4;">
+                Vous êtes sur le point de supprimer définitivement la partition <code id="part-delete-target-label" style="color:var(--red); font-weight:700;">/dev/sda1</code> (<span id="part-delete-size-label">0 Go</span>).
+                Toutes les données stockées dessus seront perdues sans possibilité de récupération.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:14px;">
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.88rem; color:var(--text);">
+            <input type="checkbox" id="part-delete-confirm-check" onchange="toggleDeletePartBtn()" style="accent-color:var(--red); width:18px; height:18px;">
+            <span>Je confirme vouloir supprimer définitivement cette partition et effacer son contenu.</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 20px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeDeletePartitionModal()">Annuler</button>
+        <button type="button" class="btn btn-danger disabled" id="btn-submit-delete-part" onclick="submitDeletePartition()" disabled>
+          🗑️ Supprimer Définitivement
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= TOAST NOTIFICATION DÉCONNEXION PÉRIPHÉRIQUE SÉCURISÉE ================= -->
+  <div id="safe-removal-toast" class="safe-removal-toast" style="display:none;">
+    <div class="safe-removal-icon">✅</div>
+    <div class="safe-removal-content">
+      <div class="safe-removal-title">Déconnexion en toute sécurité</div>
+      <div class="safe-removal-message" id="safe-removal-msg">Votre périphérique peut être retiré en toute sécurité.</div>
+    </div>
+    <button type="button" class="safe-removal-close" onclick="hideSafeRemovalToast()">&times;</button>
+    <div class="safe-removal-progress" id="safe-removal-progress"></div>
+  </div>
+
+</div><!-- /#app-shell -->
 
   <script src="/js/qrcode.min.js"></script>
   <script src="/js/app.js?v=20261001_01"></script>

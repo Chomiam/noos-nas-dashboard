@@ -1,3 +1,23 @@
+pub fn detect_device_filesystem(dev_path: &str) -> Option<String> {
+    if let Ok(out) = Command::new("blkid").args(["-o", "value", "-s", "TYPE", dev_path]).output() {
+        if out.status.success() && !out.stdout.is_empty() {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !s.is_empty() {
+                return Some(s);
+            }
+        }
+    }
+    if let Ok(out) = Command::new("lsblk").args(["-no", "FSTYPE", dev_path]).output() {
+        if out.status.success() && !out.stdout.is_empty() {
+            let s = String::from_utf8_lossy(&out.stdout).lines().next().unwrap_or("").trim().to_string();
+            if !s.is_empty() {
+                return Some(s);
+            }
+        }
+    }
+    None
+}
+
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -28,6 +48,21 @@ fn default_true() -> bool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemovableDevice {
+    pub name: String,
+    pub path: String,
+    pub model: String,
+    pub vendor: Option<String>,
+    pub size_human: String,
+    pub fstype: Option<String>,
+    pub label: Option<String>,
+    pub mountpoint: Option<String>,
+    pub is_optical: bool,
+    pub is_mounted: bool,
+    pub partitions: Vec<PartitionInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageOverview {
     pub pools: Vec<StoragePool>,
     pub physical_disks: Vec<PhysicalDiskInfo>,
@@ -35,6 +70,8 @@ pub struct StorageOverview {
     pub active_sync: Option<RaidSyncProgress>,
     #[serde(default)]
     pub persisted_mounts: Vec<PersistedMount>,
+    #[serde(default)]
+    pub removable_devices: Vec<RemovableDevice>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +114,10 @@ pub struct PhysicalDiskInfo {
     pub smart_status: String,
     pub temperature_c: f32,
     pub partitions: Vec<PartitionInfo>,
+    #[serde(default)]
+    pub size_bytes: u64,
+    #[serde(default)]
+    pub is_removable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,6 +128,12 @@ pub struct PartitionInfo {
     pub fstype: Option<String>,
     pub mountpoint: Option<String>,
     pub is_system: bool,
+    #[serde(default)]
+    pub is_free_space: bool,
+    #[serde(default)]
+    pub size_bytes: u64,
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +152,8 @@ pub struct LogicalRaidInfo {
     pub mountpoint: Option<String>,
     pub members: Vec<String>,
     pub sync_progress: Option<RaidSyncProgress>,
+    #[serde(default)]
+    pub fs_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,6 +185,27 @@ pub struct MountVolumeRequest {
     pub lv_name: Option<String>,
     pub options: Option<Vec<String>>,
     pub persist: Option<bool>,
+    pub force_format: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreatePartitionRequest {
+    pub disk_path: String,
+    pub size_mb: Option<u64>,
+    pub fs_type: String,
+    pub label: Option<String>,
+    pub mountpoint: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeletePartitionRequest {
+    pub partition_path: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EjectRemovableRequest {
+    pub device_path: String,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -261,6 +331,7 @@ pub fn get_storage_overview() -> StorageOverview {
     let physical_disks = scan_physical_disks(&logical_raids);
     let active_sync = logical_raids.iter().find_map(|r| r.sync_progress.clone());
     let persisted_mounts = load_persisted_mounts();
+    let removable_devices = scan_removable_devices();
 
     for pool in &mut pools {
         if persisted_mounts.iter().any(|m| m.mount_point == pool.mountpoint) {
@@ -274,6 +345,7 @@ pub fn get_storage_overview() -> StorageOverview {
         logical_raids,
         active_sync,
         persisted_mounts,
+        removable_devices,
     }
 }
 
@@ -386,10 +458,11 @@ fn scan_logical_raids(pools: &[StoragePool]) -> Vec<LogicalRaidInfo> {
                     let total_bytes = size_blocks * 1024;
 
                     let matched_pool = pools.iter().find(|p| p.filesystem.contains(&md_name));
+                    let probed_fs = detect_device_filesystem(&dev_path);
                     let (mountpoint, used_bytes, free_bytes, usage_percent, fs_name) = if let Some(p) = matched_pool {
-                        (Some(p.mountpoint.clone()), p.used_bytes, p.free_bytes, p.usage_percent, p.filesystem.clone())
+                        (Some(p.mountpoint.clone()), p.used_bytes, p.free_bytes, p.usage_percent, probed_fs.clone().unwrap_or_else(|| p.filesystem.clone()))
                     } else {
-                        (None, 0, total_bytes, 0.0, "Non monté".to_string())
+                        (None, 0, total_bytes, 0.0, probed_fs.clone().unwrap_or_else(|| "Non formaté".to_string()))
                     };
 
                     let health = if sync_prog.is_some() {
@@ -415,6 +488,7 @@ fn scan_logical_raids(pools: &[StoragePool]) -> Vec<LogicalRaidInfo> {
                         mountpoint,
                         members,
                         sync_progress: sync_prog,
+                        fs_type: probed_fs,
                     });
                 }
             }
@@ -508,10 +582,11 @@ fn scan_logical_raids(pools: &[StoragePool]) -> Vec<LogicalRaidInfo> {
                                 if let Some(lvs_list) = vg_to_lvs.get(&vg_name) {
                                     for lv in lvs_list {
                                         let matched_pool = pools.iter().find(|p| p.filesystem.contains(&lv.name) || p.filesystem.contains(&lv.path));
+                                        let probed_lv_fs = detect_device_filesystem(&lv.path);
                                         let (mountpoint, used_bytes, free_bytes, usage_percent, fs_name) = if let Some(p) = matched_pool {
-                                            (Some(p.mountpoint.clone()), p.used_bytes, p.free_bytes, p.usage_percent, p.filesystem.clone())
+                                            (Some(p.mountpoint.clone()), p.used_bytes, p.free_bytes, p.usage_percent, probed_lv_fs.clone().unwrap_or_else(|| p.filesystem.clone()))
                                         } else {
-                                            (None, 0, lv.size, 0.0, "Non monté".to_string())
+                                            (None, 0, lv.size, 0.0, probed_lv_fs.clone().unwrap_or_else(|| "Non formaté".to_string()))
                                         };
 
                                         let level_label = match lv.segtype.to_lowercase().as_str() {
@@ -539,6 +614,7 @@ fn scan_logical_raids(pools: &[StoragePool]) -> Vec<LogicalRaidInfo> {
                                             mountpoint,
                                             members: pvs.clone(),
                                             sync_progress: None,
+                                            fs_type: probed_lv_fs,
                                         });
                                     }
                                 }
@@ -552,10 +628,11 @@ fn scan_logical_raids(pools: &[StoragePool]) -> Vec<LogicalRaidInfo> {
                                 };
 
                                 let matched_pool = pools.iter().find(|p| p.filesystem.contains(&vg_name));
+                                let probed_vg_fs = detect_device_filesystem(&format!("/dev/{}", vg_name));
                                 let (mountpoint, fs_name) = if let Some(p) = matched_pool {
-                                    (Some(p.mountpoint.clone()), p.filesystem.clone())
+                                    (Some(p.mountpoint.clone()), probed_vg_fs.clone().unwrap_or_else(|| p.filesystem.clone()))
                                 } else {
-                                    (None, "LVM2 Volume Group".to_string())
+                                    (None, probed_vg_fs.clone().unwrap_or_else(|| "LVM2 Volume Group".to_string()))
                                 };
 
                                 raids.push(LogicalRaidInfo {
@@ -573,6 +650,7 @@ fn scan_logical_raids(pools: &[StoragePool]) -> Vec<LogicalRaidInfo> {
                                     mountpoint,
                                     members: pvs,
                                     sync_progress: None,
+                                    fs_type: probed_vg_fs,
                                 });
                             }
                         }
@@ -628,6 +706,7 @@ fn scan_logical_raids(pools: &[StoragePool]) -> Vec<LogicalRaidInfo> {
                             mountpoint: matched_pool.map(|p| p.mountpoint.clone()),
                             members,
                             sync_progress: None,
+                            fs_type: Some("btrfs".into()),
                         });
                     }
                 }
@@ -638,12 +717,90 @@ fn scan_logical_raids(pools: &[StoragePool]) -> Vec<LogicalRaidInfo> {
     raids
 }
 
+pub fn scan_removable_devices() -> Vec<RemovableDevice> {
+    let mut list = Vec::new();
+    let output = Command::new("lsblk")
+        .args(["-b", "--json", "-o", "NAME,PATH,SIZE,FSTYPE,LABEL,MOUNTPOINT,TYPE,TRAN,MODEL,SERIAL,ROTA,RM,HOTPLUG,VENDOR"])
+        .output();
+
+    if let Ok(out) = output {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+            if let Some(devices) = json.get("blockdevices").and_then(|d| d.as_array()) {
+                for dev in devices {
+                    let dev_type = dev.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                    let tran = dev.get("tran").and_then(|v| v.as_str()).unwrap_or("");
+                    let rm = dev.get("rm").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let hotplug = dev.get("hotplug").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let is_optical = dev_type == "rom" || dev.get("name").and_then(|v| v.as_str()).unwrap_or("").starts_with("sr");
+
+                    let is_removable = is_optical || tran == "usb" || rm || hotplug;
+                    if !is_removable {
+                        continue;
+                    }
+
+                    let name = dev.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let path = dev.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let model = dev.get("model").and_then(|v| v.as_str()).map(|s| s.trim().to_string()).unwrap_or_else(|| {
+                        if is_optical { "Lecteur Optique (CD/DVD/Blu-ray)".to_string() } else { format!("Périphérique USB ({})", name) }
+                    });
+                    let vendor = dev.get("vendor").and_then(|v| v.as_str()).map(|s| s.trim().to_string());
+                    let size_bytes = dev.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let fstype = dev.get("fstype").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let label = dev.get("label").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let mountpoint = dev.get("mountpoint").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+                    let mut parts = Vec::new();
+                    let mut any_mounted = mountpoint.is_some();
+                    if let Some(children) = dev.get("children").and_then(|c| c.as_array()) {
+                        for child in children {
+                            let c_name = child.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let c_path = child.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let c_size = child.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+                            let c_fs = child.get("fstype").and_then(|v| v.as_str()).map(|s| s.to_string());
+                            let c_lbl = child.get("label").and_then(|v| v.as_str()).map(|s| s.to_string());
+                            let c_mnt = child.get("mountpoint").and_then(|v| v.as_str()).map(|s| s.to_string());
+                            if c_mnt.is_some() { any_mounted = true; }
+
+                            parts.push(PartitionInfo {
+                                name: c_name,
+                                path: c_path,
+                                size_human: format_bytes(c_size),
+                                fstype: c_fs,
+                                mountpoint: c_mnt,
+                                is_system: false,
+                                is_free_space: false,
+                                size_bytes: c_size,
+                                label: c_lbl,
+                            });
+                        }
+                    }
+
+                    list.push(RemovableDevice {
+                        name,
+                        path,
+                        model,
+                        vendor,
+                        size_human: format_bytes(size_bytes),
+                        fstype,
+                        label,
+                        mountpoint,
+                        is_optical,
+                        is_mounted: any_mounted,
+                        partitions: parts,
+                    });
+                }
+            }
+        }
+    }
+    list
+}
+
 fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInfo> {
     let mut physical_disks = Vec::new();
 
-    // Utiliser `lsblk -J` pour obtenir l'arbre complet JSON
     if let Ok(output) = Command::new("lsblk")
-        .args(["-J", "-o", "NAME,PATH,SIZE,ROTA,TYPE,MOUNTPOINTS,MODEL,SERIAL,FSTYPE"])
+        .args(["-b", "-J", "-o", "NAME,PATH,SIZE,ROTA,TYPE,MOUNTPOINTS,MODEL,SERIAL,FSTYPE,TRAN,RM,HOTPLUG,LABEL"])
         .output()
     {
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -661,7 +818,8 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
                     }
 
                     let path = dev.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
-                    let size_human = dev.get("size").and_then(|s| s.as_str()).unwrap_or("0").to_string();
+                    let total_size_bytes = dev.get("size").and_then(|s| s.as_u64()).unwrap_or(0);
+                    let size_human = format_bytes(total_size_bytes);
                     let is_rotational = dev.get("rota").and_then(|r| r.as_bool()).unwrap_or(true);
                     let mut model = dev.get("model").and_then(|m| m.as_str()).unwrap_or("").trim().to_string();
                     if model.is_empty() {
@@ -669,6 +827,11 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
                     }
                     let serial = dev.get("serial").and_then(|s| s.as_str()).unwrap_or("N/A").trim().to_string();
                     let fstype = dev.get("fstype").and_then(|f| f.as_str()).map(|f| f.to_string());
+
+                    let tran = dev.get("tran").and_then(|t| t.as_str()).unwrap_or("");
+                    let rm = dev.get("rm").and_then(|r| r.as_bool()).unwrap_or(false);
+                    let hotplug = dev.get("hotplug").and_then(|h| h.as_bool()).unwrap_or(false);
+                    let is_removable = tran == "usb" || rm || hotplug;
 
                     let disk_type = if path.contains("nvme") {
                         "SSD NVMe PCIe".to_string()
@@ -678,7 +841,6 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
                         "SSD SATA Flash".to_string()
                     };
 
-                    // Attribuer un libellé de Baie matériel clair
                     let bay_label = if name == "sda" {
                         "Baie 1 (SATA)".to_string()
                     } else if name == "sdb" {
@@ -701,16 +863,19 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
                         format!("Disque {}", name)
                     };
 
-                    // Extraire les partitions
                     let mut partitions = Vec::new();
-                    let mut contains_system = path.contains("nvme1n1");
+                    let contains_system = path.contains("nvme1n1") || is_system_device(&path);
+                    let mut allocated_bytes: u64 = 0;
 
                     if let Some(children) = dev.get("children").and_then(|c| c.as_array()) {
                         for child in children {
                             let part_name = child.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
                             let part_path = child.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
-                            let part_size = child.get("size").and_then(|s| s.as_str()).unwrap_or("").to_string();
+                            let part_size_bytes = child.get("size").and_then(|s| s.as_u64()).unwrap_or(0);
+                            allocated_bytes += part_size_bytes;
+                            let part_size = format_bytes(part_size_bytes);
                             let part_fs = child.get("fstype").and_then(|f| f.as_str()).map(|s| s.to_string());
+                            let part_lbl = child.get("label").and_then(|l| l.as_str()).map(|s| s.to_string());
                             let mut part_mount = None;
                             let mut part_is_sys = false;
 
@@ -722,7 +887,6 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
                                         }
                                         if m0 == "/" || m0 == "/boot" || m0.starts_with("/nix") {
                                             part_is_sys = true;
-                                            contains_system = true;
                                         }
                                     }
                                 }
@@ -735,11 +899,28 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
                                 fstype: part_fs,
                                 mountpoint: part_mount,
                                 is_system: part_is_sys,
+                                is_free_space: false,
+                                size_bytes: part_size_bytes,
+                                label: part_lbl,
                             });
                         }
                     }
 
-                    // Rôle / Affiliation
+                    if total_size_bytes > allocated_bytes && (total_size_bytes - allocated_bytes) >= 50 * 1024 * 1024 {
+                        let free_bytes = total_size_bytes - allocated_bytes;
+                        partitions.push(PartitionInfo {
+                            name: "Espace non alloué".to_string(),
+                            path: String::new(),
+                            size_human: format_bytes(free_bytes),
+                            fstype: None,
+                            mountpoint: None,
+                            is_system: false,
+                            is_free_space: true,
+                            size_bytes: free_bytes,
+                            label: None,
+                        });
+                    }
+
                     let role = if contains_system {
                         "Système NixOS (Verrouillé)".to_string()
                     } else {
@@ -762,8 +943,7 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
                         }
                     };
 
-                    // Interrogation SMART & Télémétrie thermique réelle sans réveiller un disque endormi
-                    let mut power_state = if is_rotational { "Actif / En rotation".to_string() } else { "Actif / En ligne".to_string() };
+                                        let mut power_state = if is_rotational { "Actif / En rotation".to_string() } else { "Actif / En ligne".to_string() };
                     let mut smart_status = "Sain (PASS)".to_string();
                     let mut temperature_c = if is_rotational { 32.0 } else { 35.0 };
 
@@ -780,13 +960,40 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
                                 if let Some(passed) = sj.get("smart_status").and_then(|s| s.get("passed")).and_then(|p| p.as_bool()) {
                                     smart_status = if passed { "Sain (PASS)".to_string() } else { "Attention (ÉCHEC)".to_string() };
                                 }
-                                if let Some(temp) = sj.get("temperature").and_then(|t| t.get("current")).and_then(|c| c.as_f64()) {
-                                    temperature_c = temp as f32;
-                                } else if let Some(attrs) = sj.get("ata_smart_attributes").and_then(|a| a.get("table")).and_then(|t| t.as_array()) {
-                                    for attr in attrs {
-                                        let id = attr.get("id").and_then(|i| i.as_u64()).unwrap_or(0);
-                                        if id == 194 || id == 190 {
-                                            if let Some(val) = attr.get("raw").and_then(|r| r.get("value")).and_then(|v| v.as_f64()) {
+                                if let Some(t) = sj.get("temperature").and_then(|t| t.get("current")).and_then(|c| c.as_f64()) {
+                                    temperature_c = t as f32;
+                                }
+                            }
+                        }
+                    }
+
+                    if temperature_c <= 0.0 && path.contains("nvme") {
+                        if let Ok(entries) = std::fs::read_dir("/sys/class/hwmon") {
+                            for e in entries.flatten() {
+                                let hpath = e.path();
+                                if let Ok(name) = std::fs::read_to_string(hpath.join("name")) {
+                                    if name.trim().contains("nvme") {
+                                        if let Ok(temp_str) = std::fs::read_to_string(hpath.join("temp1_input")) {
+                                            if let Ok(val) = temp_str.trim().parse::<f32>() {
+                                                temperature_c = (val / 1000.0).round();
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if temperature_c <= 0.0 {
+                        if let Ok(zones) = std::fs::read_dir("/sys/class/thermal") {
+                            for z in zones.flatten() {
+                                let zpath = z.path();
+                                if let Ok(typ) = std::fs::read_to_string(zpath.join("type")) {
+                                    let t_low = typ.to_lowercase();
+                                    if t_low.contains("drive") || t_low.contains("ssd") || t_low.contains("nvme") || t_low.contains("hdd") {
+                                        if let Ok(t_str) = std::fs::read_to_string(zpath.join("temp")) {
+                                            if let Ok(val) = t_str.trim().parse::<i32>() {
                                                 temperature_c = val as f32;
                                                 break;
                                             }
@@ -813,13 +1020,14 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
                         smart_status,
                         temperature_c,
                         partitions,
+                        size_bytes: total_size_bytes,
+                        is_removable,
                     });
                 }
             }
         }
     }
 
-    // Trier les disques dans l'ordre logique des baies : sda, sdb, sdc, sdd... puis nvme
     physical_disks.sort_by(|a, b| {
         let order_a = if a.name.starts_with("sd") { 0 } else { 1 };
         let order_b = if b.name.starts_with("sd") { 0 } else { 1 };
@@ -832,6 +1040,7 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
 
     physical_disks
 }
+
 
 fn parse_mdstat_sync() -> Option<RaidSyncProgress> {
     if let Ok(content) = std::fs::read_to_string("/proc/mdstat") {
@@ -1431,10 +1640,11 @@ pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
         None
     };
 
-    let has_fs = blkid_fs.is_some() || lsblk_fs.is_some();
+        let has_fs = blkid_fs.is_some() || lsblk_fs.is_some();
     let fs_type = req.fs_type.as_deref().unwrap_or("btrfs");
+    let wants_format = req.force_format == Some(true);
 
-    if !has_fs {
+    if wants_format {
         let fmt_status = if fs_type == "btrfs" {
             Command::new("mkfs.btrfs").args(["-f", "-L", "STORAGE", &final_block_device]).output()
         } else if fs_type == "ext4" {
@@ -1449,10 +1659,16 @@ pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
                 return Err(format!("Échec du formatage en {} : {}", fs_type, err));
             }
         }
+    } else if !has_fs {
+        return Err("Aucun système de fichiers valide n'a été détecté sur ce volume. Si vous souhaitez l'initialiser et effacer toutes les données existantes, utilisez l'option 'Formater le volume'.".into());
     }
 
-    let detected_fs = if has_fs {
-        String::from_utf8_lossy(&blkid_out.as_ref().unwrap().stdout).trim().to_string()
+    let detected_fs = if wants_format {
+        fs_type.to_string()
+    } else if let Some(fs) = blkid_fs {
+        fs
+    } else if let Some(fs) = lsblk_fs {
+        fs
     } else {
         fs_type.to_string()
     };
@@ -1572,4 +1788,246 @@ pub fn format_bytes(bytes: u64) -> String {
     } else {
         format!("{} o", bytes)
     }
+}
+
+
+pub fn create_partition(req: &CreatePartitionRequest) -> Result<String, String> {
+    let disk = req.disk_path.trim();
+    if !disk.starts_with("/dev/") || is_system_device(disk) {
+        return Err("Périphérique invalide ou protégé (Système NixOS).".into());
+    }
+
+    if !Path::new(disk).exists() {
+        return Err(format!("Le disque '{}' est introuvable.", disk));
+    }
+
+    let ptable_check = Command::new("sfdisk").args(["-d", disk]).output();
+    let has_table = if let Ok(out) = ptable_check {
+        out.status.success() && !out.stdout.is_empty()
+    } else {
+        false
+    };
+
+    if !has_table {
+        let init_cmd = Command::new("parted").args(["-s", disk, "mklabel", "gpt"]).output();
+        if init_cmd.is_err() || !init_cmd.as_ref().unwrap().status.success() {
+            let _ = Command::new("sfdisk").arg(disk)
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+                .and_then(|mut child| {
+                    use std::io::Write;
+                    if let Some(mut stdin) = child.stdin.take() {
+                        let _ = stdin.write_all(b"label: gpt\n");
+                    }
+                    child.wait()
+                });
+        }
+    }
+
+    let fs_type = req.fs_type.to_lowercase();
+    let part_fs = match fs_type.as_str() {
+        "ext4" => "ext4",
+        "btrfs" => "btrfs",
+        "xfs" => "xfs",
+        "vfat" | "fat32" => "vfat",
+        "exfat" => "exfat",
+        _ => "btrfs",
+    };
+
+    let sfdisk_input = if let Some(mb) = req.size_mb {
+        if mb > 0 { format!(",{}MiB\n", mb) } else { ",,\n".to_string() }
+    } else {
+        ",,\n".to_string()
+    };
+
+    let mut success = false;
+    if let Ok(mut cmd) = Command::new("sfdisk")
+        .args(["--append", disk])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        use std::io::Write;
+        if let Some(mut stdin) = cmd.stdin.take() {
+            let _ = stdin.write_all(sfdisk_input.as_bytes());
+        }
+        if let Ok(out) = cmd.wait_with_output() {
+            success = out.status.success();
+        }
+    }
+
+    if !success {
+        let mkpart_res = if let Some(mb) = req.size_mb {
+            if mb == 0 {
+                Command::new("parted").args(["-s", "-a", "optimal", disk, "mkpart", "primary", part_fs, "0%", "100%"]).output()
+            } else {
+                Command::new("parted").args(["-s", "-a", "optimal", disk, "mkpart", "primary", part_fs, "0%", &format!("{}MiB", mb)]).output()
+            }
+        } else {
+            Command::new("parted").args(["-s", "-a", "optimal", disk, "mkpart", "primary", part_fs, "0%", "100%"]).output()
+        };
+
+        if let Ok(out) = mkpart_res {
+            if !out.status.success() {
+                let err = String::from_utf8_lossy(&out.stderr);
+                return Err(format!("Échec de création de la partition : {}", err));
+            }
+        } else {
+            return Err("Impossible de créer la partition (sfdisk et parted ont échoué).".into());
+        }
+    }
+
+    let _ = Command::new("udevadm").args(["settle"]).output();
+    std::thread::sleep(std::time::Duration::from_millis(800));
+
+    let mut new_part_path = String::new();
+    if let Ok(out) = Command::new("lsblk").args(["-no", "PATH", disk]).output() {
+        let lines: Vec<String> = String::from_utf8_lossy(&out.stdout).lines().map(|s| s.trim().to_string()).collect();
+        if lines.len() > 1 {
+            new_part_path = lines.last().unwrap().clone();
+        }
+    }
+
+    if new_part_path.is_empty() || new_part_path == disk {
+        new_part_path = if disk.ends_with(|c: char| c.is_ascii_digit()) {
+            format!("{}p1", disk)
+        } else {
+            format!("{}1", disk)
+        };
+    }
+
+    let label = req.label.as_deref().unwrap_or("DATA").trim();
+    let fmt_status = match part_fs {
+        "btrfs" => Command::new("mkfs.btrfs").args(["-f", "-L", label, &new_part_path]).output(),
+        "ext4" => Command::new("mkfs.ext4").args(["-F", "-L", label, &new_part_path]).output(),
+        "vfat" => Command::new("mkfs.vfat").args(["-F", "32", "-n", label, &new_part_path]).output(),
+        "exfat" => Command::new("mkfs.exfat").args(["-n", label, &new_part_path]).output(),
+        "xfs" => Command::new("mkfs.xfs").args(["-f", "-L", label, &new_part_path]).output(),
+        _ => Command::new("mkfs.btrfs").args(["-f", "-L", label, &new_part_path]).output(),
+    };
+
+    if let Ok(out) = fmt_status {
+        if !out.status.success() {
+            let err = String::from_utf8_lossy(&out.stderr);
+            return Err(format!("Partition créée ({}) mais échec du formatage : {}", new_part_path, err));
+        }
+    }
+
+    if let Some(ref mnt) = req.mountpoint {
+        let clean_mnt = mnt.trim();
+        if !clean_mnt.is_empty() && clean_mnt.starts_with("/mnt") {
+            let _ = Command::new("mkdir").args(["-p", clean_mnt]).output();
+            let _ = Command::new("mount").args([&new_part_path, clean_mnt]).output();
+            let user = target_user();
+            let _ = Command::new("chown").args(["-R", &format!("{}:storage", user), clean_mnt]).output();
+            let _ = Command::new("chmod").args(["2775", clean_mnt]).output();
+
+            let mut mounts = load_persisted_mounts();
+            mounts.retain(|m| m.mount_point != clean_mnt && m.device != new_part_path);
+            let mount_id = format!("mount-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs());
+            let mut opts = vec!["defaults".to_string(), "noatime".to_string(), "nofail".to_string()];
+            if part_fs == "btrfs" { opts.push("compress=zstd".to_string()); }
+
+            mounts.push(PersistedMount {
+                id: mount_id,
+                name: label.to_string(),
+                device: new_part_path.clone(),
+                device_uuid: None,
+                mount_point: clean_mnt.to_string(),
+                fs_type: part_fs.to_string(),
+                options: opts,
+                enabled: true,
+                created_at: Some("Aujourd'hui".to_string()),
+            });
+            let _ = save_persisted_mounts(&mounts);
+        }
+    }
+
+    Ok(format!("Partition {} créée avec succès et formatée en {} !", new_part_path, part_fs.to_uppercase()))
+}
+
+pub fn delete_partition(req: &DeletePartitionRequest) -> Result<String, String> {
+    let part = req.partition_path.trim();
+    if !part.starts_with("/dev/") || is_system_device(part) {
+        return Err("Interdiction absolue : Impossible de supprimer une partition système NixOS.".into());
+    }
+
+    let _ = Command::new("umount").args(["-f", part]).output();
+    let _ = Command::new("wipefs").args(["-a", part]).output();
+
+    let (disk, num) = if let Some(idx) = part.rfind('p') {
+        if part.starts_with("/dev/nvme") || part.starts_with("/dev/mmcblk") {
+            let d = &part[..idx];
+            let n = &part[idx+1..];
+            (d, n)
+        } else {
+            let num_start = part.chars().rev().take_while(|c| c.is_ascii_digit()).count();
+            let split_pos = part.len() - num_start;
+            (&part[..split_pos], &part[split_pos..])
+        }
+    } else {
+        let num_start = part.chars().rev().take_while(|c| c.is_ascii_digit()).count();
+        let split_pos = part.len() - num_start;
+        (&part[..split_pos], &part[split_pos..])
+    };
+
+    let part_num = num.parse::<u32>().map_err(|_| format!("Impossible d'extraire le numéro de partition de {}", part))?;
+
+    let rm_out = Command::new("sfdisk").args(["--delete", disk, &part_num.to_string()]).output();
+    let success = match rm_out {
+        Ok(ref o) if o.status.success() => true,
+        _ => {
+            let parted_out = Command::new("parted").args(["-s", disk, "rm", &part_num.to_string()]).output();
+            parted_out.map(|o| o.status.success()).unwrap_or(false)
+        }
+    };
+
+    if !success {
+        return Err(format!("Échec de la suppression de la partition {} sur {}", part_num, disk));
+    }
+
+    let _ = Command::new("udevadm").args(["settle"]).output();
+
+    let mut mounts = load_persisted_mounts();
+    let initial_len = mounts.len();
+    mounts.retain(|m| m.device != part);
+    if mounts.len() != initial_len {
+        let _ = save_persisted_mounts(&mounts);
+    }
+
+    Ok(format!("Partition {} supprimée avec succès.", part))
+}
+
+pub fn eject_removable(req: &EjectRemovableRequest) -> Result<String, String> {
+    let dev = req.device_path.trim();
+    if !dev.starts_with("/dev/") || is_system_device(dev) {
+        return Err("Périphérique invalide ou protégé.".into());
+    }
+
+    let dev_name = req.name.as_deref().unwrap_or(dev);
+
+    let _ = Command::new("sync").output();
+
+    if let Ok(out) = Command::new("lsblk").args(["-no", "PATH,MOUNTPOINT", dev]).output() {
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let mnt = parts[1];
+                let _ = Command::new("umount").args(["-f", mnt]).output();
+            }
+        }
+    }
+    let _ = Command::new("umount").args(["-f", dev]).output();
+
+    if dev.contains("sr") {
+        let _ = Command::new("eject").arg(dev).output();
+    } else {
+        let udisks_res = Command::new("udisksctl").args(["power-off", "-b", dev]).output();
+        if udisks_res.is_err() || !udisks_res.as_ref().unwrap().status.success() {
+            let _ = Command::new("eject").arg(dev).output();
+        }
+    }
+
+    Ok(format!("Votre périphérique '{}' peut être déconnecté en toute sécurité !", dev_name))
 }
