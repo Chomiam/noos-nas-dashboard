@@ -11495,53 +11495,59 @@ body.app-updating-reload #app-shell {
 .file-modal-overlay.mini-player-mode .file-modal-window {
   pointer-events: auto !important; /* La vignette elle-même reste interactive */
   position: fixed !important;
-  top: 74px !important; /* Juste en-dessous de la barre des menus supérieure */
-  right: 24px !important;
-  left: auto !important;
-  bottom: auto !important;
+  top: 122px; /* Aligné par défaut sur le haut de la fenêtre voisine (.files-main-pane) */
+  right: 24px;
+  left: auto;
+  bottom: auto;
   margin: 0 !important;
-  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.8), 0 0 25px rgba(203, 166, 247, 0.28) !important;
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.85), 0 0 28px rgba(203, 166, 247, 0.35) !important;
   border: 1px solid rgba(203, 166, 247, 0.45) !important;
   border-radius: var(--radius-md) !important;
   z-index: 3500 !important;
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  transition: box-shadow 0.25s ease, border-color 0.25s ease !important;
   transform: none !important;
+}
+
+.file-modal-overlay.mini-player-mode.is-dragging .file-modal-window {
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.95), 0 0 35px rgba(203, 166, 247, 0.55) !important;
+  border-color: var(--mauve) !important;
 }
 
 /* 3. Adaptation du lecteur Vidéo MPV en mode réduit */
 .file-modal-overlay.mini-player-mode .mpv-window {
-  width: 390px !important;
+  width: 515px !important;
   max-width: calc(100vw - 32px) !important;
   background: #0b0c13 !important;
 }
 
 .file-modal-overlay.mini-player-mode .mpv-header {
   padding: 7px 10px !important;
-  cursor: grab;
+  cursor: grab !important;
   user-select: none;
   background: var(--mantle) !important;
   border-bottom: 1px solid rgba(203, 166, 247, 0.2) !important;
 }
 
-.file-modal-overlay.mini-player-mode .mpv-header:active {
-  cursor: grabbing;
+.file-modal-overlay.mini-player-mode .mpv-header:active,
+.file-modal-overlay.mini-player-mode.is-dragging .mpv-header {
+  cursor: grabbing !important;
 }
 
 .file-modal-overlay.mini-player-mode .mpv-header .file-modal-title {
   font-size: 0.82rem !important;
-  max-width: 170px !important;
+  max-width: 280px !important;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .file-modal-overlay.mini-player-mode .mpv-player-container {
-  max-height: 220px !important;
+  max-height: 290px !important;
   background: #000;
 }
 
 .file-modal-overlay.mini-player-mode .mpv-video {
-  max-height: 220px !important;
+  max-height: 290px !important;
   width: 100% !important;
 }
 
@@ -11556,26 +11562,27 @@ body.app-updating-reload #app-shell {
 
 /* 4. Adaptation du lecteur Audio en mode réduit */
 .file-modal-overlay.mini-player-mode .audio-window {
-  width: 360px !important;
+  width: 515px !important;
   max-width: calc(100vw - 32px) !important;
   background: #0d0e17 !important;
 }
 
 .file-modal-overlay.mini-player-mode .audio-header {
   padding: 7px 10px !important;
-  cursor: grab;
+  cursor: grab !important;
   user-select: none;
   background: var(--mantle) !important;
   border-bottom: 1px solid rgba(203, 166, 247, 0.2) !important;
 }
 
-.file-modal-overlay.mini-player-mode .audio-header:active {
-  cursor: grabbing;
+.file-modal-overlay.mini-player-mode .audio-header:active,
+.file-modal-overlay.mini-player-mode.is-dragging .audio-header {
+  cursor: grabbing !important;
 }
 
 .file-modal-overlay.mini-player-mode .audio-header .file-modal-title {
   font-size: 0.82rem !important;
-  max-width: 180px !important;
+  max-width: 290px !important;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -11624,5 +11631,9 @@ body.app-updating-reload #app-shell {
 }
 
 .file-modal-overlay.mini-player-mode .audio-volume-wrap {
+  display: none !important;
+}
+
+.file-modal-overlay.mini-player-mode .audio-footer-hints {
   display: none !important;
 }

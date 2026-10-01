@@ -5361,23 +5361,29 @@ function toggleMediaPip(modalId, forceMini) {
   const btn = document.getElementById(btnId);
   const win = modal.querySelector(".file-modal-window");
 
+  const header = modal.querySelector(".file-modal-header");
+
   if (shouldBeMini) {
     modal.classList.add("mini-player-mode");
     if (icon) icon.textContent = "⤢";
     if (btn) btn.title = "Agrandir le lecteur au centre (P)";
 
     if (win) {
-      win.style.top = "74px";
+      win.style.removeProperty("left");
+      win.style.removeProperty("bottom");
+      win.style.top = "122px";
       win.style.right = "24px";
-      win.style.left = "auto";
-      win.style.bottom = "auto";
       win.style.margin = "0";
+    }
+
+    if (header) {
+      header.title = "Glisser pour déplacer le lecteur flottant";
     }
 
     if (modalId === "audio-modal") {
       const canvas = document.getElementById("audio-visualizer-canvas");
       if (canvas) {
-        canvas.width = 330;
+        canvas.width = 480;
         canvas.height = 70;
       }
     }
@@ -5385,6 +5391,7 @@ function toggleMediaPip(modalId, forceMini) {
     initMediaPipDrag(modalId);
   } else {
     modal.classList.remove("mini-player-mode");
+    modal.classList.remove("is-dragging");
     if (icon) icon.textContent = "🗗";
     if (btn) btn.title = "Réduire en vignette flottante (P)";
 
@@ -5396,11 +5403,15 @@ function toggleMediaPip(modalId, forceMini) {
       win.style.margin = "";
     }
 
+    if (header) {
+      header.title = "";
+    }
+
     if (modalId === "audio-modal") {
       const canvas = document.getElementById("audio-visualizer-canvas");
       if (canvas) {
         canvas.width = 680;
-        canvas.height = 152;
+        canvas.height = 170;
       }
     }
   }
@@ -5417,43 +5428,63 @@ function initMediaPipDrag(modalId) {
   let isDragging = false;
   let startX = 0, startY = 0, startLeft = 0, startTop = 0;
 
-  header.addEventListener("mousedown", (e) => {
+  const onDragStart = (e) => {
     if (!modal.classList.contains("mini-player-mode")) return;
     if (e.target.closest("button") || e.target.closest("a") || e.target.closest("input")) return;
 
     isDragging = true;
+    modal.classList.add("is-dragging");
+    const clientX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : null);
+    const clientY = e.clientY !== undefined ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : null);
+    if (clientX === null || clientY === null) return;
+
     const rect = win.getBoundingClientRect();
-    startX = e.clientX;
-    startY = e.clientY;
+    startX = clientX;
+    startY = clientY;
     startLeft = rect.left;
     startTop = rect.top;
 
-    win.style.right = "auto";
-    win.style.bottom = "auto";
-    win.style.left = `${startLeft}px`;
-    win.style.top = `${startTop}px`;
+    win.style.setProperty("right", "auto", "important");
+    win.style.setProperty("bottom", "auto", "important");
+    win.style.setProperty("left", `${startLeft}px`, "important");
+    win.style.setProperty("top", `${startTop}px`, "important");
     win.style.transition = "none";
+    document.body.style.userSelect = "none";
 
-    const onMouseMove = (ev) => {
+    const onDragMove = (ev) => {
       if (!isDragging) return;
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
-      const newLeft = Math.max(10, Math.min(window.innerWidth - rect.width - 10, startLeft + dx));
-      const newTop = Math.max(60, Math.min(window.innerHeight - rect.height - 10, startTop + dy));
-      win.style.left = `${newLeft}px`;
-      win.style.top = `${newTop}px`;
+      const curX = ev.clientX !== undefined ? ev.clientX : (ev.touches && ev.touches[0] ? ev.touches[0].clientX : null);
+      const curY = ev.clientY !== undefined ? ev.clientY : (ev.touches && ev.touches[0] ? ev.touches[0].clientY : null);
+      if (curX === null || curY === null) return;
+
+      const dx = curX - startX;
+      const dy = curY - startY;
+      const newLeft = Math.max(8, Math.min(window.innerWidth - rect.width - 8, startLeft + dx));
+      const newTop = Math.max(54, Math.min(window.innerHeight - rect.height - 8, startTop + dy));
+      win.style.setProperty("left", `${newLeft}px`, "important");
+      win.style.setProperty("top", `${newTop}px`, "important");
     };
 
-    const onMouseUp = () => {
+    const onDragEnd = () => {
+      if (!isDragging) return;
       isDragging = false;
+      modal.classList.remove("is-dragging");
       win.style.transition = "";
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onDragMove);
+      window.removeEventListener("mouseup", onDragEnd);
+      window.removeEventListener("touchmove", onDragMove);
+      window.removeEventListener("touchend", onDragEnd);
     };
 
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-  });
+    window.addEventListener("mousemove", onDragMove, { passive: false });
+    window.addEventListener("mouseup", onDragEnd);
+    window.addEventListener("touchmove", onDragMove, { passive: false });
+    window.addEventListener("touchend", onDragEnd);
+  };
+
+  header.addEventListener("mousedown", onDragStart);
+  header.addEventListener("touchstart", onDragStart, { passive: false });
 }
 
 function handleModalOverlayClick(e, modalId) {
@@ -5539,7 +5570,7 @@ function openAudioModal(path, fileName, sizeBytes) {
   const canvas = document.getElementById("audio-visualizer-canvas");
   if (canvas) {
     canvas.width = 680;
-    canvas.height = 152;
+    canvas.height = 170;
   }
 
   const streamUrl = buildAuthenticatedUrl("/api/files/stream", { path });
