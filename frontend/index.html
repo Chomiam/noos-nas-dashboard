@@ -3821,6 +3821,97 @@
   </div>
 
 
+  <!-- ================= MODALE CASSER / DISSOUDRE GRAPPE RAID ================= -->
+  <div class="file-modal-overlay" id="modal-destroy-raid" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-destroy-raid')">
+    <div class="file-modal-window format-window" style="max-width: 640px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(243, 139, 168, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-danger" style="font-size:0.75rem; font-weight:800; letter-spacing:0.5px;">DESTRUCTION RAID</span>
+          <span class="file-modal-title" id="destroy-raid-modal-title">Casser la Grappe RAID</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeDestroyRaidModal()" title="Fermer la fenêtre">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding: 22px;">
+        <input type="hidden" id="destroy-raid-name">
+        <input type="hidden" id="destroy-raid-device">
+        <input type="hidden" id="destroy-raid-mountpoint">
+
+        <!-- Carte Avertissement Critique Rouge -->
+        <div style="background:rgba(243, 139, 168, 0.12); border:1px solid rgba(243, 139, 168, 0.35); border-radius:var(--radius-md); padding:14px; margin-bottom:16px;">
+          <div style="display:flex; align-items:flex-start; gap:12px;">
+            <span style="font-size:1.6rem; line-height:1;">⚠️</span>
+            <div>
+              <strong style="color:var(--red); font-size:0.95rem;">ATTENTION : Opération Destructive et Irréversible</strong>
+              <div style="font-size:0.83rem; color:var(--text); margin-top:4px; line-height:1.45;">
+                Vous êtes sur le point de <strong>casser et dissoudre définitivement</strong> cette grappe RAID.
+                Tous les volumes logiques et fichiers stockés dessus seront <strong>définitivement effacés</strong>.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fiche d'identification de la grappe -->
+        <div class="storage-modal-infobox" style="margin-bottom:16px; background:rgba(30, 30, 46, 0.8);">
+          <span class="infobox-icon">🖴</span>
+          <div class="infobox-text" style="width:100%;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+              <div>
+                Grappe : <strong id="destroy-raid-label" style="color:var(--text); font-size:0.95rem;">vg1/storage</strong>
+                <span class="badge badge-accent" id="destroy-raid-level-badge" style="font-size:0.7rem; margin-left:6px;">RAID5</span>
+              </div>
+              <span class="badge badge-secondary" id="destroy-raid-size-badge" style="font-family:var(--font-mono);">7.3 To</span>
+            </div>
+            <div style="font-size:0.8rem; color:var(--subtext0); margin-top:4px; font-family:var(--font-mono);">
+              Périphérique bloc : <code id="destroy-raid-dev-label" style="color:var(--teal);">/dev/vg1/storage</code>
+            </div>
+            <div id="destroy-raid-mount-warning" style="display:none; font-size:0.8rem; color:var(--peach); margin-top:6px; background:rgba(250,179,135,0.1); padding:8px 10px; border-radius:var(--radius-sm); border:1px solid rgba(250,179,135,0.25);">
+              📁 <strong>Montage actif détecté</strong> : Ce volume sera automatiquement démonté de <code id="destroy-raid-mount-label" style="color:var(--peach); font-weight:700;">/mnt/raid</code> et retiré de NixOS (<code>mounts.json</code>).
+            </div>
+          </div>
+        </div>
+
+        <!-- Liste des disques membres qui vont être libérés -->
+        <div class="form-group" style="margin-bottom:16px;">
+          <label class="form-label" style="font-size:0.82rem; margin-bottom:6px;">
+            <span>Disques physiques membres qui vont être libérés :</span>
+            <span class="label-tag" style="background:rgba(166,227,161,0.15); color:var(--green);">Retour en espace libre</span>
+          </label>
+          <div id="destroy-raid-members-list" style="display:flex; flex-wrap:wrap; gap:6px; padding:10px; background:var(--surface0); border-radius:var(--radius-sm); border:1px solid rgba(255,255,255,0.06);">
+            <!-- Injecté dynamiquement -->
+          </div>
+        </div>
+
+        <!-- Option de purge des signatures -->
+        <div class="form-group" style="margin-bottom:16px;">
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.85rem; color:var(--text);">
+            <input type="checkbox" id="destroy-raid-wipe-check" checked style="accent-color:var(--teal); width:18px; height:18px;">
+            <span>Effacer les superblocs et signatures de partition (<code>wipefs</code>) pour rendre les disques immédiatement réutilisables</span>
+          </label>
+        </div>
+
+        <!-- Case de confirmation obligatoire -->
+        <div class="form-group" id="destroy-raid-confirm-box" style="margin-top:14px; margin-bottom:0;">
+          <label class="mount-confirm-destructive-box" for="destroy-raid-confirm-checkbox">
+            <input type="checkbox" id="destroy-raid-confirm-checkbox" style="accent-color:var(--red); width:20px; height:20px; cursor:pointer; flex-shrink:0;">
+            <div style="display:flex; flex-direction:column; gap:2px;">
+              <span style="font-size:0.86rem; color:var(--red); font-weight:700;">Je confirme vouloir casser et dissoudre définitivement cette grappe RAID.</span>
+              <span style="font-size:0.75rem; color:var(--subtext0);">Toutes les données associées seront définitivement perdues sans possibilité de récupération.</span>
+            </div>
+          </label>
+        </div>
+
+      </div>
+
+      <div class="file-modal-footer" style="padding:16px 20px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center; background:var(--mantle);">
+        <button type="button" class="btn btn-secondary" onclick="closeDestroyRaidModal()">Annuler</button>
+        <button type="button" class="btn btn-danger" id="btn-submit-destroy-raid" onclick="submitDestroyRaid()" style="padding:10px 22px; font-weight:700;">
+          🧨 Casser Définitivement la Grappe
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODALE ALIMENTATION & REDÉMARRAGE -->
   <div class="file-modal-overlay power-modal-overlay" id="power-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'power-modal')">
     <div class="file-modal-window power-window">
@@ -6347,6 +6438,6 @@
 </div><!-- /#app-shell -->
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20261001_08"></script>
+  <script src="/js/app.js?v=20261001_09"></script>
 </body>
 </html>

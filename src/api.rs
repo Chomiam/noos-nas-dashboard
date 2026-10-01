@@ -46,7 +46,7 @@ use crate::network::{
     NetworkOverview, TrafficHistoryOverview,
 };
 use crate::services::{control_service, get_service_logs, get_services_overview, ServicesOverview};
-use crate::storage::{create_partition, create_raid, delete_partition, eject_removable, format_disk, get_raid_sync_progress, get_storage_overview, mount_volume, repair_path_permissions, trigger_disk_spindown, umount_volume, CreatePartitionRequest, CreateRaidRequest, DeletePartitionRequest, EjectRemovableRequest, FormatDiskRequest, MountVolumeRequest, RaidSyncProgress, RepairPermissionsRequest, StorageOverview, UmountVolumeRequest};
+use crate::storage::{create_partition, create_raid, delete_partition, destroy_raid, eject_removable, format_disk, get_raid_sync_progress, get_storage_overview, mount_volume, repair_path_permissions, trigger_disk_spindown, umount_volume, CreatePartitionRequest, CreateRaidRequest, DeletePartitionRequest, DestroyRaidRequest, EjectRemovableRequest, FormatDiskRequest, MountVolumeRequest, RaidSyncProgress, RepairPermissionsRequest, StorageOverview, UmountVolumeRequest};
 use crate::generations;
 use crate::system::{cancel_power, get_gpu_info, get_power_status, get_system_info, schedule_power, GpuInfo, ImmediatePowerRequest, PowerStatusResponse, SchedulePowerRequest, SystemInfo};
 use crate::terminal::{autocomplete, execute_command, CompleteRequest, CompleteResponse, ExecRequest, ExecResponse};
@@ -119,6 +119,7 @@ pub fn api_routes() -> Router {
         .route("/storage/raids/progress", get(handle_raid_progress))
         .route("/storage/disks/format", post(handle_format_disk))
         .route("/storage/raids/create", post(handle_create_raid))
+        .route("/storage/raids/destroy", post(handle_destroy_raid))
         .route("/storage/mount", post(handle_mount_volume))
         .route("/storage/umount", post(handle_umount_volume))
         .route("/storage/partition/create", post(handle_create_partition))
@@ -907,6 +908,21 @@ async fn handle_format_disk(Json(payload): Json<FormatDiskRequest>) -> Json<ApiR
 
 async fn handle_create_raid(Json(payload): Json<CreateRaidRequest>) -> Json<ApiResponse<String>> {
     match create_raid(&payload) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_destroy_raid(Json(payload): Json<DestroyRaidRequest>) -> Json<ApiResponse<String>> {
+    match destroy_raid(&payload) {
         Ok(msg) => Json(ApiResponse {
             success: true,
             data: Some(msg),

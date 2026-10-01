@@ -322,6 +322,14 @@ pub struct CreateRaidRequest {
     pub mountpoint: String, // ex: "/mnt/storage"
 }
 
+#[derive(Debug, Deserialize)]
+pub struct DestroyRaidRequest {
+    pub name: String,
+    pub device: String,
+    #[serde(default)]
+    pub wipe_members: Option<bool>,
+}
+
 // --------------------------------------------------------------------------
 // LECTURE ET SCAN CONSOLIDÉ DU STOCKAGE
 // --------------------------------------------------------------------------
@@ -1306,6 +1314,207 @@ pub fn create_raid(req: &CreateRaidRequest) -> Result<String, String> {
         fs_type.to_uppercase(),
         mountpoint
     ))
+}
+
+pub fn destroy_raid(req: &DestroyRaidRequest) -> Result<String, String> {
+    let clean_name = req.name.trim();
+    let clean_dev = req.device.trim();
+
+    if clean_name.is_empty() && clean_dev.is_empty() {
+        return Err("Identifiant ou chemin de la grappe RAID manquant.".into());
+    }
+
+    // Sécurité absolue : protection du système NixOS
+    if is_system_device(clean_dev) || is_system_device(clean_name) {
+        return Err("Interdiction absolue : Impossible de détruire une grappe ou un volume contenant le système NixOS.".into());
+    }
+
+    // 1. Démonter automatiquement si le volume est actuellement monté
+    if let Ok(output) = Command::new("findmnt").args(["-n", "-o", "SOURCE,TARGET"]).output() {
+        let str_out = String::from_utf8_lossy(&output.stdout);
+        for line in str_out.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let src = parts[0];
+                let mnt = parts[1];
+                if mnt != "/" && mnt != "/boot" && !mnt.starts_with("/nix") {
+                    let matches_dev = src == clean_dev || (!clean_dev.is_empty() && src.contains(clean_dev.trim_start_matches("/dev/")));
+                    let matches_name = !clean_name.is_empty() && (src.contains(clean_name) || mnt.ends_with(clean_name));
+                    if matches_dev || matches_name {
+                        let _ = Command::new("umount").args(["-f", mnt]).output();
+                    }
+                }
+            }
+        }
+    }
+
+    // Retirer également des points de montage déclaratifs NixOS (mounts.json)
+    let mut mounts = load_persisted_mounts();
+    mounts.retain(|m| {
+        m.device != clean_dev
+            && !m.name.contains(clean_name)
+            && (!clean_dev.is_empty() && !m.device.contains(clean_dev.trim_start_matches("/dev/")))
+    });
+    let _ = save_persisted_mounts(&mounts);
+
+    let do_wipe = req.wipe_members.unwrap_or(true);
+    
+
+    // 2. Identifier le type de grappe (LVM2, mdadm ou Btrfs)
+    let stripped = clean_dev.trim_start_matches("/dev/");
+    let (vg_cand, lv_cand) = if clean_dev.starts_with("/dev/mapper/") {
+        let mapper_name = clean_dev.trim_start_matches("/dev/mapper/");
+        let mut parts = Vec::new();
+        let mut current = String::new();
+        let mut chars = mapper_name.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '-' {
+                if chars.peek() == Some(&'-') {
+                    chars.next();
+                    current.push('-');
+                } else {
+                    parts.push(current);
+                    current = String::new();
+                }
+            } else {
+                current.push(c);
+            }
+        }
+        parts.push(current);
+        if parts.len() == 2 {
+            (parts[0].clone(), Some(parts[1].clone()))
+        } else {
+            (mapper_name.to_string(), None)
+        }
+    } else if stripped.contains('/') && !stripped.starts_with("disk/") {
+        let parts: Vec<&str> = stripped.split('/').collect();
+        (parts[0].to_string(), if parts.len() > 1 { Some(parts[1].to_string()) } else { None })
+    } else if clean_name.contains('/') {
+        let parts: Vec<&str> = clean_name.split('/').collect();
+        (parts[0].to_string(), if parts.len() > 1 { Some(parts[1].to_string()) } else { None })
+    } else {
+        (if clean_name.is_empty() { stripped.to_string() } else { clean_name.to_string() }, None)
+    };
+
+    // Cas A : LVM2 (Volume Group / Logical Volume)
+    let is_vg = Command::new("vgs").args([&vg_cand]).output().map(|o| o.status.success()).unwrap_or(false);
+    if is_vg {
+        let vg_name = &vg_cand;
+
+        // Récupérer la liste des disques physiques (PVs) membres avant suppression
+        let mut pv_members = Vec::new();
+        if let Ok(pv_out) = Command::new("pvs").args(["--noheadings", "-o", "pv_name,vg_name"]).output() {
+            let str_out = String::from_utf8_lossy(&pv_out.stdout);
+            for line in str_out.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 && parts[1] == vg_name {
+                    pv_members.push(parts[0].to_string());
+                }
+            }
+        }
+
+        // Si un LV précis est ciblé
+        if let Some(ref lv) = lv_cand {
+            let _ = Command::new("lvchange").args(["-an", "-f", &format!("{}/{}", vg_name, lv)]).output();
+            let rm_lv = Command::new("lvremove").args(["-y", "-f", &format!("{}/{}", vg_name, lv)]).output();
+            if let Ok(ref out) = rm_lv {
+                if !out.status.success() {
+                    let err = String::from_utf8_lossy(&out.stderr);
+                    return Err(format!("Échec de suppression du volume logique {}/{} : {}", vg_name, lv, err));
+                }
+            }
+        }
+
+        // Vérifier s'il reste d'autres LVs dans le VG
+        let remaining_lvs = Command::new("lvs").args(["-o", "lv_name", "--noheadings", vg_name]).output();
+        let has_other_lvs = remaining_lvs.map(|o| {
+            let s = String::from_utf8_lossy(&o.stdout);
+            s.lines().any(|l| !l.trim().is_empty())
+        }).unwrap_or(false);
+
+        let destroyed_desc = if !has_other_lvs || lv_cand.is_none() {
+            // Supprimer le Volume Group entier
+            let _ = Command::new("vgchange").args(["-an", "-f", vg_name]).output();
+            let rm_vg = Command::new("vgremove").args(["-y", "-f", vg_name]).output();
+            if let Ok(ref out) = rm_vg {
+                if !out.status.success() {
+                    let err = String::from_utf8_lossy(&out.stderr);
+                    return Err(format!("Échec de suppression du groupe de volumes {} : {}", vg_name, err));
+                }
+            }
+
+            // Supprimer les Physical Volumes et effacer les signatures de partition
+            for pv in &pv_members {
+                if !is_system_device(pv) {
+                    let _ = Command::new("pvremove").args(["-y", "-ff", pv]).output();
+                    if do_wipe {
+                        let _ = Command::new("wipefs").args(["-a", "-f", pv]).output();
+                    }
+                }
+            }
+            format!("Grappe LVM2 '{}' et disques membres ({})", vg_name, pv_members.join(", "))
+        } else {
+            format!("Volume logique '{}/{}'", vg_name, lv_cand.unwrap_or_default())
+        };
+
+        let _ = Command::new("vgmknodes").output();
+        let _ = Command::new("udevadm").args(["settle", "--timeout=3"]).output();
+
+        return Ok(format!("{} cassée et dissoute avec succès. Les disques sont réinitialisés.", destroyed_desc));
+    }
+
+    // Cas B : mdadm (/dev/mdX ou /dev/md/...)
+    if clean_dev.starts_with("/dev/md") || clean_name.starts_with("md") {
+        let md_target = if clean_dev.starts_with("/dev/md") { clean_dev } else { &format!("/dev/{}", clean_name) };
+
+        // Récupérer les disques membres via mdadm --detail
+        let mut md_members = Vec::new();
+        if let Ok(detail_out) = Command::new("mdadm").args(["--detail", md_target]).output() {
+            let str_out = String::from_utf8_lossy(&detail_out.stdout);
+            for line in str_out.lines() {
+                let trimmed = line.trim();
+                if trimmed.contains("/dev/") {
+                    for token in trimmed.split_whitespace() {
+                        if token.starts_with("/dev/") && !token.starts_with("/dev/md") {
+                            md_members.push(token.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Arrêter la grappe
+        let stop_out = Command::new("mdadm").args(["--stop", md_target]).output()
+            .map_err(|e| format!("Impossible d'exécuter mdadm --stop : {}", e))?;
+        if !stop_out.status.success() {
+            let err = String::from_utf8_lossy(&stop_out.stderr);
+            return Err(format!("Échec de l'arrêt de la grappe RAID mdadm : {}", err));
+        }
+
+        // Effacer les superblocs et signatures sur chaque membre
+        for m in &md_members {
+            if !is_system_device(m) {
+                let _ = Command::new("mdadm").args(["--zero-superblock", "--force", m]).output();
+                if do_wipe {
+                    let _ = Command::new("wipefs").args(["-a", "-f", m]).output();
+                }
+            }
+        }
+
+        let _ = Command::new("udevadm").args(["settle", "--timeout=3"]).output();
+        return Ok(format!("Grappe RAID mdadm '{}' dissoute avec succès. Disques libérés : {}.", md_target, md_members.join(", ")));
+    }
+
+    // Cas C : Périphérique bloc générique ou Btrfs multi-disques
+    if Path::new(clean_dev).exists() {
+        if do_wipe && !is_system_device(clean_dev) {
+            let _ = Command::new("wipefs").args(["-a", "-f", clean_dev]).output();
+            let _ = Command::new("udevadm").args(["settle", "--timeout=2"]).output();
+            return Ok(format!("Périphérique '{}' réinitialisé et libéré avec succès.", clean_dev));
+        }
+    }
+
+    Err(format!("Impossible d'identifier la grappe RAID '{}' ({}) pour dissolution.", clean_name, clean_dev))
 }
 
 pub fn trigger_disk_spindown(disk_name: &str) -> Result<String, String> {

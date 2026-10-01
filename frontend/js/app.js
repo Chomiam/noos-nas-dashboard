@@ -1344,6 +1344,7 @@ async function checkInitialUpdateProgress() {
 // STOCKAGE & GESTION DES POOLS RAID
 // --------------------------------------------------------------------------
 let cachedStorageDisks = [];
+let cachedLogicalRaids = [];
 let currentSelectedRaidLevel = "raid5";
 let raidSyncPollInterval = null;
 
@@ -1380,6 +1381,7 @@ async function loadStorage() {
 
     const data = json.data;
     cachedStorageDisks = data.physical_disks || [];
+    cachedLogicalRaids = data.logical_raids || [];
 
     // Main Storage Metric
     if (data.pools && data.pools.length > 0) {
@@ -1536,6 +1538,9 @@ async function loadStorage() {
                           </button>
                         `;
                       })()}
+                  <button type="button" class="btn btn-danger btn-xs" style="border:1px solid rgba(243,139,168,0.4); background:rgba(243,139,168,0.15); color:var(--red);" onclick="openDestroyRaidModal('${escapeHtml(r.name)}', '${escapeHtml(r.device)}')">
+                    <span>🧨</span> Casser la grappe
+                  </button>
                 </div>
               </div>
 
@@ -6598,6 +6603,139 @@ async function umountVolume(mountpoint) {
   }
 }
 
+
+// --------------------------------------------------------------------------
+// MODALE ET GESTION DE LA DISSOLUTION / DESTRUCTION D'UNE GRAPPE RAID
+// --------------------------------------------------------------------------
+function openDestroyRaidModal(name, device) {
+  const modal = document.getElementById("modal-destroy-raid");
+  if (!modal) return;
+
+  const r = (cachedLogicalRaids || []).find(x => x.name === name || x.device === device) || {
+    name: name,
+    device: device,
+    level: "Grappe RAID",
+    size_human: "--",
+    mountpoint: null,
+    members: []
+  };
+
+  const nameInput = document.getElementById("destroy-raid-name");
+  const devInput = document.getElementById("destroy-raid-device");
+  const mntInput = document.getElementById("destroy-raid-mountpoint");
+  const labelEl = document.getElementById("destroy-raid-label");
+  const levelBadge = document.getElementById("destroy-raid-level-badge");
+  const sizeBadge = document.getElementById("destroy-raid-size-badge");
+  const devLabel = document.getElementById("destroy-raid-dev-label");
+  const mntWarn = document.getElementById("destroy-raid-mount-warning");
+  const mntLabel = document.getElementById("destroy-raid-mount-label");
+  const membersList = document.getElementById("destroy-raid-members-list");
+  const confirmCb = document.getElementById("destroy-raid-confirm-checkbox");
+  const btn = document.getElementById("btn-submit-destroy-raid");
+
+  if (nameInput) nameInput.value = r.name || name || "";
+  if (devInput) devInput.value = r.device || device || "";
+  if (mntInput) mntInput.value = r.mountpoint || "";
+
+  if (labelEl) labelEl.textContent = r.name || name;
+  if (levelBadge) levelBadge.textContent = r.level || "RAID";
+  if (sizeBadge) sizeBadge.textContent = r.size_human || "--";
+  if (devLabel) devLabel.textContent = r.device || device;
+
+  if (mntWarn && mntLabel) {
+    if (r.mountpoint) {
+      mntWarn.style.display = "block";
+      mntLabel.textContent = r.mountpoint;
+    } else {
+      mntWarn.style.display = "none";
+    }
+  }
+
+  if (membersList) {
+    const mems = r.members || [];
+    if (mems.length > 0) {
+      membersList.innerHTML = mems.map(m => `
+        <span class="member-disk-pill" style="padding:4px 10px; font-size:0.8rem; background:rgba(137,180,250,0.12); border:1px solid rgba(137,180,250,0.25); border-radius:6px; color:var(--blue); font-family:var(--font-mono); font-weight:600;">
+          💿 ${escapeHtml(m)}
+        </span>
+      `).join("");
+    } else {
+      membersList.innerHTML = `<span style="font-size:0.8rem; color:var(--subtext0);">Disques physiques sous-jacents de la grappe</span>`;
+    }
+  }
+
+  if (confirmCb) confirmCb.checked = false;
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = "🧨 Casser Définitivement la Grappe";
+  }
+
+  modal.style.display = "flex";
+}
+
+function closeDestroyRaidModal() {
+  const modal = document.getElementById("modal-destroy-raid");
+  if (modal) modal.style.display = "none";
+}
+
+async function submitDestroyRaid() {
+  const name = document.getElementById("destroy-raid-name")?.value;
+  const device = document.getElementById("destroy-raid-device")?.value;
+  const confirmCb = document.getElementById("destroy-raid-confirm-checkbox");
+  const confirmBox = document.getElementById("destroy-raid-confirm-box");
+  const wipeCheck = document.getElementById("destroy-raid-wipe-check");
+  const btn = document.getElementById("btn-submit-destroy-raid");
+
+  if (!name && !device) {
+    showToast("⚠️ Identifiant de grappe introuvable.", "warning");
+    return;
+  }
+
+  // Contrôle de confirmation obligatoire
+  if (!confirmCb || !confirmCb.checked) {
+    showToast("⚠️ Action requise : Veuillez cocher la case de confirmation pour autoriser la dissolution de la grappe !", "warning", 7000);
+    if (confirmBox) {
+      confirmBox.scrollIntoView({ behavior: "smooth", block: "center" });
+      confirmBox.classList.add("shake-alert");
+      setTimeout(() => confirmBox.classList.remove("shake-alert"), 1200);
+    }
+    if (confirmCb) confirmCb.focus();
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" style="display:inline-block; width:14px; height:14px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:spin 0.75s linear infinite; margin-right:8px;"></span> Dissolution en cours...`;
+  }
+
+  try {
+    const res = await fetch("/api/storage/raids/destroy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: name,
+        device: device,
+        wipe_members: wipeCheck?.checked ?? true
+      })
+    });
+
+    const json = await res.json();
+    if (json.success) {
+      closeDestroyRaidModal();
+      showToast(json.data || "Grappe RAID cassée et dissoute avec succès !", "success", 7000);
+      loadStorage();
+    } else {
+      showSystemError("Échec de la dissolution du RAID", "Le système n'a pas pu dissoudre la grappe RAID.", json.message || "Erreur inconnue", 12000);
+    }
+  } catch (err) {
+    showToast("Erreur de connexion : " + err, "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = "🧨 Casser Définitivement la Grappe";
+    }
+  }
+}
 
 // --------------------------------------------------------------------------
 // MODALE ET GESTION DE LA RÉPARATION DES PERMISSIONS
