@@ -3303,261 +3303,348 @@
     </div>
   </div>
 
-  <!-- ================= MODALE ASSISTANT CRÉATION DE POOL RAID (REDESIGN HAUTE FIDÉLITÉ) ================= -->
+  <!-- ================= MODALE ASSISTANT CRÉATION DE POOL RAID (STUDIO WIDESCREEN & ULTRA-DESIGN) ================= -->
   <div class="file-modal-overlay" id="create-raid-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'create-raid-modal')">
     <div class="file-modal-window storage-wizard-window raid-creator-pro-window">
-      <div class="file-modal-header" style="border-bottom:1px solid rgba(203,166,247,0.25); padding:16px 24px;">
-        <div style="display:flex; align-items:center; gap:12px;">
-          <div class="section-icon-box" style="background:rgba(203,166,247,0.15); color:var(--mauve); width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:1.25rem;">🛡️</div>
+      <!-- HEADER STUDIO -->
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(203,166,247,0.25); padding:16px 28px; background:rgba(24,24,37,0.85);">
+        <div style="display:flex; align-items:center; gap:14px;">
+          <div class="section-icon-box" style="background:rgba(203,166,247,0.15); color:var(--mauve); width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:1.35rem; box-shadow:0 0 14px rgba(203,166,247,0.2);">🛡️</div>
           <div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <span class="file-modal-title" style="font-size:1.05rem; font-weight:800;">Créer et Configurer un Pool RAID</span>
-              <span class="badge badge-accent" style="font-size:0.68rem; font-weight:800; letter-spacing:0.5px;">PRO WIZARD</span>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span class="file-modal-title" style="font-size:1.15rem; font-weight:800; letter-spacing:0.3px;">Créer et Configurer un Pool RAID</span>
+              <span class="badge badge-accent" style="font-size:0.68rem; font-weight:800; letter-spacing:0.8px; padding:2px 8px;">RAID STUDIO PRO</span>
             </div>
-            <div style="font-size:0.75rem; color:var(--subtext0); margin-top:2px;">Assemblage logiciel haute performance avec visualisation graphique des disques et calcul dynamique de parité</div>
+            <div style="font-size:0.76rem; color:var(--subtext0); margin-top:2px;">Architecture logicielle haute performance • Visualisation dynamique de la baie et de la parité en temps réel</div>
           </div>
         </div>
         <button type="button" class="btn btn-secondary btn-xs" onclick="closeCreateRaidModal()">✕ Fermer</button>
       </div>
 
-      <div class="storage-wizard-body" style="padding:22px 26px;">
-
-        <!-- SECTION 1 : NOM DU POOL & POINT DE MONTAGE -->
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
-          <div class="form-group">
-            <label class="form-label" style="display:flex; justify-content:space-between;">
-              <span>Nom du Pool RAID :</span>
-              <span style="font-size:0.72rem; color:var(--mauve); font-weight:600;">Identifiant unique</span>
-            </label>
-            <input type="text" id="raid-input-name" class="form-control" placeholder="ex: storage-data" value="storage-data" oninput="onRaidNameInput()">
-            <small class="form-hint">Périphérique résultant : <code id="raid-hint-dev">/dev/md/storage-data</code></small>
-          </div>
-          <div class="form-group">
-            <label class="form-label" style="display:flex; justify-content:space-between;">
-              <span>Point de Montage Cible :</span>
-              <span style="font-size:0.72rem; color:var(--subtext0);">Dossier hôte</span>
-            </label>
-            <input type="text" id="raid-input-mount" class="form-control" placeholder="/mnt/storage-data" value="/mnt/storage-data">
-            <small class="form-hint">Accessible automatiquement dans l'Explorateur et pour vos conteneurs.</small>
-          </div>
-        </div>
-
-        <!-- SECTION 2 : NIVEAU DE RAID -->
-        <div class="form-group" style="margin-top:20px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <label class="form-label" style="margin-bottom:0;">Architecture &amp; Niveau de Redondance :</label>
-            <span style="font-size:0.74rem; color:var(--subtext0);">Sélectionnez un profil pour adapter le schéma</span>
-          </div>
-          <div class="raid-levels-grid" id="raid-levels-picker">
-            <div class="raid-level-card active" data-level="raid5" onclick="selectRaidLevel('raid5')">
-              <div class="raid-level-header">
-                <strong>RAID 5 (Parité simple)</strong>
-                <span class="badge badge-success">Recommandé</span>
-              </div>
-              <div class="raid-level-desc">Capacité (N-1). Tolère la panne de 1 disque sans perte. Compromis idéal espace et résilience.</div>
-            </div>
-            <div class="raid-level-card" data-level="raid1" onclick="selectRaidLevel('raid1')">
-              <div class="raid-level-header">
-                <strong>RAID 1 (Miroir exact)</strong>
-                <span class="badge badge-primary">Haute sécurité</span>
-              </div>
-              <div class="raid-level-desc">Capacité 50%. Les données sont répliquées à l'identique. Tolère la panne de 1 disque sur 2.</div>
-            </div>
-            <div class="raid-level-card" data-level="raid6" onclick="selectRaidLevel('raid6')">
-              <div class="raid-level-header">
-                <strong>RAID 6 (Double parité)</strong>
-                <span class="badge badge-warning">Sécurité maximale</span>
-              </div>
-              <div class="raid-level-desc">Capacité (N-2). Tolère la perte simultanée de 2 disques complets. Recommandé pour gros volumes (>16 To).</div>
-            </div>
-            <div class="raid-level-card" data-level="raid10" onclick="selectRaidLevel('raid10')">
-              <div class="raid-level-header">
-                <strong>RAID 10 (Miroir rayé 1+0)</strong>
-                <span class="badge badge-accent">Vitesse &amp; Tolérance</span>
-              </div>
-              <div class="raid-level-desc">Agrégation de miroirs (min 4 disques, pair). Vitesses I/O maximales pour bases de données et VMs.</div>
-            </div>
-            <div class="raid-level-card" data-level="raid0" onclick="selectRaidLevel('raid0')">
-              <div class="raid-level-header">
-                <strong>RAID 0 (Agrégation / Striping)</strong>
-                <span class="badge badge-danger">0 tolérance</span>
-              </div>
-              <div class="raid-level-desc">Capacité 100% (Somme totale). Débits décuplés mais perte intégrale si 1 seul disque flanche.</div>
-            </div>
-            <div class="raid-level-card" data-level="linear" onclick="selectRaidLevel('linear')">
-              <div class="raid-level-header">
-                <strong>JBOD / Linéaire</strong>
-                <span class="badge badge-secondary">Concaténation</span>
-              </div>
-              <div class="raid-level-desc">Concaténation simple bout-à-bout de disques de tailles hétérogènes sans striping ni parité.</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- SECTION 3 : SÉLECTION DES DISQUES (STYLE EN LIGNE - PAS DE GRILLE) -->
-        <div class="form-group" style="margin-top:22px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <label class="form-label" style="margin-bottom:0;">
-              Disques Physiques Disponibles (<span id="raid-disks-selected-count">0</span> sélectionné(s)) :
-            </label>
-            <div style="display:flex; gap:8px;">
-              <button type="button" class="btn btn-secondary btn-xs" onclick="toggleSelectAllRaidDisks(true)">Tout cocher</button>
-              <button type="button" class="btn btn-secondary btn-xs" onclick="toggleSelectAllRaidDisks(false)">Tout décocher</button>
-            </div>
-          </div>
+      <!-- CORPS STUDIO (SPLIT WIDESCREEN 2 COLONNES) -->
+      <div class="storage-wizard-body raid-studio-body">
+        <div class="raid-studio-grid">
           
-          <div class="raid-disks-rows-container" id="raid-disks-checklist">
-            <!-- Rendu dynamique en rangées horizontales avec détails complets -->
-          </div>
-          <small class="form-hint" style="margin-top:6px;">Seuls les disques physiques hors système NixOS sont affichés. Les disques système sont verrouillés pour votre sécurité.</small>
-        </div>
+          <!-- ================= COLONNE GAUCHE : CONTRÔLES & SÉLECTIONS ================= -->
+          <div class="raid-studio-col-left">
 
-        <!-- SECTION 4 : SCHÉMA GRAPHIQUE DYNAMIQUE DES DISQUES (DATA vs REDONDANCE) -->
-        <div class="raid-visual-section" style="margin-top:24px;">
-          <div class="raid-visual-header">
-            <div style="display:flex; align-items:center; gap:10px;">
-              <span style="font-size:1.25rem;">📊</span>
-              <div>
-                <strong style="color:var(--text); font-size:0.92rem;">Schéma d'Architecture &amp; Répartition des Blocs</strong>
-                <div style="font-size:0.75rem; color:var(--subtext0);">Visualisation graphique des disques de données utiles vs disques/blocs de redondance et parité</div>
+            <!-- 1. IDENTIFIANT ET POINT DE MONTAGE -->
+            <div class="raid-studio-section-card">
+              <div class="raid-section-title">
+                <span class="raid-sec-icon">⚙️</span>
+                <span>Paramètres d'Accès &amp; Identité du Volume</span>
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:10px;">
+                <div class="form-group" style="margin-bottom:0;">
+                  <label class="form-label" style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                    <span>Nom du Pool :</span>
+                    <span style="font-size:0.70rem; color:var(--mauve); font-weight:600;">Identifiant</span>
+                  </label>
+                  <input type="text" id="raid-input-name" class="form-control" placeholder="ex: storage-data" value="storage-data" oninput="onRaidNameInput()">
+                  <small class="form-hint" style="margin-top:4px;">Périphérique : <code id="raid-hint-dev">/dev/md/storage-data</code></small>
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                  <label class="form-label" style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                    <span>Point de Montage Cible :</span>
+                    <span style="font-size:0.70rem; color:var(--subtext0);">Dossier hôte</span>
+                  </label>
+                  <input type="text" id="raid-input-mount" class="form-control" placeholder="/mnt/storage-data" value="/mnt/storage-data" oninput="onRaidMountInput()">
+                  <small class="form-hint" style="margin-top:4px;">Monté automatiquement au démarrage</small>
+                </div>
               </div>
             </div>
-            <div id="raid-resilience-badge-wrap">
-              <span class="badge badge-success" id="raid-preview-resilience">Tolère la panne de 1 disque</span>
-            </div>
-          </div>
 
-          <!-- JAUGE DE RÉPARTITION CAPACITAIRE GLOBALE -->
-          <div class="raid-capacity-split-wrap">
-            <div class="raid-capacity-split-bar" id="raid-split-bar">
-              <div class="split-segment split-data" id="split-data-seg" style="width: 75%;">
-                <span id="split-data-label">Données Utiles 75%</span>
-              </div>
-              <div class="split-segment split-parity" id="split-parity-seg" style="width: 25%;">
-                <span id="split-parity-label">Parité 25%</span>
-              </div>
-            </div>
-            <div class="raid-capacity-split-legend">
-              <div class="legend-item">
-                <span class="legend-dot dot-data"></span>
-                <span>Capacité Nette Utile : <strong class="text-green" id="raid-preview-net" style="font-size:0.95rem;">0 To</strong></span>
-              </div>
-              <div class="legend-item">
-                <span class="legend-dot dot-parity"></span>
-                <span>Réserve de Parité / Miroir : <strong class="text-mauve" id="raid-preview-parity" style="font-size:0.95rem;">0 To</strong></span>
-              </div>
-              <div class="legend-item">
-                <span class="legend-dot dot-raw"></span>
-                <span>Capacité Brute Totale : <strong class="text-subtext" id="raid-preview-raw" style="font-size:0.95rem;">0 To</strong></span>
-              </div>
-            </div>
-          </div>
-
-          <!-- RACK / BAIE DES DISQUES EN MODE GRAPHIQUE -->
-          <div class="raid-disk-rack-visual" id="raid-disk-rack-visual">
-            <!-- Rendu dynamique des disques sous forme de baie avec blocs logiques et parité -->
-          </div>
-
-          <!-- MESSAGE D'AVERTISSEMENT OU D'INSTRUCTION VISUELLE SI DISQUES INSUFFISANTS -->
-          <div id="raid-visual-guidance" class="raid-visual-guidance" style="display:none;"></div>
-        </div>
-
-        <!-- SECTION 5 : CHOIX DU SYSTÈME DE FICHIERS AVEC AVANTAGES & INCONVÉNIENTS (Btrfs, XFS, Ext4) -->
-        <div class="form-group" style="margin-top:24px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <label class="form-label" style="margin-bottom:0;">Système de Fichiers (Formatage) :</label>
-            <span style="font-size:0.75rem; color:var(--mauve); font-weight:600;">Sélectionnez une technologie</span>
-          </div>
-
-          <div class="fs-types-grid" id="fs-types-picker">
-            <!-- CARTE BTRFS -->
-            <div class="fs-type-card active" data-fs="btrfs" onclick="selectFsType('btrfs')">
-              <div class="fs-type-header">
+            <!-- 2. NOUVELLE MATRICE STYLISÉE DES NIVEAUX DE RAID -->
+            <div class="raid-studio-section-card">
+              <div class="raid-section-title" style="display:flex; justify-content:space-between; align-items:center;">
                 <div style="display:flex; align-items:center; gap:8px;">
-                  <span class="fs-type-icon">🌳</span>
-                  <div>
-                    <strong class="fs-type-title">Btrfs</strong>
-                    <div class="fs-type-subtitle">B-Tree Modern CoW Filesystem</div>
+                  <span class="raid-sec-icon">🧬</span>
+                  <span>Architecture &amp; Niveau de Redondance</span>
+                </div>
+                <span style="font-size:0.72rem; color:var(--subtext0);">Sélectionnez un profil pour adapter le schéma</span>
+              </div>
+
+              <div class="raid-levels-picker" id="raid-levels-picker">
+                <!-- RAID 5 -->
+                <div class="raid-level-card raid-card-raid5 active" data-level="raid5" onclick="selectRaidLevel('raid5')">
+                  <div class="raid-card-top">
+                    <span class="raid-tag raid-tag-raid5">RAID 5</span>
+                    <span class="raid-radio-glow"></span>
+                  </div>
+                  <div class="raid-card-name">Parité Simple</div>
+                  <div class="raid-card-sub">Compromis idéal espace &amp; sécurité NAS</div>
+                  <div class="raid-card-meta">
+                    <span class="raid-badge-spec spec-green">🛡️ 1 panne tolérée</span>
+                    <span class="raid-badge-cap">N - 1</span>
                   </div>
                 </div>
-                <span class="badge badge-success">Recommandé STEvE_OS</span>
-              </div>
-              <div class="fs-type-body">
-                <div class="fs-pros-cons">
-                  <div class="fs-pros">
-                    <div class="pro-item"><span>✔</span> Snapshots instantanés sans perte de place</div>
-                    <div class="pro-item"><span>✔</span> Checksums auto-réparateurs contre le bitrot</div>
-                    <div class="pro-item"><span>✔</span> Compression transparente zstd (gain 20-35%)</div>
+
+                <!-- RAID 1 -->
+                <div class="raid-level-card raid-card-raid1" data-level="raid1" onclick="selectRaidLevel('raid1')">
+                  <div class="raid-card-top">
+                    <span class="raid-tag raid-tag-raid1">RAID 1</span>
+                    <span class="raid-radio-glow"></span>
                   </div>
-                  <div class="fs-cons">
-                    <div class="con-item"><span>⚠️</span> Usage RAM légèrement supérieur</div>
-                    <div class="con-item"><span>⚠️</span> Écritures aléatoires VM nécessitant nodatacow</div>
+                  <div class="raid-card-name">Miroir Exact</div>
+                  <div class="raid-card-sub">Réplication intégrale des données</div>
+                  <div class="raid-card-meta">
+                    <span class="raid-badge-spec spec-blue">🛡️ Tolère 1 sur 2</span>
+                    <span class="raid-badge-cap">50%</span>
+                  </div>
+                </div>
+
+                <!-- RAID 6 -->
+                <div class="raid-level-card raid-card-raid6" data-level="raid6" onclick="selectRaidLevel('raid6')">
+                  <div class="raid-card-top">
+                    <span class="raid-tag raid-tag-raid6">RAID 6</span>
+                    <span class="raid-radio-glow"></span>
+                  </div>
+                  <div class="raid-card-name">Double Parité (P+Q)</div>
+                  <div class="raid-card-sub">Protection maximale gros pools (>16 To)</div>
+                  <div class="raid-card-meta">
+                    <span class="raid-badge-spec spec-peach">🛡️🛡️ 2 pannes simultanées</span>
+                    <span class="raid-badge-cap">N - 2</span>
+                  </div>
+                </div>
+
+                <!-- RAID 10 -->
+                <div class="raid-level-card raid-card-raid10" data-level="raid10" onclick="selectRaidLevel('raid10')">
+                  <div class="raid-card-top">
+                    <span class="raid-tag raid-tag-raid10">RAID 10</span>
+                    <span class="raid-radio-glow"></span>
+                  </div>
+                  <div class="raid-card-name">Miroir Strippé (1+0)</div>
+                  <div class="raid-card-sub">Débits I/O record pour BDD et VMs</div>
+                  <div class="raid-card-meta">
+                    <span class="raid-badge-spec spec-mauve">⚡ 1 panne par paire</span>
+                    <span class="raid-badge-cap">50%</span>
+                  </div>
+                </div>
+
+                <!-- RAID 0 -->
+                <div class="raid-level-card raid-card-raid0" data-level="raid0" onclick="selectRaidLevel('raid0')">
+                  <div class="raid-card-top">
+                    <span class="raid-tag raid-tag-raid0">RAID 0</span>
+                    <span class="raid-radio-glow"></span>
+                  </div>
+                  <div class="raid-card-name">Agrégation Pure</div>
+                  <div class="raid-card-sub">Vitesse pure pour cache et temporaire</div>
+                  <div class="raid-card-meta">
+                    <span class="raid-badge-spec spec-red">⚠️ 0 tolérance aux pannes</span>
+                    <span class="raid-badge-cap">100%</span>
+                  </div>
+                </div>
+
+                <!-- JBOD / LINEAR -->
+                <div class="raid-level-card raid-card-linear" data-level="linear" onclick="selectRaidLevel('linear')">
+                  <div class="raid-card-top">
+                    <span class="raid-tag raid-tag-linear">JBOD</span>
+                    <span class="raid-radio-glow"></span>
+                  </div>
+                  <div class="raid-card-name">Linéaire Bout-à-Bout</div>
+                  <div class="raid-card-sub">Concaténation de disques hétérogènes</div>
+                  <div class="raid-card-meta">
+                    <span class="raid-badge-spec spec-gray">📦 Pas de striping</span>
+                    <span class="raid-badge-cap">100%</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            <!-- CARTE XFS -->
-            <div class="fs-type-card" data-fs="xfs" onclick="selectFsType('xfs')">
-              <div class="fs-type-header">
+            <!-- 3. SÉLECTION DES DISQUES (STYLE EN LIGNE - PAS DE GRILLE) -->
+            <div class="raid-studio-section-card">
+              <div class="raid-section-title" style="display:flex; justify-content:space-between; align-items:center;">
                 <div style="display:flex; align-items:center; gap:8px;">
-                  <span class="fs-type-icon">⚡</span>
-                  <div>
-                    <strong class="fs-type-title">XFS</strong>
-                    <div class="fs-type-subtitle">Haute Performance &amp; Évolutivité</div>
-                  </div>
+                  <span class="raid-sec-icon">🗄️</span>
+                  <span>Disques Physiques Disponibles (<span id="raid-disks-selected-count" style="color:var(--mauve); font-weight:800;">0</span> sélectionné(s))</span>
                 </div>
-                <span class="badge badge-primary">Multimédia &amp; Gros Débits</span>
-              </div>
-              <div class="fs-type-body">
-                <div class="fs-pros-cons">
-                  <div class="fs-pros">
-                    <div class="pro-item"><span>✔</span> Performances séquentielles record sur gros fichiers 4K</div>
-                    <div class="pro-item"><span>✔</span> Allocation multithreadée parallèle ultra-rapide</div>
-                    <div class="pro-item"><span>✔</span> Robustesse maximale sur gros pools (> 16 To)</div>
-                  </div>
-                  <div class="fs-cons">
-                    <div class="con-item"><span>⚠️</span> Réduction de taille (shrink) impossible</div>
-                    <div class="con-item"><span>⚠️</span> Pas de snapshots natifs hors volume LVM</div>
-                  </div>
+                <div style="display:flex; gap:8px;">
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="toggleSelectAllRaidDisks(true)">Tout cocher</button>
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="toggleSelectAllRaidDisks(false)">Tout décocher</button>
                 </div>
               </div>
+              
+              <div class="raid-disks-rows-container" id="raid-disks-checklist" style="margin-top:10px;">
+                <!-- Rendu dynamique en rangées horizontales avec détails complets -->
+              </div>
+              <small class="form-hint" style="margin-top:6px;">Seuls les disques physiques hors système NixOS sont affichés. Les disques système sont verrouillés pour votre sécurité.</small>
             </div>
 
-            <!-- CARTE EXT4 -->
-            <div class="fs-type-card" data-fs="ext4" onclick="selectFsType('ext4')">
-              <div class="fs-type-header">
+            <!-- 4. SYSTÈME DE FICHIERS AVEC AVANTAGES & INCONVÉNIENTS -->
+            <div class="raid-studio-section-card">
+              <div class="raid-section-title" style="display:flex; justify-content:space-between; align-items:center;">
                 <div style="display:flex; align-items:center; gap:8px;">
-                  <span class="fs-type-icon">🛡️</span>
+                  <span class="raid-sec-icon">💽</span>
+                  <span>Système de Fichiers (Formatage)</span>
+                </div>
+                <span style="font-size:0.72rem; color:var(--mauve); font-weight:600;">Sélectionnez une technologie</span>
+              </div>
+
+              <div class="fs-types-grid" id="fs-types-picker" style="margin-top:10px;">
+                <!-- CARTE BTRFS -->
+                <div class="fs-type-card active" data-fs="btrfs" onclick="selectFsType('btrfs')">
+                  <div class="fs-type-header">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <span class="fs-type-icon">🌳</span>
+                      <div>
+                        <strong class="fs-type-title">Btrfs</strong>
+                        <div class="fs-type-subtitle">Next-Gen CoW System</div>
+                      </div>
+                    </div>
+                    <span class="badge badge-success">Recommandé</span>
+                  </div>
+                  <div class="fs-type-body">
+                    <div class="fs-pros-cons">
+                      <div class="pro-item"><span>✔</span> Snapshots instantanés</div>
+                      <div class="pro-item"><span>✔</span> Checksums auto-réparateurs</div>
+                      <div class="pro-item"><span>✔</span> Compression zstd (gain 25%)</div>
+                      <div class="con-item"><span>⚠️</span> Usage RAM légèrement supérieur</div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- CARTE XFS -->
+                <div class="fs-type-card" data-fs="xfs" onclick="selectFsType('xfs')">
+                  <div class="fs-type-header">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <span class="fs-type-icon">⚡</span>
+                      <div>
+                        <strong class="fs-type-title">XFS</strong>
+                        <div class="fs-type-subtitle">Haute Performance &amp; Débit</div>
+                      </div>
+                    </div>
+                    <span class="badge badge-primary">Multimédia 4K</span>
+                  </div>
+                  <div class="fs-type-body">
+                    <div class="fs-pros-cons">
+                      <div class="pro-item"><span>✔</span> Vitesses séquentielles max</div>
+                      <div class="pro-item"><span>✔</span> Allocation multithreadée</div>
+                      <div class="pro-item"><span>✔</span> Robustesse sur gros pools</div>
+                      <div class="con-item"><span>⚠️</span> Réduction de taille impossible</div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- CARTE EXT4 -->
+                <div class="fs-type-card" data-fs="ext4" onclick="selectFsType('ext4')">
+                  <div class="fs-type-header">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <span class="fs-type-icon">🛡️</span>
+                      <div>
+                        <strong class="fs-type-title">Ext4</strong>
+                        <div class="fs-type-subtitle">Standard Éprouvé Linux</div>
+                      </div>
+                    </div>
+                    <span class="badge badge-secondary">Fiabilité Universelle</span>
+                  </div>
+                  <div class="fs-type-body">
+                    <div class="fs-pros-cons">
+                      <div class="pro-item"><span>✔</span> 15+ ans de stabilité légendaire</div>
+                      <div class="pro-item"><span>✔</span> Empreinte CPU / RAM minime</div>
+                      <div class="pro-item"><span>✔</span> Réparations e2fsck éprouvées</div>
+                      <div class="con-item"><span>⚠️</span> Pas de snapshots natifs</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <input type="hidden" id="raid-input-fstype" value="btrfs">
+            </div>
+
+          </div>
+
+          <!-- ================= COLONNE DROITE : COCKPIT VISUEL TEMPS RÉEL (LE SCHÉMA COOL) ================= -->
+          <div class="raid-studio-col-right">
+            <div class="raid-cockpit-card">
+              
+              <!-- COCKPIT HEADER -->
+              <div class="raid-cockpit-header">
+                <div style="display:flex; align-items:center; gap:10px;">
+                  <span style="font-size:1.35rem;">📊</span>
                   <div>
-                    <strong class="fs-type-title">Ext4</strong>
-                    <div class="fs-type-subtitle">Le Standard Éprouvé Linux</div>
+                    <div style="font-size:0.95rem; font-weight:800; color:var(--text);">Schéma d'Architecture &amp; Parité</div>
+                    <div style="font-size:0.74rem; color:var(--subtext0);">Visualisation dynamique de la baie et répartition des blocs</div>
                   </div>
                 </div>
-                <span class="badge badge-secondary">Fiabilité Universelle</span>
+                <div id="raid-resilience-badge-wrap">
+                  <span class="badge badge-success" id="raid-preview-resilience">Tolère la panne de 1 disque</span>
+                </div>
               </div>
-              <div class="fs-type-body">
-                <div class="fs-pros-cons">
-                  <div class="fs-pros">
-                    <div class="pro-item"><span>✔</span> 15+ ans de stabilité légendaire, zéro surprise</div>
-                    <div class="pro-item"><span>✔</span> Empreinte processeur et RAM ultra-légère</div>
-                    <div class="pro-item"><span>✔</span> Réparation de secours facile via e2fsck</div>
+
+              <!-- JAUGE DE RÉPARTITION CAPACITAIRE -->
+              <div class="raid-capacity-split-wrap">
+                <div class="raid-capacity-split-bar" id="raid-split-bar">
+                  <div class="split-segment split-data" id="split-data-seg" style="width: 75%;">
+                    <span id="split-data-label">Données Utiles 75%</span>
                   </div>
-                  <div class="fs-cons">
-                    <div class="con-item"><span>⚠️</span> Pas de snapshots ni de compression intégrée</div>
-                    <div class="con-item"><span>⚠️</span> Vérification fsck plus lente sur volumes géants</div>
+                  <div class="split-segment split-parity" id="split-parity-seg" style="width: 25%;">
+                    <span id="split-parity-label">Parité 25%</span>
+                  </div>
+                </div>
+                
+                <!-- 3 CARTES MÉTRIQUES CAPACITÉ -->
+                <div class="raid-metrics-row">
+                  <div class="raid-metric-card">
+                    <div class="metric-icon" style="color:var(--green);">💾</div>
+                    <div class="metric-details">
+                      <span class="metric-label">Capacité Nette</span>
+                      <strong class="metric-val text-green" id="raid-preview-net">0 To</strong>
+                    </div>
+                  </div>
+                  <div class="raid-metric-card">
+                    <div class="metric-icon" style="color:var(--mauve);">🛡️</div>
+                    <div class="metric-details">
+                      <span class="metric-label">Réserve Parité</span>
+                      <strong class="metric-val text-mauve" id="raid-preview-parity">0 To</strong>
+                    </div>
+                  </div>
+                  <div class="raid-metric-card">
+                    <div class="metric-icon" style="color:var(--subtext0);">🗄️</div>
+                    <div class="metric-details">
+                      <span class="metric-label">Capacité Brute</span>
+                      <strong class="metric-val text-subtext" id="raid-preview-raw">0 To</strong>
+                    </div>
                   </div>
                 </div>
               </div>
+
+              <!-- LE RACK GRAPHIQUE DES DISQUES (LE SCHÉMA EN BAIE) -->
+              <div class="raid-disk-rack-container">
+                <div class="rack-sub-label">
+                  <span>DISQUES ACTIFS DANS LA BAIE :</span>
+                  <span id="rack-disks-online-indicator" style="font-size:0.70rem; color:var(--green); font-weight:700;">● BAIE DYNAMIQUE</span>
+                </div>
+                <div class="raid-disk-rack-visual" id="raid-disk-rack-visual">
+                  <!-- Rendu dynamique des disques sous forme de baie avec blocs logiques et parité -->
+                </div>
+              </div>
+
+              <!-- MESSAGE D'AVERTISSEMENT OU D'INSTRUCTION VISUELLE SI DISQUES INSUFFISANTS -->
+              <div id="raid-visual-guidance" class="raid-visual-guidance" style="display:none;"></div>
+
+              <!-- SYNTHÈSE TECHNIQUE DU VOLUME -->
+              <div class="raid-summary-box">
+                <div class="summary-line">
+                  <span class="summary-k">Point de montage hôte :</span>
+                  <code class="summary-v" id="raid-sum-mount">/mnt/storage-data</code>
+                </div>
+                <div class="summary-line">
+                  <span class="summary-k">Système de fichiers :</span>
+                  <span class="summary-v" id="raid-sum-fs">Btrfs (CoW + Checksums)</span>
+                </div>
+                <div class="summary-line">
+                  <span class="summary-k">Résilience matérielle :</span>
+                  <span class="summary-v" id="raid-sum-resilience" style="color:var(--green); font-weight:700;">Protection active</span>
+                </div>
+              </div>
+
             </div>
           </div>
-          <input type="hidden" id="raid-input-fstype" value="btrfs">
-        </div>
 
+        </div>
       </div>
 
-      <!-- PIED DE MODALE -->
-      <div class="file-modal-footer" style="padding:16px 26px; border-top:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; background:rgba(17,17,27,0.7);">
+      <!-- PIED DE MODALE PLEINE LARGEUR -->
+      <div class="file-modal-footer" style="padding:16px 28px; border-top:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; background:rgba(17,17,27,0.85);">
         <div style="display:flex; align-items:center; gap:10px;">
           <span id="raid-submit-error" style="color:var(--red); font-size:0.84rem; font-weight:600;"></span>
         </div>
@@ -3568,6 +3655,7 @@
           </button>
         </div>
       </div>
+
     </div>
   </div>
 

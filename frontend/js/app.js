@@ -2049,6 +2049,13 @@ function selectFsType(fs) {
   const input = document.getElementById("raid-input-fstype");
   if (input) input.value = fs;
   updateFsTypePickerUI();
+
+  const sumFs = document.getElementById("raid-sum-fs");
+  if (sumFs) {
+    if (fs === "btrfs") sumFs.textContent = "Btrfs (Snapshots + CoW + Checksums)";
+    else if (fs === "xfs") sumFs.textContent = "XFS (Multimédia 4K & Gros Débits)";
+    else sumFs.textContent = "Ext4 (Fiabilité & Empreinte Légère)";
+  }
 }
 
 function updateFsTypePickerUI() {
@@ -2062,6 +2069,7 @@ function onRaidNameInput() {
   const nameInput = document.getElementById("raid-input-name");
   const hintDev = document.getElementById("raid-hint-dev");
   const mountInput = document.getElementById("raid-input-mount");
+  const sumMount = document.getElementById("raid-sum-mount");
 
   const rawName = (nameInput?.value || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-");
   const cleanName = rawName || "storage-data";
@@ -2069,6 +2077,17 @@ function onRaidNameInput() {
   if (hintDev) hintDev.textContent = `/dev/md/${cleanName}`;
   if (mountInput && (!mountInput.value || mountInput.value.startsWith("/mnt/"))) {
     mountInput.value = `/mnt/${cleanName}`;
+  }
+  if (sumMount && mountInput) {
+    sumMount.textContent = mountInput.value || `/mnt/${cleanName}`;
+  }
+}
+
+function onRaidMountInput() {
+  const mountInput = document.getElementById("raid-input-mount");
+  const sumMount = document.getElementById("raid-sum-mount");
+  if (sumMount && mountInput) {
+    sumMount.textContent = mountInput.value || "/mnt/storage-data";
   }
 }
 
@@ -2285,6 +2304,30 @@ function updateRaidPreview() {
     } else {
       guidanceEl.style.display = "none";
     }
+  }
+
+  // Synchronisation des métriques du cockpit de droite
+  const sumMount = document.getElementById("raid-sum-mount");
+  const mountInput = document.getElementById("raid-input-mount");
+  if (sumMount && mountInput) sumMount.textContent = mountInput.value || "/mnt/storage-data";
+
+  const sumFs = document.getElementById("raid-sum-fs");
+  if (sumFs) {
+    if (currentSelectedFsType === "btrfs") sumFs.textContent = "Btrfs (Snapshots + CoW + Checksums)";
+    else if (currentSelectedFsType === "xfs") sumFs.textContent = "XFS (Multimédia 4K & Gros Débits)";
+    else sumFs.textContent = "Ext4 (Fiabilité & Empreinte Légère)";
+  }
+
+  const sumRes = document.getElementById("raid-sum-resilience");
+  if (sumRes) {
+    sumRes.textContent = isValid ? resilienceText : "⚠️ Configuration incomplète";
+    sumRes.style.color = isValid ? "var(--green)" : "var(--red)";
+  }
+
+  const onlineIndicator = document.getElementById("rack-disks-online-indicator");
+  if (onlineIndicator) {
+    onlineIndicator.textContent = isValid ? `● ${count} DISQUE(S) ACTIFS` : `● ATTENTE DISQUES (${count}/${minReq})`;
+    onlineIndicator.style.color = isValid ? "var(--green)" : "var(--peach)";
   }
 }
 
