@@ -6427,8 +6427,8 @@ function openMountVolumeModal(name, device, level, forceFormat = false, detected
 
     if (btn) {
       btn.textContent = "⚠️ Formater & Monter dans /mnt";
-      btn.className = "btn btn-danger disabled";
-      btn.disabled = true;
+      btn.className = "btn btn-danger";
+      btn.disabled = false;
     }
   } else {
     if (badge) {
@@ -6460,12 +6460,17 @@ function toggleMountSubmitBtn() {
   const cb = document.getElementById("mount-confirm-format-checkbox");
   const btn = document.getElementById("btn-submit-mount");
   if (!btn) return;
-  if (cb && cb.checked) {
-    btn.disabled = false;
-    btn.classList.remove("disabled");
-  } else {
-    btn.disabled = true;
-    btn.classList.add("disabled");
+  const isStillFormat = document.getElementById("mount-target-format")?.value === "true";
+  if (isStillFormat) {
+    if (cb && cb.checked) {
+      btn.textContent = "⚠️ Formater & Monter dans /mnt";
+      btn.className = "btn btn-danger";
+      btn.style.boxShadow = "0 0 16px rgba(243, 139, 168, 0.4)";
+    } else {
+      btn.textContent = "⚠️ Formater & Monter dans /mnt";
+      btn.className = "btn btn-danger";
+      btn.style.boxShadow = "none";
+    }
   }
 }
 
@@ -6482,8 +6487,33 @@ async function submitMountVolume() {
   const fstypeSelect = document.getElementById("mount-select-fstype");
   const pathInput = document.getElementById("mount-input-path");
   const btn = document.getElementById("btn-submit-mount");
+  const isForceFormat = document.getElementById("mount-target-format")?.value === "true";
+  const confirmCb = document.getElementById("mount-confirm-format-checkbox");
+  const confirmBox = document.getElementById("mount-format-confirm-group");
 
-  if (!device) return;
+  if (!device) {
+    showToast("⚠️ Périphérique bloc introuvable. Veuillez vérifier ou renseigner un chemin valide.", "warning", 6000);
+    return;
+  }
+
+  const mountpoint = (pathInput?.value || "").trim();
+  if (!mountpoint || !mountpoint.startsWith("/")) {
+    showToast("⚠️ Veuillez renseigner un point de montage valide commençant par '/' (ex: /mnt/storage).", "warning", 6000);
+    if (pathInput) pathInput.focus();
+    return;
+  }
+
+  // Contrôle interactif de sécurité si formatage destructif
+  if (isForceFormat && (!confirmCb || !confirmCb.checked)) {
+    showToast("⚠️ Action requise : Veuillez cocher la case de confirmation pour autoriser le formatage destructif !", "warning", 7000);
+    if (confirmBox) {
+      confirmBox.scrollIntoView({ behavior: "smooth", block: "center" });
+      confirmBox.classList.add("shake-alert");
+      setTimeout(() => confirmBox.classList.remove("shake-alert"), 1200);
+    }
+    if (confirmCb) confirmCb.focus();
+    return;
+  }
 
   // Récupérer les drapeaux sélectionnés
   const options = [];
@@ -6508,7 +6538,7 @@ async function submitMountVolume() {
 
   if (btn) {
     btn.disabled = true;
-    btn.textContent = "Montage et enregistrement...";
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" style="display:inline-block; width:14px; height:14px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:spin 0.75s linear infinite; margin-right:8px;"></span> Formatage & Montage en cours...`;
   }
 
   try {
@@ -6518,13 +6548,13 @@ async function submitMountVolume() {
       body: JSON.stringify({
         name: name || "storage",
         device: device,
-        mountpoint: pathInput?.value || "/mnt/storage",
+        mountpoint: mountpoint,
         fs_type: fsTypeVal,
         raid_type: raidSelect?.value || "raid5",
         lv_name: lvInput?.value || "storage",
         options: options,
         persist: persist,
-        force_format: document.getElementById("mount-target-format")?.value === "true"
+        force_format: isForceFormat
       })
     });
 
@@ -6541,7 +6571,7 @@ async function submitMountVolume() {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = "🚀 Initialiser & Monter";
+      btn.innerHTML = isForceFormat ? "⚠️ Formater & Monter dans /mnt" : "⚡ Monter sans formater dans /mnt";
     }
   }
 }

@@ -1783,6 +1783,10 @@ pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
     let wants_format = req.force_format == Some(true);
 
     if wants_format {
+        // Purger toute signature de système de fichiers résiduelle (ex: anciens blocs XFS/Ext4)
+        let _ = Command::new("wipefs").args(["-a", &final_block_device]).output();
+        let _ = Command::new("udevadm").args(["settle", "--timeout=2"]).output();
+
         let fmt_status = if fs_type == "btrfs" {
             Command::new("mkfs.btrfs").args(["-f", "-L", "STORAGE", &final_block_device]).output()
         } else if fs_type == "ext4" {
@@ -1797,6 +1801,7 @@ pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
                 return Err(format!("Échec du formatage en {} : {}", fs_type, err));
             }
         }
+        let _ = Command::new("udevadm").args(["settle", "--timeout=2"]).output();
     } else if !has_fs {
         return Err("Aucun système de fichiers valide n'a été détecté sur ce volume. Si vous souhaitez l'initialiser et effacer toutes les données existantes, utilisez l'option 'Formater le volume'.".into());
     }
@@ -1846,8 +1851,12 @@ pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
 
     let _ = Command::new("mkdir").args(["-p", mount_target]).output();
 
-    let mount_out = Command::new("mount")
-        .args(["-o", &runtime_opts_str, &final_block_device, mount_target])
+    let mut mount_cmd = Command::new("mount");
+    if !detected_fs.is_empty() && detected_fs != "auto" {
+        mount_cmd.args(["-t", &detected_fs]);
+    }
+    mount_cmd.args(["-o", &runtime_opts_str, &final_block_device, mount_target]);
+    let mount_out = mount_cmd
         .output()
         .map_err(|e| format!("Impossible d'exécuter mount : {}", e))?;
 

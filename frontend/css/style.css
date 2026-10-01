@@ -3556,6 +3556,19 @@ select.form-control option,
   border-color: var(--red);
 }
 
+@keyframes shakeAlert {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-7px); }
+  40%, 80% { transform: translateX(7px); }
+}
+
+.shake-alert {
+  animation: shakeAlert 0.45s cubic-bezier(0.36, 0.07, 0.19, 0.97) both !important;
+  border-color: var(--red) !important;
+  background: rgba(243, 139, 168, 0.22) !important;
+  box-shadow: 0 0 20px rgba(243, 139, 168, 0.55) !important;
+}
+
 /* Lignes horizontales pour les drapeaux de montage (Flags) */
 .mount-flags-rows-list {
   display: flex;

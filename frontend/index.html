@@ -3638,9 +3638,12 @@
             </div>
 
             <div class="form-group" id="mount-format-confirm-group" style="display:none; margin-top:14px; margin-bottom:0;">
-              <label class="mount-confirm-destructive-box">
-                <input type="checkbox" id="mount-confirm-format-checkbox" onchange="toggleMountSubmitBtn()" style="accent-color:var(--red); width:18px; height:18px;">
-                <span style="font-size:0.84rem; color:var(--red); font-weight:600;">Je confirme vouloir formater ce volume et effacer irrémédiablement son contenu.</span>
+              <label class="mount-confirm-destructive-box" id="mount-confirm-destructive-label" for="mount-confirm-format-checkbox">
+                <input type="checkbox" id="mount-confirm-format-checkbox" onchange="toggleMountSubmitBtn()" style="accent-color:var(--red); width:20px; height:20px; cursor:pointer; flex-shrink:0;">
+                <div style="display:flex; flex-direction:column; gap:2px;">
+                  <span style="font-size:0.86rem; color:var(--red); font-weight:700;">Je confirme vouloir formater ce volume et effacer irrémédiablement son contenu.</span>
+                  <span style="font-size:0.75rem; color:var(--subtext0);">Cochez cette case obligatoire pour débloquer et exécuter le formatage.</span>
+                </div>
               </label>
             </div>
 
@@ -6344,6 +6347,6 @@
 </div><!-- /#app-shell -->
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20261001_07"></script>
+  <script src="/js/app.js?v=20261001_08"></script>
 </body>
 </html>
