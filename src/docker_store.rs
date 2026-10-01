@@ -209,19 +209,39 @@ fn customize_compose_yaml(
 ) -> String {
     let mut lines: Vec<String> = base_compose.lines().map(|s| s.to_string()).collect();
 
-    // 1. Remplacer le port d'hôte si spécifié
+    // 1. Remplacer le port d'hôte Web si spécifié (sans écraser les ports DNS 53, DHCP ou DoT)
     if let Some(p) = new_port {
         let mut port_replaced = false;
+        let p_str = p.to_string();
+        let web_indicators = [p_str.as_str(), "3000", "80", "8080", "443", "8096", "9000", "8443", "5000"];
         for line in &mut lines {
             if !port_replaced && line.trim().starts_with("- ") && line.contains(':') {
                 let trimmed = line.trim().trim_start_matches("- ").trim_matches('"').trim_matches('\'');
                 if let Some(colon) = trimmed.find(':') {
-                    let host_chunk = &trimmed[..colon];
-                    if host_chunk.chars().all(|c| c.is_ascii_digit()) {
-                        let cont_chunk = &trimmed[colon + 1..];
+                    let cont_chunk = &trimmed[colon + 1..];
+                    let cont_port = cont_chunk.split('/').next().unwrap_or("").trim();
+                    if web_indicators.iter().any(|&ind| ind == cont_port) {
                         let indent = line.chars().take_while(|c| c.is_whitespace()).collect::<String>();
                         *line = format!("{}- \"{}:{}\"", indent, p, cont_chunk);
                         port_replaced = true;
+                    }
+                }
+            }
+        }
+
+        if !port_replaced {
+            for line in &mut lines {
+                if !port_replaced && line.trim().starts_with("- ") && line.contains(':') {
+                    let trimmed = line.trim().trim_start_matches("- ").trim_matches('"').trim_matches('\'');
+                    if let Some(colon) = trimmed.find(':') {
+                        let host_chunk = &trimmed[..colon];
+                        let cont_chunk = &trimmed[colon + 1..];
+                        let cont_port = cont_chunk.split('/').next().unwrap_or("").trim();
+                        if cont_port != "53" && cont_port != "67" && cont_port != "68" && cont_port != "853" && host_chunk.chars().all(|c| c.is_ascii_digit()) {
+                            let indent = line.chars().take_while(|c| c.is_whitespace()).collect::<String>();
+                            *line = format!("{}- \"{}:{}\"", indent, p, cont_chunk);
+                            port_replaced = true;
+                        }
                     }
                 }
             }

@@ -186,17 +186,44 @@ pub fn get_docker_containers() -> Vec<DockerContainer> {
 }
 
 fn extract_web_port(ports: &str) -> Option<u16> {
+    let mut candidates = Vec::new();
     for part in ports.split(',') {
         if let Some(arrow_idx) = part.find("->") {
             let host_part = part[..arrow_idx].trim();
             if let Some(colon_idx) = host_part.rfind(':') {
                 if let Ok(p) = host_part[colon_idx + 1..].parse::<u16>() {
-                    return Some(p);
+                    if !candidates.contains(&p) {
+                        candidates.push(p);
+                    }
                 }
             }
         }
     }
-    None
+
+    if candidates.is_empty() {
+        return None;
+    }
+
+    // Ports non-web ou bloqués par les navigateurs (DNS, DHCP, SSH, Mail, DBs...)
+    let non_web_ports = [21, 22, 25, 53, 67, 68, 853, 110, 143, 389, 445, 465, 587, 993, 995, 3306, 5432, 6379, 27017];
+
+    // 1. Ports Web standards et très fréquents par ordre de préférence
+    let preferred_web_ports = [3000, 80, 8080, 443, 8443, 9000, 8096, 5000, 8000, 3001, 8123, 8081, 9443, 8888];
+    for &pref in &preferred_web_ports {
+        if candidates.contains(&pref) {
+            return Some(pref);
+        }
+    }
+
+    // 2. N'importe quel port candidat qui n'est pas dans la liste des ports non-web
+    for &cand in &candidates {
+        if !non_web_ports.contains(&cand) {
+            return Some(cand);
+        }
+    }
+
+    // 3. Repli sur le premier candidat
+    candidates.first().copied()
 }
 
 pub fn control_service(unit: &str, action: &str) -> Result<String, String> {
