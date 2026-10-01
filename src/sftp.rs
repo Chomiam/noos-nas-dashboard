@@ -438,6 +438,21 @@ pub fn get_sftp_allowed_users() -> Vec<SftpUserAccess> {
         }
     }
 
+    // Trier les utilisateurs : utilisateur principal en premier, puis utilisateurs normaux par ordre alphabétique, root en dernier
+    allowed_users.sort_by(|a, b| {
+        if a.username == primary_user {
+            std::cmp::Ordering::Less
+        } else if b.username == primary_user {
+            std::cmp::Ordering::Greater
+        } else if a.username == "root" {
+            std::cmp::Ordering::Greater
+        } else if b.username == "root" {
+            std::cmp::Ordering::Less
+        } else {
+            a.username.cmp(&b.username)
+        }
+    });
+
     allowed_users
 }
 

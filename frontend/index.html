@@ -1915,7 +1915,7 @@
                 <span class="sftp-os-name">URI Client (FileZilla / Cyberduck / WinSCP)</span>
               </div>
               <div class="sftp-uri-value-row">
-                <code class="sftp-uri-code" id="sftp-uri-val-client">sftp://chomiam@192.168.1.139:22</code>
+                <code class="sftp-uri-code" id="sftp-uri-val-client">sftp://utilisateur@nas:22</code>
                 <button type="button" class="btn-copy-uri" onclick="copyElementText('sftp-uri-val-client', 'URI sFTP copiée !')" title="Copier l'URI sFTP">📋</button>
               </div>
             </div>
@@ -1926,7 +1926,7 @@
                 <span class="sftp-os-name">Ligne de Commande Terminal (Linux / Mac / PowerShell)</span>
               </div>
               <div class="sftp-uri-value-row">
-                <code class="sftp-uri-code" id="sftp-uri-val-cli">sftp -P 22 chomiam@192.168.1.139</code>
+                <code class="sftp-uri-code" id="sftp-uri-val-cli">sftp -P 22 utilisateur@nas</code>
                 <button type="button" class="btn-copy-uri" onclick="copyElementText('sftp-uri-val-cli', 'Commande terminal copiée !')" title="Copier la commande sftp">📋</button>
               </div>
             </div>
@@ -1937,7 +1937,7 @@
                 <span class="sftp-os-name">Montage Réseau Distant (sshfs)</span>
               </div>
               <div class="sftp-uri-value-row">
-                <code class="sftp-uri-code" id="sftp-uri-val-sshfs">sshfs -p 22 chomiam@192.168.1.139:/ /mnt/nas</code>
+                <code class="sftp-uri-code" id="sftp-uri-val-sshfs">sshfs -p 22 utilisateur@nas:/ /mnt/nas</code>
                 <button type="button" class="btn-copy-uri" onclick="copyElementText('sftp-uri-val-sshfs', 'Commande sshfs copiée !')" title="Copier la commande de montage">📋</button>
               </div>
             </div>
@@ -7467,14 +7467,14 @@
             <li>
               <strong>Client interactif sftp :</strong>
               <div class="sftp-guide-code-box">
-                <code id="sftp-guide-cmd-cli">sftp -P 22 chomiam@192.168.1.139</code>
+                <code id="sftp-guide-cmd-cli">sftp -P 22 utilisateur@nas</code>
                 <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('sftp-guide-cmd-cli', 'Copié !')">📋</button>
               </div>
             </li>
             <li>
               <strong>Montage direct du dossier NAS sur votre ordinateur (Linux/Mac) :</strong>
               <div class="sftp-guide-code-box">
-                <code id="sftp-guide-cmd-sshfs">sshfs -p 22 chomiam@192.168.1.139:/ /mnt/nas_sftp</code>
+                <code id="sftp-guide-cmd-sshfs">sshfs -p 22 utilisateur@nas:/ /mnt/nas_sftp</code>
                 <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('sftp-guide-cmd-sshfs', 'Copié !')">📋</button>
               </div>
             </li>
@@ -7488,7 +7488,7 @@
             <li>
               <strong>Sauvegarder un dossier local vers le NAS :</strong>
               <div class="sftp-guide-code-box">
-                <code id="sftp-guide-cmd-rsync">rsync -avz --progress -e "ssh -p 22" /mon/dossier/local/ chomiam@192.168.1.139:/storage/data/</code>
+                <code id="sftp-guide-cmd-rsync">rsync -avz --progress -e "ssh -p 22" /mon/dossier/local/ utilisateur@nas:/storage/data/</code>
                 <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('sftp-guide-cmd-rsync', 'Copié !')">📋</button>
               </div>
             </li>
@@ -7516,6 +7516,6 @@
 </div><!-- /#app-shell -->
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20261001_13"></script>
+  <script src="/js/app.js?v=20261001_14"></script>
 </body>
 </html>

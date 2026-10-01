@@ -7,6 +7,33 @@ let currentUserSession = null;
 let isAppInitialized = false;
 let currentUserHome = "";
 
+function getCurrentDashboardUsername() {
+  if (currentUserSession && currentUserSession.username && currentUserSession.username.trim()) {
+    return currentUserSession.username.trim();
+  }
+  const headerUser = document.getElementById("header-username");
+  if (headerUser && headerUser.textContent && headerUser.textContent.trim()) {
+    return headerUser.textContent.trim();
+  }
+  return "steveos";
+}
+
+function updateSftpQuickUrisWithUser(username) {
+  if (!username || username === "root") return;
+  const uriClient = document.getElementById("sftp-uri-val-client");
+  const uriCli = document.getElementById("sftp-uri-val-cli");
+  const uriSshfs = document.getElementById("sftp-uri-val-sshfs");
+  const ip = (typeof currentSftpData !== "undefined" && currentSftpData?.primary_lan_ip) || window.location.hostname;
+  const port = (typeof currentSftpData !== "undefined" && currentSftpData?.port) || 22;
+
+  if (uriClient) uriClient.textContent = `sftp://${username}@${ip}:${port}`;
+  if (uriCli) uriCli.textContent = `sftp -P ${port} ${username}@${ip}`;
+  if (uriSshfs) uriSshfs.textContent = `sshfs -p ${port} ${username}@${ip}:/ /mnt/nas`;
+
+  const oldSftpUri = document.getElementById("sftp-connection-uri");
+  if (oldSftpUri) oldSftpUri.textContent = `sftp://${username}@${ip}:${port}`;
+}
+
 function getUserHome() {
   if (currentUserHome && currentUserHome !== "/root") {
     return currentUserHome;
@@ -2784,7 +2811,8 @@ function updateSftpUri() {
   const uriEl = document.getElementById("sftp-connection-uri");
   if (uriEl) {
     const host = location.hostname || "192.168.1.139";
-    uriEl.textContent = `sftp://chomiam@${host}:22`;
+    const user = getCurrentDashboardUsername();
+    uriEl.textContent = `sftp://${user}@${host}:22`;
   }
 }
 
@@ -10396,6 +10424,7 @@ function updateUserSessionUI(session) {
     if (userPill) userPill.style.display = "flex";
     if (usernameEl) usernameEl.textContent = session.username;
     if (userRoleEl) userRoleEl.textContent = session.is_admin ? "(Admin)" : "(Utilisateur)";
+    updateSftpQuickUrisWithUser(session.username);
   } else {
     if (userPill) userPill.style.display = "none";
   }
@@ -18173,7 +18202,11 @@ async function loadSftpData(showFeedback = false) {
     const uriSshfs = document.getElementById("sftp-uri-val-sshfs");
 
     const ip = data.primary_lan_ip || window.location.hostname;
-    const primaryUser = (data.allowed_users && data.allowed_users[0]?.username) || "chomiam";
+    // Remplacer systématiquement root par l'utilisateur actuellement connecté au dashboard
+    const connectedUser = getCurrentDashboardUsername();
+    const primaryUser = (connectedUser && connectedUser !== "root")
+      ? connectedUser
+      : ((data.allowed_users && data.allowed_users.find(u => u.username !== "root")?.username) || "steveos");
 
     if (uriClient) uriClient.textContent = `sftp://${primaryUser}@${ip}:${data.port}`;
     if (uriCli) uriCli.textContent = `sftp -P ${data.port} ${primaryUser}@${ip}`;
@@ -18286,8 +18319,11 @@ function renderSftpSharesList(shares) {
       }).join(" ");
     }
 
-    const firstUser = (share.allowed_users && share.allowed_users[0]) || "chomiam";
-    const sftpUri = `sftp://${firstUser}@${primaryIp}:${port}${share.path}`;
+    const connectedUser = getCurrentDashboardUsername();
+    const shareUser = (share.allowed_users && share.allowed_users.includes(connectedUser))
+      ? connectedUser
+      : ((share.allowed_users && share.allowed_users.find(u => u !== "root")) || share.allowed_users?.[0] || connectedUser);
+    const sftpUri = `sftp://${shareUser}@${primaryIp}:${port}${share.path}`;
 
     return `
       <div class="sftp-share-card ${cardClass}" id="sftp-card-${escapeHtml(share.id)}">
@@ -18667,7 +18703,10 @@ async function submitSftpGlobalForm() {
 function openSftpGuideModal() {
   const ip = currentSftpData?.primary_lan_ip || window.location.hostname;
   const port = currentSftpData?.port || 22;
-  const user = (currentSftpData?.allowed_users && currentSftpData.allowed_users[0]?.username) || "chomiam";
+  const connectedUser = getCurrentDashboardUsername();
+  const user = (connectedUser && connectedUser !== "root")
+    ? connectedUser
+    : ((currentSftpData?.allowed_users && currentSftpData.allowed_users.find(u => u.username !== "root")?.username) || "steveos");
 
   const hostEl = document.getElementById("sftp-guide-val-host");
   const portEl = document.getElementById("sftp-guide-val-port");
