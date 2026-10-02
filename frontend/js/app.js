@@ -574,7 +574,8 @@ async function loadSystem() {
 
     // Header
     const hostEl = document.getElementById("header-hostname");
-    if (hostEl) hostEl.textContent = `${sys.hostname} • ${sys.os_name}`;
+    const cleanHostname = (sys.hostname || 'noos-nas').replace(/^steveos(-|$)/i, 'noos$1');
+    if (hostEl) hostEl.textContent = `${cleanHostname} • ${sys.os_name}`;
 
     const uptimeEl = document.getElementById("header-uptime");
     if (uptimeEl) uptimeEl.textContent = `Uptime: ${sys.uptime_formatted}`;

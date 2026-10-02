@@ -1334,17 +1334,22 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
 
     // 4 bis. 🛡️ SANCTUARISATION ET RESTAURATION INCONDITIONNELLE DE VARS.NIX
     if let Some(ref saved) = saved_vars_content {
+        let mut final_content = saved.clone();
+        if final_content.contains("hostName = \"steveos-nas\"") {
+            final_content = final_content.replace("hostName = \"steveos-nas\"", "hostName = \"noos-nas\"");
+        }
         let current = fs::read_to_string(&vars_path).unwrap_or_default();
         let needs_restore = current.contains("<<<<<<<")
             || current.contains(">>>>>>>")
-            || (!current.contains("username") && saved.contains("username"));
+            || (!current.contains("username") && final_content.contains("username"))
+            || current.contains("hostName = \"steveos-nas\"");
 
         if needs_restore {
             log.push_str("Rétablissement garanti de vos paramètres hôte et utilisateur dans vars.nix...\n");
-            let _ = fs::write(&vars_path, saved);
+            let _ = fs::write(&vars_path, &final_content);
         }
-        let _ = fs::write(&vars_local_path, saved);
-        let _ = fs::write(&vars_backup_path, saved);
+        let _ = fs::write(&vars_local_path, &final_content);
+        let _ = fs::write(&vars_backup_path, &final_content);
     }
 
     // Nettoyer d'éventuels marqueurs de conflit résiduels sur vars.nix ou flake.lock

@@ -401,9 +401,14 @@ pub fn get_hardware_overview() -> HardwareOverview {
         })
         .unwrap_or_else(|_| "Linux 7.2.5".to_string());
 
-    let hostname = fs::read_to_string("/etc/hostname")
+    let raw_hostname = fs::read_to_string("/etc/hostname")
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|_| "noos-nas".to_string());
+    let hostname = if raw_hostname == "steveos-nas" || raw_hostname == "steveos" {
+        "noos-nas".to_string()
+    } else {
+        raw_hostname
+    };
 
     let uptime = format_uptime();
 

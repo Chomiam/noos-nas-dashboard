@@ -90,10 +90,15 @@ pub fn get_network_overview() -> NetworkOverview {
 }
 
 pub fn get_hostname() -> String {
-    Command::new("hostname")
+    let h = Command::new("hostname")
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|_| "noos-nas".to_string())
+        .unwrap_or_else(|_| "noos-nas".to_string());
+    if h == "steveos-nas" || h == "steveos" {
+        "noos-nas".to_string()
+    } else {
+        h
+    }
 }
 
 pub fn get_primary_lan_ip() -> String {

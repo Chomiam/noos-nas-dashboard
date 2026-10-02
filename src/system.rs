@@ -40,10 +40,15 @@ pub struct GpuInfo {
 }
 
 pub fn get_system_info() -> SystemInfo {
-    let hostname = fs::read_to_string("/proc/sys/kernel/hostname")
+    let raw_hostname = fs::read_to_string("/proc/sys/kernel/hostname")
         .unwrap_or_else(|_| "noos-nas".to_string())
         .trim()
         .to_string();
+    let hostname = if raw_hostname == "steveos-nas" || raw_hostname == "steveos" {
+        "noos-nas".to_string()
+    } else {
+        raw_hostname
+    };
 
     let kernel = fs::read_to_string("/proc/sys/kernel/osrelease")
         .unwrap_or_else(|_| "Linux".to_string())
