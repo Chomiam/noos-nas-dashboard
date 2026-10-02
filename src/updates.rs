@@ -850,59 +850,58 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
         }
     }
 
-    // Détection de la version distante du Dashboard strictement alignée sur la branche du canal (preferred_branch)
-    // - Stable (main) : lit Cargo.toml de la branche main
-    // - Testing (testing) : lit Cargo.toml de la branche testing
-    let raw_cargo_url = format!(
-        "https://raw.githubusercontent.com/Chomiam/noos-nas-dashboard/{}/Cargo.toml",
-        preferred_branch
-    );
-    if let Ok(out) = Command::new("curl")
-        .args(["-s", "-L", "--max-time", "4", &raw_cargo_url])
-        .output()
-    {
-        if out.status.success() {
-            let content = String::from_utf8_lossy(&out.stdout);
-            for line in content.lines() {
-                let trimmed = line.trim();
-                if trimmed.starts_with("version = \"") {
-                    if let Some(v) = trimmed.strip_prefix("version = \"").and_then(|s| s.strip_suffix("\"")) {
-                        if is_valid_semver(v) {
-                            dashboard_remote_version = Some(v.to_string());
-                            break;
+    // 1. Détection temps réel immédiate (0 seconde de cache) : tag git pointant sur le commit de preferred_branch
+    if let Some(ref target_commit) = dashboard_remote_commit_full {
+        for dashboard_git_url in &candidate_dashboard_urls {
+            if let Ok(tags_out) = Command::new(git_binary())
+                .args(["-c", "safe.directory=*", "ls-remote", "--tags", dashboard_git_url])
+                .output()
+            {
+                if tags_out.status.success() {
+                    let text = String::from_utf8_lossy(&tags_out.stdout);
+                    for line in text.lines() {
+                        let mut parts = line.split_whitespace();
+                        if let (Some(sha), Some(ref_str)) = (parts.next(), parts.next()) {
+                            if sha == target_commit {
+                                if let Some(tag) = ref_str.strip_prefix("refs/tags/v") {
+                                    let clean_tag = tag.trim_end_matches("^{}");
+                                    if is_valid_semver(clean_tag) {
+                                        dashboard_remote_version = Some(clean_tag.to_string());
+                                        break;
+                                    }
+                                }
+                            }
                         }
+                    }
+                    if dashboard_remote_version.is_some() {
+                        break;
                     }
                 }
             }
         }
     }
 
-    // Fallback : si raw GitHub n'a pas répondu, vérifier uniquement les tags pointant sur le commit de preferred_branch
+    // 2. Requête directe sur Cargo.toml au commit exact de la branche (contourne tout cache CDN)
     if dashboard_remote_version.is_none() {
-        if let Some(ref target_commit) = dashboard_remote_commit_full {
-            for dashboard_git_url in &candidate_dashboard_urls {
-                if let Ok(tags_out) = Command::new(git_binary())
-                    .args(["-c", "safe.directory=*", "ls-remote", "--tags", dashboard_git_url])
-                    .output()
-                {
-                    if tags_out.status.success() {
-                        let text = String::from_utf8_lossy(&tags_out.stdout);
-                        for line in text.lines() {
-                            let mut parts = line.split_whitespace();
-                            if let (Some(sha), Some(ref_str)) = (parts.next(), parts.next()) {
-                                if sha == target_commit {
-                                    if let Some(tag) = ref_str.strip_prefix("refs/tags/v") {
-                                        let clean_tag = tag.trim_end_matches("^{}");
-                                        if is_valid_semver(clean_tag) {
-                                            dashboard_remote_version = Some(clean_tag.to_string());
-                                            break;
-                                        }
-                                    }
-                                }
+        let commit_ref = dashboard_remote_commit_full.as_deref().unwrap_or(preferred_branch);
+        let raw_cargo_url = format!(
+            "https://raw.githubusercontent.com/Chomiam/noos-nas-dashboard/{}/Cargo.toml",
+            commit_ref
+        );
+        if let Ok(out) = Command::new("curl")
+            .args(["-s", "-L", "--max-time", "4", &raw_cargo_url])
+            .output()
+        {
+            if out.status.success() {
+                let content = String::from_utf8_lossy(&out.stdout);
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("version = \"") {
+                        if let Some(v) = trimmed.strip_prefix("version = \"").and_then(|s| s.strip_suffix("\"")) {
+                            if is_valid_semver(v) {
+                                dashboard_remote_version = Some(v.to_string());
+                                break;
                             }
-                        }
-                        if dashboard_remote_version.is_some() {
-                            break;
                         }
                     }
                 }
