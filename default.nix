@@ -4,7 +4,7 @@
 
 pkgs.rustPlatform.buildRustPackage rec {
   pname = "noos-nas-dashboard";
-  version = "0.3.17";
+  version = "0.3.19";
 
   src = ./.;
 
