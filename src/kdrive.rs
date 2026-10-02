@@ -199,6 +199,12 @@ fn curl_secure_request(
     let mut args: Vec<String> = vec![
         "-s".into(),
         "-L".into(),
+        "--connect-timeout".into(),
+        "30".into(),
+        "--retry".into(),
+        "3".into(),
+        "--retry-delay".into(),
+        "2".into(),
         "--max-time".into(),
         timeout_sec.to_string(),
         "-K".into(),
@@ -790,7 +796,7 @@ pub fn copy_kdrive_file_to_nas(account_id: &str, file_id: u64, file_name: &str, 
         "GET",
         &dl_api_url,
         None,
-        600,
+        3600, // 1 heure max pour les téléchargements de gros volumes
         Some(&final_path_str),
     )?;
 
@@ -817,6 +823,11 @@ pub fn upload_nas_file_to_kdrive(
 
     let metadata = fs::metadata(path).map_err(|e| format!("Impossible de lire le fichier : {}", e))?;
     let file_size = metadata.len();
+
+    // Limitation de l'API Infomaniak : l'upload direct simple est limité à 1 Go par fichier.
+    if file_size > 1024 * 1024 * 1024 {
+        return Err("Le fichier dépasse 1 Go. L'API d'upload direct d'Infomaniak est limitée à 1 Go par fichier pour garantir l'intégrité du transfert. Pour les fichiers plus volumineux, découpez l'archive ou utilisez la synchronisation WebDAV.".to_string());
+    }
 
     let file_name = path.file_name()
         .map(|f| f.to_string_lossy().to_string())
@@ -857,11 +868,17 @@ pub fn upload_nas_file_to_kdrive(
         account.drive_id, target_dir_id, encoded_name, file_size
     );
 
+    // Timeout proportionnel à la taille (minimum 1800s / 30 min, jusqu'à 2 heures pour 1 Go)
+    let timeout_sec = 1800.max(file_size / (50 * 1024));
+
     let mut child = Command::new("curl")
         .args([
             "-s",
             "-L",
-            "--max-time", "1800",
+            "--connect-timeout", "30",
+            "--retry", "3",
+            "--retry-delay", "2",
+            "--max-time", &timeout_sec.to_string(),
             "-X", "POST",
             "-H", "Content-Type: application/octet-stream",
             "-K", "-",
@@ -887,7 +904,7 @@ pub fn upload_nas_file_to_kdrive(
 
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Échec du téléversement vers kDrive : {}", err));
+        return Err(format!("Échec du téléversement vers kDrive (erreur réseau ou timeout) : {}", err));
     }
 
     let resp_text = String::from_utf8_lossy(&output.stdout);
@@ -896,6 +913,10 @@ pub fn upload_nas_file_to_kdrive(
 
     if let Some(res) = val.get("result").and_then(|r| r.as_str()) {
         if res == "error" {
+            let code = val.get("error").and_then(|e| e.get("code")).and_then(|c| c.as_str()).unwrap_or("");
+            if code == "too_many_requests" {
+                return Err("Limite de requêtes Infomaniak atteinte (60 requêtes/minute max). Veuillez patienter quelques instants avant de relancer.".to_string());
+            }
             let desc = val.get("error")
                 .and_then(|e| e.get("description").or_else(|| e.get("message")))
                 .and_then(|m| m.as_str())
