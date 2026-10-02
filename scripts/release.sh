@@ -35,9 +35,8 @@ FULL_MSG="Release v${NEW_VERSION} : ${COMMIT_MSG:-Mise à jour du Dashboard}"
 
 (cd "${DASHBOARD_DIR}" && git add Cargo.toml Cargo.lock default.nix frontend/ src/)
 (cd "${DASHBOARD_DIR}" && git commit -m "${FULL_MSG}") || true
-(cd "${DASHBOARD_DIR}" && git tag -a "${TAG_NAME}" -m "${FULL_MSG}")
-(cd "${DASHBOARD_DIR}" && git push origin main --tags)
-echo "✅ Poussé sur GitHub (noos-nas-dashboard)."
+(cd "${DASHBOARD_DIR}" && git push origin "$(git branch --show-current)" --tags)
+echo "✅ Poussé sur GitHub (noos-nas-dashboard sur $(git branch --show-current))."
 
 echo "⏳ [4/6] Attente de la compilation GitHub Actions & injection Cachix..."
 sleep 5
