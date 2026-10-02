@@ -998,9 +998,11 @@ fn detect_package_updates_list(config_dir: &Path, inputs_have_updates: bool) -> 
     }
 
     let dir_str = config_dir.display().to_string();
-    let target_attr = format!("{}#nixosConfigurations.nas.config.system.build.toplevel", dir_str);
+    let target_attr = format!("path:{}#nixosConfigurations.nas.config.system.build.toplevel", dir_str);
     let args = vec![
         "build",
+        "--extra-experimental-features",
+        "nix-command flakes",
         &target_attr,
         "--dry-run",
     ];
@@ -1366,8 +1368,8 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
     // 5. Validation de la syntaxe Nix (nix eval de sécurité sur la dérivation complète)
     log.push_str("\n--- [Étape 3/3] Validation de la syntaxe et de la configuration Nix ---\n");
     let nix_b = nix_binary();
-    let eval_target = format!("{}#nixosConfigurations.nas.config.system.build.toplevel.drvPath", dir_str);
-    let mut eval_cmd = create_user_command(&nix_b, &["eval", &eval_target]);
+    let eval_target = format!("path:{}#nixosConfigurations.nas.config.system.build.toplevel.drvPath", dir_str);
+    let mut eval_cmd = create_switch_command(&nix_b, &["eval", "--extra-experimental-features", "nix-command flakes", &eval_target], config_dir);
     let eval_res = eval_cmd.output();
 
     match eval_res {
