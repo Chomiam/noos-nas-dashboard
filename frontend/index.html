@@ -2526,8 +2526,95 @@
 
         <!-- SOUS-ONGLET 1 : MES CONTENEURS -->
         <div id="docker-pane-containers" class="docker-subpane">
+          <!-- BARRE D'OUTILS ET FILTRES DES CONTENEURS -->
+          <div class="docker-toolbar">
+            <div class="docker-toolbar-top">
+              <div class="docker-search-box">
+                <span class="docker-search-icon">🔍</span>
+                <input type="text" id="containers-search-input" class="form-control" placeholder="Rechercher parmi mes conteneurs (nom, image, port, statut)..." oninput="onContainersFilterChange()">
+                <button type="button" class="docker-search-clear" id="containers-search-clear" onclick="clearContainersSearch()" style="display:none;">✕</button>
+              </div>
+
+              <!-- Filtres d'état (Pills) -->
+              <div class="docker-status-filter-pills">
+                <button type="button" class="docker-pill-btn active" id="pill-filter-all" onclick="setContainersStatusFilter('all')">
+                  Tous (<span id="count-filter-all">0</span>)
+                </button>
+                <button type="button" class="docker-pill-btn" id="pill-filter-running" onclick="setContainersStatusFilter('running')">
+                  <span class="status-dot dot-running"></span> En ligne (<span id="count-filter-running">0</span>)
+                </button>
+                <button type="button" class="docker-pill-btn" id="pill-filter-unhealthy" onclick="setContainersStatusFilter('unhealthy')">
+                  <span class="status-dot dot-unhealthy"></span> Dégradé / Unhealthy (<span id="count-filter-unhealthy">0</span>)
+                </button>
+                <button type="button" class="docker-pill-btn" id="pill-filter-stopped" onclick="setContainersStatusFilter('stopped')">
+                  <span class="status-dot dot-stopped"></span> Hors ligne (<span id="count-filter-stopped">0</span>)
+                </button>
+              </div>
+
+              <!-- Contrôles Tri & Pagination -->
+              <div class="docker-controls-right">
+                <div class="docker-select-wrap">
+                  <label for="containers-sort-select" class="docker-control-label">Trier par :</label>
+                  <select id="containers-sort-select" class="form-control docker-select" onchange="onContainersSortChange()">
+                    <option value="name_asc">🔤 Nom (A → Z)</option>
+                    <option value="name_desc">🔤 Nom (Z → A)</option>
+                    <option value="status_online">🟢 En ligne en premier</option>
+                    <option value="status_offline">🟡 Hors ligne en premier</option>
+                  </select>
+                </div>
+
+                <div class="docker-select-wrap">
+                  <label for="containers-per-page-select" class="docker-control-label">Par page :</label>
+                  <select id="containers-per-page-select" class="form-control docker-select" onchange="onContainersPerPageChange()">
+                    <option value="10">10</option>
+                    <option value="25" selected>25</option>
+                    <option value="100">100</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- BARRE D'ACTIONS GROUPÉES (MULTI-SÉLECTION) -->
+            <div class="docker-bulk-actions-bar" id="docker-bulk-actions-bar" style="display:none;">
+              <div class="docker-bulk-left">
+                <label class="docker-bulk-select-all-label">
+                  <input type="checkbox" id="docker-select-all-cb" onchange="toggleSelectAllContainers(this.checked)">
+                  <span>Tout sélectionner sur cette page</span>
+                </label>
+                <span class="docker-bulk-count" id="docker-bulk-count-badge">0 sélectionné(s)</span>
+              </div>
+              <div class="docker-bulk-buttons">
+                <button type="button" class="btn btn-secondary btn-xs" onclick="bulkRestartContainers()" title="Redémarrer les conteneurs sélectionnés">
+                  <span>🔄</span> Redémarrer (<span class="bulk-btn-count">0</span>)
+                </button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="bulkStopContainers()" title="Arrêter les conteneurs sélectionnés">
+                  <span>⏹</span> Arrêter (<span class="bulk-btn-count">0</span>)
+                </button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="bulkStartContainers()" title="Démarrer les conteneurs sélectionnés">
+                  <span>▶</span> Démarrer (<span class="bulk-btn-count">0</span>)
+                </button>
+                <button type="button" class="btn btn-danger btn-xs" onclick="openBulkDeleteContainersModal()" title="Supprimer les conteneurs sélectionnés">
+                  <span>🗑️</span> Supprimer (<span class="bulk-btn-count">0</span>)
+                </button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="clearSelectedContainers()" title="Désélectionner tout">
+                  ✕ Annuler
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- LISTE DES CONTENEURS DOCKER -->
           <div class="docker-containers-list" id="containers-container">
             <p style="color:var(--subtext0); font-size:0.9rem;">Chargement des conteneurs...</p>
+          </div>
+
+          <!-- PAGINATION DES CONTENEURS -->
+          <div class="docker-pagination-bar" id="containers-pagination-bar" style="display:none;">
+            <div class="docker-pagination-info" id="containers-pagination-info">
+              Affichage de 0 à 0 sur 0 conteneurs
+            </div>
+            <div class="docker-pagination-controls" id="containers-pagination-controls">
+            </div>
           </div>
         </div>
 
@@ -4994,6 +5081,61 @@
         <button type="button" class="btn btn-secondary btn-sm" onclick="closeDeleteDockerModal()">Annuler</button>
         <button type="button" class="btn btn-danger btn-sm" id="btn-confirm-delete-docker" onclick="confirmDeleteDockerContainer()">
           <span>🗑️</span> Confirmer la suppression
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL SUPPRESSION GROUPÉE DOCKER -->
+  <div class="file-modal-overlay modal-backdrop" id="modal-bulk-delete-docker" style="display:none;" onclick="if(event.target===this) closeBulkDeleteDockerModal()">
+    <div class="file-modal-window modal-box" style="width: 100%; max-width: 560px; border-top: 3px solid var(--red); box-shadow: 0 16px 40px rgba(0,0,0,0.5);">
+      <div class="file-modal-header modal-header" style="border-bottom: 1px solid rgba(243, 139, 168, 0.2);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div style="background: rgba(243, 139, 168, 0.15); color: var(--red); width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 10px; font-size: 1.25rem;">
+            🗑️
+          </div>
+          <div>
+            <div class="file-modal-title modal-title" style="color: var(--red); font-size: 1.05rem;">Suppression groupée de conteneurs</div>
+            <div style="font-size: 0.78rem; color: var(--subtext0);">Arrêt et suppression définitive des conteneurs sélectionnés</div>
+          </div>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeBulkDeleteDockerModal()" title="Fermer la fenêtre">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+        <div style="font-size: 0.92rem; color: var(--text); line-height: 1.55;">
+          Êtes-vous sûr de vouloir supprimer les <strong id="bulk-delete-count" style="color: var(--red);">0</strong> conteneurs sélectionnés suivants ?
+        </div>
+
+        <div id="bulk-delete-list-preview" style="max-height: 150px; overflow-y: auto; background: var(--mantle); border: 1px solid var(--surface1); border-radius: 8px; padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; font-size: 0.84rem; font-family: var(--font-mono);">
+          <!-- Liste injectée dynamiquement -->
+        </div>
+
+        <div style="background: rgba(243, 139, 168, 0.08); border: 1px solid rgba(243, 139, 168, 0.25); border-radius: 8px; padding: 12px; font-size: 0.8rem; color: var(--subtext1); line-height: 1.45;">
+          ⚠️ Les conteneurs en cours d'exécution seront automatiquement arrêtés puis supprimés de Docker.
+        </div>
+
+        <label style="display: flex; align-items: flex-start; gap: 12px; cursor: pointer; background: var(--mantle); padding: 12px 14px; border-radius: 10px; border: 1px solid var(--surface1);">
+          <input type="checkbox" id="bulk-delete-image-check" style="margin-top: 3px; accent-color: var(--red); width: 16px; height: 16px; cursor: pointer;">
+          <div style="display: flex; flex-direction: column; gap: 3px;">
+            <span style="font-size: 0.88rem; font-weight: 600; color: var(--text);">Supprimer également les images Docker associées</span>
+            <span style="font-size: 0.74rem; color: var(--subtext0);">Libère l'espace disque si aucune autre instance n'utilise ces images.</span>
+          </div>
+        </label>
+
+        <label style="display: flex; align-items: flex-start; gap: 12px; cursor: pointer; background: var(--mantle); padding: 12px 14px; border-radius: 10px; border: 1px solid var(--surface1);">
+          <input type="checkbox" id="bulk-delete-data-check" style="margin-top: 3px; accent-color: var(--red); width: 16px; height: 16px; cursor: pointer;">
+          <div style="display: flex; flex-direction: column; gap: 3px;">
+            <span style="font-size: 0.88rem; font-weight: 600; color: var(--red);">Supprimer également les dossiers de données persistantes (~/docker/...)</span>
+            <span style="font-size: 0.74rem; color: var(--subtext1);">Attention : les configurations et bases de données stockées dans ces dossiers seront définitivement effacées.</span>
+          </div>
+        </label>
+      </div>
+
+      <div class="modal-footer" style="padding: 14px 20px; display: flex; justify-content: flex-end; gap: 10px; background: var(--mantle); border-top: 1px solid var(--surface1);">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeBulkDeleteDockerModal()">Annuler</button>
+        <button type="button" class="btn btn-danger btn-sm" id="btn-confirm-bulk-delete-docker" onclick="confirmBulkDeleteDockerContainers()">
+          <span>🗑️</span> Confirmer la suppression groupée
         </button>
       </div>
     </div>

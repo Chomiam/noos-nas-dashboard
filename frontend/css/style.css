@@ -12855,8 +12855,292 @@ body.app-updating-reload #app-shell {
 
 
 /* ==========================================================================
-   🐳 STEvE_OS DOCKER — AFFICHAGE EN LIGNES & BOUTONS D'ACTIONS STYLISÉS
+   🐳 DOCKER TOOLBAR, FILTERS, BULK ACTIONS & PAGINATION
    ========================================================================== */
+
+.docker-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.docker-toolbar-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--surface0);
+  border: 1px solid var(--surface1);
+  border-radius: var(--radius-lg);
+  padding: 12px 16px;
+}
+
+.docker-search-box {
+  position: relative;
+  flex: 1;
+  min-width: 220px;
+  max-width: 380px;
+}
+
+.docker-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.85rem;
+  color: var(--subtext0);
+  pointer-events: none;
+}
+
+.docker-search-box .form-control {
+  padding-left: 36px;
+  padding-right: 32px;
+  background: var(--mantle);
+  border: 1px solid var(--surface1);
+  font-size: 0.85rem;
+  height: 38px;
+}
+
+.docker-search-clear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--subtext0);
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 0.8rem;
+}
+.docker-search-clear:hover {
+  color: var(--text);
+}
+
+.docker-status-filter-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.docker-pill-btn {
+  background: var(--mantle);
+  border: 1px solid var(--surface1);
+  color: var(--subtext1);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.docker-pill-btn:hover {
+  background: var(--surface1);
+  color: var(--text);
+  border-color: rgba(138, 173, 244, 0.4);
+}
+
+.docker-pill-btn.active {
+  background: rgba(138, 173, 244, 0.15);
+  color: var(--blue);
+  border-color: var(--blue);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.status-dot.dot-running { background: var(--green); box-shadow: 0 0 6px rgba(166, 227, 161, 0.6); }
+.status-dot.dot-unhealthy { background: var(--yellow); box-shadow: 0 0 6px rgba(249, 226, 175, 0.6); }
+.status-dot.dot-stopped { background: var(--peach); box-shadow: 0 0 6px rgba(250, 179, 135, 0.4); }
+
+.docker-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.docker-select-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.docker-control-label {
+  font-size: 0.78rem;
+  color: var(--subtext0);
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.docker-select {
+  background: var(--mantle);
+  border: 1px solid var(--surface1);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  height: 38px;
+}
+
+.docker-select:focus {
+  border-color: var(--blue);
+  outline: none;
+}
+
+/* Bulk Actions Bar */
+.docker-bulk-actions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: rgba(30, 30, 46, 0.95);
+  border: 1px solid var(--blue);
+  border-radius: var(--radius-md);
+  padding: 10px 16px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  animation: fadeIn 0.2s ease;
+}
+
+.docker-bulk-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.docker-bulk-select-all-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.docker-bulk-select-all-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--blue);
+  cursor: pointer;
+}
+
+.docker-bulk-count {
+  background: rgba(138, 173, 244, 0.2);
+  color: var(--blue);
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.docker-bulk-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Row Checkbox & Selection */
+.docker-row-select {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-right: 4px;
+}
+
+.docker-container-select-cb {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--blue);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.docker-container-row.is-selected {
+  background: rgba(138, 173, 244, 0.12) !important;
+  border-color: var(--blue) !important;
+}
+
+.docker-container-row.is-unhealthy {
+  border-left: 4px solid var(--yellow) !important;
+}
+
+.docker-status-dot.dot-unhealthy {
+  background: var(--yellow);
+  box-shadow: 0 0 8px rgba(249, 226, 175, 0.7);
+}
+
+.docker-badge-state.state-unhealthy {
+  background: rgba(249, 226, 175, 0.15);
+  color: #f9e2af;
+  border: 1px solid rgba(249, 226, 175, 0.3);
+}
+
+/* Pagination Bar */
+.docker-pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 4px 6px 4px;
+  margin-top: 10px;
+  border-top: 1px solid var(--surface0);
+}
+
+.docker-pagination-info {
+  font-size: 0.82rem;
+  color: var(--subtext0);
+}
+
+.docker-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.docker-page-btn {
+  background: var(--surface0);
+  border: 1px solid var(--surface1);
+  color: var(--subtext1);
+  padding: 5px 11px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.docker-page-btn:hover:not(:disabled) {
+  background: var(--surface1);
+  color: var(--text);
+  border-color: rgba(138, 173, 244, 0.4);
+}
+
+.docker-page-btn.active {
+  background: var(--blue);
+  color: var(--base);
+  border-color: var(--blue);
+  font-weight: 700;
+}
+
+.docker-page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 .docker-containers-list {
   display: flex;
