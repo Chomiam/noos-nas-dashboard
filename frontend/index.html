@@ -1959,7 +1959,7 @@
                 <span class="samba-os-name">Windows (Explorateur / Exécuter ⊞+R)</span>
               </div>
               <div class="samba-uri-value-row">
-                <code class="samba-uri-code" id="samba-uri-val-win">\192.168.1.139</code>
+                <code class="samba-uri-code" id="samba-uri-val-win">\\IP_LOCALE</code>
                 <button type="button" class="btn-copy-uri" onclick="copyElementText('samba-uri-val-win', 'Chemin Windows copié !')" title="Copier le chemin UNC">📋</button>
               </div>
             </div>
@@ -1970,7 +1970,7 @@
                 <span class="samba-os-name">macOS (Finder ⌘+K) & Avahi Bonjour</span>
               </div>
               <div class="samba-uri-value-row">
-                <code class="samba-uri-code" id="samba-uri-val-mac">smb://192.168.1.139</code>
+                <code class="samba-uri-code" id="samba-uri-val-mac">smb://IP_LOCALE</code>
                 <button type="button" class="btn-copy-uri" onclick="copyElementText('samba-uri-val-mac', 'Adresse macOS copiée !')" title="Copier l'adresse smb://">📋</button>
               </div>
             </div>
@@ -1981,7 +1981,7 @@
                 <span class="samba-os-name">Linux (Nautilus / Dolphin / fstab)</span>
               </div>
               <div class="samba-uri-value-row">
-                <code class="samba-uri-code" id="samba-uri-val-lnx">smb://steveos-nas.local</code>
+                <code class="samba-uri-code" id="samba-uri-val-lnx">smb://IP_LOCALE</code>
                 <button type="button" class="btn-copy-uri" onclick="copyElementText('samba-uri-val-lnx', 'Adresse Linux copiée !')" title="Copier le chemin réseau">📋</button>
               </div>
             </div>
@@ -2502,7 +2502,7 @@
             </div>
           </div>
           <div style="display:flex; gap:10px; align-items:center;">
-            <a href="http://192.168.1.139:3552" target="_blank" class="btn btn-primary btn-sm" id="btn-open-arcane" style="text-decoration:none;">
+            <a href="#" onclick="window.open('http://' + (window.location.hostname || 'localhost') + ':3552', '_blank'); return false;" class="btn btn-primary btn-sm" id="btn-open-arcane" style="text-decoration:none;">
               <span>⚡</span> Ouvrir Arcane (Port 3552) ↗
             </a>
             <button type="button" class="btn btn-secondary btn-sm" onclick="refreshContainersAndStore(true)">
@@ -7505,7 +7505,7 @@
             <li>
               Entrez l'adresse réseau :
               <div class="samba-guide-code-box">
-                <code id="guide-code-win">\192.168.1.139</code>
+                <code id="guide-code-win">\\IP_LOCALE</code>
                 <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('guide-code-win', 'Copié !')">📋</button>
               </div>
             </li>
@@ -7522,7 +7522,7 @@
             <li>
               Entrez l'adresse de partage :
               <div class="samba-guide-code-box">
-                <code id="guide-code-mac">smb://192.168.1.139</code>
+                <code id="guide-code-mac">smb://IP_LOCALE</code>
                 <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('guide-code-mac', 'Copié !')">📋</button>
               </div>
             </li>
@@ -7539,14 +7539,14 @@
               <strong>Explorateur (GNOME Fichiers / KDE Dolphin) :</strong>
               Appuyez sur <kbd>Ctrl</kbd> + <kbd>L</kbd> et saisissez :
               <div class="samba-guide-code-box">
-                <code id="guide-code-lnx-gui">smb://192.168.1.139/</code>
+                <code id="guide-code-lnx-gui">smb://IP_LOCALE/</code>
                 <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('guide-code-lnx-gui', 'Copié !')">📋</button>
               </div>
             </li>
             <li>
               <strong>Montage automatique permanent (/etc/fstab) :</strong>
               <div class="samba-guide-code-box">
-                <code id="guide-code-lnx-fstab">//192.168.1.139/medias /mnt/nas_medias cifs username=UTILISATEUR,password=VOTRE_MDP,uid=1000,gid=100,iocharset=utf8 0 0</code>
+                <code id="guide-code-lnx-fstab">//IP_LOCALE/partage /mnt/nas_partage cifs username=UTILISATEUR,password=VOTRE_MDP,uid=1000,gid=100,iocharset=utf8 0 0</code>
                 <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('guide-code-lnx-fstab', 'Copié !')">📋</button>
               </div>
             </li>
@@ -7557,7 +7557,7 @@
         <div id="samba-guide-pane-mob" class="samba-guide-pane">
           <h4 style="color:var(--green); margin-bottom:8px;">Accéder depuis iPhone / iPad ou Android</h4>
           <ol class="samba-guide-steps">
-            <li><strong>iOS / iPadOS (Application Fichiers native) :</strong> Appuyez sur le menu <kbd>•••</kbd> en haut &gt; <em>Se connecter au serveur</em> &gt; entrez <code>smb://192.168.1.139</code>.</li>
+            <li><strong>iOS / iPadOS (Application Fichiers native) :</strong> Appuyez sur le menu <kbd>•••</kbd> en haut &gt; <em>Se connecter au serveur</em> &gt; entrez <code id="guide-code-mob">smb://IP_LOCALE</code>.</li>
             <li><strong>Android (Solid Explorer / CX File Explorer / VLC) :</strong> Ajoutez un nouveau stockage réseau SMB / Samba &gt; l'IP du NAS sera détectée automatiquement via mDNS.</li>
             <li><strong>Streaming multimédia (VLC / Kodi) :</strong> Naviguez dans Réseau local &gt; Samba &gt; vos vidéos et musiques sont diffusées instantanément sans téléchargement.</li>
           </ol>
@@ -7766,7 +7766,7 @@
             <li>Ouvrez <em>Fichier &gt; Gestionnaire de sites</em> (<kbd>Ctrl</kbd> + <kbd>S</kbd>) et cliquez sur <strong>Nouveau site</strong>.</li>
             <li>Sélectionnez le protocole : <strong style="color:var(--teal);">SFTP - SSH File Transfer Protocol</strong>.</li>
             <li>
-              Hôte : <code id="sftp-guide-val-host">192.168.1.139</code> | Port : <code id="sftp-guide-val-port">22</code>
+              Hôte : <code id="sftp-guide-val-host">IP_LOCALE</code> | Port : <code id="sftp-guide-val-port">22</code>
             </li>
             <li>Type d'authentification : <em>Normal</em> (avec identifiant et mot de passe de votre compte) ou <em>Fichier de clé</em> si vous utilisez une clé SSH privée.</li>
             <li>Cliquez sur <strong>Connexion</strong>. Acceptez la première empreinte de clé d'hôte du NAS.</li>
@@ -7778,7 +7778,7 @@
           <h4 style="color:var(--teal); margin-bottom:8px;">Configuration Cyberduck & WinSCP</h4>
           <ol class="sftp-guide-steps">
             <li><strong>WinSCP :</strong> Choisissez <em>SFTP</em> dans le menu déroulant du protocole, entrez l'adresse IP du NAS et votre compte. WinSCP gère la reprise automatique des téléchargements interrompus.</li>
-            <li><strong>Cyberduck (macOS / Windows) :</strong> Cliquez sur <em>Ouvrir une connexion</em>, choisissez <em>SFTP (SSH File Transfer Protocol)</em>, serveur <code>192.168.1.139</code>, port <code>22</code>.</li>
+            <li><strong>Cyberduck (macOS / Windows) :</strong> Cliquez sur <em>Ouvrir une connexion</em>, choisissez <em>SFTP (SSH File Transfer Protocol)</em>, serveur <code id="sftp-guide-val-cyberduck">IP_LOCALE</code>, port <code>22</code>.</li>
             <li>Cochez <em>Ajouter au trousseau</em> pour enregistrer les identifiants de manière sécurisée.</li>
           </ol>
         </div>

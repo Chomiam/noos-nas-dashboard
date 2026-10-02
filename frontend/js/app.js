@@ -2966,7 +2966,7 @@ async function restartContainer(id) {
 function updateSftpUri() {
   const uriEl = document.getElementById("sftp-connection-uri");
   if (uriEl) {
-    const host = location.hostname || "192.168.1.139";
+    const host = (location.hostname && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") ? location.hostname : (currentSftpData?.primary_lan_ip || "IP_LOCALE");
     const user = getCurrentDashboardUsername();
     uriEl.textContent = `sftp://${user}@${host}:22`;
   }
@@ -19215,12 +19215,12 @@ async function loadSambaData(showFeedback = false) {
     const uriMac = document.getElementById("samba-uri-val-mac");
     const uriLnx = document.getElementById("samba-uri-val-lnx");
 
-    const ip = data.primary_ip || window.location.hostname;
+    const ip = data.primary_lan_ip || data.primary_ip || window.location.hostname;
     const host = data.hostname || "steveos-nas";
 
     if (uriWin) uriWin.textContent = `\\${ip}`;
     if (uriMac) uriMac.textContent = `smb://${ip}`;
-    if (uriLnx) uriLnx.textContent = `smb://${host}.local`;
+    if (uriLnx) uriLnx.textContent = `smb://${ip}`;
 
     // 3. Mise à jour des KPIs
     const kpiSharesCount = document.getElementById("samba-kpi-shares-count");
@@ -19790,7 +19790,7 @@ async function runSambaDiag() {
 // =========================================================================
 
 function openSambaGuideModal() {
-  const ip = currentSambaData?.primary_ip || window.location.hostname;
+  const ip = currentSambaData?.primary_lan_ip || currentSambaData?.primary_ip || window.location.hostname;
   const host = currentSambaData?.hostname || "steveos-nas";
 
   const winCode = document.getElementById("guide-code-win");
@@ -19800,7 +19800,7 @@ function openSambaGuideModal() {
 
   if (winCode) winCode.textContent = `\\${ip}`;
   if (macCode) macCode.textContent = `smb://${ip}`;
-  if (lnxGuiCode) lnxGuiCode.textContent = `smb://${host}.local/`;
+  if (lnxGuiCode) lnxGuiCode.textContent = `smb://${ip}/`;
   if (lnxFstabCode) lnxFstabCode.textContent = `//${ip}/partage /mnt/nas_partage cifs username=VOTRE_USER,password=VOTRE_MDP,uid=1000,gid=100,iocharset=utf8 0 0`;
 
   switchSambaGuideTab("win");
