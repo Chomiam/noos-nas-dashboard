@@ -4213,6 +4213,14 @@ let currentCompressFormat = "zip";
 let currentCompressLevel = "normal";
 
 async function navigateToPath(targetPath) {
+  if (targetPath && targetPath.startsWith("kdrive://")) {
+    const clean = targetPath.replace("kdrive://", "");
+    const parts = clean.split("/");
+    const accountId = parts[0];
+    const folderId = parseInt(parts[1], 10) || 0;
+    return navigateToKDrive(accountId, folderId);
+  }
+
   isTrashView = false;
   isKDriveView = false;
   currentKDriveAccountId = null;
@@ -22611,9 +22619,14 @@ function renderKDriveAccounts(accounts) {
             </div>
           </div>
         </div>
-        <button type="button" class="files-mount-unpin-btn" onclick="disconnectKDriveAccount('${escapeHtml(acc.id)}', '${escapeHtml(acc.name)}', event)" title="Déconnecter ce kDrive du NAS">
-          🗑️
-        </button>
+        <div class="files-kdrive-item-actions" onclick="event.stopPropagation()">
+          <button type="button" class="btn-kdrive-item-action edit" onclick="openEditKDriveModal('${escapeHtml(acc.id)}', event)" title="Modifier la configuration de ce kDrive (jeton, ID, nom)">
+            ✏️
+          </button>
+          <button type="button" class="btn-kdrive-item-action delete" onclick="disconnectKDriveAccount('${escapeHtml(acc.id)}', '${escapeHtml(acc.name)}', event)" title="Déconnecter ce kDrive du NAS">
+            🗑️
+          </button>
+        </div>
       </div>
     `;
   }).join("");
@@ -22793,6 +22806,195 @@ async function submitConnectKDrive() {
   }
 }
 
+function openEditKDriveModal(accountId, event) {
+  if (event) event.stopPropagation();
+  const acc = kdriveAccountsList.find(a => a.id === accountId);
+  if (!acc) {
+    showToast("Compte kDrive introuvable.", "warning");
+    return;
+  }
+
+  const idInp = document.getElementById("kdrive-edit-account-id");
+  const title = document.getElementById("kdrive-edit-modal-title");
+  const nameInp = document.getElementById("kdrive-edit-name");
+  const driveIdInp = document.getElementById("kdrive-edit-drive-id");
+  const tokenInp = document.getElementById("kdrive-edit-token");
+  const tokenStatus = document.getElementById("kdrive-edit-token-status");
+  const testRes = document.getElementById("kdrive-edit-test-result");
+
+  if (idInp) idInp.value = acc.id;
+  if (title) title.textContent = `Configuration kDrive : ${acc.name}`;
+  if (nameInp) nameInp.value = acc.name || "";
+  if (driveIdInp) driveIdInp.value = acc.drive_id || "";
+  if (tokenInp) {
+    tokenInp.value = "";
+    tokenInp.type = "password";
+  }
+  const eyeIcon = document.getElementById("kdrive-edit-token-eye-icon");
+  if (eyeIcon) eyeIcon.textContent = "👁️";
+
+  if (tokenStatus) {
+    tokenStatus.textContent = acc.token_masked ? `Jeton actif : ${acc.token_masked}` : "Jeton enregistré";
+  }
+  if (testRes) {
+    testRes.style.display = "none";
+    testRes.textContent = "";
+  }
+
+  const modal = document.getElementById("modal-edit-kdrive");
+  if (modal) modal.style.display = "flex";
+}
+
+function closeEditKDriveModal() {
+  const modal = document.getElementById("modal-edit-kdrive");
+  if (modal) modal.style.display = "none";
+}
+
+function toggleKDriveEditTokenVisibility() {
+  const inp = document.getElementById("kdrive-edit-token");
+  const icon = document.getElementById("kdrive-edit-token-eye-icon");
+  if (!inp) return;
+  if (inp.type === "password") {
+    inp.type = "text";
+    if (icon) icon.textContent = "🙈";
+  } else {
+    inp.type = "password";
+    if (icon) icon.textContent = "👁️";
+  }
+}
+
+async function testEditKDriveConnection() {
+  const tokenInp = document.getElementById("kdrive-edit-token");
+  const token = tokenInp ? tokenInp.value.trim() : "";
+  const testRes = document.getElementById("kdrive-edit-test-result");
+  const btn = document.getElementById("btn-test-edit-kdrive");
+  const icon = document.getElementById("btn-test-edit-icon");
+
+  if (!token) {
+    showToast("Pour tester un nouveau jeton, saisissez-le d'abord dans le champ.", "info");
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  if (icon) icon.textContent = "⏳";
+  if (testRes) {
+    testRes.style.display = "block";
+    testRes.style.background = "rgba(137, 180, 250, 0.12)";
+    testRes.style.color = "var(--blue)";
+    testRes.style.border = "1px solid rgba(137, 180, 250, 0.3)";
+    testRes.textContent = "Test de connexion en cours auprès d'Infomaniak...";
+  }
+
+  try {
+    const res = await fetch("/api/kdrive/detect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token })
+    });
+    const json = await res.json();
+    if (json.success && json.data && json.data.length > 0) {
+      const driveIdInp = document.getElementById("kdrive-edit-drive-id");
+      const matched = json.data.find(d => driveIdInp && parseInt(driveIdInp.value, 10) === d.id);
+      if (testRes) {
+        testRes.style.background = "rgba(166, 227, 161, 0.12)";
+        testRes.style.color = "var(--green)";
+        testRes.style.border = "1px solid rgba(166, 227, 161, 0.3)";
+        testRes.innerHTML = `✓ Jeton valide ! ${json.data.length} kDrive accessible(s) : <strong>${json.data.map(d => escapeHtml(d.name + ' [#' + d.id + ']')).join(', ')}</strong>`;
+      }
+      if (matched && driveIdInp) {
+        showToast(`✓ kDrive #${matched.id} (${matched.name}) confirmé !`, "success");
+      } else if (!driveIdInp.value && json.data[0]) {
+        driveIdInp.value = json.data[0].id;
+        showToast(`ID #${json.data[0].id} renseigné automatiquement.`, "info");
+      }
+    } else {
+      if (testRes) {
+        testRes.style.background = "rgba(243, 139, 168, 0.12)";
+        testRes.style.color = "var(--red)";
+        testRes.style.border = "1px solid rgba(243, 139, 168, 0.3)";
+        testRes.textContent = `Échec du test : ${json.message || "Jeton rejeté par Infomaniak."}`;
+      }
+    }
+  } catch (err) {
+    if (testRes) {
+      testRes.style.background = "rgba(243, 139, 168, 0.12)";
+      testRes.style.color = "var(--red)";
+      testRes.style.border = "1px solid rgba(243, 139, 168, 0.3)";
+      testRes.textContent = `Erreur réseau : ${err}`;
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+    if (icon) icon.textContent = "🔍";
+  }
+}
+
+async function submitEditKDrive() {
+  const idInp = document.getElementById("kdrive-edit-account-id");
+  const nameInp = document.getElementById("kdrive-edit-name");
+  const driveIdInp = document.getElementById("kdrive-edit-drive-id");
+  const tokenInp = document.getElementById("kdrive-edit-token");
+
+  const accountId = idInp ? idInp.value.trim() : "";
+  const name = nameInp ? nameInp.value.trim() : "";
+  const drive_id = driveIdInp ? parseInt(driveIdInp.value.trim(), 10) : 0;
+  const token = tokenInp ? tokenInp.value.trim() : "";
+
+  if (!accountId) return;
+
+  if (!name) {
+    showToast("Le nom d'affichage ne peut pas être vide.", "warning");
+    return;
+  }
+
+  if (!drive_id || isNaN(drive_id) || drive_id <= 0) {
+    showToast("Veuillez renseigner un ID numérique de kDrive valide.", "warning");
+    return;
+  }
+
+  const btn = document.getElementById("btn-submit-edit-kdrive");
+  if (btn) btn.disabled = true;
+
+  try {
+    const payload = {
+      name,
+      drive_id,
+      token: token ? token : undefined
+    };
+
+    const res = await fetch(`/api/kdrive/accounts/${encodeURIComponent(accountId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+
+    if (json.success && json.data) {
+      showToast(`✓ kDrive "${json.data.name}" mis à jour avec succès !`, "success");
+      closeEditKDriveModal();
+      await loadKDriveAccounts();
+      if (isKDriveView && currentKDriveAccountId === accountId) {
+        navigateToKDrive(accountId, 0, json.data.name);
+      }
+    } else {
+      showToast(json.message || "Échec de la mise à jour du compte kDrive", "error");
+    }
+  } catch (err) {
+    showToast("Erreur lors de la mise à jour : " + err, "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function deleteCurrentEditKDriveAccount() {
+  const idInp = document.getElementById("kdrive-edit-account-id");
+  const nameInp = document.getElementById("kdrive-edit-name");
+  const accountId = idInp ? idInp.value.trim() : "";
+  const accountName = nameInp ? nameInp.value.trim() : "kDrive";
+  if (!accountId) return;
+  closeEditKDriveModal();
+  disconnectKDriveAccount(accountId, accountName);
+}
+
 async function disconnectKDriveAccount(accountId, accountName, event) {
   if (event) event.stopPropagation();
   if (!confirm(`Voulez-vous vraiment déconnecter le compte kDrive "${accountName}" du NAS ?\n\nVos fichiers distants sur Infomaniak restent totalement intacts.`)) {
@@ -22838,7 +23040,36 @@ async function navigateToKDrive(accountId, folderId = 0, folderName = null) {
     const json = await res.json();
 
     if (!json.success || !json.data) {
-      showToast(json.message || "Impossible de charger le dossier kDrive", "error");
+      const errMsg = json.message || "Impossible de charger le dossier kDrive";
+      showToast(errMsg, "error");
+
+      // Rendu d'une carte d'erreur ergonomique pour éviter tout blocage ou fail en boucle
+      const gridWrap = document.getElementById("files-grid-wrap");
+      const tableBody = document.getElementById("files-table-tbody");
+      const errCardHtml = `
+        <div style="grid-column:1/-1; padding:48px 24px; text-align:center; background:rgba(243,139,168,0.06); border-radius:var(--radius-md); border:1px dashed rgba(243,139,168,0.3); margin:20px 0;">
+          <div style="font-size:3rem; margin-bottom:12px; line-height:1;">☁️⚠️</div>
+          <h3 style="color:var(--red); font-size:1.15rem; margin-bottom:8px; font-weight:700;">Échec de communication avec kDrive</h3>
+          <p style="color:var(--subtext0); max-width:540px; margin:0 auto 18px auto; font-size:0.86rem; line-height:1.4;">
+            ${escapeHtml(errMsg)}
+          </p>
+          <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+            <button type="button" class="btn btn-primary btn-sm" onclick="openEditKDriveModal('${escapeHtml(accountId)}')">
+              ✏️ Modifier la configuration (Jeton / Drive ID)
+            </button>
+            <button type="button" class="btn btn-danger btn-sm" onclick="disconnectKDriveAccount('${escapeHtml(accountId)}', 'kDrive', event)">
+              🗑️ Déconnecter ce compte
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="navigateToPath(getUserHome())">
+              📁 Revenir aux fichiers locaux
+            </button>
+          </div>
+        </div>
+      `;
+      if (gridWrap) gridWrap.innerHTML = errCardHtml;
+      if (tableBody) tableBody.innerHTML = `<tr><td colspan="6" style="padding:0;">${errCardHtml}</td></tr>`;
+      currentEntries = [];
+      updateFilesStatusBar(0, 0);
       return;
     }
 

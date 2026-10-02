@@ -390,7 +390,7 @@ pub fn api_routes() -> Router {
         // --------------------------------------------------------------------
         .route("/kdrive/accounts", get(handle_kdrive_accounts_list).post(handle_kdrive_account_create))
         .route("/kdrive/detect", post(handle_kdrive_detect))
-        .route("/kdrive/accounts/:id", delete(handle_kdrive_account_delete))
+        .route("/kdrive/accounts/:id", delete(handle_kdrive_account_delete).put(handle_kdrive_account_update))
         .route("/kdrive/accounts/:id/files", get(handle_kdrive_files_list))
         .route("/kdrive/accounts/:id/mkdir", post(handle_kdrive_mkdir))
         .route("/kdrive/accounts/:id/files/:file_id", delete(handle_kdrive_file_delete))
@@ -3366,6 +3366,32 @@ async fn handle_kdrive_account_delete(
             success: true,
             data: Some(true),
             message: Some("Compte kDrive déconnecté.".into()),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+    }
+}
+
+/// Met à jour la configuration d'un compte kDrive existant (jeton, drive_id, nom).
+async fn handle_kdrive_account_update(
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(payload): Json<crate::kdrive::UpdateKDriveAccountRequest>,
+) -> Json<ApiResponse<crate::kdrive::KDriveAccountPublic>> {
+    let id_clone = id.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        crate::kdrive::update_kdrive_account(&id_clone, payload)
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("Tâche interrompue : {}", e)));
+
+    match res {
+        Ok(acc) => Json(ApiResponse {
+            success: true,
+            data: Some(acc),
+            message: Some("Compte kDrive mis à jour avec succès.".into()),
         }),
         Err(e) => Json(ApiResponse {
             success: false,

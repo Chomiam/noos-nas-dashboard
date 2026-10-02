@@ -88,6 +88,13 @@ pub struct CreateKDriveAccountRequest {
     pub drive_id: u64,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateKDriveAccountRequest {
+    pub name: Option<String>,
+    pub token: Option<String>,
+    pub drive_id: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KDriveBreadcrumb {
     pub id: u64,
@@ -433,6 +440,53 @@ pub fn add_kdrive_account(name: &str, token: &str, drive_id: u64) -> Result<KDri
     Ok(account.to_public())
 }
 
+/// Met à jour les paramètres d'un compte kDrive existant (jeton, ID du drive, nom d'affichage).
+pub fn update_kdrive_account(account_id: &str, req: UpdateKDriveAccountRequest) -> Result<KDriveAccountPublic, String> {
+    let mut accounts = load_kdrive_accounts();
+    let account = accounts.iter_mut().find(|a| a.id == account_id)
+        .ok_or_else(|| format!("Compte kDrive '{}' introuvable.", account_id))?;
+
+    if let Some(t) = req.token {
+        let clean = t.trim();
+        if !clean.is_empty() {
+            account.token = clean.to_string();
+        }
+    }
+
+    if let Some(d_id) = req.drive_id {
+        if d_id > 0 {
+            account.drive_id = d_id;
+        }
+    }
+
+    if let Some(n) = req.name {
+        let clean = n.trim();
+        if !clean.is_empty() {
+            account.name = clean.to_string();
+        }
+    }
+
+    // Tenter de rafraîchir les métadonnées (quota, nom distant)
+    let info_url = format!("https://api.infomaniak.com/2/drive/{}", account.drive_id);
+    if let Ok(ref val) = curl_api_get(&account.token, &info_url) {
+        if let Some(data) = val.get("data") {
+            if let Some(n) = data.get("name").and_then(|v| v.as_str()) {
+                account.drive_name = n.to_string();
+            }
+            if let Some(sz) = data.get("size").and_then(|v| v.as_u64()) {
+                account.total_size = sz;
+            }
+            if let Some(used) = data.get("used_size").and_then(|v| v.as_u64()) {
+                account.used_size = used;
+            }
+        }
+    }
+
+    let public_account = account.to_public();
+    save_kdrive_accounts(&accounts)?;
+    Ok(public_account)
+}
+
 /// Supprime / Déconnecte un compte kDrive du NAS.
 pub fn delete_kdrive_account(account_id: &str) -> Result<(), String> {
     let mut accounts = load_kdrive_accounts();
@@ -452,22 +506,29 @@ pub fn list_kdrive_folder(account_id: &str, folder_id_opt: Option<u64>) -> Resul
         .ok_or_else(|| format!("Compte kDrive '{}' introuvable.", account_id))?;
 
     let folder_id = folder_id_opt.unwrap_or(0);
+    // En API Infomaniak kDrive, la racine est représentée par file_id = 1
+    let target_folder_id = if folder_id == 0 { 1 } else { folder_id };
 
-    let url = if folder_id == 0 {
-        format!("https://api.infomaniak.com/3/drive/{}/files/search?limit=1000", account.drive_id)
-    } else {
-        format!("https://api.infomaniak.com/3/drive/{}/files/{}/files?limit=1000", account.drive_id, folder_id)
-    };
+    let url = format!("https://api.infomaniak.com/3/drive/{}/files/{}/files?limit=1000", account.drive_id, target_folder_id);
 
     let val = match curl_api_get(&account.token, &url) {
         Ok(v) => v,
-        Err(_) => {
-            let fb_url = if folder_id == 0 {
-                format!("https://api.infomaniak.com/3/drive/{}/files/0/files?limit=1000", account.drive_id)
+        Err(e) => {
+            // Repli 1 : tester search avec directory_id
+            let fb_search_url = format!(
+                "https://api.infomaniak.com/3/drive/{}/files/search?directory_id={}&depth=child&limit=1000",
+                account.drive_id, target_folder_id
+            );
+            if let Ok(v2) = curl_api_get(&account.token, &fb_search_url) {
+                v2
+            } else if target_folder_id == 1 {
+                // Repli 2 pour la racine : tester /files/root/files
+                let fb_root_url = format!("https://api.infomaniak.com/3/drive/{}/files/root/files?limit=1000", account.drive_id);
+                curl_api_get(&account.token, &fb_root_url)
+                    .map_err(|e2| format!("Impossible d'accéder au kDrive ({}) : {}", e, e2))?
             } else {
-                format!("https://api.infomaniak.com/3/drive/{}/files/search?parent_id={}&limit=1000", account.drive_id, folder_id)
-            };
-            curl_api_get(&account.token, &fb_url)?
+                return Err(format!("Impossible d'accéder au dossier kDrive : {}", e));
+            }
         }
     };
 
@@ -574,7 +635,8 @@ pub fn create_kdrive_folder(account_id: &str, parent_id: u64, name: &str) -> Res
         return Err("Le nom du dossier ne peut pas être vide.".into());
     }
 
-    let url = format!("https://api.infomaniak.com/3/drive/{}/files/{}/directory", account.drive_id, parent_id);
+    let target_parent_id = if parent_id == 0 { 1 } else { parent_id };
+    let url = format!("https://api.infomaniak.com/3/drive/{}/files/{}/directory", account.drive_id, target_parent_id);
     let body = serde_json::json!({
         "name": clean_name
     });

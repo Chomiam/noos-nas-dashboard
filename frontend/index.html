@@ -8436,6 +8436,71 @@
     </div>
   </div>
 
+  <!-- ================= MODALE : MODIFIER UN KDRIVE (INFOMANIAK API) ================= -->
+  <div class="file-modal-overlay" id="modal-edit-kdrive" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-edit-kdrive')">
+    <div class="file-modal-window" style="max-width: 580px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(137, 180, 250, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-primary" style="font-size:0.75rem; font-weight:800; background:rgba(137,180,250,0.18); color:var(--blue);">✏️ CONFIGURATION</span>
+          <span class="file-modal-title" id="kdrive-edit-modal-title">Modifier le kDrive</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeEditKDriveModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:20px;">
+        <input type="hidden" id="kdrive-edit-account-id">
+
+        <form id="form-edit-kdrive" onsubmit="event.preventDefault(); submitEditKDrive();">
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="form-label">Nom d'affichage</label>
+            <input type="text" id="kdrive-edit-name" class="form-input" placeholder="Ex: Mon kDrive Perso" required>
+          </div>
+
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="form-label">ID numérique du kDrive (visible dans l'URL de votre kDrive)</label>
+            <input type="number" id="kdrive-edit-drive-id" class="form-input" placeholder="Ex: 123456" required>
+            <div style="font-size:0.75rem; color:var(--subtext0); margin-top:4px;">
+              💡 L'ID se trouve dans l'URL de votre navigateur : <code>https://ksuite.infomaniak.com/.../drive/<strong>123456</strong>/...</code>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+              <label class="form-label" style="margin-bottom:0;">Jeton API Infomaniak (Token Bearer)</label>
+              <span id="kdrive-edit-token-status" style="font-size:0.72rem; color:var(--green); font-family:var(--font-mono);"></span>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <input type="password" id="kdrive-edit-token" class="form-input" style="flex:1; font-family:var(--font-mono); font-size:0.85rem;" placeholder="Laisser vide pour conserver le jeton actuel">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="toggleKDriveEditTokenVisibility()" title="Afficher / Masquer le jeton">
+                <span id="kdrive-edit-token-eye-icon">👁️</span>
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-test-edit-kdrive" onclick="testEditKDriveConnection()" title="Tester le jeton et vérifier l'accès">
+                <span id="btn-test-edit-icon">🔍</span> Tester
+              </button>
+            </div>
+            <div style="font-size:0.75rem; color:var(--subtext0); margin-top:4px;">
+              Laissez ce champ vide pour conserver votre jeton actuellement enregistré.
+            </div>
+          </div>
+
+          <div id="kdrive-edit-test-result" style="display:none; padding:10px 14px; border-radius:var(--radius-sm); margin-bottom:16px; font-size:0.8rem;"></div>
+
+          <div class="file-modal-footer" style="padding-top:18px; margin-top:18px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+            <button type="button" class="btn btn-danger btn-sm" onclick="deleteCurrentEditKDriveAccount()" title="Supprimer ce compte kDrive du NAS">
+              🗑️ Déconnecter
+            </button>
+            <div style="display:flex; gap:8px;">
+              <button type="button" class="btn btn-secondary" onclick="closeEditKDriveModal()">Annuler</button>
+              <button type="submit" class="btn btn-primary" id="btn-submit-edit-kdrive">
+                <span>💾 Enregistrer</span>
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <!-- ================= MODALE : COPIE KDRIVE VERS NAS ================= -->
   <div class="file-modal-overlay" id="modal-kdrive-copy-nas" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-kdrive-copy-nas')">
     <div class="file-modal-window" style="max-width: 520px;">

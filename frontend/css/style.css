@@ -17333,8 +17333,9 @@ body.app-updating-reload #app-shell {
 
 .files-kdrive-item-actions {
   display: flex;
-  gap: 4px;
-  opacity: 0;
+  align-items: center;
+  gap: 3px;
+  opacity: 0.65;
   transition: opacity 0.15s ease;
 }
 
@@ -17343,17 +17344,26 @@ body.app-updating-reload #app-shell {
 }
 
 .btn-kdrive-item-action {
-  background: transparent;
-  border: none;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   color: var(--subtext0);
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 3px 6px;
   border-radius: 4px;
   font-size: 0.75rem;
+  transition: all 0.15s ease;
+  line-height: 1;
 }
 
-.btn-kdrive-item-action:hover {
+.btn-kdrive-item-action.edit:hover {
+  color: var(--blue);
+  border-color: rgba(137, 180, 250, 0.4);
+  background: rgba(137, 180, 250, 0.15);
+}
+
+.btn-kdrive-item-action.delete:hover {
   color: var(--red);
+  border-color: rgba(243, 139, 168, 0.4);
   background: rgba(243, 139, 168, 0.15);
 }
 
