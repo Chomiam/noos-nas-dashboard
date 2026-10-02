@@ -94,6 +94,12 @@ pub struct UpdateCheckStatus {
     pub system_generation: Option<String>,
     #[serde(default)]
     pub system_generations_count: u32,
+    #[serde(default = "default_channel")]
+    pub channel: String,
+}
+
+fn default_channel() -> String {
+    "stable".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,6 +156,52 @@ static LIVE_UPDATE_LOG: Mutex<String> = Mutex::new(String::new());
 
 pub fn is_updating() -> bool {
     IS_UPDATING.load(Ordering::SeqCst)
+}
+
+pub fn clear_update_cache() {
+    if let Ok(mut guard) = UPDATE_CACHE.lock() {
+        *guard = None;
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateChannelConfig {
+    pub channel: String,
+}
+
+pub fn get_update_channel_file_path() -> PathBuf {
+    let p = PathBuf::from("/var/lib/noos/update_channel");
+    if let Some(parent) = p.parent() {
+        if parent.exists() {
+            return p;
+        }
+    }
+    PathBuf::from("/run/noos-update-channel")
+}
+
+pub fn get_update_channel() -> String {
+    let path = get_update_channel_file_path();
+    if let Ok(c) = fs::read_to_string(&path) {
+        let ch = c.trim().to_lowercase();
+        if ch == "testing" {
+            return "testing".to_string();
+        }
+    }
+    "stable".to_string()
+}
+
+pub fn set_update_channel(channel: &str) -> Result<String, String> {
+    let clean = channel.trim().to_lowercase();
+    let valid_channel = if clean == "testing" { "testing" } else { "stable" };
+    let path = get_update_channel_file_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    fs::write(&path, valid_channel)
+        .map_err(|e| format!("Impossible d'enregistrer le canal : {}", e))?;
+
+    clear_update_cache();
+    Ok(valid_channel.to_string())
 }
 
 fn get_update_log_path() -> std::path::PathBuf {
@@ -625,7 +677,9 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
     let mut config_pending_commits = Vec::new();
     let mut config_changed_files = Vec::new();
 
-    // 2. Détection du commit distant sur GitHub (Chomiam/noos-nas avec fallback steve_os-nix)
+    // 2. Détection du commit distant sur GitHub selon le canal (Stable=main, Testing=testing)
+    let active_channel = get_update_channel();
+    let preferred_branch = if active_channel == "testing" { "testing" } else { "main" };
     let candidate_remotes = [
         "https://github.com/Chomiam/noos-nas.git",
         "https://github.com/Chomiam/steve_os-nix.git",
@@ -633,10 +687,23 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
     let mut _resolved_remote_url = candidate_remotes[0];
 
     for remote_url in &candidate_remotes {
-        if let Ok(out) = git_cmd(&config_dir_str)
-            .args(["ls-remote", remote_url, "refs/heads/main"])
-            .output()
-        {
+        let mut target_ref = format!("refs/heads/{}", preferred_branch);
+        let mut branch_to_fetch = preferred_branch;
+
+        let mut check_out = git_cmd(&config_dir_str)
+            .args(["ls-remote", remote_url, &target_ref])
+            .output();
+
+        // Si la branche testing n'existe pas encore sur le dépôt distant, basculer sur main
+        if check_out.as_ref().map(|o| !o.status.success() || String::from_utf8_lossy(&o.stdout).trim().is_empty()).unwrap_or(true) && preferred_branch != "main" {
+            target_ref = "refs/heads/main".to_string();
+            branch_to_fetch = "main";
+            check_out = git_cmd(&config_dir_str)
+                .args(["ls-remote", remote_url, &target_ref])
+                .output();
+        }
+
+        if let Ok(out) = check_out {
             if out.status.success() {
                 _resolved_remote_url = remote_url;
                 let text = String::from_utf8_lossy(&out.stdout);
@@ -649,7 +716,7 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
                     if !full_local_commit.is_empty() && full_remote != full_local_commit {
                         // Récupération sans toucher aux fichiers de travail
                         let _ = git_cmd(&config_dir_str)
-                            .args(["fetch", remote_url, "main"])
+                            .args(["fetch", remote_url, branch_to_fetch])
                             .output();
 
                         let is_ancestor = git_cmd(&config_dir_str)
@@ -734,13 +801,21 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
         "https://github.com/Chomiam/noos-nas-dashboard.git",
     ];
 
+    let dashboard_target_ref = format!("refs/heads/{}", preferred_branch);
     for dashboard_git_url in &candidate_dashboard_urls {
-        if let Ok(ls_out) = Command::new(git_binary())
-            .args(["-c", "safe.directory=*", "ls-remote", dashboard_git_url, "refs/heads/main"])
-            .output()
-        {
-            if ls_out.status.success() {
-                let text = String::from_utf8_lossy(&ls_out.stdout);
+        let mut ls_out = Command::new(git_binary())
+            .args(["-c", "safe.directory=*", "ls-remote", dashboard_git_url, &dashboard_target_ref])
+            .output();
+
+        if ls_out.as_ref().map(|o| !o.status.success() || String::from_utf8_lossy(&o.stdout).trim().is_empty()).unwrap_or(true) && preferred_branch != "main" {
+            ls_out = Command::new(git_binary())
+                .args(["-c", "safe.directory=*", "ls-remote", dashboard_git_url, "refs/heads/main"])
+                .output();
+        }
+
+        if let Ok(res) = ls_out {
+            if res.status.success() {
+                let text = String::from_utf8_lossy(&res.stdout);
                 if let Some(sha) = text.split_whitespace().next() {
                     dashboard_remote_commit_full = Some(sha.to_string());
                     dashboard_remote_commit = Some(sha[..7.min(sha.len())].to_string());
@@ -982,6 +1057,7 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
         is_updating: is_updating(),
         system_generation: get_current_system_generation(),
         system_generations_count: get_system_generations_count(),
+        channel: active_channel,
     };
 
     if let Ok(mut guard) = UPDATE_CACHE.lock() {
@@ -1216,40 +1292,56 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
         }
     }
 
-    // 3. Fetch et merge sécurisé (fast-forward privilégié)
-    log.push_str("\n--- [Étape 2/3] Récupération des nouveautés depuis GitHub (noos-nas) ---\n");
-    let fetch_out = git_cmd(&dir_str)
-        .args(["fetch", "origin", "main"])
-        .output()
-        .map_err(|e| format!("Échec git fetch : {}", e))?;
+    // 3. Fetch et merge sécurisé (fast-forward privilégié) selon le canal actif
+    let active_channel = get_update_channel();
+    let preferred_pull_branch = if active_channel == "testing" { "testing" } else { "main" };
+    log.push_str(&format!("\n--- [Étape 2/3] Récupération des nouveautés depuis GitHub (noos-nas, canal {}) ---\n", active_channel));
+
+    let mut fetch_res = git_cmd(&dir_str)
+        .args(["fetch", "origin", preferred_pull_branch])
+        .output();
+
+    let pull_branch = if fetch_res.as_ref().map(|o| !o.status.success()).unwrap_or(true) && preferred_pull_branch != "main" {
+        log.push_str("Branche testing non trouvée sur origin, repli automatique sur la branche main...\n");
+        fetch_res = git_cmd(&dir_str)
+            .args(["fetch", "origin", "main"])
+            .output();
+        "main"
+    } else {
+        preferred_pull_branch
+    };
+
+    let fetch_out = fetch_res.map_err(|e| format!("Échec git fetch : {}", e))?;
 
     if !fetch_out.status.success() {
         let err = String::from_utf8_lossy(&fetch_out.stderr);
         return Err(format!("Erreur lors de la récupération distante : {}", err));
     }
 
-    // Vérifier si la branche locale a divergé d'origin/main uniquement sur flake.lock
+    let origin_target = format!("origin/{}", pull_branch);
+
+    // Vérifier si la branche locale a divergé d'origin/<branch> uniquement sur flake.lock
     let diff_ahead_out = git_cmd(&dir_str)
-        .args(["diff", "--name-only", "origin/main...HEAD"])
+        .args(["diff", "--name-only", &format!("{}...HEAD", origin_target)])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_default();
 
     if !diff_ahead_out.is_empty() && diff_ahead_out.lines().all(|l| l.trim() == "flake.lock") {
-        log.push_str("Divergence locale détectée uniquement sur flake.lock. Alignement automatique sur origin/main...\n");
-        let _ = git_cmd(&dir_str).args(["reset", "--mixed", "origin/main"]).output();
+        log.push_str(&format!("Divergence locale détectée uniquement sur flake.lock. Alignement automatique sur {}...\n", origin_target));
+        let _ = git_cmd(&dir_str).args(["reset", "--mixed", &origin_target]).output();
         let _ = git_cmd(&dir_str).args(["checkout", "--", "flake.lock"]).output();
     }
 
     let merge_out = git_cmd(&dir_str)
-        .args(["merge", "--ff-only", "origin/main"])
+        .args(["merge", "--ff-only", &origin_target])
         .output()
         .map_err(|e| format!("Échec du merge fast-forward : {}", e))?;
 
     if !merge_out.status.success() {
         log.push_str("Merge fast-forward non direct. Tentative de rebase automatique...\n");
         let rebase_out = git_cmd(&dir_str)
-            .args(["rebase", "origin/main"])
+            .args(["rebase", &origin_target])
             .output();
 
         match rebase_out {
@@ -1582,6 +1674,7 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
             is_updating: false,
             system_generation: get_current_system_generation(),
             system_generations_count: get_system_generations_count(),
+            channel: get_update_channel(),
         };
         *guard = Some((Instant::now(), clean_status));
     }

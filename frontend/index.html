@@ -1099,7 +1099,22 @@
               <div class="section-subtitle">Gestion déclarative des versions, synchronisation GitHub et déploiement NixOS</div>
             </div>
           </div>
-          <div style="display: flex; gap: 12px; align-items: center;">
+          <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+            <!-- Sélecteur Switch Canal : Stable / Testing -->
+            <div class="update-channel-pill-group" title="Sélectionnez le canal de publication des mises à jour">
+              <span class="update-channel-group-label">Canal :</span>
+              <div class="update-channel-switch-container">
+                <button type="button" class="btn-channel-pill active" id="btn-channel-stable" onclick="setSystemUpdateChannel('stable')" title="Canal Stable (branche main) : versions certifiées et éprouvées">
+                  <span class="channel-pill-icon">🛡️</span>
+                  <span class="channel-pill-label">Stable</span>
+                </button>
+                <button type="button" class="btn-channel-pill" id="btn-channel-testing" onclick="setSystemUpdateChannel('testing')" title="Canal Testing (branche testing) : versions de test et correctifs en avant-première">
+                  <span class="channel-pill-icon">🧪</span>
+                  <span class="channel-pill-label">Testing</span>
+                </button>
+              </div>
+            </div>
+
             <span id="updates-last-checked-time" class="updates-last-checked-pill"></span>
             <button type="button" class="btn-update-check" id="btn-refresh-updates" onclick="checkForUpdates(true)" title="Forcer la vérification des mises à jour sur GitHub">
               <span class="btn-update-icon" id="btn-refresh-updates-icon">🔄</span>
@@ -1116,8 +1131,11 @@
           <div class="update-hero-main">
             <div class="update-hero-icon-large" id="hero-status-icon">✨</div>
             <div class="update-hero-text">
-              <h2 class="update-hero-heading" id="hero-status-heading">Vérification de l'état du système...</h2>
-              <p class="update-hero-subheading" id="hero-status-subheading">Analyse du dépôt GitHub et comparaison avec la génération active...</p>
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <h2 class="update-hero-heading" id="hero-status-heading" style="margin-bottom: 0;">Vérification de l'état du système...</h2>
+                <span class="badge badge-success" id="hero-channel-badge" style="font-size: 0.78rem; padding: 3px 8px;">🛡️ Canal Stable</span>
+              </div>
+              <p class="update-hero-subheading" id="hero-status-subheading" style="margin-top: 6px;">Analyse du dépôt GitHub et comparaison avec la génération active...</p>
             </div>
           </div>
 

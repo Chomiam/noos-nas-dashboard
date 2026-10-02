@@ -388,6 +388,7 @@ function initApp() {
 
   refreshAll(false);
   updateSftpUri();
+  fetchSystemUpdateChannel();
   checkForUpdates(false);
   checkInitialUpdateProgress();
   fetchPowerStatus();
@@ -639,6 +640,61 @@ function switchUpdateSubtab(tabName, updateHash = true) {
   }
 }
 
+// ==========================================================================
+// CANAL DE MISE À JOUR (STABLE / TESTING)
+// ==========================================================================
+let activeUpdateChannel = "stable";
+
+function updateChannelSwitchUI(channel) {
+  const btnStable = document.getElementById("btn-channel-stable");
+  const btnTesting = document.getElementById("btn-channel-testing");
+  if (btnStable) btnStable.classList.toggle("active", channel === "stable");
+  if (btnTesting) btnTesting.classList.toggle("active", channel === "testing");
+}
+
+async function setSystemUpdateChannel(newChannel) {
+  if (newChannel !== "stable" && newChannel !== "testing") return;
+  activeUpdateChannel = newChannel;
+  updateChannelSwitchUI(newChannel);
+
+  const heroBadge = document.getElementById("hero-channel-badge");
+  if (heroBadge) {
+    heroBadge.className = `badge badge-channel-indicator badge-${newChannel}`;
+    heroBadge.textContent = newChannel === "testing" ? "🧪 Canal Testing" : "🛡️ Canal Stable";
+  }
+
+  try {
+    const res = await fetch("/api/updates/channel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channel: newChannel })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(`Canal de mise à jour basculé sur ${newChannel === 'testing' ? 'Testing 🧪' : 'Stable 🛡️'}`, "success");
+      checkForUpdates(true);
+    } else {
+      showToast(`Erreur : ${json.message || 'Impossible de changer de canal'}`, "error");
+    }
+  } catch (err) {
+    console.error("Erreur setSystemUpdateChannel:", err);
+    showToast(`Erreur réseau : ${err.message}`, "error");
+  }
+}
+
+async function fetchSystemUpdateChannel() {
+  try {
+    const res = await fetch("/api/updates/channel");
+    const json = await res.json();
+    if (json.success && json.data && json.data.channel) {
+      activeUpdateChannel = json.data.channel;
+      updateChannelSwitchUI(activeUpdateChannel);
+    }
+  } catch (err) {
+    console.warn("Erreur fetchSystemUpdateChannel:", err);
+  }
+}
+
 async function checkForUpdates(force = false) {
   const refreshBtn = document.getElementById("btn-refresh-updates");
   const refreshIcon = document.getElementById("btn-refresh-updates-icon");
@@ -672,7 +728,10 @@ async function checkForUpdates(force = false) {
   }
 
   try {
-    const res = await fetch(`/api/updates/status${force ? '?force=true' : ''}`);
+    const queryParams = new URLSearchParams();
+    if (force) queryParams.set("force", "true");
+    if (activeUpdateChannel) queryParams.set("channel", activeUpdateChannel);
+    const res = await fetch(`/api/updates/status?${queryParams.toString()}`);
     const json = await res.json();
     if (!json.success || !json.data) return;
 
@@ -749,6 +808,23 @@ function renderUpdatesUI(status) {
   const lastCheckedTime = document.getElementById("updates-last-checked-time");
   if (lastCheckedTime && status.last_checked) {
     lastCheckedTime.innerHTML = `<span>🕒</span> Vérifié à ${status.last_checked}`;
+  }
+
+  // Synchronisation de l'état du canal actif
+  if (status.channel) {
+    activeUpdateChannel = status.channel.toLowerCase();
+    updateChannelSwitchUI(activeUpdateChannel);
+  }
+
+  const heroChannelBadge = document.getElementById("hero-channel-badge");
+  if (heroChannelBadge) {
+    if (activeUpdateChannel === "testing") {
+      heroChannelBadge.className = "badge badge-channel-indicator badge-testing";
+      heroChannelBadge.textContent = "🧪 Canal Testing";
+    } else {
+      heroChannelBadge.className = "badge badge-channel-indicator badge-stable";
+      heroChannelBadge.textContent = "🛡️ Canal Stable";
+    }
   }
 
   const hasConfigUpdate = !!status.config_update_available;

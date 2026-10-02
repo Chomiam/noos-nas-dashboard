@@ -1,7 +1,21 @@
 # 📋 Directives de Développement & Cycle CI/CD — Noos Dashboard
 
 > **CONSIGNE IMPÉRATIVE POUR L'AGENT IA ET TOUT DÉVELOPPEUR :**
-> À chaque modification du projet `noos-nas-dashboard`, respecter scrupuleusement les 3 règles fondamentales suivantes.
+> À chaque modification du projet `noos-nas-dashboard`, respecter scrupuleusement les règles fondamentales suivantes.
+
+---
+
+## 🛡️ Règle Première Absolue : Publication exclusive sur la branche `testing`
+- **Toute modification, commit, tag et publication doivent obligatoirement et exclusivement être effectués sur la branche `testing`.**
+- **Interdiction formelle absolue de publier, pousser ou fusionner sur la branche `main` (Stable) sauf si l'utilisateur donne l'instruction explicite et formelle de publier en stable.**
+- **Cycle de travail standard :**
+  1. Travailler sur la branche `testing` (`git checkout testing`).
+  2. Valider le code localement par des vérifications ultra-légères (`cargo check`, `node -c`).
+  3. Pousser les modifications exclusivement sur `origin testing` :
+     ```bash
+     git push origin testing --tags
+     ```
+  4. La branche `main` (Stable) demeure sanctuarisée et réservée aux releases majeures expressément demandées.
 
 ---
 
@@ -21,7 +35,7 @@
      ```bash
      git tag -a vX.Y.Z -m "Release vX.Y.Z : résumé des nouveautés"
      ```
-  3. **Pousser sur GitHub** (`git push origin main --tags`) pour déclencher automatiquement le workflow GitHub Actions CI/CD.
+  3. **Pousser sur GitHub exclusivement sur `testing`** (`git push origin testing --tags`) pour déclencher automatiquement le workflow GitHub Actions CI/CD (qui prend en charge la branche `testing`).
 
 ---
 

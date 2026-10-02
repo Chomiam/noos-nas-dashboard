@@ -187,6 +187,8 @@ pub struct LogsQuery {
 pub struct UpdateCheckQuery {
     /// Si true, force l'actualisation depuis le dépôt GitHub distant sans utiliser le cache.
     pub force: Option<bool>,
+    /// Canal de mise à jour souhaité ("stable" ou "testing").
+    pub channel: Option<String>,
 }
 
 /// Paramètres d'application d'une mise à jour logicielle.
@@ -421,6 +423,7 @@ pub fn api_routes() -> Router {
         // 17. MISES À JOUR SYSTÈME & GÉNÉRATIONS NIXOS
         // --------------------------------------------------------------------
         .route("/updates/status", get(handle_updates_status))
+        .route("/updates/channel", get(handle_updates_get_channel).post(handle_updates_set_channel))
         .route("/updates/start", post(handle_updates_start))
         .route("/updates/progress", get(handle_updates_progress))
         .route("/updates/dismiss", post(handle_updates_dismiss))
@@ -633,7 +636,11 @@ async fn handle_logs_export(Query(params): Query<LogsQuery>) -> axum::response::
 /// Interroge les dépôts distants pour vérifier la présence d'une nouvelle version de STEvE_OS.
 async fn handle_updates_status(Query(params): Query<UpdateCheckQuery>) -> Json<ApiResponse<UpdateCheckStatus>> {
     let force = params.force.unwrap_or(false);
+    let channel_opt = params.channel;
     let status = tokio::task::spawn_blocking(move || {
+        if let Some(ref ch) = channel_opt {
+            let _ = crate::updates::set_update_channel(ch);
+        }
         check_updates(force)
     }).await.unwrap_or_else(|_| check_updates(false));
 
@@ -642,6 +649,40 @@ async fn handle_updates_status(Query(params): Query<UpdateCheckQuery>) -> Json<A
         data: Some(status),
         message: None,
     })
+}
+
+/// Corps de la requête de modification du canal de mise à jour.
+#[derive(Deserialize)]
+struct UpdateChannelRequest {
+    channel: String,
+}
+
+/// Récupère le canal de mise à jour actif (Stable ou Testing).
+async fn handle_updates_get_channel() -> Json<ApiResponse<crate::updates::UpdateChannelConfig>> {
+    let channel = crate::updates::get_update_channel();
+    Json(ApiResponse {
+        success: true,
+        data: Some(crate::updates::UpdateChannelConfig { channel }),
+        message: None,
+    })
+}
+
+/// Modifie le canal de mise à jour actif (Stable ou Testing).
+async fn handle_updates_set_channel(
+    Json(payload): Json<UpdateChannelRequest>,
+) -> Json<ApiResponse<crate::updates::UpdateChannelConfig>> {
+    match crate::updates::set_update_channel(&payload.channel) {
+        Ok(channel) => Json(ApiResponse {
+            success: true,
+            data: Some(crate::updates::UpdateChannelConfig { channel }),
+            message: Some(format!("Canal de mise à jour basculé sur '{}'.", payload.channel)),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+    }
 }
 
 #[derive(Deserialize)]
