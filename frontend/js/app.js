@@ -3,7 +3,6 @@
 // ==========================================================================
 
 const AUTH_TOKEN_KEY = "noos_auth_token";
-const LEGACY_AUTH_TOKEN_KEY = "steveos_auth_token";
 let currentUserSession = null;
 let isAppInitialized = false;
 let currentUserHome = "";
@@ -60,11 +59,8 @@ function getAuthToken() {
     if (qToken) {
       localStorage.setItem(AUTH_TOKEN_KEY, qToken);
       sessionStorage.setItem(AUTH_TOKEN_KEY, qToken);
-      localStorage.setItem(LEGACY_AUTH_TOKEN_KEY, qToken);
-      sessionStorage.setItem(LEGACY_AUTH_TOKEN_KEY, qToken);
-      document.cookie = `noos_token=${qToken}; path=/; max-age=604800; SameSite=Lax`;
-      document.cookie = `steveos_token=${qToken}; path=/; max-age=604800; SameSite=Lax`;
-      try {
+            document.cookie = `noos_token=${qToken}; path=/; max-age=604800; SameSite=Lax`;
+            try {
         const cleanUrl = window.location.pathname + (window.location.hash || "");
         window.history.replaceState({}, document.title, cleanUrl);
       } catch (e) {}
@@ -73,16 +69,13 @@ function getAuthToken() {
   } catch (e) {}
   const token = sessionStorage.getItem(AUTH_TOKEN_KEY) 
     || localStorage.getItem(AUTH_TOKEN_KEY)
-    || sessionStorage.getItem(LEGACY_AUTH_TOKEN_KEY) 
-    || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
+;
   if (token) {
     try {
       if (!document.cookie.includes("noos_token=")) {
         document.cookie = `noos_token=${token}; path=/; max-age=604800; SameSite=Lax`;
       }
-      if (!document.cookie.includes("steveos_token=")) {
-        document.cookie = `steveos_token=${token}; path=/; max-age=604800; SameSite=Lax`;
-      }
+
     } catch (e) {}
   }
   return token;
@@ -117,31 +110,22 @@ function setAuthToken(token, remember) {
   if (remember) {
     localStorage.setItem(AUTH_TOKEN_KEY, token);
     sessionStorage.setItem(AUTH_TOKEN_KEY, token);
-    localStorage.setItem(LEGACY_AUTH_TOKEN_KEY, token);
-    sessionStorage.setItem(LEGACY_AUTH_TOKEN_KEY, token);
-  } else {
+      } else {
     sessionStorage.setItem(AUTH_TOKEN_KEY, token);
-    sessionStorage.setItem(LEGACY_AUTH_TOKEN_KEY, token);
     localStorage.removeItem(AUTH_TOKEN_KEY);
-    localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
   }
   try {
     document.cookie = `noos_token=${token}; path=/; max-age=604800; SameSite=Lax`;
-    document.cookie = `steveos_token=${token}; path=/; max-age=604800; SameSite=Lax`;
-  } catch (e) {}
+      } catch (e) {}
 }
 
 function clearAuthToken() {
   sessionStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(AUTH_TOKEN_KEY);
-  sessionStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
-  localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
-  try {
+    try {
     document.cookie = "noos_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
     document.cookie = "noos_auth_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
-    document.cookie = "steveos_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
-    document.cookie = "steveos_auth_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
-  } catch (e) {}
+      } catch (e) {}
   currentUserSession = null;
 }
 
@@ -254,10 +238,10 @@ function getStoredTabId() {
   if (route.tabId) return route.tabId;
 
   try {
-    const local = localStorage.getItem("noos_active_tab") || localStorage.getItem("steveos_active_tab");
+    const local = localStorage.getItem("noos_active_tab");
     if (local && TAB_IDS.includes(local)) return local;
 
-    const session = sessionStorage.getItem("noos_active_tab") || sessionStorage.getItem("steveos_active_tab");
+    const session = sessionStorage.getItem("noos_active_tab");
     if (session && TAB_IDS.includes(session)) return session;
   } catch (e) {}
 
@@ -304,19 +288,19 @@ function applyInitialTabStateEarly() {
 function restoreStoredSubtabs(tabId) {
   try {
     if (tabId === "tab-network") {
-      const saved = localStorage.getItem("noos_subtab_network") || localStorage.getItem("steveos_subtab_network");
+      const saved = localStorage.getItem("noos_subtab_network");
       if (saved) switchNetworkSubtab(saved, false);
     } else if (tabId === "tab-containers") {
-      const saved = localStorage.getItem("noos_subtab_containers") || localStorage.getItem("steveos_subtab_containers");
+      const saved = localStorage.getItem("noos_subtab_containers");
       if (saved) switchDockerSubTab(saved, false);
     } else if (tabId === "tab-games") {
-      const saved = localStorage.getItem("noos_subtab_games") || localStorage.getItem("steveos_subtab_games");
+      const saved = localStorage.getItem("noos_subtab_games");
       if (saved) switchGamesSubtab(saved, false);
     } else if (tabId === "tab-updates") {
-      const saved = localStorage.getItem("noos_subtab_updates") || localStorage.getItem("steveos_subtab_updates");
+      const saved = localStorage.getItem("noos_subtab_updates");
       if (saved) switchUpdateSubtab(saved, false);
     } else if (tabId === "tab-users") {
-      const saved = localStorage.getItem("noos_subtab_users") || localStorage.getItem("steveos_subtab_users");
+      const saved = localStorage.getItem("noos_subtab_users");
       if (saved) switchUsersSubtab(saved, false);
     }
   } catch (e) {}
@@ -392,8 +376,8 @@ function initApp() {
       setTimeout(() => { triggerUpdateSuccessReload(true); }, 300);
     }
 
-    if (sessionStorage.getItem("noos_just_updated") === "true" || sessionStorage.getItem("steveos_just_updated") === "true") {
-      sessionStorage.removeItem("noos_just_updated"); sessionStorage.removeItem("steveos_just_updated");
+    if (sessionStorage.getItem("noos_just_updated") === "true") {
+      sessionStorage.removeItem("noos_just_updated");
       setTimeout(() => {
         showToast("✨ Le tableau de bord a été actualisé avec succès !", "success");
       }, 700);
@@ -463,8 +447,7 @@ function switchTab(tabId, updateHash = true) {
   try {
     localStorage.setItem("noos_active_tab", tabId);
     sessionStorage.setItem("noos_active_tab", tabId);
-    localStorage.setItem("steveos_active_tab", tabId);
-    sessionStorage.setItem("steveos_active_tab", tabId);
+    
   } catch (e) {}
 
   const updateHeaderBtn = document.getElementById("header-update-btn");
@@ -500,7 +483,7 @@ function switchTab(tabId, updateHash = true) {
   if (tabId === "tab-overview") loadSystem();
   if (tabId === "tab-files") {
     try {
-      const savedPath = localStorage.getItem("noos_files_path") || localStorage.getItem("steveos_files_path");
+      const savedPath = localStorage.getItem("noos_files_path");
       if (savedPath && !savedPath.includes("/chomiam")) {
         currentFolderPath = savedPath;
       } else {
@@ -632,7 +615,7 @@ let updateSubtabCurrent = 'commits';
 function switchUpdateSubtab(tabName, updateHash = true) {
   updateSubtabCurrent = tabName;
   try {
-    localStorage.setItem("noos_subtab_updates", tabName); localStorage.setItem("steveos_subtab_updates", tabName);
+    localStorage.setItem("noos_subtab_updates", tabName);
   } catch (e) {}
   if (updateHash && activeTab === "tab-updates") {
     updateUrlHash("tab-updates", tabName);
@@ -1320,8 +1303,8 @@ function triggerUpdateSuccessReload(skipReload = false) {
   isReloadingAfterUpdate = true;
 
   try {
-    sessionStorage.setItem("noos_active_tab", activeTab || "tab-overview"); sessionStorage.setItem("steveos_active_tab", activeTab || "tab-overview");
-    sessionStorage.setItem("noos_just_updated", "true"); sessionStorage.setItem("steveos_just_updated", "true");
+    sessionStorage.setItem("noos_active_tab", activeTab || "tab-overview");
+    sessionStorage.setItem("noos_just_updated", "true");
   } catch (e) {}
 
   // Appliquer le flou et l'atténuation sur toute l'interface
@@ -3639,9 +3622,9 @@ let trashOverview = null;
 let selectedTrashItem = null;
 let currentFolderParent = null;
 let currentEntries = [];
-let fileViewMode = localStorage.getItem("noos_file_view_mode") || localStorage.getItem("steveos_file_view_mode") || "grid";
-let fileSortColumn = localStorage.getItem("noos_file_sort_col") || localStorage.getItem("steveos_file_sort_col") || "name";
-let fileSortDirection = localStorage.getItem("noos_file_sort_dir") || localStorage.getItem("steveos_file_sort_dir") || "asc";
+let fileViewMode = localStorage.getItem("noos_file_view_mode") || "grid";
+let fileSortColumn = localStorage.getItem("noos_file_sort_col") || "name";
+let fileSortDirection = localStorage.getItem("noos_file_sort_dir") || "asc";
 let pinnedMountsList = [];
 let remoteMountsList = [];
 let storageMountsList = [];
@@ -3683,7 +3666,7 @@ async function navigateToPath(targetPath) {
     currentFolderParent = data.parent_path;
     currentEntries = data.entries || [];
     try {
-      localStorage.setItem("noos_files_path", currentFolderPath); localStorage.setItem("steveos_files_path", currentFolderPath);
+      localStorage.setItem("noos_files_path", currentFolderPath);
     } catch (e) {}
 
     updateFilesBreadcrumbs(currentFolderPath);
@@ -4114,7 +4097,7 @@ function refreshCurrentFolder() {
 function setFileViewMode(mode) {
   fileViewMode = mode;
   try {
-    localStorage.setItem("noos_file_view_mode", mode); localStorage.setItem("steveos_file_view_mode", mode);
+    localStorage.setItem("noos_file_view_mode", mode);
   } catch (e) {}
 
   const btnGrid = document.getElementById("btn-view-grid");
@@ -4134,8 +4117,8 @@ function toggleSortFiles(column) {
     fileSortDirection = "asc";
   }
   try {
-    localStorage.setItem("noos_file_sort_col", fileSortColumn); localStorage.setItem("steveos_file_sort_col", fileSortColumn);
-    localStorage.setItem("noos_file_sort_dir", fileSortDirection); localStorage.setItem("steveos_file_sort_dir", fileSortDirection);
+    localStorage.setItem("noos_file_sort_col", fileSortColumn);
+    localStorage.setItem("noos_file_sort_dir", fileSortDirection);
   } catch (e) {}
 
   updateSortIndicators();
@@ -9610,7 +9593,7 @@ let currentFirewallData = null;
 function switchDockerSubTab(subTab, updateHash = true) {
   activeDockerSubTab = subTab;
   try {
-    localStorage.setItem("noos_subtab_containers", subTab); localStorage.setItem("steveos_subtab_containers", subTab);
+    localStorage.setItem("noos_subtab_containers", subTab);
   } catch (e) {}
   if (updateHash && activeTab === "tab-containers") {
     updateUrlHash("tab-containers", subTab);
@@ -11347,7 +11330,7 @@ function addDockerConfigEnvRow(key = '', val = '') {
 // GESTIONNAIRE D'ORCHESTRATION & FILE D'ATTENTE DOCKER STORE (MULTI-POPUPS & PERSISTANCE)
 // ============================================================================
 const MAX_CONCURRENT_DOCKER_DEPLOYS = 2;
-const DOCKER_DEPLOY_STORAGE_KEY = "noos_docker_deployments_v1"; const LEGACY_DOCKER_DEPLOY_STORAGE_KEY = "steveos_docker_deployments_v1";
+const DOCKER_DEPLOY_STORAGE_KEY = "noos_docker_deployments_v1";
 const activeDockerDeployments = {}; // appId -> { appId, appName, icon, port, payload, status, step, progressPercent, subtitle, badgeText, badgeClass, errorMessage, startedAt, ... }
 const dockerDeployQueue = [];        // [ { appId, appName, icon, port, payload }, ... ]
 let dockerDeployTickerInterval = null;
@@ -11388,7 +11371,7 @@ function saveDockerDeployStateToStorage() {
 
 function restoreDockerDeployStateFromStorage() {
   try {
-    const raw = (localStorage.getItem(DOCKER_DEPLOY_STORAGE_KEY) || localStorage.getItem(LEGACY_DOCKER_DEPLOY_STORAGE_KEY));
+    const raw = (localStorage.getItem(DOCKER_DEPLOY_STORAGE_KEY) );
     if (!raw) return;
     const data = JSON.parse(raw);
     if (!data) return;
@@ -12546,7 +12529,7 @@ window.allFirewallPorts = [];
 function switchNetworkSubtab(subtabId, updateHash = true) {
   activeNetworkSubtab = subtabId;
   try {
-    localStorage.setItem("noos_subtab_network", subtabId); localStorage.setItem("steveos_subtab_network", subtabId);
+    localStorage.setItem("noos_subtab_network", subtabId);
   } catch (e) {}
   if (updateHash && activeTab === "tab-network") {
     updateUrlHash("tab-network", subtabId);
@@ -12571,7 +12554,7 @@ function switchNetworkSubtab(subtabId, updateHash = true) {
   }
   if (subtabId === "subtab-firewall") {
     try {
-      const savedFwState = localStorage.getItem("steveos_firewall_state");
+      const savedFwState = localStorage.getItem("noos_firewall_state");
       if (savedFwState === "disabled") {
         const toggle = document.getElementById("firewall-global-toggle");
         if (toggle) toggle.checked = false;
@@ -12694,7 +12677,7 @@ async function loadNetwork(showFeedback = false) {
 
     // Sauvegarder dans localStorage pour persistance UI immédiate
     try {
-      localStorage.setItem("steveos_firewall_state", fw.is_enabled ? "enabled" : "disabled");
+      localStorage.setItem("noos_firewall_state", fw.is_enabled ? "enabled" : "disabled");
     } catch (e) {}
 
     // Mise à jour de la carte Héro Pare-feu
@@ -12860,12 +12843,12 @@ function setFirewallFilter(filter) {
   filterFirewallPorts();
 }
 
-window.isSystemPortsCollapsed = (localStorage.getItem("steveos_fw_system_collapsed") === "true");
+window.isSystemPortsCollapsed = (localStorage.getItem("noos_fw_system_collapsed") === "true");
 
 function toggleSystemPortsCollapse() {
   window.isSystemPortsCollapsed = !window.isSystemPortsCollapsed;
   try {
-    localStorage.setItem("steveos_fw_system_collapsed", window.isSystemPortsCollapsed ? "true" : "false");
+    localStorage.setItem("noos_fw_system_collapsed", window.isSystemPortsCollapsed ? "true" : "false");
   } catch (_) {}
   filterFirewallPorts();
 }
@@ -13069,7 +13052,7 @@ async function executeFirewallToggle(enable) {
 
   // Persistance préemptive immédiate côté client pour éviter tout clignotement ou rebond
   try {
-    localStorage.setItem("steveos_firewall_state", enable ? "enabled" : "disabled");
+    localStorage.setItem("noos_firewall_state", enable ? "enabled" : "disabled");
   } catch (e) {}
 
   const fwToggle = document.getElementById("firewall-global-toggle");
@@ -13098,7 +13081,7 @@ async function executeFirewallToggle(enable) {
       showToast("Erreur : " + (json.message || "Échec de l'opération"), "error");
       if (fwToggle) fwToggle.checked = !enable;
       try {
-        localStorage.setItem("steveos_firewall_state", (!enable) ? "enabled" : "disabled");
+        localStorage.setItem("noos_firewall_state", (!enable) ? "enabled" : "disabled");
       } catch (e) {}
       loadNetwork();
     }
@@ -13515,7 +13498,7 @@ async function loadWireguardClients() {
   // 1. Rendu optimiste immédiat depuis le cache local (0 ms dès le chargement de la page)
   if (!cachedWgClients || cachedWgClients.length === 0) {
     try {
-      const saved = localStorage.getItem("steveos_cached_wg_clients");
+      const saved = localStorage.getItem("noos_cached_wg_clients");
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -13539,7 +13522,7 @@ async function loadWireguardClients() {
 
     cachedWgClients = json.data;
     try {
-      localStorage.setItem("steveos_cached_wg_clients", JSON.stringify(cachedWgClients));
+      localStorage.setItem("noos_cached_wg_clients", JSON.stringify(cachedWgClients));
     } catch (e) {}
 
     renderWireguardClients(cachedWgClients, tbody);
@@ -15011,7 +14994,7 @@ async function rebootNasFromGenModal() {
 let gameServersData = [];
 let hasFetchedGameServersOnce = false;
 try {
-  const cachedServers = localStorage.getItem("steveos_cached_game_servers");
+  const cachedServers = localStorage.getItem("noos_cached_game_servers");
   if (cachedServers) {
     const parsed = JSON.parse(cachedServers);
     if (Array.isArray(parsed) && parsed.length > 0) {
@@ -15029,7 +15012,7 @@ let currentGamesSubtab = "servers";
 function switchGamesSubtab(subtab, updateHash = true) {
   currentGamesSubtab = subtab;
   try {
-    localStorage.setItem("noos_subtab_games", subtab); localStorage.setItem("steveos_subtab_games", subtab);
+    localStorage.setItem("noos_subtab_games", subtab);
   } catch (e) {}
   if (updateHash && activeTab === "tab-games") {
     updateUrlHash("tab-games", subtab);
@@ -15064,7 +15047,7 @@ async function loadGameServers(forceToast = false) {
       gameServersData = json.data;
       syncDeployingServersFromList(gameServersData);
       try {
-        localStorage.setItem("steveos_cached_game_servers", JSON.stringify(gameServersData));
+        localStorage.setItem("noos_cached_game_servers", JSON.stringify(gameServersData));
       } catch (_) {}
       renderGameServers();
       updateGameConsoleSelectOptions();
@@ -15081,11 +15064,11 @@ async function loadGameServers(forceToast = false) {
   }
 }
 
-let currentGamesViewMode = localStorage.getItem('steveos_games_view_mode') || 'grid';
+let currentGamesViewMode = localStorage.getItem('noos_games_view_mode') || 'grid';
 
 function setGamesViewMode(mode) {
   currentGamesViewMode = mode;
-  try { localStorage.setItem('steveos_games_view_mode', mode); } catch (_) {}
+  try { localStorage.setItem('noos_games_view_mode', mode); } catch (_) {}
   const btnGrid = document.getElementById("btn-view-grid");
   const btnList = document.getElementById("btn-view-list");
   if (btnGrid) btnGrid.classList.toggle("active", mode === "grid");
@@ -15588,11 +15571,11 @@ async function syncEggCatalog(showToastNotice = true) {
 }
 
 let eggCatalogSearchQuery = '';
-let eggCatalogViewMode = localStorage.getItem('steveos_game_store_view') || 'grid';
+let eggCatalogViewMode = localStorage.getItem('noos_game_store_view') || 'grid';
 
 function setEggCatalogView(mode) {
   eggCatalogViewMode = mode === 'list' ? 'list' : 'grid';
-  localStorage.setItem('steveos_game_store_view', eggCatalogViewMode);
+  localStorage.setItem('noos_game_store_view', eggCatalogViewMode);
   updateEggCatalogViewButtons();
   renderEggCatalog();
 }
@@ -16816,7 +16799,7 @@ function openGameDeployProgressModal(serverId, serverName, eggName, eggIcon, egg
 
   if (badge) badge.textContent = (dep.eggName || "SERVEUR").toUpperCase();
   if (title) title.textContent = `Déploiement : ${dep.name}`;
-  if (termTitle) termTitle.innerHTML = `<span>⚡</span> container@steveos-nas:~/games/${escapeHtml(serverId)}`;
+  if (termTitle) termTitle.innerHTML = `<span>⚡</span> container@noos-nas:~/games/${escapeHtml(serverId)}`;
   if (heroIcon) {
     if (dep.iconUrl) {
       heroIcon.innerHTML = `<img src="${dep.iconUrl}" style="width:48px;height:48px;object-fit:contain;filter:drop-shadow(0 4px 10px rgba(0,0,0,0.6));">`;
@@ -17378,14 +17361,14 @@ let usersData = [];
 let groupsData = [];
 let activeUsersSubtab = 'accounts';
 let userRoleFilter = 'all';
-let userViewMode = (typeof localStorage !== 'undefined' && localStorage.getItem('steveos_users_view_mode')) || 'grid';
+let userViewMode = (typeof localStorage !== 'undefined' && localStorage.getItem('noos_users_view_mode')) || 'grid';
 let createUserStep = 1;
 let currentLoggedInUser = '';
 
 function switchUsersSubtab(subtabId, updateHash = true) {
   activeUsersSubtab = subtabId;
   try {
-    localStorage.setItem("noos_subtab_users", subtabId); localStorage.setItem("steveos_subtab_users", subtabId);
+    localStorage.setItem("noos_subtab_users", subtabId);
   } catch (e) {}
   if (updateHash && activeTab === "tab-users") {
     updateUrlHash("tab-users", subtabId);
@@ -17499,7 +17482,7 @@ function setUserRoleFilter(filter) {
 function setUserViewMode(mode) {
   userViewMode = mode;
   try {
-    localStorage.setItem('steveos_users_view_mode', mode);
+    localStorage.setItem('noos_users_view_mode', mode);
   } catch(e) {}
 
   const btnGrid = document.getElementById('btn-users-view-grid');
@@ -19222,7 +19205,7 @@ async function submitMountRemovable() {
 function openFilesAtPath(path) {
   if (!path) return;
   try {
-    localStorage.setItem("noos_files_path", path); localStorage.setItem("steveos_files_path", path);
+    localStorage.setItem("noos_files_path", path);
   } catch (e) {}
   switchTab("tab-files");
   if (typeof navigateToPath === "function") {
@@ -21098,7 +21081,7 @@ async function loadPinnedMounts() {
 
       // Appliquer l'ordre sauvegardé en localStorage s'il existe pour une fluidité instantanée
       try {
-        const savedOrder = JSON.parse(localStorage.getItem("steveos_pinned_mounts_order") || "[]");
+        const savedOrder = JSON.parse(localStorage.getItem("noos_pinned_mounts_order") || "[]");
         if (Array.isArray(savedOrder) && savedOrder.length > 0) {
           const pinMap = new Map(serverPins.map(p => [p.path, p]));
           const ordered = [];
@@ -21249,7 +21232,7 @@ function attachPinnedMountsDragAndDrop(container) {
       // Persistance locale et distante
       const orderedPaths = pinnedMountsList.map(p => p.path);
       try {
-        localStorage.setItem("steveos_pinned_mounts_order", JSON.stringify(orderedPaths));
+        localStorage.setItem("noos_pinned_mounts_order", JSON.stringify(orderedPaths));
       } catch (e) {}
 
       try {
@@ -21310,9 +21293,9 @@ async function unpinMountAction(path, event) {
     if (!json.success) throw new Error(json.message || "Échec");
 
     try {
-      let savedOrder = JSON.parse(localStorage.getItem("steveos_pinned_mounts_order") || "[]");
+      let savedOrder = JSON.parse(localStorage.getItem("noos_pinned_mounts_order") || "[]");
       savedOrder = savedOrder.filter(p => p !== path);
-      localStorage.setItem("steveos_pinned_mounts_order", JSON.stringify(savedOrder));
+      localStorage.setItem("noos_pinned_mounts_order", JSON.stringify(savedOrder));
     } catch (e) {}
 
     showToast("Point de montage retiré des favoris.", "info");

@@ -169,10 +169,6 @@ pub fn append_live_log(msg: &str) {
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
         let _ = f.write_all(msg.as_bytes());
     }
-    let legacy_log = std::path::PathBuf::from("/run/steveos-update.log");
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&legacy_log) {
-        let _ = f.write_all(msg.as_bytes());
-    }
 }
 
 pub fn get_live_log() -> (String, bool) {
@@ -181,11 +177,6 @@ pub fn get_live_log() -> (String, bool) {
         let log_path = get_update_log_path();
         if let Ok(content) = std::fs::read_to_string(&log_path) {
             log_str = content;
-        } else {
-            let legacy_log = std::path::PathBuf::from("/run/steveos-update.log");
-            if let Ok(content) = std::fs::read_to_string(&legacy_log) {
-                log_str = content;
-            }
         }
     }
     (log_str, is_updating())
@@ -223,7 +214,6 @@ pub fn save_update_progress(state: &UpdateProgressState) {
     let path = get_update_state_file_path();
     if let Ok(json) = serde_json::to_string_pretty(state) {
         let _ = fs::write(&path, &json);
-        let _ = fs::write("/run/steveos-update-state.json", &json);
     }
 }
 
@@ -451,8 +441,8 @@ pub fn target_user() -> String {
         }
     }
 
-    // 2. Vérifier NOOS_USER / STEVEOS_USER depuis l'environnement
-    if let Ok(u) = env::var("NOOS_USER").or_else(|_| env::var("STEVEOS_USER")) {
+    // 2. Vérifier NOOS_USER depuis l'environnement
+    if let Ok(u) = env::var("NOOS_USER") {
         let trimmed = u.trim();
         if !trimmed.is_empty() && user_exists(trimmed) {
             if trimmed != "chomiam" && trimmed != "admin" {
@@ -521,7 +511,7 @@ fn git_cmd(repo_dir: &str) -> Command {
 }
 
 pub fn resolve_config_dir() -> PathBuf {
-    if let Ok(dir) = env::var("NOOS_CONFIG_DIR").or_else(|_| env::var("STEVEOS_CONFIG_DIR")) {
+    if let Ok(dir) = env::var("NOOS_CONFIG_DIR") {
         let p = PathBuf::from(dir);
         if p.exists() {
             return p;
@@ -537,10 +527,6 @@ pub fn resolve_config_dir() -> PathBuf {
     let candidate_noos = get_user_home(&user).join("Projects/noos-nas");
     if candidate_noos.exists() {
         return candidate_noos;
-    }
-    let candidate2 = get_user_home(&user).join("Projects/steveos-nas");
-    if candidate2.exists() {
-        return candidate2;
     }
 
     PathBuf::from(".")
@@ -746,7 +732,6 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
 
     let candidate_dashboard_urls = [
         "https://github.com/Chomiam/noos-nas-dashboard.git",
-        "https://github.com/Chomiam/steveos-nas-dashboard.git",
     ];
 
     for dashboard_git_url in &candidate_dashboard_urls {
@@ -831,7 +816,7 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
                         continue;
                     }
 
-                    if node_name == "noos-nas-dashboard" || node_name == "steveos-nas-dashboard" {
+                    if node_name == "noos-nas-dashboard" {
                         dashboard_target_commit_full = Some(locked_rev.to_string());
                         dashboard_target_commit = Some(locked_rev[..7.min(locked_rev.len())].to_string());
                         continue;
@@ -1159,12 +1144,9 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
         }
     }
     if saved_vars_content.is_none() || saved_vars_content.as_ref().map(|s| !s.contains("username")).unwrap_or(true) {
-        for p in &["/tmp/noos-vars.backup", "/tmp/steveos-vars.backup"] {
-            if let Ok(c) = fs::read_to_string(p) {
-                if c.contains("username") && !c.contains("<<<<<<<") {
-                    saved_vars_content = Some(c);
-                    break;
-                }
+        if let Ok(c) = fs::read_to_string("/tmp/noos-vars.backup") {
+            if c.contains("username") && !c.contains("<<<<<<<") {
+                saved_vars_content = Some(c);
             }
         }
     }
@@ -1644,8 +1626,6 @@ pub fn start_detached_update(force_packages: bool) -> Result<(), String> {
 
     let exe = if Path::new("/run/current-system/sw/bin/noos-nas-dashboard").exists() {
         PathBuf::from("/run/current-system/sw/bin/noos-nas-dashboard")
-    } else if Path::new("/run/current-system/sw/bin/steveos-nas-dashboard").exists() {
-        PathBuf::from("/run/current-system/sw/bin/steveos-nas-dashboard")
     } else {
         env::current_exe().unwrap_or_else(|_| PathBuf::from("/proc/self/exe"))
     };
@@ -1882,9 +1862,9 @@ pub fn run_detached_update_process(force_packages: bool) {
 
             // 6. Redémarrage dashboard (strictement pendant l'activation, jamais pendant le build .drv !)
             if (state.step_index >= 3 || state.stage == "activating") &&
-               ((line.contains("stopping the following units:") && (line.contains("noos-nas-dashboard") || line.contains("steveos-nas-dashboard"))) ||
-                line.contains("stopping noos-nas-dashboard") || line.contains("stopping steveos-nas-dashboard") ||
-                line.contains("restarting noos-nas-dashboard") || line.contains("restarting steveos-nas-dashboard")) {
+               (line.contains("stopping the following units:") && line.contains("noos-nas-dashboard")) ||
+                line.contains("stopping noos-nas-dashboard") ||
+                line.contains("restarting noos-nas-dashboard") {
                 state.progress_percent = 92.max(state.progress_percent);
                 state.dashboard_restarting = true;
                 state.status_title = "Redémarrage du Dashboard...".to_string();
@@ -1942,9 +1922,9 @@ pub fn run_detached_update_process(force_packages: bool) {
         let is_effective_update = switch_success || (gen_advanced && matches!(exit_code, Some(2) | Some(3) | Some(4)));
 
         if is_effective_update {
-            // S'assurer que le service noos-nas-dashboard (ou steveos-nas-dashboard) est bien relancé avec le nouveau binaire
+            // S'assurer que le service noos-nas-dashboard est bien relancé avec le nouveau binaire
             let _ = Command::new("/run/current-system/sw/bin/systemctl")
-                .args(["try-restart", "noos-nas-dashboard.service", "steveos-nas-dashboard.service"])
+                .args(["try-restart", "noos-nas-dashboard.service"])
                 .status();
 
             let now_ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);

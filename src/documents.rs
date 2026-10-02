@@ -32,10 +32,6 @@ fn get_cache_dir() -> PathBuf {
     if fs::create_dir_all(&primary).is_ok() {
         primary
     } else {
-        let legacy = PathBuf::from("/var/cache/steveos-nas-dashboard/documents");
-        if legacy.exists() {
-            return legacy;
-        }
         let fallback = std::env::temp_dir().join("noos_doc_cache");
         let _ = fs::create_dir_all(&fallback);
         fallback

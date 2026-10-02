@@ -21,7 +21,7 @@
         if (valid.indexOf(h) !== -1) {
           target = h === 'docker' ? 'tab-containers' : 'tab-' + h;
         } else {
-          var saved = localStorage.getItem('noos_active_tab') || localStorage.getItem('steveos_active_tab') || sessionStorage.getItem('noos_active_tab') || sessionStorage.getItem('steveos_active_tab');
+          var saved = localStorage.getItem('noos_active_tab') || sessionStorage.getItem('noos_active_tab');
           if (saved && saved.startsWith('tab-')) target = saved;
         }
         if (target && target !== 'tab-overview') {
@@ -3325,7 +3325,6 @@
                     <option value="docker">docker (Conteneurs)</option>
                     <option value="fail2ban">fail2ban (Sécurité)</option>
                     <option value="noos-nas-dashboard">noos-nas-dashboard (Web)</option>
-                    <option value="steveos-nas-dashboard">steveos-nas-dashboard (Legacy)</option>
                   </select>
                   <button type="button" class="btn btn-secondary btn-xs" onclick="loadLogs()">
                     🔄 Actualiser

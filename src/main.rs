@@ -129,7 +129,6 @@ async fn main() {
 
     // 3. Résolution du chemin des fichiers statiques du frontend (HTML/CSS/JS)
     let frontend_dir = env::var("NOOS_FRONTEND_DIR")
-        .or_else(|_| env::var("STEVEOS_FRONTEND_DIR"))
         .unwrap_or_else(|_| "frontend".to_string());
 
     // 4. Construction du routeur API protégé
@@ -181,7 +180,7 @@ async fn main() {
 
 /// Analyse le port réseau à utiliser selon l'ordre de priorité suivant :
 /// 1. Argument CLI `--port <NUM>` ou `-p <NUM>`
-/// 2. Variable d'environnement `NOOS_PORT` (ou legacy `STEVEOS_PORT`)
+/// 2. Variable d'environnement `NOOS_PORT`
 /// 3. Constante de secours [`DEFAULT_PORT`] (9339)
 fn parse_port() -> u16 {
     let args: Vec<String> = env::args().collect();
@@ -193,7 +192,7 @@ fn parse_port() -> u16 {
         }
     }
 
-    if let Ok(env_p) = env::var("NOOS_PORT").or_else(|_| env::var("STEVEOS_PORT")) {
+    if let Ok(env_p) = env::var("NOOS_PORT") {
         if let Ok(p) = env_p.parse::<u16>() {
             return p;
         }

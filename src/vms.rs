@@ -156,7 +156,7 @@ pub fn get_qemu_img_bin() -> String {
 }
 
 pub fn get_vms_pool_dir() -> PathBuf {
-    for p in &["/mnt/storage/vms", "/storage/vms", "/var/lib/noos/vms", "/var/lib/steveos/vms"] {
+    for p in &["/mnt/storage/vms", "/storage/vms", "/var/lib/noos/vms"] {
         let pb = PathBuf::from(p);
         if pb.is_dir() {
             return pb;
@@ -168,7 +168,7 @@ pub fn get_vms_pool_dir() -> PathBuf {
 }
 
 pub fn get_isos_dir() -> PathBuf {
-    for p in &["/mnt/storage/isos", "/storage/isos", "/var/lib/noos/isos", "/var/lib/steveos/isos"] {
+    for p in &["/mnt/storage/isos", "/storage/isos", "/var/lib/noos/isos"] {
         let pb = PathBuf::from(p);
         if pb.is_dir() {
             return pb;

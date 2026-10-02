@@ -2363,15 +2363,9 @@ pub fn resolve_game_container_name(id: &str) -> String {
         }
     }
     let noos_name = format!("noos-game-{}", id);
-    let steve_name = format!("steveos-game-{}", id);
     if let Ok(out) = Command::new("docker").args(["inspect", "--format", "{{.Name}}", &noos_name]).output() {
         if out.status.success() {
             return noos_name;
-        }
-    }
-    if let Ok(out) = Command::new("docker").args(["inspect", "--format", "{{.Name}}", &steve_name]).output() {
-        if out.status.success() {
-            return steve_name;
         }
     }
     noos_name
@@ -2434,8 +2428,6 @@ pub fn delete_game_server(id: &str, delete_data: bool) -> Result<String, String>
 
     let _ = Command::new("docker").args(["stop", "-t", "2", &container_name]).status();
     let _ = Command::new("docker").args(["rm", "-f", &container_name]).status();
-    let _ = Command::new("docker").args(["stop", "-t", "2", &format!("steveos-game-{}", id)]).status();
-    let _ = Command::new("docker").args(["rm", "-f", &format!("steveos-game-{}", id)]).status();
 
     if let Some(pos) = servers.iter().position(|s| s.id == id) {
         let server = servers.remove(pos);

@@ -938,7 +938,7 @@ fn calculate_hash<T: std::hash::Hash>(t: &T) -> u64 {
 ///
 /// - **Formats Web natifs directs** : Les formats courants (JPEG, PNG, WebP, SVG, GIF)
 ///   sont retournés directement sans conversion si la pleine résolution est demandée.
-/// - **Cache de conversion (`/tmp/noos_image_cache` / `/tmp/steveos_image_cache`)** : Les formats lourds ou non lisibles
+/// - **Cache de conversion (`/tmp/noos_image_cache`)** : Les formats lourds ou non lisibles
 ///   par le navigateur (RAW, HEIC, TIFF, PSD, DDS, TGA) ou les miniatures sont convertis et
 ///   mis en cache en utilisant une clé de hachage invalidée dès que le fichier source change.
 /// - **Stratégie en cascade à 3 niveaux** :
@@ -986,11 +986,6 @@ pub fn get_image_preview_path(path_str: &str, is_thumb: bool) -> Result<(PathBuf
 
     if cached_path.exists() && cached_path.metadata().map(|m| m.len() > 100).unwrap_or(false) {
         return Ok((cached_path, "image/jpeg".to_string()));
-    }
-
-    let legacy_cached_path = PathBuf::from("/tmp/steveos_image_cache").join(format!("{}.jpg", hash));
-    if legacy_cached_path.exists() && legacy_cached_path.metadata().map(|m| m.len() > 100).unwrap_or(false) {
-        return Ok((legacy_cached_path, "image/jpeg".to_string()));
     }
 
     let is_raw = matches!(

@@ -64,8 +64,7 @@ pub struct UpdateDnsRequest {
 pub fn get_dns_json_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     paths.push(PathBuf::from("/var/lib/noos/dns.json"));
-    paths.push(PathBuf::from("/var/lib/steveos/dns.json"));
-    if let Ok(config_dir) = std::env::var("NOOS_CONFIG_DIR").or_else(|_| std::env::var("STEVEOS_CONFIG_DIR")) {
+    if let Ok(config_dir) = std::env::var("NOOS_CONFIG_DIR") {
         let p = PathBuf::from(config_dir).join("dns.json");
         if !paths.contains(&p) {
             paths.push(p);
@@ -76,14 +75,9 @@ pub fn get_dns_json_paths() -> Vec<PathBuf> {
     if !paths.contains(&user_dev_noos) {
         paths.push(user_dev_noos);
     }
-    let user_dev_steve = crate::updates::get_user_home(&target_u).join("Projects/steveos-nas/dns.json");
-    if !paths.contains(&user_dev_steve) {
-        paths.push(user_dev_steve);
-    }
     for p in &[
         "/etc/nixos/dns.json",
         "/etc/nixos/noos-nas/dns.json",
-        "/etc/nixos/steveos-nas/dns.json",
         "./dns.json",
         "../dns.json",
         "../../dns.json",
@@ -119,7 +113,6 @@ pub fn load_dns_config() -> DnsConfig {
 pub fn save_dns_config(cfg: &DnsConfig) -> Result<(), String> {
     let json = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
     let _ = std::fs::create_dir_all("/var/lib/noos");
-    let _ = std::fs::create_dir_all("/var/lib/steveos");
 
     let mut written = false;
     for path in get_dns_json_paths() {
@@ -373,7 +366,6 @@ fn apply_dns_runtime(cfg: &DnsConfig) -> Result<(), String> {
         let tmp_dropin = "/tmp/noos-resolved-stub.conf";
         if std::fs::write(tmp_dropin, dropin).is_ok() {
             let _ = Command::new("sudo").args(["cp", tmp_dropin, "/etc/systemd/resolved.conf.d/noos-dns.conf"]).output();
-            let _ = Command::new("sudo").args(["cp", tmp_dropin, "/etc/systemd/resolved.conf.d/steveos-dns.conf"]).output();
             let _ = std::fs::remove_file(tmp_dropin);
         }
 

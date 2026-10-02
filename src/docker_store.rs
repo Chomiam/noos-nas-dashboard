@@ -176,8 +176,7 @@ pub fn resolve_store_app_info(project_or_name: &str) -> Option<(String, String, 
     let stripped = clean.strip_prefix("docker-").unwrap_or(&clean);
 
     let cache_file_noos = Path::new("/var/cache/noos-nas-dashboard/store_cache.json");
-    let cache_file_steve = Path::new("/var/cache/steveos-nas-dashboard/store_cache.json");
-    let catalog: StoreCatalog = if let Ok(txt) = std::fs::read_to_string(cache_file_noos).or_else(|_| std::fs::read_to_string(cache_file_steve)) {
+    let catalog: StoreCatalog = if let Ok(txt) = std::fs::read_to_string(cache_file_noos) {
         serde_json::from_str(&txt).unwrap_or_else(|_| get_default_catalog())
     } else {
         get_default_catalog()
@@ -237,37 +236,26 @@ pub fn get_running_containers_map() -> HashMap<String, (String, String, bool)> {
 pub fn get_store_catalog() -> StoreCatalog {
     let cache_dir_noos = Path::new("/var/cache/noos-nas-dashboard");
     let cache_file_noos = cache_dir_noos.join("store_cache.json");
-    let cache_dir_steve = Path::new("/var/cache/steveos-nas-dashboard");
-    let cache_file_steve = cache_dir_steve.join("store_cache.json");
 
-    // 1. Tenter la récupération depuis GitHub (noos_nas_store avec fallback steveos_nas_store)
-    let urls = [
-        "https://raw.githubusercontent.com/Chomiam/noos_nas_store/main/store.json",
-        "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/store.json",
-    ];
+    // 1. Tenter la récupération depuis GitHub (noos_nas_store)
+    let url = "https://raw.githubusercontent.com/Chomiam/noos_nas_store/main/store.json";
 
     let mut json_text = None;
-    for u in &urls {
-        if let Ok(out) = Command::new("curl")
-            .args(["-s", "-L", "--connect-timeout", "4", "--max-time", "8", u])
-            .output()
-        {
-            let text = String::from_utf8_lossy(&out.stdout).to_string();
-            if text.trim().starts_with('{') {
-                let _ = std::fs::create_dir_all(cache_dir_noos);
-                let _ = std::fs::write(&cache_file_noos, &text);
-                let _ = std::fs::create_dir_all(cache_dir_steve);
-                let _ = std::fs::write(&cache_file_steve, &text);
-                json_text = Some(text);
-                break;
-            }
+    if let Ok(out) = Command::new("curl")
+        .args(["-s", "-L", "--connect-timeout", "4", "--max-time", "8", url])
+        .output()
+    {
+        let text = String::from_utf8_lossy(&out.stdout).to_string();
+        if text.trim().starts_with('{') {
+            let _ = std::fs::create_dir_all(cache_dir_noos);
+            let _ = std::fs::write(&cache_file_noos, &text);
+            json_text = Some(text);
         }
     }
 
     // 2. Repli sur le cache local
     let json_text = json_text
-        .or_else(|| std::fs::read_to_string(&cache_file_noos).ok())
-        .or_else(|| std::fs::read_to_string(&cache_file_steve).ok());
+        .or_else(|| std::fs::read_to_string(&cache_file_noos).ok());
 
     // 3. Parser ou repli sur catalogue par défaut
     let mut catalog: StoreCatalog = if let Some(txt) = json_text {
@@ -457,23 +445,17 @@ pub fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
         }
     }
 
-    // 2. Récupérer le compose.yaml depuis noos_nas_store (avec fallback steveos_nas_store)
-    let candidate_urls = [
-        format!("https://raw.githubusercontent.com/Chomiam/noos_nas_store/main/apps/{}/compose.yaml", clean_id),
-        format!("https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/{}/compose.yaml", clean_id),
-    ];
+    // 2. Récupérer le compose.yaml depuis noos_nas_store
+    let compose_url = format!("https://raw.githubusercontent.com/Chomiam/noos_nas_store/main/apps/{}/compose.yaml", clean_id);
 
     let mut fetched_compose = None;
-    for u in &candidate_urls {
-        if let Ok(out) = Command::new("curl")
-            .args(["-s", "-L", "--connect-timeout", "5", "--max-time", "15", u])
-            .output()
-        {
-            let s = String::from_utf8_lossy(&out.stdout).to_string();
-            if s.contains("services:") {
-                fetched_compose = Some(s);
-                break;
-            }
+    if let Ok(out) = Command::new("curl")
+        .args(["-s", "-L", "--connect-timeout", "5", "--max-time", "15", &compose_url])
+        .output()
+    {
+        let s = String::from_utf8_lossy(&out.stdout).to_string();
+        if s.contains("services:") {
+            fetched_compose = Some(s);
         }
     }
 
@@ -502,7 +484,6 @@ pub fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
         let tmp_dropin = "/tmp/noos-resolved-stub.conf";
         if std::fs::write(tmp_dropin, dropin).is_ok() {
             let _ = Command::new("sudo").args(["cp", tmp_dropin, "/etc/systemd/resolved.conf.d/noos-dns.conf"]).output();
-            let _ = Command::new("sudo").args(["cp", tmp_dropin, "/etc/systemd/resolved.conf.d/steveos-dns.conf"]).output();
             let _ = std::fs::remove_file(tmp_dropin);
         }
         let _ = Command::new("sudo").args(["systemctl", "restart", "systemd-resolved"]).output();

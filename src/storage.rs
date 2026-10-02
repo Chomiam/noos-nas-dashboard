@@ -221,7 +221,6 @@ pub fn get_mounts_json_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     // 1. Emplacement persistant standardisé
     paths.push(PathBuf::from("/var/lib/noos/mounts.json"));
-    paths.push(PathBuf::from("/var/lib/steveos/mounts.json"));
 
     // 2. Dossier de configuration résolu
     let cfg_dir = crate::updates::resolve_config_dir();
@@ -236,15 +235,10 @@ pub fn get_mounts_json_paths() -> Vec<PathBuf> {
     if !paths.contains(&user_dev_noos) {
         paths.push(user_dev_noos);
     }
-    let user_dev_steve = PathBuf::from(format!("/home/{}/Projects/steveos-nas/mounts.json", u));
-    if !paths.contains(&user_dev_steve) {
-        paths.push(user_dev_steve);
-    }
 
     for p in &[
         "/etc/nixos/mounts.json",
         "/etc/nixos/noos-nas/mounts.json",
-        "/etc/nixos/steveos-nas/mounts.json",
         "./mounts.json",
         "../mounts.json",
     ] {
@@ -272,7 +266,6 @@ pub fn load_persisted_mounts() -> Vec<PersistedMount> {
 pub fn save_persisted_mounts(mounts: &[PersistedMount]) -> Result<(), String> {
     let json = serde_json::to_string_pretty(mounts).map_err(|e| e.to_string())?;
     let _ = std::fs::create_dir_all("/var/lib/noos");
-    let _ = std::fs::create_dir_all("/var/lib/steveos");
 
     let mut written = false;
     for path in get_mounts_json_paths() {
@@ -1278,15 +1271,8 @@ pub fn format_disk(req: &FormatDiskRequest) -> Result<String, String> {
 
 static ACTIVE_STORAGE_JOB: std::sync::Mutex<Option<StorageJob>> = std::sync::Mutex::new(None);
 
+#[allow(dead_code)]
 pub fn get_storage_jobs_file_path() -> PathBuf {
-    let noos_p = PathBuf::from("/var/lib/noos/storage_jobs.json");
-    if noos_p.exists() {
-        return noos_p;
-    }
-    let steve_p = PathBuf::from("/var/lib/steveos/storage_jobs.json");
-    if steve_p.exists() {
-        return steve_p;
-    }
     let p = PathBuf::from("/var/lib/noos/storage_jobs.json");
     if let Some(parent) = p.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -1297,9 +1283,7 @@ pub fn get_storage_jobs_file_path() -> PathBuf {
 pub fn load_persisted_storage_job() -> Option<StorageJob> {
     let candidate_paths = [
         PathBuf::from("/var/lib/noos/storage_jobs.json"),
-        PathBuf::from("/var/lib/steveos/storage_jobs.json"),
         PathBuf::from("/tmp/noos_storage_jobs.json"),
-        PathBuf::from("/tmp/steveos_storage_jobs.json"),
     ];
 
     for p in &candidate_paths {
@@ -1317,11 +1301,8 @@ pub fn load_persisted_storage_job() -> Option<StorageJob> {
 pub fn save_persisted_storage_job(job: &StorageJob) {
     if let Ok(json) = serde_json::to_string_pretty(job) {
         let _ = std::fs::create_dir_all("/var/lib/noos");
-        let _ = std::fs::create_dir_all("/var/lib/steveos");
         let _ = std::fs::write("/var/lib/noos/storage_jobs.json", &json);
-        let _ = std::fs::write("/var/lib/steveos/storage_jobs.json", &json);
         let _ = std::fs::write("/tmp/noos_storage_jobs.json", &json);
-        let _ = std::fs::write("/tmp/steveos_storage_jobs.json", json);
     }
 }
 
@@ -1345,9 +1326,7 @@ pub fn dismiss_storage_job() {
         *guard = None;
     }
     let _ = std::fs::remove_file("/var/lib/noos/storage_jobs.json");
-    let _ = std::fs::remove_file("/var/lib/steveos/storage_jobs.json");
     let _ = std::fs::remove_file("/tmp/noos_storage_jobs.json");
-    let _ = std::fs::remove_file("/tmp/steveos_storage_jobs.json");
 }
 
 fn update_job_step(
@@ -2037,7 +2016,7 @@ pub fn trigger_disk_spindown(disk_name: &str) -> Result<String, String> {
 
 
 pub fn target_user() -> String {
-    if let Ok(u) = std::env::var("NOOS_USER").or_else(|_| std::env::var("STEVEOS_USER")) {
+    if let Ok(u) = std::env::var("NOOS_USER") {
         let trimmed = u.trim();
         if !trimmed.is_empty() {
             return trimmed.to_string();

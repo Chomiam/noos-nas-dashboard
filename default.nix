@@ -2,7 +2,7 @@
 
 pkgs.rustPlatform.buildRustPackage rec {
   pname = "noos-nas-dashboard";
-  version = "0.3.3";
+  version = "0.3.4";
 
   src = ./.;
 
@@ -21,11 +21,6 @@ pkgs.rustPlatform.buildRustPackage rec {
   postInstall = ''
     mkdir -p $out/share/noos-nas-dashboard
     cp -r frontend $out/share/noos-nas-dashboard/
-
-    # Shims de rétrocompatibilité absolue STEvE_OS -> Noos
-    mkdir -p $out/share/steveos-nas-dashboard
-    ln -s $out/share/noos-nas-dashboard/frontend $out/share/steveos-nas-dashboard/frontend
-    ln -s $out/bin/noos-nas-dashboard $out/bin/steveos-nas-dashboard
   '';
 
   meta = with pkgs.lib; {

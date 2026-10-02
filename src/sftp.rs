@@ -133,52 +133,28 @@ pub struct DisconnectSftpSessionRequest {
 // GESTION DU RÉPERTOIRE DE CONFIGURATION & PERSISTANCE
 // =========================================================================
 
+#[allow(dead_code)]
 fn resolve_sftp_dir() -> PathBuf {
     let var_lib_noos = Path::new("/var/lib/noos");
     let _ = fs::create_dir_all(var_lib_noos);
-    let _ = fs::create_dir_all("/var/lib/steveos");
 
     if var_lib_noos.exists() {
         return var_lib_noos.to_path_buf();
-    }
-    let var_lib_steve = Path::new("/var/lib/steveos");
-    if var_lib_steve.exists() {
-        return var_lib_steve.to_path_buf();
     }
     PathBuf::from("/tmp")
 }
 
 fn get_sftp_shares_json_path() -> PathBuf {
-    let noos_p = PathBuf::from("/var/lib/noos/sftp_shares.json");
-    if !noos_p.exists() {
-        let steve_p = PathBuf::from("/var/lib/steveos/sftp_shares.json");
-        if steve_p.exists() {
-            return steve_p;
-        }
-    }
-    noos_p
+    PathBuf::from("/var/lib/noos/sftp_shares.json")
 }
 
 fn get_sftp_global_json_path() -> PathBuf {
-    let noos_p = PathBuf::from("/var/lib/noos/sftp_global.json");
-    if !noos_p.exists() {
-        let steve_p = PathBuf::from("/var/lib/steveos/sftp_global.json");
-        if steve_p.exists() {
-            return steve_p;
-        }
-    }
-    noos_p
+    PathBuf::from("/var/lib/noos/sftp_global.json")
 }
 
+#[allow(dead_code)]
 fn get_sftp_shares_conf_path() -> PathBuf {
-    let noos_p = PathBuf::from("/var/lib/noos/sftp_shares.conf");
-    if !noos_p.exists() {
-        let steve_p = PathBuf::from("/var/lib/steveos/sftp_shares.conf");
-        if steve_p.exists() {
-            return steve_p;
-        }
-    }
-    noos_p
+    PathBuf::from("/var/lib/noos/sftp_shares.conf")
 }
 
 pub fn load_sftp_global_config() -> SftpGlobalConfig {
@@ -251,9 +227,7 @@ pub fn save_sftp_shares_and_generate_conf(
         .map_err(|e| format!("Erreur sérialisation sftp_shares.json: {}", e))?;
 
     let _ = fs::create_dir_all("/var/lib/noos");
-    let _ = fs::create_dir_all("/var/lib/steveos");
     let _ = fs::write("/var/lib/noos/sftp_shares.json", &json_content);
-    let _ = fs::write("/var/lib/steveos/sftp_shares.json", &json_content);
 
     let mut conf = String::new();
     conf.push_str("# =========================================================================\n");
@@ -294,7 +268,6 @@ pub fn save_sftp_shares_and_generate_conf(
     }
 
     let _ = fs::write("/var/lib/noos/sftp_shares.conf", &conf);
-    let _ = fs::write("/var/lib/steveos/sftp_shares.conf", &conf);
 
     reload_sshd_service();
 
@@ -377,14 +350,9 @@ pub fn get_sftp_allowed_users() -> Vec<SftpUserAccess> {
     let mut allowed_users = Vec::new();
     let primary_user = target_user();
 
-    let registry_candidates = [
-        PathBuf::from("/var/lib/noos/users-registry.json"),
-        PathBuf::from("/var/lib/steveos/users-registry.json"),
-    ];
-    let registry_meta: HashMap<String, (String, String, bool)> = registry_candidates
-        .iter()
-        .find(|p| p.exists())
-        .and_then(|p| fs::read_to_string(p).ok())
+    let registry_path = PathBuf::from("/var/lib/noos/users-registry.json");
+    let registry_meta: HashMap<String, (String, String, bool)> = fs::read_to_string(&registry_path)
+        .ok()
         .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
         .map(|v| {
             let mut map = HashMap::new();

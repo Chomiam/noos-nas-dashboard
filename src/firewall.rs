@@ -82,7 +82,6 @@ pub fn get_firewall_state_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     // 1. Emplacement persistant standardisé au niveau système Linux / NixOS
     paths.push(PathBuf::from("/var/lib/noos/firewall-state.json"));
-    paths.push(PathBuf::from("/var/lib/steveos/firewall-state.json"));
 
     // 2. Dossier de configuration résolu du système (ex: /etc/nixos ou repo local)
     let cfg_dir = crate::updates::resolve_config_dir();
@@ -97,15 +96,10 @@ pub fn get_firewall_state_paths() -> Vec<PathBuf> {
     if !paths.contains(&user_dev_noos) {
         paths.push(user_dev_noos);
     }
-    let user_dev_state = crate::updates::get_user_home(&u).join("Projects/steveos-nas/firewall-state.json");
-    if !paths.contains(&user_dev_state) {
-        paths.push(user_dev_state);
-    }
 
     for p in &[
         "/etc/nixos/firewall-state.json",
         "/etc/nixos/noos-nas/firewall-state.json",
-        "/etc/nixos/steveos-nas/firewall-state.json",
         "./firewall-state.json",
     ] {
         let pb = PathBuf::from(p);
@@ -120,7 +114,6 @@ pub fn get_firewall_rules_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     // 1. Emplacement persistant standardisé
     paths.push(PathBuf::from("/var/lib/noos/firewall-rules.json"));
-    paths.push(PathBuf::from("/var/lib/steveos/firewall-rules.json"));
 
     // 2. Dossier de configuration résolu
     let cfg_dir = crate::updates::resolve_config_dir();
@@ -135,15 +128,10 @@ pub fn get_firewall_rules_paths() -> Vec<PathBuf> {
     if !paths.contains(&user_dev_noos) {
         paths.push(user_dev_noos);
     }
-    let user_dev_rules = crate::updates::get_user_home(&u).join("Projects/steveos-nas/firewall-rules.json");
-    if !paths.contains(&user_dev_rules) {
-        paths.push(user_dev_rules);
-    }
 
     for p in &[
         "/etc/nixos/firewall-rules.json",
         "/etc/nixos/noos-nas/firewall-rules.json",
-        "/etc/nixos/steveos-nas/firewall-rules.json",
         "./firewall-rules.json",
     ] {
         let pb = PathBuf::from(p);
@@ -162,7 +150,6 @@ pub fn get_firewall_rules_file_path() -> PathBuf {
         }
     }
     let _ = std::fs::create_dir_all("/var/lib/noos");
-    let _ = std::fs::create_dir_all("/var/lib/steveos");
     PathBuf::from("/var/lib/noos/firewall-rules.json")
 }
 
@@ -174,7 +161,6 @@ pub fn get_firewall_state_file_path() -> PathBuf {
         }
     }
     let _ = std::fs::create_dir_all("/var/lib/noos");
-    let _ = std::fs::create_dir_all("/var/lib/steveos");
     PathBuf::from("/var/lib/noos/firewall-state.json")
 }
 
@@ -187,7 +173,6 @@ pub fn get_vars_nix_paths() -> Vec<PathBuf> {
     for p in &[
         "/etc/nixos/vars.nix",
         "/etc/nixos/noos-nas/vars.nix",
-        "/etc/nixos/steveos-nas/vars.nix",
         "./vars.nix",
         "../vars.nix",
     ] {
@@ -201,10 +186,6 @@ pub fn get_vars_nix_paths() -> Vec<PathBuf> {
     let dev_vars_noos = crate::updates::get_user_home(&target_u).join("Projects/noos-nas/vars.nix");
     if !paths.contains(&dev_vars_noos) {
         paths.push(dev_vars_noos);
-    }
-    let dev_vars = crate::updates::get_user_home(&target_u).join("Projects/steveos-nas/vars.nix");
-    if !paths.contains(&dev_vars) {
-        paths.push(dev_vars);
     }
     paths
 }
@@ -220,7 +201,7 @@ pub fn get_vars_nix_path() -> Option<PathBuf> {
 }
 
 pub fn load_firewall_state() -> Option<bool> {
-    // 1. Lire d'abord tous les chemins d'état enregistrés (priorité absolue à /var/lib/steveos)
+    // 1. Lire d'abord tous les chemins d'état enregistrés (priorité à /var/lib/noos)
     for path in get_firewall_state_paths() {
         if path.exists() {
             if let Ok(content) = std::fs::read_to_string(&path) {
@@ -273,7 +254,7 @@ pub fn save_firewall_state(is_enabled: bool) -> Result<(), String> {
     let json = serde_json::to_string_pretty(&state)
         .map_err(|e| format!("Erreur sérialisation json : {}", e))?;
 
-    let _ = std::fs::create_dir_all("/var/lib/steveos");
+    let _ = std::fs::create_dir_all("/var/lib/noos");
 
     let mut written = false;
     for path in get_firewall_state_paths() {
@@ -343,7 +324,7 @@ pub fn load_custom_rules() -> Vec<CustomPortRule> {
 
 pub fn save_custom_rules(rules: &[CustomPortRule]) -> Result<(), String> {
     let json = serde_json::to_string_pretty(rules).map_err(|e| e.to_string())?;
-    let _ = std::fs::create_dir_all("/var/lib/steveos");
+    let _ = std::fs::create_dir_all("/var/lib/noos");
 
     let mut written = false;
     for path in get_firewall_rules_paths() {
@@ -498,7 +479,7 @@ fn chrono_simple_id() -> u64 {
 }
 
 pub fn toggle_firewall(enable: bool) -> Result<String, String> {
-    // 1. Sauvegarder l'état persistant dans tous les chemins standardisés (/var/lib/steveos, repo config_dir)
+    // 1. Sauvegarder l'état persistant (/var/lib/noos, repo config_dir)
     let _ = save_firewall_state(enable);
 
     // 2. Synchroniser déclarativement vars.nix

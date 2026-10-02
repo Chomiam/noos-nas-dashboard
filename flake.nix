@@ -14,7 +14,6 @@
       {
         packages.default = pkgs.callPackage ./default.nix {};
         packages.noos-nas-dashboard = self.packages.${system}.default;
-        packages.steveos-nas-dashboard = self.packages.${system}.default;
 
         apps.default = {
           type = "app";
@@ -34,12 +33,7 @@
       # Module NixOS pour intégration directe dans Noos NAS Edition
       nixosModules.default = { config, lib, pkgs, ... }:
         let
-          cfgNoos = config.services.noos-nas-dashboard;
-          cfgSteve = config.services.steveos-nas-dashboard;
-          enabled = cfgNoos.enable || cfgSteve.enable;
-          port = if cfgNoos.port != 9339 then cfgNoos.port else cfgSteve.port;
-          openFirewall = cfgNoos.openFirewall && cfgSteve.openFirewall;
-          user = if cfgNoos.user != "chomiam" then cfgNoos.user else cfgSteve.user;
+          cfg = config.services.noos-nas-dashboard;
           pkg = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
         in {
           options.services.noos-nas-dashboard = {
@@ -61,32 +55,11 @@
             };
           };
 
-          # Rétrocompatibilité : Option legacy conservée
-          options.services.steveos-nas-dashboard = {
-            enable = lib.mkEnableOption "Tableau de bord STEvE_OS NAS Edition (Alias vers Noos)";
-            port = lib.mkOption {
-              type = lib.types.port;
-              default = 9339;
-              description = "Port d'écoute du tableau de bord NAS";
-            };
-            openFirewall = lib.mkOption {
-              type = lib.types.bool;
-              default = true;
-              description = "Ouvrir automatiquement le port dans le pare-feu modulaire";
-            };
-            user = lib.mkOption {
-              type = lib.types.str;
-              default = "admin";
-              description = "Utilisateur non-root pour les commandes et les mises à jour";
-            };
-          };
-
-          config = lib.mkIf enabled {
+          config = lib.mkIf cfg.enable {
             systemd.services.noos-nas-dashboard = {
               description = "Noos NAS Dashboard Web Server";
               after = [ "network.target" ];
               wantedBy = [ "multi-user.target" ];
-              aliases = [ "steveos-nas-dashboard.service" ];
               stopIfChanged = false;
               path = with pkgs; [
                 git
@@ -141,14 +114,10 @@
                 zstd
               ];
               environment = {
-                NOOS_PORT = toString port;
-                STEVEOS_PORT = toString port;
+                NOOS_PORT = toString cfg.port;
                 NOOS_FRONTEND_DIR = "${pkg}/share/noos-nas-dashboard/frontend";
-                STEVEOS_FRONTEND_DIR = "${pkg}/share/noos-nas-dashboard/frontend";
                 NOOS_CONFIG_DIR = "/etc/nixos";
-                STEVEOS_CONFIG_DIR = "/etc/nixos";
-                NOOS_USER = user;
-                STEVEOS_USER = user;
+                NOOS_USER = cfg.user;
                 NH_FLAKE = "/etc/nixos";
                 NIX_CONFIG = "extra-experimental-features = nix-command flakes";
               };
@@ -162,7 +131,7 @@
             };
 
             environment.systemPackages = [ pkg ];
-            networking.firewall.allowedTCPPorts = lib.optional openFirewall port;
+            networking.firewall.allowedTCPPorts = lib.optional cfg.openFirewall cfg.port;
           };
         };
     };
