@@ -1,3 +1,23 @@
+//! # Moteur de Gestion de Fichiers & Système de Fichiers (STEvE_OS Files)
+//!
+//! Ce module centralise l'ensemble des opérations d'E/S sur le système de fichiers :
+//! - **Navigation & Arborescence** : Exploration de dossiers avec calcul de taille,
+//!   permissions Unix formatées et classification visuelle (Catppuccin Mocha).
+//! - **Sécurité & Intégrité** :
+//!   - Détection et protection absolue des points de montage Linux (`/proc/mounts`,
+//!     points de montage déclarés dans `mounts.json` et racines système).
+//!   - Prévention des suppressions ou renommages accidentels de disques montés.
+//!   - Normalisation et canonisation des chemins utilisateur contre les traversées.
+//! - **Opérations CRUD** : Création de dossiers, renommage, déplacement intelligent
+//!   (rename atomique sur même système de fichiers ou copie récursive + purge),
+//!   copie et suppression (redirection corbeille ou destruction définitive).
+//! - **Visualisation & Édition** : Lecture et enregistrement de fichiers texte/code
+//!   avec gestion des limites de taille (5 Mo max pour éviter la saturation mémoire).
+//! - **Moteur Multimédia** : Génération de vignettes et extraction de métadonnées EXIF
+//!   pour photos RAW, HEIC (iPhone) et formats Web natifs.
+//! - **Moteur d'Archives** : Inspection, compression multi-formats (.zip, .7z, .tar.gz,
+//!   .tar.xz, .tar.zst) avec chiffrement AES256 optionnel et extraction automatique.
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::env;
@@ -5,58 +25,103 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+// ============================================================================
+// 1. STRUCTURES DE DONNÉES & CONTRATS D'ÉCHANGE (REQUESTS / RESPONSES)
+// ============================================================================
+
+/// Représentation détaillée d'une entrée de système de fichiers (fichier ou dossier).
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FileEntry {
+    /// Nom du fichier ou dossier (ex: `rapport.pdf` ou `photos`).
     pub name: String,
+    /// Chemin absolu complet vers l'élément dans le système de fichiers.
     pub path: String,
+    /// Indique s'il s'agit d'un répertoire (`true`) ou d'un fichier régulier (`false`).
     pub is_dir: bool,
+    /// Taille en octets (pour les dossiers, fixée à 0).
     pub size_bytes: u64,
+    /// Taille formatée pour lecture humaine (ex: `12.4 Mo`, `2.1 Go`).
     pub size_human: String,
+    /// Date et heure de dernière modification formatée (ex: `02/10/2026 04:36`).
     pub modified: String,
+    /// Droits d'accès Unix en notation octale (ex: `755`, `644`).
     pub permissions: String,
-    pub category: String, // "folder", "image", "video", "audio", "document", "archive", "code", "file"
+    /// Catégorie visuelle pour l'interface :
+    /// `"folder"`, `"image"`, `"video"`, `"audio"`, `"document"`, `"archive"`, `"code"`, `"file"`
+    pub category: String,
+    /// Flag de sécurité indiquant si ce dossier correspond à un point de montage de disque actif.
+    /// Si `true`, la suppression et le renommage sont formellement interdits dans l'API.
     #[serde(default)]
     pub is_mount_point: bool,
 }
 
+/// Résultat complet de l'exploration d'un répertoire.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DirectoryListing {
+    /// Chemin canonique absolu du répertoire actuellement listé.
     pub current_path: String,
+    /// Chemin du dossier parent pour la navigation arrière (None si racine).
     pub parent_path: Option<String>,
+    /// Liste des éléments enfants (dossiers en premier, puis fichiers triés alphabétiquement).
     pub entries: Vec<FileEntry>,
+    /// Nombre total d'éléments dans le dossier.
     pub total_items: usize,
+    /// Taille cumulée totale des fichiers du dossier en octets.
     pub total_size_bytes: u64,
 }
 
+/// Paramètres de requête GET pour lister un répertoire.
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
+    /// Chemin optionnel demandé. Si omis, le dossier personnel de l'utilisateur est utilisé.
     pub path: Option<String>,
 }
 
+/// Requête de création d'un nouveau dossier.
 #[derive(Debug, Deserialize)]
 pub struct MkdirRequest {
+    /// Dossier parent dans lequel créer le sous-dossier.
     pub path: String,
+    /// Nom du dossier à créer.
     pub name: String,
 }
 
+/// Requête de suppression d'un élément (fichier ou dossier).
 #[derive(Debug, Deserialize)]
 pub struct DeleteRequest {
+    /// Chemin absolu de l'élément à supprimer.
     pub path: String,
+    /// Si `true`, supprime définitivement l'élément (`rm -rf`).
+    /// Si `false` ou omis, déplace l'élément vers la corbeille sécurisée STEvE_OS.
     pub permanent: Option<bool>,
 }
 
+/// Requête de renommage d'un fichier ou d'un dossier.
 #[derive(Debug, Deserialize)]
 pub struct RenameRequest {
+    /// Chemin actuel de l'élément.
     pub path: String,
+    /// Nouveau nom désiré (doit être un nom simple sans slash).
     pub new_name: String,
 }
 
+/// Requête générique de transfert (copie ou déplacement).
 #[derive(Debug, Deserialize)]
 pub struct ActionRequest {
+    /// Chemin absolu de la source.
     pub src_path: String,
+    /// Chemin absolu du répertoire de destination.
     pub dest_dir: String,
 }
 
+// ============================================================================
+// 2. DÉTECTION & PROTECTION DES POINTS DE MONTAGE DU NOYAU LINUX
+// ============================================================================
+
+/// Décode les séquences d'échappement octales utilisées par le noyau Linux dans `/proc/mounts`.
+///
+/// Par exemple, un point de montage contenant un espace `/mnt/Disque 1` est encodé
+/// sous la forme `/mnt/Disque\0401`. Cette fonction restaure les caractères originaux.
 fn unescape_proc_mount_path(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
@@ -87,6 +152,12 @@ fn unescape_proc_mount_path(s: &str) -> String {
     result
 }
 
+/// Agrège l'ensemble des points de montage actifs et sensibles du système à travers 3 niveaux de détection :
+/// 1. **Racines système critiques** (`/`, `/bin`, `/boot`, `/nix`, `/mnt`, `/etc`, etc.)
+/// 2. **Points de montage déclarés** dans la configuration persistée (`mounts.json`)
+/// 3. **Points de montage actifs du noyau** lus directement depuis `/proc/mounts` ou `/proc/self/mounts`
+///
+/// Renvoie un ensemble `HashSet<PathBuf>` de chemins canoniques et résolus.
 pub fn get_all_mount_points() -> HashSet<PathBuf> {
     let mut set = HashSet::new();
 
@@ -146,6 +217,12 @@ pub fn get_all_mount_points() -> HashSet<PathBuf> {
     set
 }
 
+/// Vérifie de façon infaillible si un dossier correspond à un point de montage de système de fichiers.
+///
+/// Combine deux techniques complémentaires :
+/// - Vérification d'appartenance dans le cache des points de montage (`get_all_mount_points`).
+/// - Inspection bas-niveau des métadonnées d'inode Unix (`MetadataExt::dev() != parent_meta.dev()`),
+///   permettant de détecter tout franchissement de partition physique même pour un montage éphémère.
 pub fn is_mount_point(path: &Path) -> bool {
     let canonical = match path.canonicalize() {
         Ok(c) => c,
@@ -176,7 +253,17 @@ pub fn is_mount_point(path: &Path) -> bool {
     false
 }
 
+// ============================================================================
+// 3. SÉCURITÉ DES CHEMINS, CANONISATION & NORMALISATION UTILISATEUR
+// ============================================================================
 
+/// Normalise un chemin fourni par le client web pour garantir la robustesse de l'accès :
+/// 1. **Redirection utilisateur** : Redirige automatiquement tout chemin pointant
+///    vers `/home/<ancien_user>` vers le dossier personnel de l'utilisateur actif.
+/// 2. **Compatibilité XDG** : Tente la résolution des variantes avec majuscules et accents
+///    (ex: `Téléchargements` vs `telechargements`, `Vidéos` vs `videos`).
+/// 3. **Résolution tolérante** : Effectue une recherche insensible à la casse et sans
+///    accents dans le répertoire parent si le chemin exact n'existe pas.
 pub fn normalize_user_path(target: PathBuf) -> PathBuf {
     if target.exists() {
         return target;
@@ -255,6 +342,16 @@ pub fn normalize_user_path(target: PathBuf) -> PathBuf {
     target
 }
 
+// ============================================================================
+// 4. EXPLORATION DE DOSSIER, MÉTADONNÉES & CATÉGORISATION
+// ============================================================================
+
+/// Liste le contenu d'un répertoire avec calcul des métadonnées étendues :
+/// - Résout le chemin cible avec repli vers le dossier personnel de l'utilisateur actif.
+/// - Calcule la taille, les dates de modification et les permissions Unix octales.
+/// - Détecte si un sous-dossier correspond à un point de montage de disque (`is_mount_point`).
+/// - Trie les entrées de façon ergonomique : répertoires en tête, puis fichiers
+///   par ordre alphabétique insensible à la casse.
 pub fn list_directory(req_path: Option<&str>) -> Result<DirectoryListing, String> {
     let target_u = crate::updates::target_user();
     let user_home = crate::updates::get_user_home(&target_u).to_string_lossy().to_string();
@@ -303,7 +400,6 @@ pub fn list_directory(req_path: Option<&str>) -> Result<DirectoryListing, String
     for item in dir_entries.flatten() {
         let file_name = item.file_name().to_string_lossy().to_string();
 
-        // Masquer les fichiers système internes trop verbeux ou garder selon préférence
         let path = item.path();
         let path_str = path.display().to_string();
 
@@ -386,6 +482,12 @@ pub fn list_directory(req_path: Option<&str>) -> Result<DirectoryListing, String
     })
 }
 
+// ============================================================================
+// 5. OPÉRATIONS CRUD SUR LES FICHIERS (CRÉATION, SUPPRESSION, RENOMMAGE)
+// ============================================================================
+
+/// Crée un nouveau dossier de manière sécurisée en validant le nom
+/// (rejet des caractères interdits `/`, `.`, `..`).
 pub fn create_directory(base_dir: &str, dir_name: &str) -> Result<String, String> {
     let name = dir_name.trim();
     if name.is_empty() || name.contains('/') || name == "." || name == ".." {
@@ -404,6 +506,11 @@ pub fn create_directory(base_dir: &str, dir_name: &str) -> Result<String, String
     Ok(format!("Dossier '{}' créé avec succès.", name))
 }
 
+/// Supprime un fichier ou un dossier :
+/// - **Protection critique** : Refuse formellement la suppression si le dossier
+///   correspond à un point de montage de disque protégé (`is_mount_point`).
+/// - Si `permanent == false`, délègue le déplacement sécurisé vers la corbeille STEvE_OS.
+/// - Si `permanent == true`, procède à une suppression définitive directe (`rm -rf`).
 pub fn delete_item(item_path: &str, permanent: bool) -> Result<String, String> {
     let p = normalize_user_path(PathBuf::from(item_path));
     if !p.exists() {
@@ -435,6 +542,10 @@ pub fn delete_item(item_path: &str, permanent: bool) -> Result<String, String> {
     }
 }
 
+/// Renomme un fichier ou un dossier :
+/// - **Protection critique** : Refuse formellement le renommage si l'élément correspond
+///   à un point de montage de disque protégé.
+/// - Empêche l'écrasement involontaire si le nom de destination existe déjà.
 pub fn rename_item(item_path: &str, new_name: &str) -> Result<String, String> {
     let new_name = new_name.trim();
     if new_name.is_empty() || new_name.contains('/') || new_name == "." || new_name == ".." {
@@ -469,6 +580,13 @@ pub fn rename_item(item_path: &str, new_name: &str) -> Result<String, String> {
     Ok(format!("Renommé en '{}' avec succès.", new_name))
 }
 
+// ============================================================================
+// 6. TRANSFERTS DE FICHIERS (COPIE & DÉPLACEMENT)
+// ============================================================================
+
+/// Génère un chemin cible unique dans le dossier de destination en évitant
+/// tout écrasement accidentel. Si le nom existe déjà, ajoute un suffixe
+/// incrémental : `fichier (copie).ext`, `fichier (copie 2).ext`, etc.
 fn get_unique_target_path(dest_folder: &Path, file_name: &str) -> PathBuf {
     let original = dest_folder.join(file_name);
     if !original.exists() {
@@ -501,6 +619,10 @@ fn get_unique_target_path(dest_folder: &Path, file_name: &str) -> PathBuf {
     }
 }
 
+/// Copie un fichier ou un dossier de façon récursive vers un dossier cible :
+/// - Vérifie l'existence de la source et la validité du répertoire de destination.
+/// - Calcule un nom cible unique pour ne jamais écraser de données existantes.
+/// - Prévient toute copie récursive d'un dossier dans lui-même.
 pub fn copy_item(src: &str, dest_dir: &str) -> Result<String, String> {
     let src_path = normalize_user_path(PathBuf::from(src));
     let dest_folder = normalize_user_path(PathBuf::from(dest_dir));
@@ -530,6 +652,11 @@ pub fn copy_item(src: &str, dest_dir: &str) -> Result<String, String> {
     Ok(format!("Élément copié avec succès sous '{}'.", target.file_name().and_then(|f| f.to_str()).unwrap_or(file_name)))
 }
 
+/// Déplace un fichier ou un répertoire vers une destination :
+/// - **Protection critique** : Refuse le déplacement de points de montage système.
+/// - Exécute un renommage atomique instantané (`fs::rename`) si la destination se situe sur la même partition.
+/// - Bascule automatiquement en mode copie récursive suivie d'une suppression si le déplacement
+///   traverse des systèmes de fichiers physiques distincts (ex: de `/home` vers `/mnt/nvme1`).
 pub fn move_item(src: &str, dest_dir: &str) -> Result<String, String> {
     let src_path = normalize_user_path(PathBuf::from(src));
     let dest_folder = normalize_user_path(PathBuf::from(dest_dir));
@@ -592,6 +719,10 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Détermine la catégorie d'un fichier en fonction de son nom ou de son extension pour
+/// l'attribution des icônes, des actions contextuelles et des couleurs de l'interface Catppuccin Mocha.
+///
+/// Catégories possibles : `"folder"`, `"image"`, `"video"`, `"audio"`, `"document"`, `"archive"`, `"code"`, `"file"`
 pub fn categorize_file(name: &str) -> String {
     let lower = name.to_lowercase();
 
@@ -627,6 +758,8 @@ pub fn categorize_file(name: &str) -> String {
     }
 }
 
+/// Convertit une quantité brute d'octets en chaîne lisible avec unité adaptée :
+/// `To`, `Go`, `Mo`, `Ko` ou `o`.
 pub fn format_size(bytes: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = KB * 1024;
@@ -646,18 +779,16 @@ pub fn format_size(bytes: u64) -> String {
     }
 }
 
+/// Formate un instant `SystemTime` en chaîne de date/heure standard `YYYY-MM-DD HH:MM`.
 fn format_system_time(time: SystemTime) -> String {
     let duration = time.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default();
     let secs = duration.as_secs();
 
-    // Utilisation de strftime standard via libc ou calcul simple
-    // Simple format YYYY-MM-DD HH:MM
     let days = secs / 86400;
     let rem_secs = secs % 86400;
     let hours = rem_secs / 3600;
     let mins = (rem_secs % 3600) / 60;
 
-    // Estimation simple de date sans dépendance externe chrono
     let year = 1970 + days / 365;
     let day_of_year = days % 365;
     let month = (day_of_year / 30).min(11) + 1;
@@ -666,27 +797,41 @@ fn format_system_time(time: SystemTime) -> String {
     format!("{:04}-{:02}-{:02} {:02}:{:02}", year, month, day, hours, mins)
 }
 
+// ============================================================================
+// 7. ÉDITION & LECTURE DE FICHIERS TEXTE / CODE
+// ============================================================================
 
+/// Réponse retournée lors de la lecture d'un fichier texte pour l'éditeur du dashboard.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ReadFileResponse {
+    /// Contenu textuel décodé en UTF-8 (permissif via lossy).
     pub content: String,
+    /// Chemin absolu du fichier.
     pub path: String,
+    /// Nom du fichier.
     pub name: String,
+    /// Taille totale du fichier sur disque en octets.
     pub size_bytes: u64,
+    /// Indique si le contenu a été tronqué pour des raisons de performance et de sécurité mémoire.
     pub is_truncated: bool,
 }
 
+/// Paramètres de requête pour la lecture d'un fichier texte.
 #[derive(Debug, Deserialize)]
 pub struct ReadFileQuery {
     pub path: String,
 }
 
+/// Requête d'enregistrement d'un fichier texte modifié depuis l'éditeur.
 #[derive(Debug, Deserialize)]
 pub struct WriteFileRequest {
     pub path: String,
     pub content: String,
 }
 
+/// Lit le contenu texte d'un fichier pour l'éditeur contextuel web :
+/// - **Protection mémoire** : Si le fichier dépasse 5 Mo, les premiers 5 Mo sont
+///   lus et le flag `is_truncated = true` est positionné pour avertir l'utilisateur.
 pub fn read_file_content(path_str: &str) -> Result<ReadFileResponse, String> {
     let p = normalize_user_path(PathBuf::from(path_str));
     if !p.exists() || !p.is_file() {
@@ -717,43 +862,71 @@ pub fn read_file_content(path_str: &str) -> Result<ReadFileResponse, String> {
     })
 }
 
+/// Enregistre les modifications apportées à un fichier texte existant.
 pub fn write_file_content(path_str: &str, content: &str) -> Result<String, String> {
     let p = normalize_user_path(PathBuf::from(path_str));
     if !p.exists() {
         return Err("Fichier cible introuvable.".into());
     }
-    fs::write(&p, content).map_err(|e| format!("Échec d enregistrement : {}", e))?;
+    fs::write(&p, content).map_err(|e| format!("Échec d'enregistrement : {}", e))?;
     Ok("Fichier enregistré avec succès.".into())
 }
 
+// ============================================================================
+// 8. GESTION DES IMAGES, VIGNETTES & MÉTADONNÉES EXIF
+// ============================================================================
 
-// --------------------------------------------------------------------------
-// MOTEUR D'IMAGE MULTI-FORMATS & EXIF (RAW, IPHONE HEIC, STANDARD)
-// --------------------------------------------------------------------------
-
+/// Métadonnées détaillées d'une image pour l'inspecteur contextuel du dashboard.
+///
+/// Regroupe les propriétés géométriques (résolution) ainsi que les balises
+/// EXIF, IPTC et XMP extraites d'appareils photographiques professionnels ou smartphones.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ImageInfoResponse {
+    /// Nom du fichier image.
     pub name: String,
+    /// Chemin absolu du fichier sur le disque.
     pub path: String,
+    /// Taille brute en octets.
     pub size_bytes: u64,
+    /// Taille formatée lisible pour l'humain (ex: "4.2 Mo").
     pub size_human: String,
+    /// Désignation explicite du format (ex: "Sony Alpha RAW (ARW)", "JPEG Image").
     pub format: String,
+    /// Largeur de l'image en pixels.
     pub width: Option<u32>,
+    /// Hauteur de l'image en pixels.
     pub height: Option<u32>,
+    /// Marque du constructeur de l'appareil (ex: "Sony", "Nikon", "Apple").
     pub camera_make: Option<String>,
+    /// Modèle exact de l'appareil photo (ex: "ILCE-7M4", "iPhone 15 Pro").
     pub camera_model: Option<String>,
+    /// Objectif utilisé (ex: "FE 24-70mm F2.8 GM II").
     pub lens: Option<String>,
+    /// Longueur focale équivalente (ex: "35.0 mm").
     pub focal_length: Option<String>,
+    /// Ouverture du diaphragme (ex: "f/2.8").
     pub aperture: Option<String>,
+    /// Vitesse d'obturation / temps de pose (ex: "1/500").
     pub shutter_speed: Option<String>,
+    /// Sensibilité ISO (ex: "400").
     pub iso: Option<String>,
+    /// Date et heure de prise de vue au format ISO ou EXIF standard.
     pub date_taken: Option<String>,
+    /// Programme d'exposition (ex: "Manuel", "Priorité ouverture").
     pub exposure_mode: Option<String>,
+    /// Balance des blancs (ex: "Auto", "Ensoleillé").
     pub white_balance: Option<String>,
+    /// Espace colorimétrique (ex: "sRGB", "Display P3", "Adobe RGB").
     pub color_space: Option<String>,
+    /// Logiciel ou firmware de traitement (ex: "Adobe Lightroom", "iOS 17.4").
     pub software: Option<String>,
 }
 
+/// Calcule une empreinte de hachage 64-bit déterministe pour tout objet implémentant `Hash`.
+///
+/// Utilisé principalement pour générer des clés de cache disque uniques
+/// combinant le chemin absolu, le timestamp de modification `mtime`, la taille du fichier
+/// et le format demandé (vignette ou plein écran).
 fn calculate_hash<T: std::hash::Hash>(t: &T) -> u64 {
     use std::hash::Hasher;
     let mut s = std::collections::hash_map::DefaultHasher::new();
@@ -761,6 +934,19 @@ fn calculate_hash<T: std::hash::Hash>(t: &T) -> u64 {
     s.finish()
 }
 
+/// Résout ou génère à chaud le chemin d'accès au fichier d'aperçu d'une image :
+///
+/// - **Formats Web natifs directs** : Les formats courants (JPEG, PNG, WebP, SVG, GIF)
+///   sont retournés directement sans conversion si la pleine résolution est demandée.
+/// - **Cache de conversion (`/tmp/steveos_image_cache`)** : Les formats lourds ou non lisibles
+///   par le navigateur (RAW, HEIC, TIFF, PSD, DDS, TGA) ou les miniatures sont convertis et
+///   mis en cache en utilisant une clé de hachage invalidée dès que le fichier source change.
+/// - **Stratégie en cascade à 3 niveaux** :
+///   1. Pour les fichiers RAW reflex (NEF, CR2, CR3, ARW, DNG, RAF, RW2, etc.), extraction
+///      quasi-instantanée de l'aperçu JPEG pleine définition pré-rendu dans le RAW via `exiftool`.
+///   2. Si non RAW ou échec, conversion vectorielle / bitmap via `magick` ou `convert` (ImageMagick)
+///      avec orientation automatique EXIF (`-auto-orient`) et réduction proportionnelle.
+///   3. En cas d'échec sur les fichiers HEIC / AVIF Apple, délégation de secours à `ffmpeg`.
 pub fn get_image_preview_path(path_str: &str, is_thumb: bool) -> Result<(PathBuf, String), String> {
     let p = normalize_user_path(PathBuf::from(path_str));
     if !p.exists() || !p.is_file() {
@@ -902,6 +1088,11 @@ pub fn get_image_preview_path(path_str: &str, is_thumb: bool) -> Result<(PathBuf
     }
 }
 
+/// Extrait les métadonnées techniques et photographiques complètes d'un fichier image.
+///
+/// Utilise en premier recours l'outil système `exiftool` avec sortie JSON structurée,
+/// puis s'appuie sur `identify` (ImageMagick) pour combler les dimensions géométriques de base
+/// si les balises EXIF sont absentes.
 pub fn get_image_info(path_str: &str) -> Result<ImageInfoResponse, String> {
     let p = normalize_user_path(PathBuf::from(path_str));
     if !p.exists() || !p.is_file() {
@@ -1017,7 +1208,6 @@ pub fn get_image_info(path_str: &str) -> Result<ImageInfoResponse, String> {
         }
     }
 
-    
     if info.width.is_none() || info.height.is_none() {
         if let Ok(out) = std::process::Command::new("identify")
             .arg("-format")
@@ -1043,11 +1233,14 @@ pub fn get_image_info(path_str: &str) -> Result<ImageInfoResponse, String> {
     Ok(info)
 }
 
+// ============================================================================
+// 9. GESTION DES ARCHIVES & COMPRESSION (ZIP, 7Z, TAR.*)
+// ============================================================================
 
-// =========================================================================
-// 🗜️ MOTEUR D'ARCHIVAGE & COMPRESSION (ZIP, 7Z, TAR.*)
-// =========================================================================
-
+/// Détecte le chemin absolu vers un exécutable système en testant une liste de chemins candidats.
+///
+/// Pratique particulièrement adaptée à NixOS où les binaires résident souvent
+/// dans `/run/current-system/sw/bin/` ou `/nix/var/nix/profiles/default/bin/`.
 fn find_bin(candidates: &[&str]) -> String {
     for b in candidates {
         if std::path::Path::new(b).exists() {
@@ -1060,46 +1253,69 @@ fn find_bin(candidates: &[&str]) -> String {
     candidates[0].to_string()
 }
 
+/// Valeur par défaut pour l'option de décompression dans un sous-dossier dédié.
 fn default_subfolder_true() -> bool {
     true
 }
 
+/// Paramètres de requête pour créer une nouvelle archive compressée.
 #[derive(Debug, Deserialize)]
 pub struct CompressRequest {
+    /// Chemins des fichiers et répertoires sources à inclure dans l'archive.
     #[serde(alias = "items")]
     pub sources: Vec<String>,
+    /// Répertoire de destination où enregistrer le fichier archive.
     #[serde(alias = "destination_dir")]
     pub dest_dir: String,
+    /// Nom de base du fichier archive (ex: "sauvegarde" ou "photos.zip").
     pub archive_name: String,
+    /// Format cible ("zip", "7z", "tar.gz", "tar.xz", "tar.zst", "tar").
     pub format: String,
+    /// Niveau de compression ("fast", "normal", "max" / "maximum").
     #[serde(alias = "level")]
     pub compression_level: String,
+    /// Mot de passe optionnel pour le chiffrement symétrique de l'archive (AES-256).
     pub password: Option<String>,
 }
 
+/// Paramètres de requête pour décompresser une archive existante.
 #[derive(Debug, Deserialize)]
 pub struct ExtractRequest {
+    /// Chemin absolu du fichier archive à extraire.
     pub archive_path: String,
+    /// Dossier cible où extraire les données.
     #[serde(alias = "destination_dir")]
     pub dest_dir: String,
+    /// Si true, crée un sous-dossier portant le nom de l'archive pour éviter de polluer le dossier parent.
     #[serde(default = "default_subfolder_true")]
     pub create_subfolder: bool,
+    /// Mot de passe optionnel pour déverrouiller une archive chiffrée.
     pub password: Option<String>,
 }
 
+/// Paramètres de requête pour inspecter les métadonnées d'une archive sans l'extraire.
 #[derive(Debug, Deserialize)]
 pub struct ArchiveInfoRequest {
     pub archive_path: String,
 }
 
+/// Métadonnées d'une archive retournées pour guider l'interface utilisateur.
 #[derive(Debug, Serialize)]
 pub struct ArchiveInfoResponse {
+    /// Indique si le fichier est une archive valide reconnue.
     pub is_archive: bool,
+    /// Format d'archivage détecté (ex: "zip", "7z", "tar.gz", "tar.zst").
     pub format: String,
+    /// Indique si l'archive requiert un mot de passe pour être extraite.
     pub is_encrypted: bool,
+    /// Nombre d'éléments contenus dans l'archive (si dénombrables sans extraction).
     pub file_count: Option<usize>,
 }
 
+/// Inspecte une archive de manière non-destructive :
+///
+/// Détecte l'extension de l'archive, interroge `7z` en mode liste détaillée (`-slt`)
+/// pour repérer la présence d'un chiffrement (`Encrypted = +`) et dénombrer les entrées.
 pub fn get_archive_info(archive_path_str: &str) -> Result<ArchiveInfoResponse, String> {
     let p = normalize_user_path(PathBuf::from(archive_path_str));
     if !p.is_file() {
@@ -1158,6 +1374,16 @@ pub fn get_archive_info(archive_path_str: &str) -> Result<ArchiveInfoResponse, S
     })
 }
 
+/// Compresse une liste de fichiers et répertoires dans le format d'archive spécifié.
+///
+/// - **Normalisation des chemins relatifs** : Établit un répertoire de travail commun
+///   afin de préserver une structure d'arborescence propre et sans chemins absolus pollueurs.
+/// - **Formats pris en charge** :
+///   - `zip` : standard ou sécurisé en AES-256 via `7z` si un mot de passe est fourni.
+///   - `7z` : haute compression LZMA2 avec option de masquage des noms d'en-tête (`-mhe=on`).
+///   - `tar.gz`, `tar.xz`, `tar.zst`, `tar` : via l'exécutable système `tar`.
+/// - **Gestion des droits** : Assigne automatiquement la propriété (`chown user:users`) à
+///   l'utilisateur système cible.
 pub fn compress_items(req: CompressRequest) -> Result<String, String> {
     if req.sources.is_empty() {
         return Err("Aucun fichier ou dossier sélectionné pour la compression".into());
@@ -1319,6 +1545,15 @@ pub fn compress_items(req: CompressRequest) -> Result<String, String> {
     }
 }
 
+/// Décompresse une archive existante vers le répertoire de destination spécifié.
+///
+/// - **Moteur 7z universel** : Décompresse les formats `zip`, `7z`, `tar.*`, `rar` via `7z x -y`.
+/// - **Protection par mot de passe** : Transmet l'option `-p<password>` et détecte précisément
+///   les messages d'erreur "Wrong password" pour notifier l'interface web de façon claire.
+/// - **Isolation facultative** : Crée automatiquement un sous-dossier au nom de l'archive si
+///   demandé par l'utilisateur pour éviter l'éparpillement des fichiers dans le dossier parent.
+/// - **Attribution des droits** : Réassigne récursivement les fichiers extraits (`chown -R user:users`)
+///   afin de garantir l'accès en lecture/écriture à l'utilisateur du NAS.
 pub fn extract_archive(req: ExtractRequest) -> Result<String, String> {
     let archive_path = normalize_user_path(PathBuf::from(&req.archive_path));
     if !archive_path.is_file() {

@@ -1,3 +1,35 @@
+//! ============================================================================
+//! 🌐 API REST & GESTIONNAIRE DE ROUTES — STEvE_OS NAS DASHBOARD
+//! ============================================================================
+//!
+//! Ce module constitue la passerelle centrale (API Gateway) du dashboard.
+//! Il déclare et relie l'ensemble des routes HTTP servies par le framework Axum
+//! aux contrôleurs métier sous-jacents (stockage, conteneurs, réseau, etc.).
+//!
+//! ### 1. Contrat d'Échange Unifié (`ApiResponse<T>`)
+//! Toutes les réponses de l'API respectent une enveloppe JSON standardisée :
+//! - `success: bool` : `true` si l'opération a réussi, `false` en cas d'erreur.
+//! - `data: Option<T>` : La charge utile typée en cas de succès.
+//! - `message: Option<String>` : Message explicatif ou diagnostic d'erreur lisible.
+//!
+//! ### 2. Extracteurs Axum
+//! - `Json<T>` : Décodage automatique et validation du corps de requête (POST/PUT).
+//! - `Query<T>` : Extraction typée des paramètres de chaîne de requête (`?cle=valeur`).
+//! - `Path<T>` : Capture des segments d'URL dynamiques (`/resource/:id`).
+//!
+//! ============================================================================
+
+use axum::{
+    extract::{Path, Query},
+    response::Json,
+    routing::{delete, get, post, put},
+    Router,
+};
+use serde::{Deserialize, Serialize};
+
+// ----------------------------------------------------------------------------
+// Imports des Contrôleurs & Modules Métier
+// ----------------------------------------------------------------------------
 use crate::users::{
     handle_groups_create, handle_groups_delete, handle_groups_list, handle_groups_update_members,
     handle_users_audit, handle_users_change_password, handle_users_create, handle_users_delete,
@@ -9,18 +41,10 @@ use crate::vms::{
     list_isos, list_vms, start_iso_download, CreateVmRequest, GpuDeviceInfo, IsoDownloadJob,
     IsoDownloadRequest, IsoInfo, VirtualMachine, VmActionRequest,
 };
-use axum::{
-    extract::{Path, Query},
-    response::Json,
-    routing::{delete, get, post, put},
-    Router,
-};
-use serde::{Deserialize, Serialize};
 use crate::wireguard::{
     create_client, delete_client, get_wireguard_server_info, load_wireguard_clients,
     CreateClientRequest, WireguardClient, WireguardServerInfo,
 };
-
 use crate::documents::{get_document_info, get_document_pdf_path, DocumentInfoResponse};
 use crate::dns::{get_dns_overview, update_dns, DnsOverview, UpdateDnsRequest};
 use crate::docker_store::{
@@ -30,11 +54,18 @@ use crate::docker_store::{
     UninstallAppRequest,
 };
 use crate::services::{get_docker_containers, DockerContainer};
-use crate::youtube::{cancel_youtube_job, clear_youtube_jobs, get_job_status, get_youtube_info, list_jobs, start_youtube_download, YoutubeDownloadRequest, YoutubeInfoRequest, YoutubeJobStatus, YoutubeVideoInfo};
-use crate::trash::{delete_trash_item, empty_trash, get_trash_overview, restore_trash_item, TrashActionRequest, TrashOverview};
+use crate::youtube::{
+    cancel_youtube_job, clear_youtube_jobs, get_job_status, get_youtube_info, list_jobs,
+    start_youtube_download, YoutubeDownloadRequest, YoutubeInfoRequest, YoutubeJobStatus, YoutubeVideoInfo,
+};
+use crate::trash::{
+    delete_trash_item, empty_trash, get_trash_overview, restore_trash_item,
+    TrashActionRequest, TrashOverview,
+};
 use crate::files::{
-    copy_item, create_directory, delete_item, get_image_info, get_image_preview_path, list_directory, move_item, rename_item,
-    ActionRequest, DeleteRequest, DirectoryListing, ImageInfoResponse, ListQuery, MkdirRequest, RenameRequest,
+    copy_item, create_directory, delete_item, get_image_info, get_image_preview_path,
+    list_directory, move_item, rename_item, ActionRequest, DeleteRequest, DirectoryListing,
+    ImageInfoResponse, ListQuery, MkdirRequest, RenameRequest,
 };
 use crate::firewall::{
     create_custom_rule, delete_custom_rule, get_firewall_overview, toggle_firewall, unban_ip,
@@ -60,60 +91,107 @@ use crate::network::{
     NetworkOverview, TrafficHistoryOverview,
 };
 use crate::services::{control_service, get_service_logs, get_services_overview, ServicesOverview};
-use crate::storage::{create_partition, delete_partition, dismiss_storage_job, eject_removable, format_disk, get_active_storage_job, get_raid_sync_progress, get_storage_overview, mount_volume, repair_path_permissions, start_create_raid_job, start_destroy_raid_job, trigger_disk_spindown, umount_volume, CreatePartitionRequest, CreateRaidRequest, DeletePartitionRequest, DestroyRaidRequest, EjectRemovableRequest, FormatDiskRequest, MountVolumeRequest, RaidSyncProgress, RepairPermissionsRequest, StorageJob, StorageOverview, UmountVolumeRequest};
+use crate::storage::{
+    create_partition, delete_partition, dismiss_storage_job, eject_removable, format_disk,
+    get_active_storage_job, get_raid_sync_progress, get_storage_overview, mount_volume,
+    repair_path_permissions, start_create_raid_job, start_destroy_raid_job, trigger_disk_spindown,
+    umount_volume, CreatePartitionRequest, CreateRaidRequest, DeletePartitionRequest,
+    DestroyRaidRequest, EjectRemovableRequest, FormatDiskRequest, MountVolumeRequest,
+    RaidSyncProgress, RepairPermissionsRequest, StorageJob, StorageOverview, UmountVolumeRequest,
+};
 use crate::generations;
-use crate::system::{cancel_power, get_gpu_info, get_power_status, get_system_info, schedule_power, GpuInfo, ImmediatePowerRequest, PowerStatusResponse, SchedulePowerRequest, SystemInfo};
-use crate::terminal::{autocomplete, execute_command, CompleteRequest, CompleteResponse, ExecRequest, ExecResponse};
-use crate::updates::{apply_intelligent_update, check_updates, dismiss_update_progress, get_live_log, get_update_progress, start_detached_update, ApplyUpdateResult, UpdateCheckStatus, UpdateProgressState};
+use crate::system::{
+    cancel_power, get_gpu_info, get_power_status, get_system_info, schedule_power, GpuInfo,
+    ImmediatePowerRequest, PowerStatusResponse, SchedulePowerRequest, SystemInfo,
+};
+use crate::terminal::{
+    autocomplete, execute_command, CompleteRequest, CompleteResponse, ExecRequest, ExecResponse,
+};
+use crate::updates::{
+    apply_intelligent_update, check_updates, dismiss_update_progress, get_live_log,
+    get_update_progress, start_detached_update, ApplyUpdateResult, UpdateCheckStatus,
+    UpdateProgressState,
+};
 use crate::hardware::{get_hardware_overview, HardwareOverview};
 use crate::smart::{get_smart_overview, SmartOverview};
 use crate::speedtest::{get_latest_speedtest, run_speedtest, SpeedtestResult};
 
+// ============================================================================
+// MODÈLES DE REQUÊTES ET RÉPONSES GÉNÉRIQUES
+// ============================================================================
+
+/// Enveloppe générique de réponse JSON de l'API REST.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiResponse<T> {
+    /// Succès ou échec de la requête.
     pub success: bool,
+    /// Charge utile optionnelle en cas de succès.
     pub data: Option<T>,
+    /// Message informatif ou descriptif de l'erreur en cas d'échec.
     pub message: Option<String>,
 }
 
+/// Paramètres de requête pour l'affichage ou le téléchargement d'une image/vignette.
 #[derive(Debug, Deserialize)]
 pub struct ImageViewQuery {
+    /// Chemin absolu du fichier image sur le serveur.
     pub path: String,
+    /// Si true, génère et retourne une miniature allégée (vignette).
     pub thumb: Option<bool>,
+    /// Token de session éventuel pour validation inline.
     #[allow(dead_code)]
     pub token: Option<String>,
 }
 
+/// Paramètres de requête pour obtenir les métadonnées photographiques EXIF d'une image.
 #[derive(Debug, Deserialize)]
 pub struct ImageInfoQuery {
     pub path: String,
 }
 
+/// Paramètres de consultation des logs systemd / journalctl.
 #[derive(Debug, Deserialize)]
 pub struct LogsQuery {
+    /// Nom de l'unité systemd (ex: "samba-smbd.service", "sshd.service").
     pub unit: Option<String>,
+    /// Nombre maximal de lignes à récupérer.
     pub lines: Option<usize>,
 }
 
+/// Paramètres de vérification de mises à jour système.
 #[derive(Debug, Deserialize)]
 pub struct UpdateCheckQuery {
+    /// Si true, force l'actualisation depuis le dépôt GitHub distant sans utiliser le cache.
     pub force: Option<bool>,
 }
 
+/// Paramètres d'application d'une mise à jour logicielle.
 #[derive(Debug, Deserialize)]
 pub struct ApplyUpdateQuery {
+    /// Si true, force la recompilation ou le téléchargement forcé des paquets.
     pub force_packages: Option<bool>,
 }
 
+/// Réponse retournant le flux de logs en temps réel lors d'une mise à jour.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LiveLogsResponse {
+    /// Contenu brut du journal de mise à jour.
     pub logs: String,
+    /// Indique si le processus de mise à jour est toujours en cours d'exécution.
     pub is_updating: bool,
 }
 
+// ============================================================================
+// DÉCLARATION DU ROUTEUR CENTRAL AXUM
+// ============================================================================
+
+/// Construit et configure l'ensemble des routes HTTP de l'API REST du dashboard.
 pub fn api_routes() -> Router {
     Router::new()
-                .route("/users", get(handle_users_list).post(handle_users_create))
+        // --------------------------------------------------------------------
+        // 1. GESTION DES UTILISATEURS, GROUPES & SESSIONS PAM
+        // --------------------------------------------------------------------
+        .route("/users", get(handle_users_list).post(handle_users_create))
         .route("/users/audit", get(handle_users_audit))
         .route("/users/sessions", get(handle_users_sessions))
         .route("/users/sessions/:token/revoke", post(handle_users_revoke_session))
@@ -123,12 +201,26 @@ pub fn api_routes() -> Router {
         .route("/groups", get(handle_groups_list).post(handle_groups_create))
         .route("/groups/:group", delete(handle_groups_delete))
         .route("/groups/:group/members", post(handle_groups_update_members))
-.route("/system", get(handle_system))
+
+        // --------------------------------------------------------------------
+        // 2. SYSTÈME, ALIMENTATION & ÉNERGIE
+        // --------------------------------------------------------------------
+        .route("/system", get(handle_system))
         .route("/system/power/status", get(handle_power_status))
         .route("/system/power/immediate", post(handle_power_immediate))
         .route("/system/power/schedule", post(handle_power_schedule))
         .route("/system/power/cancel", post(handle_power_cancel))
+
+        // --------------------------------------------------------------------
+        // 3. MATÉRIEL, CAPTEURS & GPU
+        // --------------------------------------------------------------------
         .route("/gpu", get(handle_gpu))
+        .route("/hardware", get(handle_hardware))
+        .route("/smart", get(handle_smart))
+
+        // --------------------------------------------------------------------
+        // 4. STOCKAGE, RAIDS, DISQUES & MONTAGES
+        // --------------------------------------------------------------------
         .route("/storage", get(handle_storage))
         .route("/storage/raids/progress", get(handle_raid_progress))
         .route("/storage/disks/format", post(handle_format_disk))
@@ -142,7 +234,13 @@ pub fn api_routes() -> Router {
         .route("/storage/partition/delete", post(handle_delete_partition))
         .route("/storage/removable/eject", post(handle_eject_removable))
         .route("/storage/permissions/repair", post(handle_repair_permissions))
+        .route("/storage/:disk/spindown", post(handle_disk_spindown))
+
+        // --------------------------------------------------------------------
+        // 5. SERVICES SYSTÈME & CONTENEURS DOCKER
+        // --------------------------------------------------------------------
         .route("/services", get(handle_services))
+        .route("/service/:unit/:action", post(handle_service_action))
         .route("/docker/containers", get(handle_docker_containers))
         .route("/docker/containers/:name", delete(handle_delete_docker_container))
         .route("/docker/containers/:name/action", post(handle_docker_container_action))
@@ -153,7 +251,10 @@ pub fn api_routes() -> Router {
         .route("/docker/images", get(handle_docker_images))
         .route("/docker/images/prune", post(handle_docker_images_prune))
         .route("/docker/images/:id", delete(handle_delete_docker_image))
-        // Game Servers & Egg Engine
+
+        // --------------------------------------------------------------------
+        // 6. SERVEURS DE JEUX & GESTIONNAIRE D'EGGS (PTERODACTYL)
+        // --------------------------------------------------------------------
         .route("/games/servers", get(handle_games_servers))
         .route("/games/catalog", get(handle_games_catalog))
         .route("/games/catalog/sync", post(handle_games_catalog_sync))
@@ -168,10 +269,18 @@ pub fn api_routes() -> Router {
         .route("/games/minecraft/loaders", get(handle_minecraft_loaders))
         .route("/games/minecraft/versions", get(handle_minecraft_versions))
         .route("/games/minecraft/resolve", post(handle_minecraft_resolve))
+
+        // --------------------------------------------------------------------
+        // 7. RÉSEAU, TRAFIC EN TEMPS RÉEL & RÉSOLVEUR DNS
+        // --------------------------------------------------------------------
         .route("/network", get(handle_network))
         .route("/network/traffic/live", get(handle_network_traffic_live))
         .route("/network/traffic/history", get(handle_network_traffic_history))
         .route("/network/dns", get(handle_get_dns).post(handle_update_dns))
+
+        // --------------------------------------------------------------------
+        // 8. PARTAGES RÉSEAU SAMBA (SMB) & SFTP (SSH)
+        // --------------------------------------------------------------------
         .route("/samba", get(handle_samba_overview))
         .route("/samba/shares", post(handle_samba_create_share))
         .route("/samba/shares/:id", put(handle_samba_update_share).delete(handle_samba_delete_share))
@@ -179,7 +288,6 @@ pub fn api_routes() -> Router {
         .route("/samba/reload", post(handle_samba_reload))
         .route("/samba/diagnostics", get(handle_samba_diagnostics))
         .route("/samba/sessions/disconnect", post(handle_samba_disconnect_session))
-
         .route("/sftp", get(handle_sftp_overview))
         .route("/sftp/users", get(handle_sftp_users))
         .route("/sftp/shares", post(handle_sftp_create_share))
@@ -188,23 +296,39 @@ pub fn api_routes() -> Router {
         .route("/sftp/reload", post(handle_sftp_reload))
         .route("/sftp/sessions/disconnect", post(handle_sftp_disconnect_session))
 
+        // --------------------------------------------------------------------
+        // 9. PARE-FEU (NFTABLES) & SÉCURITÉ
+        // --------------------------------------------------------------------
         .route("/firewall", get(handle_firewall))
         .route("/firewall/toggle", post(handle_firewall_toggle))
         .route("/firewall/rules", post(handle_firewall_create_rule))
         .route("/firewall/rules/:id", put(handle_firewall_update_rule).delete(handle_firewall_delete_rule))
         .route("/firewall/unban", post(handle_firewall_unban))
         .route("/logs", get(handle_logs))
-        .route("/updates/status", get(handle_updates_status))
-        .route("/updates/start", post(handle_updates_start))
-        .route("/updates/progress", get(handle_updates_progress))
-        .route("/updates/dismiss", post(handle_updates_dismiss))
-        .route("/updates/apply", post(handle_updates_apply))
-        .route("/updates/logs", get(handle_updates_logs))
-        .route("/generations/list", get(handle_generations_list))
-        .route("/generations/boot", post(handle_generations_boot))
-        .route("/generations/cleanup", post(handle_generations_cleanup))
-        .route("/terminal/exec", post(handle_terminal_exec))
-        .route("/terminal/complete", post(handle_terminal_complete))
+
+        // --------------------------------------------------------------------
+        // 10. VPN SÉCURISÉ WIREGUARD
+        // --------------------------------------------------------------------
+        .route("/wireguard/server", get(handle_wireguard_server))
+        .route("/wireguard/clients", get(handle_wireguard_clients).post(handle_create_wireguard_client))
+        .route("/wireguard/clients/:id", delete(handle_delete_wireguard_client))
+
+        // --------------------------------------------------------------------
+        // 11. MACHINES VIRTUELLES (KVM / QEMU / CONSOLE VNC)
+        // --------------------------------------------------------------------
+        .route("/vms", get(handle_vms_list).post(handle_vms_create))
+        .route("/vms/:name/action", post(handle_vms_action))
+        .route("/vms/:name/vnc-port", get(handle_vms_vnc_port))
+        .route("/vms/:name/vnc", get(handle_vm_vnc_ws))
+        .route("/vms/isos", get(handle_vms_isos))
+        .route("/vms/isos/download", post(handle_vms_iso_download))
+        .route("/vms/isos/downloads", get(handle_vms_iso_downloads))
+        .route("/vms/isos/upload", post(handle_vms_iso_upload).layer(axum::extract::DefaultBodyLimit::disable()))
+        .route("/vms/gpus", get(handle_vms_gpus))
+
+        // --------------------------------------------------------------------
+        // 12. GESTIONNAIRE DE FICHIERS, APERÇUS & ARCHIVES
+        // --------------------------------------------------------------------
         .route("/files/list", get(handle_files_list))
         .route("/files/mkdir", post(handle_files_mkdir))
         .route("/files/delete", post(handle_files_delete))
@@ -215,16 +339,12 @@ pub fn api_routes() -> Router {
         .route("/files/stream", get(handle_files_stream))
         .route("/files/download", get(handle_files_stream))
         .route("/files/read", get(handle_files_read))
+        .route("/files/write", post(handle_files_write))
         .route("/files/image-view", get(handle_files_image_view))
         .route("/files/image-info", get(handle_files_image_info))
-        .route("/files/write", post(handle_files_write))
         .route("/files/compress", post(handle_files_compress))
         .route("/files/extract", post(handle_files_extract))
         .route("/files/archive-info", post(handle_files_archive_info))
-        .route("/files/trash", get(handle_trash_overview))
-        .route("/files/trash/restore", post(handle_trash_restore))
-        .route("/files/trash/delete", post(handle_trash_delete))
-        .route("/files/trash/empty", post(handle_trash_empty))
         .route("/files/storage-mounts", get(handle_storage_mounts_list))
         .route("/files/pinned-mounts", get(handle_pinned_mounts_list).post(handle_pinned_mounts_add).delete(handle_pinned_mounts_remove))
         .route("/files/pinned-mounts/reorder", post(handle_pinned_mounts_reorder))
@@ -233,37 +353,63 @@ pub fn api_routes() -> Router {
         .route("/files/remote-mounts/:id", delete(handle_remote_mounts_delete))
         .route("/files/remote-mounts/:id/mount", post(handle_remote_mounts_mount))
         .route("/files/remote-mounts/:id/unmount", post(handle_remote_mounts_unmount))
+
+        // --------------------------------------------------------------------
+        // 13. CORBEILLE SYSTÈME
+        // --------------------------------------------------------------------
+        .route("/files/trash", get(handle_trash_overview))
+        .route("/files/trash/restore", post(handle_trash_restore))
+        .route("/files/trash/delete", post(handle_trash_delete))
+        .route("/files/trash/empty", post(handle_trash_empty))
+
+        // --------------------------------------------------------------------
+        // 14. MULTIMÉDIA & TÉLÉCHARGEMENT YOUTUBE
+        // --------------------------------------------------------------------
         .route("/youtube/info", post(handle_youtube_info))
         .route("/youtube/download", post(handle_youtube_download))
         .route("/youtube/status/:job_id", get(handle_youtube_status))
-                .route("/youtube/jobs", get(handle_youtube_jobs))
+        .route("/youtube/jobs", get(handle_youtube_jobs))
         .route("/youtube/cancel/:job_id", post(handle_youtube_cancel))
         .route("/youtube/clear", post(handle_youtube_clear))
+
+        // --------------------------------------------------------------------
+        // 15. PRÉVISUALISATION DE DOCUMENTS (PDF / BUREAUTIQUE)
+        // --------------------------------------------------------------------
         .route("/documents/preview", get(handle_document_preview))
         .route("/documents/:id/preview", get(handle_document_preview_by_id))
         .route("/documents/info", get(handle_document_info))
-        .route("/service/:unit/:action", post(handle_service_action))
-        .route("/storage/:disk/spindown", post(handle_disk_spindown))
-        .route("/hardware", get(handle_hardware))
-        .route("/smart", get(handle_smart))
+
+        // --------------------------------------------------------------------
+        // 16. TERMINAL WEB INTÉGRÉ
+        // --------------------------------------------------------------------
+        .route("/terminal/exec", post(handle_terminal_exec))
+        .route("/terminal/complete", post(handle_terminal_complete))
+
+        // --------------------------------------------------------------------
+        // 17. MISES À JOUR SYSTÈME & GÉNÉRATIONS NIXOS
+        // --------------------------------------------------------------------
+        .route("/updates/status", get(handle_updates_status))
+        .route("/updates/start", post(handle_updates_start))
+        .route("/updates/progress", get(handle_updates_progress))
+        .route("/updates/dismiss", post(handle_updates_dismiss))
+        .route("/updates/apply", post(handle_updates_apply))
+        .route("/updates/logs", get(handle_updates_logs))
+        .route("/generations/list", get(handle_generations_list))
+        .route("/generations/boot", post(handle_generations_boot))
+        .route("/generations/cleanup", post(handle_generations_cleanup))
+
+        // --------------------------------------------------------------------
+        // 18. TESTS DE DÉBIT & DIAGNOSTICS RÉSEAU
+        // --------------------------------------------------------------------
         .route("/speedtest/latest", get(handle_speedtest_latest))
         .route("/speedtest/run", post(handle_speedtest_run))
-        .route("/wireguard/server", get(handle_wireguard_server))
-        .route("/wireguard/clients", get(handle_wireguard_clients).post(handle_create_wireguard_client))
-                .route("/wireguard/clients/:id", delete(handle_delete_wireguard_client))
-        // Machines Virtuelles (KVM / QEMU)
-        .route("/vms", get(handle_vms_list).post(handle_vms_create))
-        .route("/vms/:name/action", post(handle_vms_action))
-        .route("/vms/:name/vnc-port", get(handle_vms_vnc_port))
-        .route("/vms/:name/vnc", get(handle_vm_vnc_ws))
-        .route("/vms/isos", get(handle_vms_isos))
-        .route("/vms/isos/download", post(handle_vms_iso_download))
-        .route("/vms/isos/downloads", get(handle_vms_iso_downloads))
-        .route("/vms/isos/upload", post(handle_vms_iso_upload).layer(axum::extract::DefaultBodyLimit::disable()))
-        .route("/vms/gpus", get(handle_vms_gpus))
 }
 
+// ============================================================================
+// CONTRÔLEURS : SYSTÈME, ÉNERGIE, MATÉRIEL & SERVICES
+// ============================================================================
 
+/// Retourne l'état de l'alimentation (extinctions ou redémarrages programmés).
 async fn handle_power_status() -> Json<ApiResponse<PowerStatusResponse>> {
     Json(ApiResponse {
         success: true,
@@ -272,6 +418,7 @@ async fn handle_power_status() -> Json<ApiResponse<PowerStatusResponse>> {
     })
 }
 
+/// Déclenche un redémarrage ou une extinction immédiate du NAS après un léger délai de grâce.
 async fn handle_power_immediate(
     Json(req): Json<ImmediatePowerRequest>,
 ) -> Json<ApiResponse<()>> {
@@ -293,6 +440,7 @@ async fn handle_power_immediate(
     })
 }
 
+/// Programme une extinction ou un redémarrage différé via le démon de puissance.
 async fn handle_power_schedule(
     Json(req): Json<SchedulePowerRequest>,
 ) -> Json<ApiResponse<()>> {
@@ -310,6 +458,7 @@ async fn handle_power_schedule(
     }
 }
 
+/// Annule toute programmation d'extinction ou de redémarrage en attente.
 async fn handle_power_cancel() -> Json<ApiResponse<()>> {
     match cancel_power() {
         Ok(msg) => Json(ApiResponse {
@@ -325,6 +474,7 @@ async fn handle_power_cancel() -> Json<ApiResponse<()>> {
     }
 }
 
+/// Collecte les informations globales du système (CPU, RAM, Uptime, OS, Kernel).
 async fn handle_system() -> Json<ApiResponse<SystemInfo>> {
     Json(ApiResponse {
         success: true,
@@ -333,6 +483,7 @@ async fn handle_system() -> Json<ApiResponse<SystemInfo>> {
     })
 }
 
+/// Interroge les accélérateurs graphiques dédiés ou intégrés (Intel QuickSync, AMD, Nvidia).
 async fn handle_gpu() -> Json<ApiResponse<GpuInfo>> {
     Json(ApiResponse {
         success: true,
@@ -341,6 +492,7 @@ async fn handle_gpu() -> Json<ApiResponse<GpuInfo>> {
     })
 }
 
+/// Fournit la vue globale des disques durs, pools ZFS/Btrfs, RAIDs mdadm et points de montage.
 async fn handle_storage() -> Json<ApiResponse<StorageOverview>> {
     Json(ApiResponse {
         success: true,
@@ -349,6 +501,7 @@ async fn handle_storage() -> Json<ApiResponse<StorageOverview>> {
     })
 }
 
+/// Récupère l'état d'exécution et les statistiques des services systemd surveillés.
 async fn handle_services() -> Json<ApiResponse<ServicesOverview>> {
     Json(ApiResponse {
         success: true,
@@ -357,6 +510,23 @@ async fn handle_services() -> Json<ApiResponse<ServicesOverview>> {
     })
 }
 
+/// Exécute une action de contrôle (start, stop, restart, enable, disable) sur une unité systemd.
+async fn handle_service_action(Path((unit, action)): Path<(String, String)>) -> Json<ApiResponse<String>> {
+    match control_service(&unit, &action) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg.clone()),
+            message: Some(msg),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+/// Retourne l'état des tables nftables et de la politique de sécurité firewall.
 async fn handle_firewall() -> Json<ApiResponse<FirewallOverview>> {
     Json(ApiResponse {
         success: true,
@@ -365,6 +535,7 @@ async fn handle_firewall() -> Json<ApiResponse<FirewallOverview>> {
     })
 }
 
+/// Récupère les dernières lignes du journal systemd pour une unité de service donnée.
 async fn handle_logs(Query(params): Query<LogsQuery>) -> Json<ApiResponse<String>> {
     let unit = params.unit.unwrap_or_else(|| "sshd".to_string());
     let lines = params.lines.unwrap_or(50);
@@ -383,6 +554,11 @@ async fn handle_logs(Query(params): Query<LogsQuery>) -> Json<ApiResponse<String
     }
 }
 
+// ============================================================================
+// CONTRÔLEURS : MISES À JOUR LOGICIELLES & FLUX DE LOGS
+// ============================================================================
+
+/// Interroge les dépôts distants pour vérifier la présence d'une nouvelle version de STEvE_OS.
 async fn handle_updates_status(Query(params): Query<UpdateCheckQuery>) -> Json<ApiResponse<UpdateCheckStatus>> {
     let force = params.force.unwrap_or(false);
     let status = tokio::task::spawn_blocking(move || {
@@ -401,6 +577,7 @@ struct StartUpdateQuery {
     force_packages: Option<bool>,
 }
 
+/// Lance le processus de mise à jour en tâche de fond détachée.
 async fn handle_updates_start(Query(params): Query<StartUpdateQuery>) -> Json<ApiResponse<bool>> {
     let force_pkgs = params.force_packages.unwrap_or(false);
     match start_detached_update(force_pkgs) {
@@ -417,6 +594,7 @@ async fn handle_updates_start(Query(params): Query<StartUpdateQuery>) -> Json<Ap
     }
 }
 
+/// Retourne l'état d'avancement étape par étape de la mise à jour en cours.
 async fn handle_updates_progress() -> Json<ApiResponse<UpdateProgressState>> {
     let progress = get_update_progress();
     Json(ApiResponse {
@@ -426,6 +604,7 @@ async fn handle_updates_progress() -> Json<ApiResponse<UpdateProgressState>> {
     })
 }
 
+/// Réinitialise l'état de progression après consultation par l'utilisateur.
 async fn handle_updates_dismiss() -> Json<ApiResponse<bool>> {
     dismiss_update_progress();
     Json(ApiResponse {
@@ -435,6 +614,7 @@ async fn handle_updates_dismiss() -> Json<ApiResponse<bool>> {
     })
 }
 
+/// Applique la mise à jour de manière synchrone bloquante (mode direct).
 async fn handle_updates_apply(Query(params): Query<ApplyUpdateQuery>) -> Json<ApiResponse<ApplyUpdateResult>> {
     let force_pkgs = params.force_packages.unwrap_or(false);
     let result = tokio::task::spawn_blocking(move || {
@@ -453,6 +633,7 @@ async fn handle_updates_apply(Query(params): Query<ApplyUpdateQuery>) -> Json<Ap
     })
 }
 
+/// Diffuse les logs bruts produits en direct par le processus de mise à jour NixOS / Git.
 async fn handle_updates_logs() -> Json<ApiResponse<LiveLogsResponse>> {
     let (logs, is_updating) = get_live_log();
     Json(ApiResponse {
@@ -462,6 +643,11 @@ async fn handle_updates_logs() -> Json<ApiResponse<LiveLogsResponse>> {
     })
 }
 
+// ============================================================================
+// CONTRÔLEURS : TERMINAL WEB INTÉGRÉ
+// ============================================================================
+
+/// Exécute une commande shell de manière sécurisée et chronométrée dans le répertoire utilisateur.
 async fn handle_terminal_exec(Json(req): Json<ExecRequest>) -> Json<ApiResponse<ExecResponse>> {
     let res = tokio::task::spawn_blocking(move || {
         execute_command(req)
@@ -481,6 +667,7 @@ async fn handle_terminal_exec(Json(req): Json<ExecRequest>) -> Json<ApiResponse<
     })
 }
 
+/// Fournit des suggestions d'auto-complétion de commandes et de chemins pour le terminal web.
 async fn handle_terminal_complete(Json(req): Json<CompleteRequest>) -> Json<ApiResponse<CompleteResponse>> {
     let res = tokio::task::spawn_blocking(move || {
         autocomplete(req)
@@ -495,9 +682,11 @@ async fn handle_terminal_complete(Json(req): Json<CompleteRequest>) -> Json<ApiR
     })
 }
 
-// --------------------------------------------------------------------------
-// GESTIONNAIRE DE FICHIERS (FILE MANAGER)
-// --------------------------------------------------------------------------
+// ============================================================================
+// CONTRÔLEURS : GESTIONNAIRE DE FICHIERS (EXPLORATION & ARBORESCENCE)
+// ============================================================================
+
+/// Liste le contenu d'un répertoire (fichiers, dossiers, tailles, dates et permissions).
 async fn handle_files_list(Query(params): Query<ListQuery>) -> Json<ApiResponse<DirectoryListing>> {
     let res = tokio::task::spawn_blocking(move || {
         list_directory(params.path.as_deref())
@@ -522,7 +711,11 @@ async fn handle_files_list(Query(params): Query<ListQuery>) -> Json<ApiResponse<
     }
 }
 
+// ============================================================================
+// CONTRÔLEURS : GESTION DE LA CORBEILLE (TRASH)
+// ============================================================================
 
+/// Récupère la liste de tous les éléments actuellement présents dans la corbeille.
 async fn handle_trash_overview() -> Json<ApiResponse<TrashOverview>> {
     match get_trash_overview() {
         Ok(data) => Json(ApiResponse {
@@ -538,6 +731,7 @@ async fn handle_trash_overview() -> Json<ApiResponse<TrashOverview>> {
     }
 }
 
+/// Restaure un élément de la corbeille à son emplacement d'origine.
 async fn handle_trash_restore(
     Json(payload): Json<TrashActionRequest>,
 ) -> Json<ApiResponse<()>> {
@@ -555,6 +749,7 @@ async fn handle_trash_restore(
     }
 }
 
+/// Supprime définitivement un élément spécifique stocké dans la corbeille.
 async fn handle_trash_delete(
     Json(payload): Json<TrashActionRequest>,
 ) -> Json<ApiResponse<()>> {
@@ -572,6 +767,7 @@ async fn handle_trash_delete(
     }
 }
 
+/// Vide l'intégralité du contenu de la corbeille et libère l'espace disque associé.
 async fn handle_trash_empty() -> Json<ApiResponse<()>> {
     match empty_trash() {
         Ok(msg) => Json(ApiResponse {
@@ -587,7 +783,11 @@ async fn handle_trash_empty() -> Json<ApiResponse<()>> {
     }
 }
 
+// ============================================================================
+// CONTRÔLEURS : TÉLÉCHARGEMENT MULTIMÉDIA (YOUTUBE / YT-DLP)
+// ============================================================================
 
+/// Analyse une URL YouTube pour extraire le titre, la vignette, la durée et les résolutions.
 async fn handle_youtube_info(
     Json(payload): Json<YoutubeInfoRequest>,
 ) -> Json<ApiResponse<YoutubeVideoInfo>> {
@@ -605,6 +805,7 @@ async fn handle_youtube_info(
     }
 }
 
+/// Lance le téléchargement asynchrone d'une vidéo ou d'une piste audio YouTube en arrière-plan.
 async fn handle_youtube_download(
     Json(payload): Json<YoutubeDownloadRequest>,
 ) -> Json<ApiResponse<String>> {
@@ -622,6 +823,7 @@ async fn handle_youtube_download(
     }
 }
 
+/// Retourne la progression en temps réel d'une tâche de téléchargement YouTube active.
 async fn handle_youtube_status(
     Path(job_id): Path<String>,
 ) -> Json<ApiResponse<YoutubeJobStatus>> {
@@ -639,6 +841,7 @@ async fn handle_youtube_status(
     }
 }
 
+/// Liste l'ensemble des téléchargements YouTube en cours, terminés ou en échec.
 async fn handle_youtube_jobs() -> Json<ApiResponse<Vec<YoutubeJobStatus>>> {
     Json(ApiResponse {
         success: true,
@@ -647,6 +850,7 @@ async fn handle_youtube_jobs() -> Json<ApiResponse<Vec<YoutubeJobStatus>>> {
     })
 }
 
+/// Annule et interrompt un processus de téléchargement YouTube actif.
 async fn handle_youtube_cancel(
     Path(job_id): Path<String>,
 ) -> Json<ApiResponse<()>> {
@@ -664,6 +868,7 @@ async fn handle_youtube_cancel(
     }
 }
 
+/// Purge la liste des tâches de téléchargement terminées ou annulées.
 async fn handle_youtube_clear() -> Json<ApiResponse<()>> {
     clear_youtube_jobs();
     Json(ApiResponse {
@@ -673,6 +878,11 @@ async fn handle_youtube_clear() -> Json<ApiResponse<()>> {
     })
 }
 
+// ============================================================================
+// CONTRÔLEURS : OPÉRATIONS SUR FICHIERS (CRUD & DÉPLACEMENTS)
+// ============================================================================
+
+/// Crée un nouveau dossier dans l'arborescence.
 async fn handle_files_mkdir(Json(req): Json<MkdirRequest>) -> Json<ApiResponse<String>> {
     let res = tokio::task::spawn_blocking(move || {
         create_directory(&req.path, &req.name)
@@ -697,29 +907,7 @@ async fn handle_files_mkdir(Json(req): Json<MkdirRequest>) -> Json<ApiResponse<S
     }
 }
 
-async fn handle_games_delete_egg(
-    Path(id): Path<String>,
-) -> Json<ApiResponse<()>> {
-    let res = tokio::task::spawn_blocking(move || crate::games::delete_custom_egg(&id)).await;
-    match res {
-        Ok(Ok(_)) => Json(ApiResponse {
-            success: true,
-            data: None,
-            message: Some("Egg personnalisé supprimé avec succès ! ".into()),
-        }),
-        Ok(Err(err)) => Json(ApiResponse {
-            success: false,
-            data: None,
-            message: Some(err),
-        }),
-        Err(e) => Json(ApiResponse {
-            success: false,
-            data: None,
-            message: Some(e.to_string()),
-        }),
-    }
-}
-
+/// Supprime un fichier ou un dossier (déplacement vers la corbeille ou suppression définitive).
 async fn handle_files_delete(Json(req): Json<DeleteRequest>) -> Json<ApiResponse<String>> {
     let permanent = req.permanent.unwrap_or(false);
     let res = tokio::task::spawn_blocking(move || {
@@ -745,6 +933,7 @@ async fn handle_files_delete(Json(req): Json<DeleteRequest>) -> Json<ApiResponse
     }
 }
 
+/// Renomme un élément du système de fichiers sans changer son dossier parent.
 async fn handle_files_rename(Json(req): Json<RenameRequest>) -> Json<ApiResponse<String>> {
     let res = tokio::task::spawn_blocking(move || {
         rename_item(&req.path, &req.new_name)
@@ -769,6 +958,7 @@ async fn handle_files_rename(Json(req): Json<RenameRequest>) -> Json<ApiResponse
     }
 }
 
+/// Copie un fichier ou dossier vers un nouveau répertoire de destination.
 async fn handle_files_copy(Json(req): Json<ActionRequest>) -> Json<ApiResponse<String>> {
     let res = tokio::task::spawn_blocking(move || {
         copy_item(&req.src_path, &req.dest_dir)
@@ -793,6 +983,7 @@ async fn handle_files_copy(Json(req): Json<ActionRequest>) -> Json<ApiResponse<S
     }
 }
 
+/// Déplace un fichier ou dossier vers un autre répertoire du système de fichiers.
 async fn handle_files_move(Json(req): Json<ActionRequest>) -> Json<ApiResponse<String>> {
     let res = tokio::task::spawn_blocking(move || {
         move_item(&req.src_path, &req.dest_dir)
@@ -817,21 +1008,11 @@ async fn handle_files_move(Json(req): Json<ActionRequest>) -> Json<ApiResponse<S
     }
 }
 
-async fn handle_service_action(Path((unit, action)): Path<(String, String)>) -> Json<ApiResponse<String>> {
-    match control_service(&unit, &action) {
-        Ok(msg) => Json(ApiResponse {
-            success: true,
-            data: Some(msg.clone()),
-            message: Some(msg),
-        }),
-        Err(err) => Json(ApiResponse {
-            success: false,
-            data: None,
-            message: Some(err),
-        }),
-    }
-}
+// ============================================================================
+// CONTRÔLEURS : GESTION DU STOCKAGE, RAIDS, DISQUES & MONTAGES
+// ============================================================================
 
+/// Retourne l'état de synchronisation ou de reconstruction (resync / recovery) du RAID actif.
 async fn handle_raid_progress() -> Json<ApiResponse<Option<RaidSyncProgress>>> {
     Json(ApiResponse {
         success: true,
@@ -840,6 +1021,7 @@ async fn handle_raid_progress() -> Json<ApiResponse<Option<RaidSyncProgress>>> {
     })
 }
 
+/// Répare les droits et permissions d'accès POSIX (chown/chmod) sur un répertoire ou point de montage.
 async fn handle_repair_permissions(Json(payload): Json<RepairPermissionsRequest>) -> Json<ApiResponse<String>> {
     match repair_path_permissions(&payload) {
         Ok(msg) => Json(ApiResponse {
@@ -855,7 +1037,7 @@ async fn handle_repair_permissions(Json(payload): Json<RepairPermissionsRequest>
     }
 }
 
-
+/// Crée une nouvelle partition sur un disque physique.
 async fn handle_create_partition(Json(payload): Json<CreatePartitionRequest>) -> Json<ApiResponse<String>> {
     match create_partition(&payload) {
         Ok(msg) => Json(ApiResponse {
@@ -871,6 +1053,7 @@ async fn handle_create_partition(Json(payload): Json<CreatePartitionRequest>) ->
     }
 }
 
+/// Supprime une partition existante d'un disque de stockage.
 async fn handle_delete_partition(Json(payload): Json<DeletePartitionRequest>) -> Json<ApiResponse<String>> {
     match delete_partition(&payload) {
         Ok(msg) => Json(ApiResponse {
@@ -886,6 +1069,7 @@ async fn handle_delete_partition(Json(payload): Json<DeletePartitionRequest>) ->
     }
 }
 
+/// Éjecte un périphérique amovible (disque USB, lecteur de carte).
 async fn handle_eject_removable(Json(payload): Json<EjectRemovableRequest>) -> Json<ApiResponse<String>> {
     match eject_removable(&payload) {
         Ok(msg) => Json(ApiResponse {
@@ -901,6 +1085,7 @@ async fn handle_eject_removable(Json(payload): Json<EjectRemovableRequest>) -> J
     }
 }
 
+/// Monte une partition ou volume de stockage vers un point de montage local.
 async fn handle_mount_volume(Json(payload): Json<MountVolumeRequest>) -> Json<ApiResponse<String>> {
     match mount_volume(&payload) {
         Ok(msg) => Json(ApiResponse {
@@ -916,6 +1101,7 @@ async fn handle_mount_volume(Json(payload): Json<MountVolumeRequest>) -> Json<Ap
     }
 }
 
+/// Démonte un volume de stockage préalablement monté.
 async fn handle_umount_volume(Json(payload): Json<UmountVolumeRequest>) -> Json<ApiResponse<String>> {
     match umount_volume(&payload) {
         Ok(msg) => Json(ApiResponse {
@@ -931,6 +1117,7 @@ async fn handle_umount_volume(Json(payload): Json<UmountVolumeRequest>) -> Json<
     }
 }
 
+/// Formate un disque ou une partition avec le système de fichiers choisi (ext4, btrfs, exfat, ntfs).
 async fn handle_format_disk(Json(payload): Json<FormatDiskRequest>) -> Json<ApiResponse<String>> {
     match format_disk(&payload) {
         Ok(msg) => Json(ApiResponse {
@@ -946,6 +1133,7 @@ async fn handle_format_disk(Json(payload): Json<FormatDiskRequest>) -> Json<ApiR
     }
 }
 
+/// Retourne l'état d'une tâche de stockage asynchrone en cours (formatage, construction RAID).
 async fn handle_get_active_storage_job() -> Json<ApiResponse<Option<StorageJob>>> {
     Json(ApiResponse {
         success: true,
@@ -954,6 +1142,7 @@ async fn handle_get_active_storage_job() -> Json<ApiResponse<Option<StorageJob>>
     })
 }
 
+/// Acquitte et efface une notification de tâche de stockage terminée.
 async fn handle_dismiss_storage_job() -> Json<ApiResponse<String>> {
     dismiss_storage_job();
     Json(ApiResponse {
@@ -963,6 +1152,7 @@ async fn handle_dismiss_storage_job() -> Json<ApiResponse<String>> {
     })
 }
 
+/// Déclenche la création asynchrone d'une grappe RAID logicielle via `mdadm`.
 async fn handle_create_raid(Json(payload): Json<CreateRaidRequest>) -> Json<ApiResponse<StorageJob>> {
     match start_create_raid_job(payload) {
         Ok(job) => Json(ApiResponse {
@@ -978,6 +1168,7 @@ async fn handle_create_raid(Json(payload): Json<CreateRaidRequest>) -> Json<ApiR
     }
 }
 
+/// Supprime et désassemble une grappe RAID logicielle de manière contrôlée.
 async fn handle_destroy_raid(Json(payload): Json<DestroyRaidRequest>) -> Json<ApiResponse<StorageJob>> {
     match start_destroy_raid_job(payload) {
         Ok(job) => Json(ApiResponse {
@@ -993,6 +1184,7 @@ async fn handle_destroy_raid(Json(payload): Json<DestroyRaidRequest>) -> Json<Ap
     }
 }
 
+/// Envoie un ordre d'arrêt de rotation (spindown) immédiat à un disque mécanique via `hdparm`.
 async fn handle_disk_spindown(Path(disk): Path<String>) -> Json<ApiResponse<String>> {
     match trigger_disk_spindown(&disk) {
         Ok(msg) => Json(ApiResponse {
@@ -1008,6 +1200,11 @@ async fn handle_disk_spindown(Path(disk): Path<String>) -> Json<ApiResponse<Stri
     }
 }
 
+// ============================================================================
+// CONTRÔLEURS : MATÉRIEL, DIAGNOSTICS S.M.A.R.T. & TESTS DE DÉBIT
+// ============================================================================
+
+/// Analyse le matériel système (architecture processeur, barrettes mémoires DMI, températures).
 async fn handle_hardware() -> Json<ApiResponse<HardwareOverview>> {
     let hw = tokio::task::spawn_blocking(get_hardware_overview).await.unwrap_or_else(|_| get_hardware_overview());
     Json(ApiResponse {
@@ -1017,6 +1214,7 @@ async fn handle_hardware() -> Json<ApiResponse<HardwareOverview>> {
     })
 }
 
+/// Interroge les attributs de santé prédictive S.M.A.R.T. de tous les disques connectés.
 async fn handle_smart() -> Json<ApiResponse<SmartOverview>> {
     let smart = tokio::task::spawn_blocking(get_smart_overview).await.unwrap_or_else(|_| get_smart_overview());
     Json(ApiResponse {
@@ -1026,6 +1224,7 @@ async fn handle_smart() -> Json<ApiResponse<SmartOverview>> {
     })
 }
 
+/// Retourne le résultat du dernier test de bande passante réseau enregistré.
 async fn handle_speedtest_latest() -> Json<ApiResponse<Option<SpeedtestResult>>> {
     Json(ApiResponse {
         success: true,
@@ -1034,6 +1233,7 @@ async fn handle_speedtest_latest() -> Json<ApiResponse<Option<SpeedtestResult>>>
     })
 }
 
+/// Lance un test de débit réseau Internet (débit montant, descendant et latence de ping).
 async fn handle_speedtest_run() -> Json<ApiResponse<SpeedtestResult>> {
     let res = tokio::task::spawn_blocking(run_speedtest).await.unwrap_or_else(|_| run_speedtest());
     Json(ApiResponse {
@@ -1044,17 +1244,24 @@ async fn handle_speedtest_run() -> Json<ApiResponse<SpeedtestResult>> {
 }
 
 
+// ============================================================================
+// CONTRÔLEURS : FICHIERS AVANCÉS (UPLOAD, FLUX, ÉDITEUR, IMAGES & ARCHIVES)
+// ============================================================================
+
+/// Paramètres de requête pour le téléversement de fichiers.
 #[derive(Deserialize)]
 pub struct UploadQuery {
     pub dir: Option<String>,
 }
 
+/// Description d'un fichier téléversé avec succès.
 #[derive(Serialize)]
 pub struct UploadedFileItem {
     pub name: String,
     pub bytes: u64,
 }
 
+/// Réceptionne un flux multipart pour téléverser un ou plusieurs fichiers dans un dossier cible.
 async fn handle_files_upload(
     Query(params): Query<UploadQuery>,
     mut multipart: axum::extract::Multipart,
@@ -1126,6 +1333,7 @@ async fn handle_files_upload(
     })
 }
 
+/// Paramètres de requête pour la diffusion d'un fichier multimédia ou téléchargement brut.
 #[derive(Deserialize)]
 pub struct StreamQuery {
     pub path: String,
@@ -1133,6 +1341,7 @@ pub struct StreamQuery {
     pub token: Option<String>,
 }
 
+/// Sert un fichier en streaming HTTP direct avec prise en charge native des plages d'octets (Range requests).
 async fn handle_files_stream(
     Query(params): Query<StreamQuery>,
     req: axum::extract::Request,
@@ -1156,6 +1365,7 @@ async fn handle_files_stream(
     }
 }
 
+/// Lit le contenu texte/code d'un fichier pour l'éditeur du dashboard.
 async fn handle_files_read(
     Query(params): Query<crate::files::ReadFileQuery>,
 ) -> Json<ApiResponse<crate::files::ReadFileResponse>> {
@@ -1173,6 +1383,7 @@ async fn handle_files_read(
     }
 }
 
+/// Enregistre les modifications textuelles apportées à un fichier.
 async fn handle_files_write(
     Json(payload): Json<crate::files::WriteFileRequest>,
 ) -> Json<ApiResponse<String>> {
@@ -1190,6 +1401,7 @@ async fn handle_files_write(
     }
 }
 
+/// Compresse une sélection de fichiers et répertoires dans le format spécifié (zip, 7z, tar.*).
 async fn handle_files_compress(
     Json(payload): Json<crate::files::CompressRequest>,
 ) -> Json<ApiResponse<String>> {
@@ -1207,6 +1419,7 @@ async fn handle_files_compress(
     }
 }
 
+/// Décompresse une archive existante vers le répertoire de destination choisi.
 async fn handle_files_extract(
     Json(payload): Json<crate::files::ExtractRequest>,
 ) -> Json<ApiResponse<String>> {
@@ -1224,6 +1437,7 @@ async fn handle_files_extract(
     }
 }
 
+/// Analyse une archive sans l'extraire pour vérifier son format et son chiffrement éventuel.
 async fn handle_files_archive_info(
     Json(payload): Json<crate::files::ArchiveInfoRequest>,
 ) -> Json<ApiResponse<crate::files::ArchiveInfoResponse>> {
@@ -1241,7 +1455,7 @@ async fn handle_files_archive_info(
     }
 }
 
-
+/// Diffuse une image ou sa miniature (vignette) générée à la volée avec cache disque.
 async fn handle_files_image_view(
     Query(params): Query<ImageViewQuery>,
     req: axum::extract::Request,
@@ -1277,6 +1491,7 @@ async fn handle_files_image_view(
     }
 }
 
+/// Extrait les métadonnées photographiques complètes d'un fichier image (EXIF, modèle appareil, objectif, etc.).
 async fn handle_files_image_info(
     Query(params): Query<ImageInfoQuery>,
 ) -> Json<ApiResponse<ImageInfoResponse>> {
@@ -1303,12 +1518,17 @@ async fn handle_files_image_info(
     }
 }
 
+// ============================================================================
+// CONTRÔLEURS : PRÉVISUALISATION DE DOCUMENTS (PDF / BUREAUTIQUE)
+// ============================================================================
 
+/// Paramètres de requête pour la prévisualisation de documents bureautiques ou PDF.
 #[derive(Debug, Deserialize)]
 pub struct DocumentPreviewQuery {
     pub path: String,
 }
 
+/// Convertit à chaud un document bureautique (Office, LibreOffice) en PDF pour prévisualisation web.
 async fn handle_document_preview(
     Query(query): Query<DocumentPreviewQuery>,
     req: axum::extract::Request,
@@ -1336,6 +1556,7 @@ async fn handle_document_preview(
     }
 }
 
+/// Prévisualise un document identifié par son identifiant unique.
 async fn handle_document_preview_by_id(
     Path(id): Path<String>,
     req: axum::extract::Request,
@@ -1364,6 +1585,7 @@ async fn handle_document_preview_by_id(
     }
 }
 
+/// Retourne les métadonnées et le nombre de pages d'un document PDF/Office.
 async fn handle_document_info(
     Query(query): Query<DocumentPreviewQuery>,
 ) -> Json<ApiResponse<DocumentInfoResponse>> {
@@ -1382,6 +1604,11 @@ async fn handle_document_info(
 }
 
 
+// ============================================================================
+// CONTRÔLEURS : GESTION DOCKER (CONTENEURS & CATALOGUE APP STORE)
+// ============================================================================
+
+/// Liste tous les conteneurs Docker (en cours, arrêtés, utilisation mémoire et ports).
 async fn handle_docker_containers() -> Json<ApiResponse<Vec<DockerContainer>>> {
     Json(ApiResponse {
         success: true,
@@ -1390,12 +1617,14 @@ async fn handle_docker_containers() -> Json<ApiResponse<Vec<DockerContainer>>> {
     })
 }
 
+/// Paramètres de suppression d'un conteneur Docker.
 #[derive(Debug, Deserialize)]
 pub struct DeleteContainerQuery {
     #[serde(default)]
     pub delete_image: bool,
 }
 
+/// Supprime un conteneur Docker avec option de purge de son image sous-jacente.
 async fn handle_delete_docker_container(
     Path(name): Path<String>,
     Query(params): Query<DeleteContainerQuery>,
@@ -1414,6 +1643,7 @@ async fn handle_delete_docker_container(
     }
 }
 
+/// Déclenche une action sur un conteneur (start, stop, restart, pause, unpause).
 async fn handle_docker_container_action(
     Path(name): Path<String>,
     Json(payload): Json<ContainerActionRequest>,
@@ -1432,6 +1662,7 @@ async fn handle_docker_container_action(
     }
 }
 
+/// Récupère les derniers logs d'exécution d'un conteneur Docker.
 async fn handle_docker_container_logs(
     Path(name): Path<String>,
 ) -> Json<ApiResponse<String>> {
@@ -1449,6 +1680,7 @@ async fn handle_docker_container_logs(
     }
 }
 
+/// Fournit le catalogue complet des applications NAS préconfigurées du Docker Store.
 async fn handle_docker_store() -> Json<ApiResponse<StoreCatalog>> {
     let catalog = get_store_catalog();
     Json(ApiResponse {
@@ -1458,6 +1690,7 @@ async fn handle_docker_store() -> Json<ApiResponse<StoreCatalog>> {
     })
 }
 
+/// Installe une application du catalogue Docker Store en déployant son conteneur et ses volumes.
 async fn handle_docker_store_install(
     Json(payload): Json<InstallAppRequest>,
 ) -> Json<ApiResponse<String>> {
@@ -1475,6 +1708,7 @@ async fn handle_docker_store_install(
     }
 }
 
+/// Désinstalle une application du Docker Store avec option de conservation des données persistantes.
 async fn handle_docker_store_uninstall(
     Json(payload): Json<UninstallAppRequest>,
 ) -> Json<ApiResponse<String>> {
@@ -1492,13 +1726,11 @@ async fn handle_docker_store_uninstall(
     }
 }
 
+// ============================================================================
+// CONTRÔLEURS : RÉSEAU, TRAFIC EN TEMPS RÉEL & RÉSOLVEUR DNS
+// ============================================================================
 
-#[derive(Debug, Deserialize)]
-pub struct UnbanRequest {
-    pub ip: String,
-}
-
-
+/// Interroge la configuration des serveurs DNS système configurés dans resolv.conf ou systemd-resolved.
 async fn handle_get_dns() -> Json<ApiResponse<DnsOverview>> {
     let overview = get_dns_overview().await;
     Json(ApiResponse {
@@ -1508,6 +1740,7 @@ async fn handle_get_dns() -> Json<ApiResponse<DnsOverview>> {
     })
 }
 
+/// Met à jour les adresses des serveurs DNS utilisés par le NAS.
 async fn handle_update_dns(Json(payload): Json<UpdateDnsRequest>) -> Json<ApiResponse<String>> {
     match update_dns(&payload) {
         Ok(msg) => Json(ApiResponse {
@@ -1523,6 +1756,7 @@ async fn handle_update_dns(Json(payload): Json<UpdateDnsRequest>) -> Json<ApiRes
     }
 }
 
+/// Fournit la vue globale des interfaces réseau physiques, virtuelles et passerelles par défaut.
 async fn handle_network() -> Json<ApiResponse<NetworkOverview>> {
     Json(ApiResponse {
         success: true,
@@ -1531,7 +1765,35 @@ async fn handle_network() -> Json<ApiResponse<NetworkOverview>> {
     })
 }
 
+/// Récupère le débit instantané (upload/download en Ko/s) par interface réseau.
+async fn handle_network_traffic_live() -> Json<ApiResponse<LiveTrafficOverview>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(get_live_traffic()),
+        message: None,
+    })
+}
 
+/// Fournit l'historique chronologique d'utilisation de la bande passante sur les dernières heures.
+async fn handle_network_traffic_history() -> Json<ApiResponse<TrafficHistoryOverview>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(get_traffic_history()),
+        message: None,
+    })
+}
+
+// ============================================================================
+// CONTRÔLEURS : SÉCURITÉ & PARE-FEU (NFTABLES)
+// ============================================================================
+
+/// Paramètres de déblocage (débannissement) d'une adresse IP bloquée par fail2ban / nftables.
+#[derive(Debug, Deserialize)]
+pub struct UnbanRequest {
+    pub ip: String,
+}
+
+/// Active ou désactive globalement le filtrage du pare-feu nftables.
 async fn handle_firewall_toggle(Json(payload): Json<ToggleFirewallRequest>) -> Json<ApiResponse<String>> {
     match toggle_firewall(payload.enable) {
         Ok(msg) => Json(ApiResponse {
@@ -1547,6 +1809,7 @@ async fn handle_firewall_toggle(Json(payload): Json<ToggleFirewallRequest>) -> J
     }
 }
 
+/// Crée une nouvelle règle de filtrage ou d'ouverture de port personnalisée.
 async fn handle_firewall_create_rule(Json(payload): Json<CreatePortRuleRequest>) -> Json<ApiResponse<CustomPortRule>> {
     match create_custom_rule(payload) {
         Ok(rule) => Json(ApiResponse {
@@ -1562,6 +1825,7 @@ async fn handle_firewall_create_rule(Json(payload): Json<CreatePortRuleRequest>)
     }
 }
 
+/// Modifie les propriétés d'une règle de pare-feu existante.
 async fn handle_firewall_update_rule(
     Path(id): Path<String>,
     Json(payload): Json<UpdatePortRuleRequest>,
@@ -1580,6 +1844,7 @@ async fn handle_firewall_update_rule(
     }
 }
 
+/// Supprime une règle de pare-feu personnalisée.
 async fn handle_firewall_delete_rule(Path(id): Path<String>) -> Json<ApiResponse<String>> {
     match delete_custom_rule(&id) {
         Ok(msg) => Json(ApiResponse {
@@ -1595,22 +1860,7 @@ async fn handle_firewall_delete_rule(Path(id): Path<String>) -> Json<ApiResponse
     }
 }
 
-async fn handle_network_traffic_live() -> Json<ApiResponse<LiveTrafficOverview>> {
-    Json(ApiResponse {
-        success: true,
-        data: Some(get_live_traffic()),
-        message: None,
-    })
-}
-
-async fn handle_network_traffic_history() -> Json<ApiResponse<TrafficHistoryOverview>> {
-    Json(ApiResponse {
-        success: true,
-        data: Some(get_traffic_history()),
-        message: None,
-    })
-}
-
+/// Débloque immédiatement une adresse IP de la liste noire du pare-feu.
 async fn handle_firewall_unban(Json(payload): Json<UnbanRequest>) -> Json<ApiResponse<String>> {
     match unban_ip(&payload.ip) {
         Ok(msg) => Json(ApiResponse {
@@ -1627,8 +1877,11 @@ async fn handle_firewall_unban(Json(payload): Json<UnbanRequest>) -> Json<ApiRes
 }
 
 
-// ================= GESTION WIREGUARD CLIENTS & SERVEUR =================
+// ============================================================================
+// CONTRÔLEURS : VPN SÉCURISÉ WIREGUARD
+// ============================================================================
 
+/// Retourne l'état et les paramètres de configuration du serveur WireGuard (port, clé publique, interface wg0).
 async fn handle_wireguard_server() -> Json<ApiResponse<WireguardServerInfo>> {
     Json(ApiResponse {
         success: true,
@@ -1637,6 +1890,7 @@ async fn handle_wireguard_server() -> Json<ApiResponse<WireguardServerInfo>> {
     })
 }
 
+/// Liste l'ensemble des profils clients (pairs / peers) WireGuard configurés.
 async fn handle_wireguard_clients() -> Json<ApiResponse<Vec<WireguardClient>>> {
     Json(ApiResponse {
         success: true,
@@ -1645,6 +1899,7 @@ async fn handle_wireguard_clients() -> Json<ApiResponse<Vec<WireguardClient>>> {
     })
 }
 
+/// Génère une nouvelle paire de clés cryptographiques et provisionne un profil client WireGuard.
 async fn handle_create_wireguard_client(
     Json(req): Json<CreateClientRequest>,
 ) -> Json<ApiResponse<WireguardClient>> {
@@ -1662,6 +1917,7 @@ async fn handle_create_wireguard_client(
     }
 }
 
+/// Révoque et supprime définitivement un profil client WireGuard de la configuration serveur.
 async fn handle_delete_wireguard_client(
     Path(id): Path<String>,
 ) -> Json<ApiResponse<()>> {
@@ -1679,11 +1935,11 @@ async fn handle_delete_wireguard_client(
     }
 }
 
+// ============================================================================
+// CONTRÔLEURS : MACHINES VIRTUELLES (KVM / QEMU / CONSOLE VNC)
+// ============================================================================
 
-// =========================================================================
-// 💻 HANDLERS API MACHINES VIRTUELLES (KVM / QEMU)
-// =========================================================================
-
+/// Liste toutes les machines virtuelles KVM enregistrées avec leur état d'exécution (Running, Stopped).
 async fn handle_vms_list() -> Json<ApiResponse<Vec<VirtualMachine>>> {
     let list = list_vms();
     Json(ApiResponse {
@@ -1693,6 +1949,7 @@ async fn handle_vms_list() -> Json<ApiResponse<Vec<VirtualMachine>>> {
     })
 }
 
+/// Crée et configure une nouvelle machine virtuelle KVM/QEMU (vCPU, RAM, disque qcow2).
 async fn handle_vms_create(
     Json(req): Json<CreateVmRequest>,
 ) -> Json<ApiResponse<String>> {
@@ -1710,6 +1967,7 @@ async fn handle_vms_create(
     }
 }
 
+/// Contrôle le cycle de vie d'une machine virtuelle (démarrage, arrêt ACPI, arrêt forcé, redémarrage).
 async fn handle_vms_action(
     Path(name): Path<String>,
     Json(req): Json<VmActionRequest>,
@@ -1728,6 +1986,7 @@ async fn handle_vms_action(
     }
 }
 
+/// Retourne le port d'affichage graphique VNC alloué à la machine virtuelle.
 async fn handle_vms_vnc_port(
     Path(name): Path<String>,
 ) -> Json<ApiResponse<Option<u16>>> {
@@ -1740,6 +1999,7 @@ async fn handle_vms_vnc_port(
     })
 }
 
+/// Liste les images disques ISO d'installation disponibles sur le serveur.
 async fn handle_vms_isos() -> Json<ApiResponse<Vec<IsoInfo>>> {
     let isos = list_isos();
     Json(ApiResponse {
@@ -1749,6 +2009,7 @@ async fn handle_vms_isos() -> Json<ApiResponse<Vec<IsoInfo>>> {
     })
 }
 
+/// Déclenche le téléchargement en arrière-plan d'une image ISO officielle depuis une URL distante.
 async fn handle_vms_iso_download(
     Json(req): Json<IsoDownloadRequest>,
 ) -> Json<ApiResponse<String>> {
@@ -1766,6 +2027,7 @@ async fn handle_vms_iso_download(
     }
 }
 
+/// Retourne la liste des téléchargements d'images ISO en cours ou terminés.
 async fn handle_vms_iso_downloads() -> Json<ApiResponse<Vec<IsoDownloadJob>>> {
     let store = get_iso_job_store();
     let jobs = store.read().await;
@@ -1777,6 +2039,7 @@ async fn handle_vms_iso_downloads() -> Json<ApiResponse<Vec<IsoDownloadJob>>> {
     })
 }
 
+/// Permet à l'administrateur de téléverser directement une image ISO d'installation.
 async fn handle_vms_iso_upload(
     mut multipart: axum::extract::Multipart,
 ) -> Json<ApiResponse<Vec<String>>> {
@@ -1830,6 +2093,7 @@ async fn handle_vms_iso_upload(
     })
 }
 
+/// Détecte les GPU et contrôleurs vidéo physiques disponibles pour le passthrough IOMMU (PCIe passthrough).
 async fn handle_vms_gpus() -> Json<ApiResponse<Vec<GpuDeviceInfo>>> {
     let gpus = detect_gpus();
     Json(ApiResponse {
@@ -1839,6 +2103,11 @@ async fn handle_vms_gpus() -> Json<ApiResponse<Vec<GpuDeviceInfo>>> {
     })
 }
 
+// ============================================================================
+// CONTRÔLEURS : GESTION DES GÉNÉRATIONS NIXOS (ROLLBACK & SÉCURITÉ BOOT)
+// ============================================================================
+
+/// Liste l'ensemble des générations du système NixOS avec leur date, numéro et kernel associé.
 async fn handle_generations_list() -> Json<ApiResponse<generations::GenerationsListResponse>> {
     let res = tokio::task::spawn_blocking(generations::list_generations).await;
     match res {
@@ -1860,6 +2129,7 @@ async fn handle_generations_list() -> Json<ApiResponse<generations::GenerationsL
     }
 }
 
+/// Bascule la génération par défaut au prochain démarrage du système (Rollback / Pinning).
 async fn handle_generations_boot(Json(req): Json<generations::SetBootRequest>) -> Json<ApiResponse<String>> {
     let res = tokio::task::spawn_blocking(move || generations::set_boot_generation(req.generation_id)).await;
     match res {
@@ -1881,6 +2151,7 @@ async fn handle_generations_boot(Json(req): Json<generations::SetBootRequest>) -
     }
 }
 
+/// Supprime les générations NixOS obsolètes et lance le ramasse-miettes (nix-collect-garbage).
 async fn handle_generations_cleanup(Json(req): Json<generations::CleanupRequest>) -> Json<ApiResponse<generations::CleanupResponse>> {
     let res = tokio::task::spawn_blocking(move || generations::cleanup_generations(req)).await;
     match res {
@@ -1903,9 +2174,11 @@ async fn handle_generations_cleanup(Json(req): Json<generations::CleanupRequest>
 }
 
 
-// ==========================================================================
-// SERVEURS DE JEUX & MOTEUR D'EGGS PTERODACTYL
-// ==========================================================================
+// ============================================================================
+// CONTRÔLEURS : SERVEURS DE JEUX & MOTEUR D'EGGS (PTERODACTYL)
+// ============================================================================
+
+/// Liste tous les serveurs de jeux déployés et leur statut (en ligne, arrêté, ports de jeu).
 async fn handle_games_servers() -> Json<ApiResponse<Vec<crate::games::GameServer>>> {
     let servers = tokio::task::spawn_blocking(crate::games::list_game_servers).await.unwrap_or_default();
     Json(ApiResponse {
@@ -1915,6 +2188,7 @@ async fn handle_games_servers() -> Json<ApiResponse<Vec<crate::games::GameServer
     })
 }
 
+/// Fournit le catalogue complet des modèles d'installation (Eggs Pterodactyl).
 async fn handle_games_catalog() -> Json<ApiResponse<Vec<crate::games::Egg>>> {
     let eggs = tokio::task::spawn_blocking(crate::games::load_all_eggs).await.unwrap_or_default();
     Json(ApiResponse {
@@ -1924,6 +2198,7 @@ async fn handle_games_catalog() -> Json<ApiResponse<Vec<crate::games::Egg>>> {
     })
 }
 
+/// Synchronise le catalogue d'Eggs avec le dépôt officiel GitHub STEvE_OS Eggs.
 async fn handle_games_catalog_sync() -> Json<ApiResponse<Vec<crate::games::Egg>>> {
     let eggs = tokio::task::spawn_blocking(crate::games::sync_and_load_all_eggs).await.unwrap_or_default();
     Json(ApiResponse {
@@ -1933,6 +2208,7 @@ async fn handle_games_catalog_sync() -> Json<ApiResponse<Vec<crate::games::Egg>>
     })
 }
 
+/// Crée et lance l'installation d'un nouveau serveur de jeu à partir d'un Egg.
 async fn handle_games_create(Json(req): Json<crate::games::CreateGameServerRequest>) -> Json<ApiResponse<crate::games::GameServer>> {
     let res = tokio::task::spawn_blocking(move || crate::games::create_game_server(req)).await;
     match res {
@@ -1954,6 +2230,7 @@ async fn handle_games_create(Json(req): Json<crate::games::CreateGameServerReque
     }
 }
 
+/// Contrôle l'état d'un serveur de jeu (démarrer, arrêter, redémarrer, forcer l'arrêt).
 async fn handle_games_action(
     Path(id): Path<String>,
     Json(payload): Json<crate::games::GameServerActionRequest>,
@@ -1978,11 +2255,13 @@ async fn handle_games_action(
     }
 }
 
+/// Paramètres de suppression d'un serveur de jeu.
 #[derive(Deserialize)]
 struct DeleteGameQuery {
     delete_data: Option<bool>,
 }
 
+/// Supprime un serveur de jeu avec option de suppression des sauvegardes et fichiers de monde.
 async fn handle_games_delete(
     Path(id): Path<String>,
     Query(query): Query<DeleteGameQuery>,
@@ -2008,6 +2287,7 @@ async fn handle_games_delete(
     }
 }
 
+/// Retourne la progression de l'installation et du premier déploiement d'un serveur de jeu.
 async fn handle_games_deploy_status(
     Path(id): Path<String>,
 ) -> Json<ApiResponse<crate::games::GameDeployProgress>> {
@@ -2026,11 +2306,13 @@ async fn handle_games_deploy_status(
     }
 }
 
+/// Paramètres de consultation des journaux de console d'un serveur de jeu.
 #[derive(Deserialize)]
 struct GameLogsQuery {
     lines: Option<usize>,
 }
 
+/// Lit les dernières lignes de la console d'un serveur de jeu en cours d'exécution.
 async fn handle_games_logs(
     Path(id): Path<String>,
     Query(query): Query<GameLogsQuery>,
@@ -2056,6 +2338,7 @@ async fn handle_games_logs(
     }
 }
 
+/// Envoie une commande shell/RCON à la console interactive d'un serveur de jeu actif.
 async fn handle_games_command(
     Path(id): Path<String>,
     Json(payload): Json<crate::games::GameServerCommandRequest>,
@@ -2080,6 +2363,7 @@ async fn handle_games_command(
     }
 }
 
+/// Importe un fichier Egg JSON personnalisé téléversé par l'administrateur.
 async fn handle_games_import_egg(
     Json(payload): Json<crate::games::ImportEggRequest>,
 ) -> Json<ApiResponse<crate::games::Egg>> {
@@ -2103,11 +2387,36 @@ async fn handle_games_import_egg(
     }
 }
 
+/// Supprime un modèle d'Egg personnalisé du catalogue.
+async fn handle_games_delete_egg(
+    Path(id): Path<String>,
+) -> Json<ApiResponse<()>> {
+    let res = tokio::task::spawn_blocking(move || crate::games::delete_custom_egg(&id)).await;
+    match res {
+        Ok(Ok(_)) => Json(ApiResponse {
+            success: true,
+            data: None,
+            message: Some("Egg personnalisé supprimé avec succès !".into()),
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
+        }),
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct McVersionsQuery {
     loader: Option<String>,
 }
 
+/// Liste les chargeurs de mods et serveurs Minecraft pris en charge (Paper, Purpur, Fabric, Forge, Vanilla).
 async fn handle_minecraft_loaders() -> Json<ApiResponse<Vec<crate::minecraft::MinecraftLoader>>> {
     let loaders = crate::minecraft::get_available_loaders();
     Json(ApiResponse {
@@ -2117,6 +2426,7 @@ async fn handle_minecraft_loaders() -> Json<ApiResponse<Vec<crate::minecraft::Mi
     })
 }
 
+/// Interroge les API officielles pour lister toutes les versions compatibles avec un chargeur Minecraft.
 async fn handle_minecraft_versions(
     Query(q): Query<McVersionsQuery>,
 ) -> Json<ApiResponse<Vec<String>>> {
@@ -2132,6 +2442,7 @@ async fn handle_minecraft_versions(
     })
 }
 
+/// Résout l'URL de téléchargement direct du binaire serveur JAR pour une version Minecraft donnée.
 async fn handle_minecraft_resolve(
     Json(req): Json<crate::minecraft::ResolveMinecraftRequest>,
 ) -> Json<ApiResponse<crate::minecraft::ResolvedMinecraftServer>> {
@@ -2158,6 +2469,11 @@ async fn handle_minecraft_resolve(
     }
 }
 
+// ============================================================================
+// CONTRÔLEURS : GESTION DES IMAGES DOCKER
+// ============================================================================
+
+/// Liste l'ensemble des images Docker stockées localement avec leurs tags et tailles.
 async fn handle_docker_images() -> Json<ApiResponse<DockerImagesOverview>> {
     let overview = list_docker_images();
     Json(ApiResponse {
@@ -2167,12 +2483,14 @@ async fn handle_docker_images() -> Json<ApiResponse<DockerImagesOverview>> {
     })
 }
 
+/// Paramètres de nettoyage des images Docker inutilisées.
 #[derive(Debug, Deserialize)]
 struct PruneImagesRequest {
     #[serde(default)]
     all: bool,
 }
 
+/// Purge les images Docker orphelines (dangling) ou non associées à un conteneur en cours.
 async fn handle_docker_images_prune(
     payload: Option<Json<PruneImagesRequest>>,
 ) -> Json<ApiResponse<String>> {
@@ -2191,6 +2509,7 @@ async fn handle_docker_images_prune(
     }
 }
 
+/// Supprime une image Docker spécifique par son identifiant SHA256 ou son tag.
 async fn handle_delete_docker_image(
     Path(id): Path<String>,
 ) -> Json<ApiResponse<String>> {
@@ -2209,10 +2528,11 @@ async fn handle_delete_docker_image(
 }
 
 
-// =========================================================================
-// 📁 GESTION SAMBA (SMB/CIFS) COMPLÈTE & DYNAMIQUE
-// =========================================================================
+// ============================================================================
+// CONTRÔLEURS : PARTAGES RÉSEAU SAMBA (SMB / CIFS)
+// ============================================================================
 
+/// Fournit la vue globale des partages Samba actifs, sessions SMB connectées et diagnostics.
 async fn handle_samba_overview() -> Json<ApiResponse<SambaOverview>> {
     Json(ApiResponse {
         success: true,
@@ -2221,6 +2541,7 @@ async fn handle_samba_overview() -> Json<ApiResponse<SambaOverview>> {
     })
 }
 
+/// Crée un nouveau partage SMB (nom de partage, chemin disque, droits d'accès et utilisateurs autorisés).
 async fn handle_samba_create_share(
     Json(body): Json<CreateShareRequest>,
 ) -> Json<ApiResponse<SambaShare>> {
@@ -2238,6 +2559,7 @@ async fn handle_samba_create_share(
     }
 }
 
+/// Met à jour les paramètres d'un partage Samba existant.
 async fn handle_samba_update_share(
     axum::extract::Path(id): axum::extract::Path<String>,
     Json(body): Json<UpdateShareRequest>,
@@ -2256,6 +2578,7 @@ async fn handle_samba_update_share(
     }
 }
 
+/// Supprime un partage Samba et réécrit le fichier smb.conf dynamique.
 async fn handle_samba_delete_share(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Json<ApiResponse<()>> {
@@ -2273,6 +2596,7 @@ async fn handle_samba_delete_share(
     }
 }
 
+/// Enregistre les options de configuration globale du serveur Samba (Workgroup, Multi-channel, WSDD).
 async fn handle_samba_update_global(
     Json(body): Json<UpdateGlobalConfigRequest>,
 ) -> Json<ApiResponse<SambaGlobalConfig>> {
@@ -2299,6 +2623,7 @@ async fn handle_samba_update_global(
     }
 }
 
+/// Recharge le démon Samba (smbd / nmbd) sans interrompre les connexions actives (`smbcontrol all reload-config`).
 async fn handle_samba_reload() -> Json<ApiResponse<String>> {
     match reload_samba_service() {
         Ok(msg) => Json(ApiResponse {
@@ -2314,6 +2639,7 @@ async fn handle_samba_reload() -> Json<ApiResponse<String>> {
     }
 }
 
+/// Exécute un diagnostic automatisé du service Samba via `testparm` et `smbstatus`.
 async fn handle_samba_diagnostics() -> Json<ApiResponse<SambaDiagResult>> {
     Json(ApiResponse {
         success: true,
@@ -2322,6 +2648,7 @@ async fn handle_samba_diagnostics() -> Json<ApiResponse<SambaDiagResult>> {
     })
 }
 
+/// Termine et déconnecte de force une session SMB cliente active par son identifiant de processus PID.
 async fn handle_samba_disconnect_session(
     Json(body): Json<DisconnectSessionRequest>,
 ) -> Json<ApiResponse<()>> {
@@ -2339,11 +2666,11 @@ async fn handle_samba_disconnect_session(
     }
 }
 
+// ============================================================================
+// CONTRÔLEURS : PARTAGES SÉCURISÉS SFTP (SSH FILE TRANSFER)
+// ============================================================================
 
-// =========================================================================
-// 🚀 GESTION sFTP (SSH FILE TRANSFER PROTOCOL) DYNAMIQUE & SÉCURISÉE
-// =========================================================================
-
+/// Fournit la vue globale des partages SFTP configurés et des sessions SSH actives.
 async fn handle_sftp_overview() -> Json<ApiResponse<SftpOverview>> {
     Json(ApiResponse {
         success: true,
@@ -2352,6 +2679,7 @@ async fn handle_sftp_overview() -> Json<ApiResponse<SftpOverview>> {
     })
 }
 
+/// Liste les comptes utilisateurs système autorisés à se connecter en SFTP.
 async fn handle_sftp_users() -> Json<ApiResponse<Vec<SftpUserAccess>>> {
     Json(ApiResponse {
         success: true,
@@ -2360,6 +2688,7 @@ async fn handle_sftp_users() -> Json<ApiResponse<Vec<SftpUserAccess>>> {
     })
 }
 
+/// Crée un nouveau partage SFTP chrooté avec restriction de dossier.
 async fn handle_sftp_create_share(
     Json(body): Json<CreateSftpShareRequest>,
 ) -> Json<ApiResponse<SftpShare>> {
@@ -2377,6 +2706,7 @@ async fn handle_sftp_create_share(
     }
 }
 
+/// Met à jour les options d'un partage SFTP existant.
 async fn handle_sftp_update_share(
     axum::extract::Path(id): axum::extract::Path<String>,
     Json(body): Json<CreateSftpShareRequest>,
@@ -2395,6 +2725,7 @@ async fn handle_sftp_update_share(
     }
 }
 
+/// Supprime un partage SFTP de la configuration.
 async fn handle_sftp_delete_share(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Json<ApiResponse<()>> {
@@ -2412,6 +2743,7 @@ async fn handle_sftp_delete_share(
     }
 }
 
+/// Met à jour la configuration globale du démon SSH / SFTP (port d'écoute, chroot par défaut).
 async fn handle_sftp_update_global(
     Json(body): Json<UpdateSftpGlobalRequest>,
 ) -> Json<ApiResponse<SftpGlobalConfig>> {
@@ -2438,6 +2770,7 @@ async fn handle_sftp_update_global(
     }
 }
 
+/// Recharge le service systemd `sshd` pour appliquer immédiatement les modifications de partage SFTP.
 async fn handle_sftp_reload() -> Json<ApiResponse<String>> {
     if reload_sshd_service() {
         Json(ApiResponse {
@@ -2454,6 +2787,7 @@ async fn handle_sftp_reload() -> Json<ApiResponse<String>> {
     }
 }
 
+/// Déconnecte de force une session SFTP active.
 async fn handle_sftp_disconnect_session(
     Json(body): Json<DisconnectSftpSessionRequest>,
 ) -> Json<ApiResponse<()>> {
@@ -2471,11 +2805,11 @@ async fn handle_sftp_disconnect_session(
     }
 }
 
+// ============================================================================
+// CONTRÔLEURS : MONTAGES ÉPINGLÉS & PARTAGES RÉSEAU DISTANTS
+// ============================================================================
 
-// =========================================================================
-// HANDLERS : POINTS DE MONTAGE & DISQUES ÉPINGLÉS
-// =========================================================================
-
+/// Liste tous les points de montage locaux éligibles à l'affichage rapide dans la barre latérale.
 async fn handle_storage_mounts_list() -> Json<ApiResponse<Vec<crate::remote_shares::StorageMountItem>>> {
     let mounts = crate::remote_shares::get_storage_mounts();
     Json(ApiResponse {
@@ -2485,6 +2819,7 @@ async fn handle_storage_mounts_list() -> Json<ApiResponse<Vec<crate::remote_shar
     })
 }
 
+/// Liste les raccourcis de dossiers épinglés personnalisés par l'utilisateur.
 async fn handle_pinned_mounts_list() -> Json<ApiResponse<Vec<crate::remote_shares::PinnedMount>>> {
     let pinned = crate::remote_shares::load_pinned_mounts();
     Json(ApiResponse {
@@ -2494,6 +2829,7 @@ async fn handle_pinned_mounts_list() -> Json<ApiResponse<Vec<crate::remote_share
     })
 }
 
+/// Épingle un nouveau chemin de dossier dans le panneau de navigation latéral.
 async fn handle_pinned_mounts_add(
     Json(body): Json<crate::remote_shares::PinMountRequest>,
 ) -> Json<ApiResponse<crate::remote_shares::PinnedMount>> {
@@ -2511,6 +2847,7 @@ async fn handle_pinned_mounts_add(
     }
 }
 
+/// Retire un point de montage de la liste des raccourcis épinglés.
 async fn handle_pinned_mounts_remove(
     Json(body): Json<crate::remote_shares::UnpinMountRequest>,
 ) -> Json<ApiResponse<()>> {
@@ -2528,11 +2865,13 @@ async fn handle_pinned_mounts_remove(
     }
 }
 
+/// Paramètres de réorganisation de l'ordre d'affichage des montages épinglés.
 #[derive(Debug, Deserialize)]
 pub struct ReorderPinnedMountsRequest {
     pub paths: Vec<String>,
 }
 
+/// Enregistre le nouvel ordre d'affichage des raccourcis épinglés après un glisser-déposer (drag-and-drop).
 async fn handle_pinned_mounts_reorder(
     Json(body): Json<ReorderPinnedMountsRequest>,
 ) -> Json<ApiResponse<Vec<crate::remote_shares::PinnedMount>>> {
@@ -2550,10 +2889,7 @@ async fn handle_pinned_mounts_reorder(
     }
 }
 
-// =========================================================================
-// HANDLERS : DÉCOUVERTE RÉSEAU & MONTAGES DISTANTS (sFTP / SMB)
-// =========================================================================
-
+/// Découvre automatiquement les serveurs de fichiers SMB/SFTP disponibles sur le réseau local via mDNS / WSDD / NetBIOS.
 async fn handle_network_discover() -> Json<ApiResponse<Vec<crate::remote_shares::DiscoveredDevice>>> {
     let devices = tokio::task::spawn_blocking(crate::remote_shares::discover_network_devices)
         .await
@@ -2565,6 +2901,7 @@ async fn handle_network_discover() -> Json<ApiResponse<Vec<crate::remote_shares:
     })
 }
 
+/// Liste l'ensemble des partages distants SMB ou SFTP montés vers l'arborescence locale du NAS.
 async fn handle_remote_mounts_list() -> Json<ApiResponse<Vec<crate::remote_shares::RemoteMountConfig>>> {
     let mounts = crate::remote_shares::load_remote_mounts();
     Json(ApiResponse {
@@ -2574,6 +2911,7 @@ async fn handle_remote_mounts_list() -> Json<ApiResponse<Vec<crate::remote_share
     })
 }
 
+/// Connecte et monte un nouveau partage distant distant (CIFS/SMB ou SSHFS/SFTP).
 async fn handle_remote_mounts_create(
     Json(body): Json<crate::remote_shares::CreateRemoteMountRequest>,
 ) -> Json<ApiResponse<crate::remote_shares::RemoteMountConfig>> {
@@ -2596,6 +2934,7 @@ async fn handle_remote_mounts_create(
     }
 }
 
+/// Supprime la configuration d'un partage distant et démonte son point d'accès local.
 async fn handle_remote_mounts_delete(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Json<ApiResponse<()>> {
@@ -2613,6 +2952,7 @@ async fn handle_remote_mounts_delete(
     }
 }
 
+/// Remonte un partage distant préalablement configuré mais temporairement déconnecté.
 async fn handle_remote_mounts_mount(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Json<ApiResponse<()>> {
@@ -2644,6 +2984,7 @@ async fn handle_remote_mounts_mount(
     }
 }
 
+/// Démonte temporairement un partage distant sans supprimer sa configuration.
 async fn handle_remote_mounts_unmount(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Json<ApiResponse<()>> {
