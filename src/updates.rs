@@ -1178,6 +1178,29 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
         }
     }
 
+    // Si aucun bloc user n'a pu être retrouvé (ex: vars.nix déjà écrasé lors d'une précédente maj),
+    // détecter automatiquement le compte personnel de l'utilisateur créé à l'installation (ex: 'steve')
+    if saved_vars_content.is_none() || saved_vars_content.as_ref().map(|s| !s.contains("username")).unwrap_or(true) {
+        if let Some(real_user) = find_first_human_user() {
+            log.push_str(&format!("Détection automatique du compte administrateur créé à l'installation : '{}'...\n", real_user));
+            let cur = if vars_path.exists() {
+                fs::read_to_string(&vars_path).unwrap_or_default()
+            } else {
+                String::new()
+            };
+            let user_block = format!(
+"  user = {{\n    username = \"{}\";\n    fullName = \"{}\";\n    homeDirectory = \"/home/{}\";\n    shell = \"bash\";\n  }};\n",
+                real_user, real_user, real_user
+            );
+            let merged = if cur.contains('}') {
+                cur.replacen('}', &format!("{}\n}}", user_block), 1)
+            } else {
+                format!("{{\n{}}}\n", user_block)
+            };
+            saved_vars_content = Some(merged);
+        }
+    }
+
     // Aligner préventivement flake.lock et les fichiers d'état déclaratifs avec le dépôt Git
     let _ = git_cmd(&dir_str).args(["checkout", "--", "flake.lock", "firewall-state.json", "firewall-rules.json"]).output();
 
