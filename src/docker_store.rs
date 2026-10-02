@@ -171,10 +171,34 @@ fn get_target_user() -> String {
     crate::updates::target_user()
 }
 
+pub fn resolve_store_app_info(project_or_name: &str) -> Option<(String, String, String)> {
+    let clean = project_or_name.trim().trim_start_matches('/').to_lowercase();
+    let stripped = clean.strip_prefix("docker-").unwrap_or(&clean);
+
+    let cache_file = Path::new("/var/cache/steveos-nas-dashboard/store_cache.json");
+    let catalog: StoreCatalog = if let Ok(txt) = std::fs::read_to_string(cache_file) {
+        serde_json::from_str(&txt).unwrap_or_else(|_| get_default_catalog())
+    } else {
+        get_default_catalog()
+    };
+
+    for app in catalog.apps {
+        let app_id = app.id.to_lowercase();
+        if app_id == clean
+            || app_id == stripped
+            || stripped.starts_with(&format!("{}-", app_id))
+            || stripped.starts_with(&format!("{}_", app_id))
+        {
+            return Some((app.id, app.name, app.icon));
+        }
+    }
+    None
+}
+
 pub fn get_running_containers_map() -> HashMap<String, (String, String, bool)> {
     let mut map = HashMap::new();
     if let Ok(output) = Command::new("docker")
-        .args(["ps", "-a", "--format", "{{.ID}}	{{.Names}}	{{.Status}}	{{.State}}"])
+        .args(["ps", "-a", "--format", "{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.State}}\t{{.Labels}}"])
         .output()
     {
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -187,8 +211,22 @@ pub fn get_running_containers_map() -> HashMap<String, (String, String, bool)> {
                 let is_running = parts[3].to_lowercase() == "running";
 
                 let clean_name = name.strip_prefix("docker-").unwrap_or(&name).to_string();
-                map.insert(clean_name.clone(), (id.clone(), status.clone(), is_running));
-                map.insert(name, (id, status, is_running));
+                map.insert(clean_name.to_lowercase(), (id.clone(), status.clone(), is_running));
+                map.insert(name.to_lowercase(), (id.clone(), status.clone(), is_running));
+
+                // Extraire le label com.docker.compose.project
+                if parts.len() >= 5 {
+                    for label in parts[4].split(',') {
+                        if let Some((k, v)) = label.split_once('=') {
+                            if k.trim() == "com.docker.compose.project" {
+                                let proj = v.trim().to_lowercase();
+                                if !proj.is_empty() {
+                                    map.insert(proj, (id.clone(), status.clone(), is_running));
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -235,24 +273,28 @@ pub fn get_store_catalog() -> StoreCatalog {
     };
 
     // 4. Enrichir avec l'état dynamique des conteneurs et dossiers
-    let user = get_target_user();
-    let user_docker_dir = PathBuf::from(format!("/home/{}/docker", user));
     let config_dir = get_config_dir();
     let nix_docker_dir = config_dir.join("docker");
     let containers_map = get_running_containers_map();
 
     for app in &mut catalog.apps {
-        let app_dir = user_docker_dir.join(&app.id);
-        let compose_file = app_dir.join("compose.yaml");
         let nix_file = nix_docker_dir.join(format!("{}.nix", app.id));
+        let container_info = containers_map.get(&app.id.to_lowercase());
 
-        app.is_installed = compose_file.exists() || nix_file.exists();
-
-        if let Some((cid, status, is_running)) = containers_map.get(&app.id) {
+        // Une application est installée UNIQUEMENT si un conteneur existe dans Docker
+        // ou si elle est déclarée dans un module NixOS.
+        if let Some((cid, status, is_running)) = container_info {
+            app.is_installed = true;
             app.is_running = *is_running;
             app.container_id = Some(cid.clone());
             app.container_status = Some(status.clone());
+        } else if nix_file.exists() {
+            app.is_installed = true;
+            app.is_running = false;
+            app.container_id = None;
+            app.container_status = None;
         } else {
+            app.is_installed = false;
             app.is_running = false;
             app.container_id = None;
             app.container_status = None;
@@ -529,13 +571,20 @@ pub fn uninstall_store_app(app_id: &str, delete_data: bool) -> Result<String, St
     }
     let user = get_target_user();
     let app_dir = PathBuf::from(format!("/home/{}/docker/{}", user, clean_id));
-    let compose_file = app_dir.join("compose.yaml");
+    let compose_file_yaml = app_dir.join("compose.yaml");
+    let compose_file_yml = app_dir.join("docker-compose.yml");
 
     // 1. Arrêter le conteneur via docker compose down
-    if compose_file.exists() {
+    if compose_file_yaml.exists() {
         let _ = Command::new("docker")
-            .args(["compose", "-f", &compose_file.display().to_string(), "down"])
+            .args(["compose", "-f", &compose_file_yaml.display().to_string(), "down", "--remove-orphans"])
             .output();
+        let _ = std::fs::remove_file(&compose_file_yaml);
+    } else if compose_file_yml.exists() {
+        let _ = Command::new("docker")
+            .args(["compose", "-f", &compose_file_yml.display().to_string(), "down", "--remove-orphans"])
+            .output();
+        let _ = std::fs::remove_file(&compose_file_yml);
     } else {
         let _ = Command::new("docker").args(["stop", &clean_id]).output();
         let _ = Command::new("docker").args(["rm", "-f", &clean_id]).output();
@@ -783,33 +832,57 @@ pub fn prune_docker_images(all: bool) -> Result<String, String> {
     }
 }
 
-pub async fn remove_docker_container(name_or_id: &str, delete_image: bool) -> Result<String, String> {
+pub async fn remove_docker_container(
+    name_or_id: &str,
+    delete_image: bool,
+    delete_data: bool,
+) -> Result<String, String> {
     let clean_name = name_or_id.trim().trim_start_matches('/');
     if clean_name.is_empty() {
         return Err("Nom de conteneur invalide.".into());
     }
 
-    // 1. Récupérer l'image associée avant la suppression si demandée
+    // 1. Récupérer l'image et les labels du conteneur avant suppression
     let mut image_to_delete = None;
-    if delete_image {
-        if let Ok(out) = Command::new("docker")
-            .args(["inspect", "-f", "{{.Config.Image}}", clean_name])
-            .output()
-        {
-            if out.status.success() {
-                let img = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if !img.is_empty() {
-                    image_to_delete = Some(img);
-                }
+    let mut compose_project: Option<String> = None;
+    let mut compose_workdir: Option<PathBuf> = None;
+
+    if let Ok(out) = Command::new("docker")
+        .args([
+            "inspect",
+            "-f",
+            "{{.Config.Image}}|{{index .Config.Labels \"com.docker.compose.project\"}}|{{index .Config.Labels \"com.docker.compose.working_dir\"}}",
+            clean_name,
+        ])
+        .output()
+    {
+        if out.status.success() {
+            let inspect_out = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let parts: Vec<&str> = inspect_out.split('|').collect();
+            if !parts.is_empty() && !parts[0].is_empty() {
+                image_to_delete = Some(parts[0].to_string());
+            }
+            if parts.len() > 1 && !parts[1].is_empty() && parts[1] != "<no value>" {
+                compose_project = Some(parts[1].to_string());
+            }
+            if parts.len() > 2 && !parts[2].is_empty() && parts[2] != "<no value>" {
+                compose_workdir = Some(PathBuf::from(parts[2]));
             }
         }
     }
 
-    // 2. Vérifier si un compose.yaml ou docker-compose.yml existe dans ~/docker/<clean_name>
+    // 2. Déterminer le projet et les dossiers associés
     let user = get_target_user();
-    let app_dir = PathBuf::from(format!("/home/{}/docker/{}", user, clean_name));
-    let compose_file_yaml = app_dir.join("compose.yaml");
-    let compose_file_yml = app_dir.join("docker-compose.yml");
+    let stripped_name = clean_name.strip_prefix("docker-").unwrap_or(clean_name);
+    let target_app_id = compose_project
+        .clone()
+        .unwrap_or_else(|| stripped_name.to_string());
+
+    let default_app_dir = PathBuf::from(format!("/home/{}/docker/{}", user, target_app_id));
+    let resolved_app_dir = compose_workdir.unwrap_or(default_app_dir);
+
+    let compose_file_yaml = resolved_app_dir.join("compose.yaml");
+    let compose_file_yml = resolved_app_dir.join("docker-compose.yml");
     let compose_path = if compose_file_yaml.exists() {
         Some(compose_file_yaml)
     } else if compose_file_yml.exists() {
@@ -818,37 +891,60 @@ pub async fn remove_docker_container(name_or_id: &str, delete_image: bool) -> Re
         None
     };
 
-    if let Some(cp) = compose_path {
+    // 3. Exécuter l'arrêt et la suppression
+    if let Some(ref cp) = compose_path {
         let _ = Command::new("docker")
-            .args(["compose", "-f", &cp.display().to_string(), "down"])
+            .args(["compose", "-f", &cp.display().to_string(), "down", "--remove-orphans"])
             .output();
-    } else {
-        // Arrêt forcé et suppression directe par Docker CLI
-        let _ = Command::new("docker").args(["stop", clean_name]).output();
-        let _ = Command::new("docker").args(["rm", "-f", clean_name]).output();
+
+        // Supprimer le fichier compose pour réinitialiser le statut Store
+        let _ = std::fs::remove_file(cp);
     }
 
-    // 3. Suppression de l'image Docker si demandée
+    // Arrêt forcé et suppression directe par Docker CLI au cas où
+    let _ = Command::new("docker").args(["stop", clean_name]).output();
+    let _ = Command::new("docker").args(["rm", "-f", clean_name]).output();
+
+    // 4. Nettoyage du suivi de déploiement en mémoire
+    if let Ok(mut tracker) = STORE_DEPLOY_TRACKER.lock() {
+        tracker.remove(&target_app_id.to_lowercase());
+        tracker.remove(&clean_name.to_lowercase());
+    }
+
+    // 5. Suppression des données persistantes si demandé
+    let mut data_msg = String::new();
+    if delete_data && resolved_app_dir.exists() {
+        if let Ok(_) = std::fs::remove_dir_all(&resolved_app_dir) {
+            data_msg = format!(" (données de '{}' supprimées)", resolved_app_dir.display());
+        }
+    }
+
+    // 6. Suppression de l'image Docker si demandée
     let mut img_msg = String::new();
-    if let Some(img) = image_to_delete {
-        let rmi_out = Command::new("docker").args(["rmi", "-f", &img]).output();
-        if let Ok(o) = rmi_out {
-            if o.status.success() {
-                img_msg = format!(" (image '{}' supprimée)", img);
+    if delete_image {
+        if let Some(img) = image_to_delete {
+            let rmi_out = Command::new("docker").args(["rmi", "-f", &img]).output();
+            if let Ok(o) = rmi_out {
+                if o.status.success() {
+                    img_msg = format!(" (image '{}' supprimée)", img);
+                }
             }
         }
     }
 
-    // 4. Nettoyage de l'éventuel fichier NixOS si présent
+    // 7. Nettoyage de l'éventuel fichier NixOS si présent
     let config_dir = get_config_dir();
     let docker_dir = config_dir.join("docker");
-    let nix_file = docker_dir.join(format!("{}.nix", clean_name));
+    let nix_file = docker_dir.join(format!("{}.nix", target_app_id));
     if nix_file.exists() {
         let _ = std::fs::remove_file(&nix_file);
         let _ = Command::new("git")
-            .args(["-C", &config_dir.display().to_string(), "rm", "-f", &format!("docker/{}.nix", clean_name)])
+            .args(["-C", &config_dir.display().to_string(), "rm", "-f", &format!("docker/{}.nix", target_app_id)])
             .output();
     }
 
-    Ok(format!("Conteneur '{}' supprimé avec succès{}.", clean_name, img_msg))
+    Ok(format!(
+        "Conteneur '{}' supprimé avec succès{}{}.",
+        clean_name, img_msg, data_msg
+    ))
 }

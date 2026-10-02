@@ -4954,8 +4954,22 @@
           Êtes-vous sûr de vouloir supprimer le conteneur <strong id="delete-docker-name-display" style="color: var(--blue); font-family: var(--font-mono); font-size: 0.95rem;">nom-du-docker</strong> ?
         </div>
 
+        <!-- BANDEAU LIEN APP STORE SI ASSOCIÉ -->
+        <div id="delete-docker-store-banner" style="display:none; background: rgba(180, 190, 254, 0.1); border: 1px solid rgba(180, 190, 254, 0.3); border-radius: 10px; padding: 12px 14px; align-items: center; gap: 12px;">
+          <img id="delete-docker-store-icon" src="/favicon.ico" alt="Store App" style="width: 32px; height: 32px; border-radius: 8px; object-fit: contain; background: var(--mantle); padding: 2px; border: 1px solid var(--surface1);">
+          <div style="flex:1;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-weight: 700; color: var(--text); font-size: 0.9rem;" id="delete-docker-store-appname">Application</span>
+              <span class="badge badge-primary" style="font-size:0.68rem; padding: 1px 6px;">🛍️ App Store</span>
+            </div>
+            <div style="font-size: 0.77rem; color: var(--subtext0); margin-top: 2px;">
+              La suppression réinitialisera automatiquement l'application dans la boutique pour vous permettre de la réinstaller à tout moment.
+            </div>
+          </div>
+        </div>
+
         <div style="background: rgba(243, 139, 168, 0.08); border: 1px solid rgba(243, 139, 168, 0.25); border-radius: 8px; padding: 12px; font-size: 0.8rem; color: var(--subtext1); line-height: 1.45;">
-          ⚠️ Le conteneur sera arrêté s'il est en cours et son instance retirée de Docker. Les volumes et données persistantes sur l'hôte restent préservés.
+          ⚠️ Le conteneur sera arrêté s'il est en cours et son instance retirée de Docker.
         </div>
 
         <label style="display: flex; align-items: flex-start; gap: 12px; cursor: pointer; background: var(--mantle); padding: 12px 14px; border-radius: 10px; border: 1px solid var(--surface1); transition: border-color 0.2s ease;">
@@ -4963,6 +4977,15 @@
           <div style="display: flex; flex-direction: column; gap: 3px;">
             <span style="font-size: 0.88rem; font-weight: 600; color: var(--text);">Supprimer également l'image Docker associée</span>
             <span style="font-size: 0.76rem; color: var(--subtext0); font-family: var(--font-mono); word-break: break-all;" id="delete-docker-image-preview">Image : ...</span>
+          </div>
+        </label>
+
+        <label id="delete-docker-data-label" style="display: none; align-items: flex-start; gap: 12px; cursor: pointer; background: var(--mantle); padding: 12px 14px; border-radius: 10px; border: 1px solid var(--surface1); transition: border-color 0.2s ease;">
+          <input type="checkbox" id="delete-docker-data-check" style="margin-top: 3px; accent-color: var(--red); width: 16px; height: 16px; cursor: pointer;">
+          <div style="display: flex; flex-direction: column; gap: 3px;">
+            <span style="font-size: 0.88rem; font-weight: 600; color: var(--red);">Supprimer également le dossier de données persistantes</span>
+            <span style="font-size: 0.76rem; color: var(--subtext0); font-family: var(--font-mono); word-break: break-all;" id="delete-docker-data-dir-preview">~/docker/...</span>
+            <span style="font-size: 0.74rem; color: var(--subtext1);">Attention : les configurations et bases de données enregistrées dans ce dossier seront définitivement effacées.</span>
           </div>
         </label>
       </div>

@@ -12934,6 +12934,33 @@ body.app-updating-reload #app-shell {
   border: 1px solid rgba(138, 173, 244, 0.2);
 }
 
+.docker-avatar-img {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  object-fit: contain;
+  flex-shrink: 0;
+  background: var(--mantle);
+  border: 1px solid rgba(180, 190, 254, 0.25);
+  padding: 3px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  transition: transform 0.2s ease;
+}
+
+.docker-avatar-img:hover {
+  transform: scale(1.08);
+}
+
+@keyframes highlightContainerRow {
+  0% { background: rgba(180, 190, 254, 0.3); border-color: var(--blue); transform: scale(1.01); }
+  50% { background: rgba(180, 190, 254, 0.2); border-color: var(--mauve); }
+  100% { background: var(--surface0); border-color: var(--surface1); transform: scale(1); }
+}
+
+.row-highlight-pulse {
+  animation: highlightContainerRow 2.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
 .docker-row-identity {
   display: flex;
   flex-direction: column;

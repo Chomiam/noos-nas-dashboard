@@ -9675,6 +9675,10 @@ async function loadDockerContainers() {
       const cleanName = (c.name || "").replace(/^\//, "");
       const shortId = (c.id || "").substring(0, 10);
       const isRunning = Boolean(c.is_running);
+      const isStore = Boolean(c.is_store_app);
+      const appName = c.store_app_name || cleanName;
+      const appIcon = c.store_icon || "";
+      const storeAppId = (c.store_app_id || "").toLowerCase();
 
       const openLink = c.web_port
         ? `<a href="http://${host}:${c.web_port}" target="_blank" class="btn-docker-open" title="Ouvrir l'application Web (Port ${c.web_port})">
@@ -9686,13 +9690,30 @@ async function loadDockerContainers() {
         ? `<span class="docker-line-ports" title="${escapeHtml(c.ports)}">🔌 ${escapeHtml(c.ports)}</span>`
         : "";
 
+      const avatarHtml = (isStore && appIcon)
+        ? `<img src="${escapeHtml(appIcon)}" alt="${escapeHtml(appName)}" class="docker-avatar-img" onerror="this.outerHTML='<div class=\\'docker-avatar-icon\\'>🐳</div>'">`
+        : `<div class="docker-avatar-icon">🐳</div>`;
+
+      const storeBadge = isStore
+        ? `<span class="badge badge-primary" style="font-size:0.68rem; margin-left:6px; padding:2px 7px; vertical-align:middle; cursor:pointer;" onclick="openStoreAppModal('${escapeHtml(storeAppId)}')" title="Cliquer pour voir la fiche dans l'App Store">🛍️ ${escapeHtml(appName)}</span>`
+        : "";
+
+      const storeBtn = (isStore && storeAppId)
+        ? `<button type="button" class="btn-docker-action" onclick="openStoreAppModal('${escapeHtml(storeAppId)}')" title="Voir la fiche dans l'App Store">
+             <span>🛍️</span> Fiche Store
+           </button>`
+        : "";
+
       return `
-        <div class="docker-container-row ${isRunning ? 'is-running' : 'is-stopped'}">
+        <div class="docker-container-row ${isRunning ? 'is-running' : 'is-stopped'}" id="docker-container-row-${escapeHtml(cleanName)}" data-store-app-id="${escapeHtml(storeAppId)}" data-container-id="${escapeHtml(c.id || '')}">
           <div class="docker-row-left">
             <span class="docker-status-dot ${isRunning ? 'dot-running' : 'dot-stopped'}" title="${isRunning ? 'En cours d execution' : 'Arrêté'}"></span>
-            <div class="docker-avatar-icon">🐳</div>
+            ${avatarHtml}
             <div class="docker-row-identity">
-              <div class="docker-row-name" title="${escapeHtml(cleanName)}">${escapeHtml(cleanName)}</div>
+              <div class="docker-row-name" title="${escapeHtml(cleanName)}">
+                ${escapeHtml(cleanName)}
+                ${storeBadge}
+              </div>
               <div class="docker-row-sub">
                 <span class="docker-row-id font-mono">${escapeHtml(shortId)}</span>
                 <span class="docker-badge-state ${isRunning ? 'state-running' : 'state-stopped'}">
@@ -9727,10 +9748,11 @@ async function loadDockerContainers() {
             <button type="button" class="btn-docker-action" onclick="openDockerConfigModalForContainer('${escapeHtml(cleanName)}')" title="Modifier les variables d'environnement">
               <span>⚙️</span> Variables
             </button>
+            ${storeBtn}
             <button type="button" class="btn-docker-action" onclick="openDockerLogsModal('${escapeHtml(cleanName)}')" title="Consulter les journaux Docker">
               <span>📜</span> Logs
             </button>
-            <button type="button" class="btn-docker-action btn-docker-delete" onclick="openDeleteDockerModal('${escapeHtml(cleanName)}', '${escapeHtml(c.image || '')}')" title="Supprimer le conteneur">
+            <button type="button" class="btn-docker-action btn-docker-delete" onclick="openDeleteDockerModal('${escapeHtml(cleanName)}', '${escapeHtml(c.image || '')}', '${escapeHtml(storeAppId)}', '${escapeHtml(appName)}', '${escapeHtml(appIcon)}')" title="Supprimer le conteneur">
               <span>🗑️</span> Supprimer
             </button>
           </div>
@@ -9745,28 +9767,61 @@ async function loadDockerContainers() {
 }
 
 // --------------------------------------------------------------------------
-// MODALE SUPPRESSION DOCKER CONTENEUR
+// MODALE SUPPRESSION DOCKER CONTENEUR (AVEC LIEN STORE & OPTION PURGE)
 // --------------------------------------------------------------------------
 let pendingDeleteDockerName = null;
 let pendingDeleteDockerImage = null;
+let pendingDeleteDockerStoreAppId = null;
+let pendingDeleteDockerStoreAppName = null;
 
-function openDeleteDockerModal(name, image) {
+function openDeleteDockerModal(name, image, storeAppId, storeAppName, storeAppIcon) {
   pendingDeleteDockerName = name;
   pendingDeleteDockerImage = image || "";
+  pendingDeleteDockerStoreAppId = storeAppId || null;
+  pendingDeleteDockerStoreAppName = storeAppName || null;
+
   const modal = document.getElementById("modal-delete-docker");
   const nameEl = document.getElementById("delete-docker-name-display");
   const imgEl = document.getElementById("delete-docker-image-preview");
   const checkEl = document.getElementById("delete-docker-image-check");
 
+  const storeBanner = document.getElementById("delete-docker-store-banner");
+  const storeIconEl = document.getElementById("delete-docker-store-icon");
+  const storeAppNameEl = document.getElementById("delete-docker-store-appname");
+
+  const dataLabel = document.getElementById("delete-docker-data-label");
+  const dataCheck = document.getElementById("delete-docker-data-check");
+  const dataDirPreview = document.getElementById("delete-docker-data-dir-preview");
+
   if (nameEl) nameEl.textContent = name;
   if (imgEl) imgEl.textContent = image ? `Image : ${image}` : "Aucune image identifiée";
   if (checkEl) checkEl.checked = false;
+
+  const targetAppId = (storeAppId || name).toLowerCase();
+  if (storeBanner) {
+    if (storeAppId) {
+      storeBanner.style.display = "flex";
+      if (storeIconEl) storeIconEl.src = storeAppIcon || "/favicon.ico";
+      if (storeAppNameEl) storeAppNameEl.textContent = storeAppName || storeAppId;
+    } else {
+      storeBanner.style.display = "none";
+    }
+  }
+
+  if (dataLabel) {
+    dataLabel.style.display = "flex";
+    if (dataCheck) dataCheck.checked = false;
+    if (dataDirPreview) dataDirPreview.textContent = `~/docker/${targetAppId}`;
+  }
+
   if (modal) modal.style.display = "flex";
 }
 
 function closeDeleteDockerModal() {
   pendingDeleteDockerName = null;
   pendingDeleteDockerImage = null;
+  pendingDeleteDockerStoreAppId = null;
+  pendingDeleteDockerStoreAppName = null;
   const modal = document.getElementById("modal-delete-docker");
   if (modal) modal.style.display = "none";
 }
@@ -9774,8 +9829,11 @@ function closeDeleteDockerModal() {
 async function confirmDeleteDockerContainer() {
   if (!pendingDeleteDockerName) return;
   const name = pendingDeleteDockerName;
+  const storeAppId = pendingDeleteDockerStoreAppId;
   const checkEl = document.getElementById("delete-docker-image-check");
   const deleteImage = checkEl ? Boolean(checkEl.checked) : false;
+  const dataCheck = document.getElementById("delete-docker-data-check");
+  const deleteData = dataCheck ? Boolean(dataCheck.checked) : false;
   const btn = document.getElementById("btn-confirm-delete-docker");
 
   if (btn) {
@@ -9784,14 +9842,22 @@ async function confirmDeleteDockerContainer() {
   }
 
   try {
-    const res = await fetch(`/api/docker/containers/${encodeURIComponent(name)}?delete_image=${deleteImage}`, {
+    const res = await fetch(`/api/docker/containers/${encodeURIComponent(name)}?delete_image=${deleteImage}&delete_data=${deleteData}`, {
       method: "DELETE"
     });
     const json = await res.json();
     if (json.success) {
       showToast(json.data || `Conteneur '${name}' supprimé avec succès.`, "success");
       closeDeleteDockerModal();
-      await loadDockerContainers();
+
+      // Nettoyer toute popup de déploiement en cours ou résiduelle
+      if (storeAppId) {
+        dismissDockerDeployToast(storeAppId);
+      }
+      dismissDockerDeployToast(name);
+
+      // Synchronisation croisée immédiate Conteneurs + Store
+      await refreshContainersAndStore();
       if (typeof loadDockerImages === "function") {
         loadDockerImages();
       }
@@ -9808,6 +9874,43 @@ async function confirmDeleteDockerContainer() {
   }
 }
 
+function scrollToDockerContainer(appId, containerId) {
+  switchTab("tab-containers");
+  switchDockerSubTab("containers");
+
+  setTimeout(() => {
+    const cleanAppId = (appId || "").toLowerCase();
+    const cleanCid = (containerId || "").toLowerCase();
+
+    let targetRow = null;
+    if (cleanAppId) {
+      targetRow = document.querySelector(`.docker-container-row[data-store-app-id="${cleanAppId}"]`)
+        || document.getElementById(`docker-container-row-${cleanAppId}`);
+    }
+    if (!targetRow && cleanCid) {
+      targetRow = document.querySelector(`.docker-container-row[data-container-id="${cleanCid}"]`);
+    }
+    if (!targetRow && cleanAppId) {
+      const allRows = document.querySelectorAll(".docker-container-row");
+      for (const r of allRows) {
+        if ((r.textContent || "").toLowerCase().includes(cleanAppId)) {
+          targetRow = r;
+          break;
+        }
+      }
+    }
+
+    if (targetRow) {
+      targetRow.scrollIntoView({ behavior: "smooth", block: "center" });
+      targetRow.classList.remove("row-highlight-pulse");
+      void targetRow.offsetWidth; // Forcer le reflow CSS
+      targetRow.classList.add("row-highlight-pulse");
+      setTimeout(() => targetRow.classList.remove("row-highlight-pulse"), 2600);
+    } else {
+      showToast("Conteneur non trouvé dans la liste des conteneurs actifs.", "info");
+    }
+  }, 220);
+}
 
 async function loadDockerStore() {
   const grid = document.getElementById("store-apps-grid");
@@ -10019,6 +10122,9 @@ function filterStoreApps(resetLimit = false) {
       `;
     } else if (isInstalled) {
       actionsRowHtml = `
+        <button type="button" class="btn btn-secondary btn-xs store-btn-action" onclick="scrollToDockerContainer('${escapeHtml(app.id)}', '${escapeHtml(app.container_id || '')}')" title="Voir dans Mes Conteneurs">
+          <span>🐳</span> Conteneur
+        </button>
         <button type="button" class="btn btn-secondary btn-xs store-btn-action" onclick="openStoreAppModal('${escapeHtml(app.id)}')">
           <span>ℹ️</span> Détails
         </button>
@@ -10283,6 +10389,9 @@ function openStoreAppModal(appId) {
       `;
     } else if (isInstalled) {
       actionsEl.innerHTML = `
+        <button type="button" class="btn btn-secondary btn-sm" onclick="scrollToDockerContainer('${app.id}', '${escapeHtml(app.container_id || '')}'); closeStoreAppModal();" title="Voir le conteneur dans Mes Conteneurs">
+          <span>🐳</span> Voir le conteneur
+        </button>
         <button type="button" class="btn btn-secondary btn-sm" onclick="openDockerConfigModal('${app.id}'); closeStoreAppModal();">
           ⚙️ Modifier les variables
         </button>
@@ -11560,7 +11669,8 @@ async function uninstallStoreApp(appId, appName) {
     const json = await res.json();
     if (json.success) {
       showToast(json.data || `${appName} a été désinstallée avec succès.`, "success");
-      setTimeout(() => refreshContainersAndStore(), 2000);
+      dismissDockerDeployToast(appId);
+      await refreshContainersAndStore();
     } else {
       showToast(`Erreur lors de la désinstallation : ${json.message}`, "error");
     }

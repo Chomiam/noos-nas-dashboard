@@ -1625,14 +1625,16 @@ async fn handle_docker_containers() -> Json<ApiResponse<Vec<DockerContainer>>> {
 pub struct DeleteContainerQuery {
     #[serde(default)]
     pub delete_image: bool,
+    #[serde(default)]
+    pub delete_data: bool,
 }
 
-/// Supprime un conteneur Docker avec option de purge de son image sous-jacente.
+/// Supprime un conteneur Docker avec option de purge de son image sous-jacente et de ses données.
 async fn handle_delete_docker_container(
     Path(name): Path<String>,
     Query(params): Query<DeleteContainerQuery>,
 ) -> Json<ApiResponse<String>> {
-    match remove_docker_container(&name, params.delete_image).await {
+    match remove_docker_container(&name, params.delete_image, params.delete_data).await {
         Ok(msg) => Json(ApiResponse {
             success: true,
             data: Some(msg),

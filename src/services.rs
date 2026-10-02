@@ -60,6 +60,14 @@ pub struct DockerContainer {
     pub created: String,
     #[serde(default)]
     pub web_port: Option<u16>,
+    #[serde(default)]
+    pub store_app_id: Option<String>,
+    #[serde(default)]
+    pub store_app_name: Option<String>,
+    #[serde(default)]
+    pub store_icon: Option<String>,
+    #[serde(default)]
+    pub is_store_app: bool,
 }
 
 pub fn get_services_overview() -> ServicesOverview {
@@ -225,26 +233,58 @@ pub fn get_smb_sessions() -> Vec<ActiveSession> {
 pub fn get_docker_containers() -> Vec<DockerContainer> {
     let mut containers = Vec::new();
     if let Ok(output) = Command::new("docker")
-        .args(["ps", "-a", "--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.State}}\t{{.Ports}}\t{{.CreatedAt}}"])
+        .args(["ps", "-a", "--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.State}}\t{{.Ports}}\t{{.CreatedAt}}\t{{.Labels}}"])
         .output()
     {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
             let parts: Vec<&str> = line.split('\t').collect();
             if parts.len() >= 5 {
+                let id = parts[0].to_string();
+                let name = parts[1].trim_start_matches('/').to_string();
+                let image = parts[2].to_string();
+                let status = parts[3].to_string();
                 let state = parts[4].to_lowercase();
                 let ports = if parts.len() > 5 { parts[5].to_string() } else { String::new() };
                 let created = if parts.len() > 6 { parts[6].to_string() } else { String::new() };
+                let labels = if parts.len() > 7 { parts[7] } else { "" };
                 let web_port = extract_web_port(&ports);
+
+                // Détection de lien avec le Store Docker (via label com.docker.compose.project ou nom de conteneur)
+                let mut store_project = None;
+                for label in labels.split(',') {
+                    if let Some((k, v)) = label.split_once('=') {
+                        if k.trim() == "com.docker.compose.project" {
+                            let proj = v.trim().to_string();
+                            if !proj.is_empty() {
+                                store_project = Some(proj);
+                            }
+                        }
+                    }
+                }
+
+                let clean_name = name.strip_prefix("docker-").unwrap_or(&name);
+                let lookup_key = store_project.as_deref().unwrap_or(clean_name);
+                let store_info = crate::docker_store::resolve_store_app_info(lookup_key);
+
+                let (store_app_id, store_app_name, store_icon, is_store_app) = match store_info {
+                    Some((app_id, app_name, icon)) => (Some(app_id), Some(app_name), Some(icon), true),
+                    None => (None, None, None, false),
+                };
+
                 containers.push(DockerContainer {
-                    id: parts[0].to_string(),
-                    name: parts[1].trim_start_matches('/').to_string(),
-                    image: parts[2].to_string(),
-                    status: parts[3].to_string(),
+                    id,
+                    name,
+                    image,
+                    status,
                     is_running: state == "running",
                     ports,
                     created,
                     web_port,
+                    store_app_id,
+                    store_app_name,
+                    store_icon,
+                    is_store_app,
                 });
             }
         }
