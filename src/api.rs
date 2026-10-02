@@ -49,9 +49,10 @@ use crate::documents::{get_document_info, get_document_pdf_path, DocumentInfoRes
 use crate::dns::{get_dns_overview, update_dns, DnsOverview, UpdateDnsRequest};
 use crate::docker_store::{
     control_docker_container, delete_docker_image, get_docker_logs, get_store_catalog,
-    install_store_app, list_docker_images, prune_docker_images, uninstall_store_app, remove_docker_container,
-    ContainerActionRequest, DockerImagesOverview, InstallAppRequest, StoreCatalog,
-    UninstallAppRequest,
+    get_all_store_deployments, get_store_deployment_status, install_store_app,
+    list_docker_images, prune_docker_images, uninstall_store_app, remove_docker_container,
+    ContainerActionRequest, DockerImagesOverview, DockerStoreDeployStatus, InstallAppRequest,
+    StoreCatalog, UninstallAppRequest,
 };
 use crate::services::{get_docker_containers, DockerContainer};
 use crate::youtube::{
@@ -246,6 +247,8 @@ pub fn api_routes() -> Router {
         .route("/docker/containers/:name/action", post(handle_docker_container_action))
         .route("/docker/containers/:name/logs", get(handle_docker_container_logs))
         .route("/docker/store", get(handle_docker_store))
+        .route("/docker/store/deployments", get(handle_docker_store_deployments))
+        .route("/docker/store/deployments/:app_id", get(handle_docker_store_deployment_status))
         .route("/docker/store/install", post(handle_docker_store_install))
         .route("/docker/store/uninstall", post(handle_docker_store_uninstall))
         .route("/docker/images", get(handle_docker_images))
@@ -1736,6 +1739,29 @@ async fn handle_docker_store_uninstall(
             message: Some(format!("Erreur d'exécution de la tâche : {}", err)),
         }),
     }
+}
+
+/// Liste tous les déploiements d'applications du Docker Store actifs ou récents.
+async fn handle_docker_store_deployments() -> Json<ApiResponse<Vec<DockerStoreDeployStatus>>> {
+    let list = tokio::task::spawn_blocking(get_all_store_deployments).await.unwrap_or_default();
+    Json(ApiResponse {
+        success: true,
+        data: Some(list),
+        message: None,
+    })
+}
+
+/// Récupère l'état d'avancement d'un déploiement spécifique dans le Docker Store.
+async fn handle_docker_store_deployment_status(
+    Path(app_id): Path<String>,
+) -> Json<ApiResponse<DockerStoreDeployStatus>> {
+    let clean_id = app_id.trim().to_lowercase();
+    let st = tokio::task::spawn_blocking(move || get_store_deployment_status(&clean_id)).await.unwrap_or(None);
+    Json(ApiResponse {
+        success: st.is_some(),
+        data: st,
+        message: None,
+    })
 }
 
 // ============================================================================

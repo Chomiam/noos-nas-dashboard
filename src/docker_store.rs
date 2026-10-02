@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{LazyLock, Mutex};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreVolume {
@@ -101,6 +102,65 @@ pub struct ContainerActionRequest {
 pub struct DockerActionResponse {
     pub success: bool,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DockerStoreDeployStatus {
+    pub app_id: String,
+    pub status: String, // "installing" | "ready" | "failed"
+    pub step: u8,
+    pub progress_percent: u8,
+    pub message: String,
+    pub started_at: u64,
+    pub is_running: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+static STORE_DEPLOY_TRACKER: LazyLock<Mutex<HashMap<String, DockerStoreDeployStatus>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+pub fn get_all_store_deployments() -> Vec<DockerStoreDeployStatus> {
+    let tracker = STORE_DEPLOY_TRACKER.lock().unwrap();
+    let mut list: Vec<DockerStoreDeployStatus> = tracker.values().cloned().collect();
+    drop(tracker);
+
+    let containers = get_running_containers_map();
+    for d in &mut list {
+        if containers.contains_key(&d.app_id) {
+            d.is_running = true;
+        }
+    }
+    list
+}
+
+pub fn get_store_deployment_status(app_id: &str) -> Option<DockerStoreDeployStatus> {
+    let clean_id = app_id.trim().to_lowercase();
+    let tracker = STORE_DEPLOY_TRACKER.lock().unwrap();
+    if let Some(mut st) = tracker.get(&clean_id).cloned() {
+        drop(tracker);
+        let containers = get_running_containers_map();
+        if containers.contains_key(&clean_id) {
+            st.is_running = true;
+        }
+        return Some(st);
+    }
+    drop(tracker);
+
+    let containers = get_running_containers_map();
+    if containers.contains_key(&clean_id) {
+        return Some(DockerStoreDeployStatus {
+            app_id: clean_id,
+            status: "ready".into(),
+            step: 4,
+            progress_percent: 100,
+            message: "Application active".into(),
+            started_at: 0,
+            is_running: true,
+            error: None,
+        });
+    }
+    None
 }
 
 fn get_config_dir() -> PathBuf {
@@ -286,15 +346,35 @@ fn customize_compose_yaml(
         }
     }
 
-    lines.join("
-") + "
-"
+    lines.join("\n") + "\n"
 }
 
 pub fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
     let clean_id = req.app_id.trim().to_lowercase();
     if clean_id.is_empty() || !clean_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
         return Err("Identifiant d'application invalide".to_string());
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    // 0. Enregistrer le début du déploiement dans le tracker
+    if let Ok(mut tracker) = STORE_DEPLOY_TRACKER.lock() {
+        tracker.insert(
+            clean_id.clone(),
+            DockerStoreDeployStatus {
+                app_id: clean_id.clone(),
+                status: "installing".into(),
+                step: 1,
+                progress_percent: 20,
+                message: "Préparation du dossier persistant (~/docker)...".into(),
+                started_at: now,
+                is_running: false,
+                error: None,
+            },
+        );
     }
 
     let user = get_target_user();
@@ -308,11 +388,28 @@ pub fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
     let compose_file = app_dir.join("compose.yaml");
 
     // 1. Assurer la création des dossiers persistants avec permissions saines
-    std::fs::create_dir_all(&data_dir)
-        .map_err(|e| format!("Impossible de créer le dossier {} : {}", data_dir.display(), e))?;
+    if let Err(e) = std::fs::create_dir_all(&data_dir) {
+        let err_msg = format!("Impossible de créer le dossier {} : {}", data_dir.display(), e);
+        if let Ok(mut tracker) = STORE_DEPLOY_TRACKER.lock() {
+            if let Some(entry) = tracker.get_mut(&clean_id) {
+                entry.status = "failed".into();
+                entry.error = Some(err_msg.clone());
+            }
+        }
+        return Err(err_msg);
+    }
 
     let _ = Command::new("chown").args(["-R", &format!("{}:users", user), &app_dir.display().to_string()]).status();
     let _ = Command::new("chmod").args(["-R", "0775", &app_dir.display().to_string()]).status();
+
+    // Étape 2 : Configuration des variables et compose.yaml
+    if let Ok(mut tracker) = STORE_DEPLOY_TRACKER.lock() {
+        if let Some(entry) = tracker.get_mut(&clean_id) {
+            entry.step = 2;
+            entry.progress_percent = 45;
+            entry.message = "Configuration des variables & ports réseau...".into();
+        }
+    }
 
     // 2. Récupérer le compose.yaml depuis steveos_nas_store
     let url = format!(
@@ -339,22 +436,37 @@ pub fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
     let customized = customize_compose_yaml(&base_compose, req.port, req.env_vars.as_ref());
 
     // 4. Écrire le fichier compose.yaml
-    std::fs::write(&compose_file, &customized)
-        .map_err(|e| format!("Impossible d'écrire {} : {}", compose_file.display(), e))?;
+    if let Err(e) = std::fs::write(&compose_file, &customized) {
+        let err_msg = format!("Impossible d'écrire {} : {}", compose_file.display(), e);
+        if let Ok(mut tracker) = STORE_DEPLOY_TRACKER.lock() {
+            if let Some(entry) = tracker.get_mut(&clean_id) {
+                entry.status = "failed".into();
+                entry.error = Some(err_msg.clone());
+            }
+        }
+        return Err(err_msg);
+    }
 
     // 4.b Libération proactive du port 53 si l'application expose le service DNS (AdGuard Home / Pi-hole)
     if clean_id == "adguard" || clean_id == "pihole" || customized.contains(":53") {
         let _ = Command::new("sudo").args(["systemctl", "stop", "systemd-resolved"]).output();
         let _ = Command::new("sudo").args(["mkdir", "-p", "/etc/systemd/resolved.conf.d"]).output();
-        let dropin = "[Resolve]
-DNSStubListener=no
-";
+        let dropin = "[Resolve]\nDNSStubListener=no\n";
         let tmp_dropin = "/tmp/steveos-resolved-stub.conf";
         if std::fs::write(tmp_dropin, dropin).is_ok() {
             let _ = Command::new("sudo").args(["cp", tmp_dropin, "/etc/systemd/resolved.conf.d/steveos-dns.conf"]).output();
             let _ = std::fs::remove_file(tmp_dropin);
         }
         let _ = Command::new("sudo").args(["systemctl", "restart", "systemd-resolved"]).output();
+    }
+
+    // Étape 3 : Démarrage du conteneur (docker compose up -d)
+    if let Ok(mut tracker) = STORE_DEPLOY_TRACKER.lock() {
+        if let Some(entry) = tracker.get_mut(&clean_id) {
+            entry.step = 3;
+            entry.progress_percent = 75;
+            entry.message = "Lancement Docker Compose (docker compose up -d)...".into();
+        }
     }
 
     // 5. Déployer instantanément via Docker Compose
@@ -365,6 +477,15 @@ DNSStubListener=no
     match compose_cmd {
         Ok(out) => {
             if out.status.success() {
+                if let Ok(mut tracker) = STORE_DEPLOY_TRACKER.lock() {
+                    if let Some(entry) = tracker.get_mut(&clean_id) {
+                        entry.status = "ready".into();
+                        entry.step = 4;
+                        entry.progress_percent = 100;
+                        entry.message = "Application installée et prête".into();
+                        entry.is_running = true;
+                    }
+                }
                 Ok(format!("Application '{}' installée et lancée avec succès en 1 clic !", clean_id))
             } else {
                 let err = String::from_utf8_lossy(&out.stderr);
@@ -374,17 +495,38 @@ DNSStubListener=no
                 } else if stdout.trim().is_empty() {
                     err.to_string()
                 } else {
-                    format!("{}\\n{}", stdout.trim(), err.trim())
+                    format!("{}\n{}", stdout.trim(), err.trim())
                 };
-                Err(format!("Erreur lors du démarrage Docker Compose :\\n{}", full_log.trim()))
+                let err_msg = format!("Erreur lors du démarrage Docker Compose :\n{}", full_log.trim());
+                if let Ok(mut tracker) = STORE_DEPLOY_TRACKER.lock() {
+                    if let Some(entry) = tracker.get_mut(&clean_id) {
+                        entry.status = "failed".into();
+                        entry.step = 3;
+                        entry.error = Some(err_msg.clone());
+                    }
+                }
+                Err(err_msg)
             }
         }
-        Err(e) => Err(format!("Échec d'exécution de docker compose : {}", e)),
+        Err(e) => {
+            let err_msg = format!("Échec d'exécution de docker compose : {}", e);
+            if let Ok(mut tracker) = STORE_DEPLOY_TRACKER.lock() {
+                if let Some(entry) = tracker.get_mut(&clean_id) {
+                    entry.status = "failed".into();
+                    entry.step = 3;
+                    entry.error = Some(err_msg.clone());
+                }
+            }
+            Err(err_msg)
+        }
     }
 }
 
 pub fn uninstall_store_app(app_id: &str, delete_data: bool) -> Result<String, String> {
     let clean_id = app_id.trim().to_lowercase();
+    if let Ok(mut tracker) = STORE_DEPLOY_TRACKER.lock() {
+        tracker.remove(&clean_id);
+    }
     let user = get_target_user();
     let app_dir = PathBuf::from(format!("/home/{}/docker/{}", user, clean_id));
     let compose_file = app_dir.join("compose.yaml");

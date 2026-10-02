@@ -345,6 +345,9 @@ document.addEventListener("DOMContentLoaded", () => {
   applyInitialTabStateEarly();
   checkAuthSession();
   checkActiveStorageJobOnLoad();
+  if (typeof restoreDockerDeployStateFromStorage === "function") {
+    restoreDockerDeployStateFromStorage();
+  }
 });
 
 window.addEventListener("hashchange", () => {
@@ -9841,6 +9844,9 @@ async function loadDockerStore() {
     }
 
     filterStoreApps(true);
+    if (typeof syncActiveDockerDeploymentsWithBackend === "function") {
+      syncActiveDockerDeploymentsWithBackend();
+    }
   } catch (err) {
     console.error("Erreur fetch /api/docker/store:", err);
     grid.innerHTML = `<p style="color:var(--red); font-size:0.9rem;">Erreur de chargement du catalogue store.</p>`;
@@ -10702,11 +10708,247 @@ function addDockerConfigEnvRow(key = '', val = '') {
 }
 
 // ============================================================================
-// GESTIONNAIRE D'ORCHESTRATION & FILE D'ATTENTE DOCKER STORE (MULTI-POPUPS)
+// GESTIONNAIRE D'ORCHESTRATION & FILE D'ATTENTE DOCKER STORE (MULTI-POPUPS & PERSISTANCE)
 // ============================================================================
 const MAX_CONCURRENT_DOCKER_DEPLOYS = 2;
-const activeDockerDeployments = {}; // appId -> { appId, appName, icon, port, payload, status, step, progressPercent, subtitle, badgeText, badgeClass, errorMessage, ... }
+const DOCKER_DEPLOY_STORAGE_KEY = "steveos_docker_deployments_v1";
+const activeDockerDeployments = {}; // appId -> { appId, appName, icon, port, payload, status, step, progressPercent, subtitle, badgeText, badgeClass, errorMessage, startedAt, ... }
 const dockerDeployQueue = [];        // [ { appId, appName, icon, port, payload }, ... ]
+let dockerDeployTickerInterval = null;
+
+function saveDockerDeployStateToStorage() {
+  try {
+    const cleanedActive = {};
+    const now = Date.now();
+    for (const [key, val] of Object.entries(activeDockerDeployments)) {
+      if (!val) continue;
+      const copy = { ...val };
+      delete copy.stepTimer1;
+      delete copy.stepTimer2;
+      delete copy.dismissTimer;
+
+      // Conserver les déploiements actifs, ou récents (< 30 minutes si terminés/échoués)
+      if (copy.status === "active" || (copy.completedAt && (now - copy.completedAt < 1800000)) || (copy.startedAt && (now - copy.startedAt < 1800000))) {
+        cleanedActive[key] = copy;
+      }
+    }
+
+    const payload = {
+      active: cleanedActive,
+      queue: dockerDeployQueue,
+      updatedAt: now
+    };
+    localStorage.setItem(DOCKER_DEPLOY_STORAGE_KEY, JSON.stringify(payload));
+  } catch (e) {
+    console.warn("[Docker Deploy] Erreur sauvegarde localStorage:", e);
+  }
+}
+
+function restoreDockerDeployStateFromStorage() {
+  try {
+    const raw = localStorage.getItem(DOCKER_DEPLOY_STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (!data) return;
+
+    let hasChanges = false;
+    const now = Date.now();
+
+    // 1. Restaurer la file d'attente
+    if (Array.isArray(data.queue)) {
+      data.queue.forEach(item => {
+        const cleanId = (item.appId || "").toLowerCase();
+        if (cleanId && !dockerDeployQueue.some(q => q.appId.toLowerCase() === cleanId)) {
+          dockerDeployQueue.push(item);
+          hasChanges = true;
+        }
+      });
+    }
+
+    // 2. Restaurer les déploiements actifs ou récents
+    if (data.active && typeof data.active === "object") {
+      for (const [key, val] of Object.entries(data.active)) {
+        const cleanId = (key || "").toLowerCase();
+        if (cleanId && !activeDockerDeployments[cleanId]) {
+          activeDockerDeployments[cleanId] = {
+            ...val,
+            stepTimer1: null,
+            stepTimer2: null
+          };
+          hasChanges = true;
+        }
+      }
+    }
+
+    if (hasChanges || Object.keys(activeDockerDeployments).length > 0 || dockerDeployQueue.length > 0) {
+      renderAllDockerDeployToasts();
+      const currentConfigAppId = document.getElementById("config-app-id") ? document.getElementById("config-app-id").value.trim() : null;
+      if (currentConfigAppId) {
+        updateDockerConfigModalDeployButton(currentConfigAppId);
+      }
+      ensureDockerDeployTicker();
+      syncActiveDockerDeploymentsWithBackend();
+    }
+  } catch (e) {
+    console.warn("[Docker Deploy] Erreur restauration localStorage:", e);
+  }
+}
+
+async function syncActiveDockerDeploymentsWithBackend() {
+  try {
+    const res = await fetch("/api/docker/store/deployments");
+    const json = await res.json();
+    let hasUpdated = false;
+
+    if (json.success && Array.isArray(json.data)) {
+      const backendDeployments = json.data; // [{ app_id, status, step, progress_percent, message, started_at, is_running, error }]
+
+      backendDeployments.forEach(bDep => {
+        const cleanId = (bDep.app_id || "").toLowerCase();
+        let clientDep = activeDockerDeployments[cleanId];
+
+        if (clientDep) {
+          if (bDep.status === "ready" || bDep.is_running) {
+            if (clientDep.status !== "success") {
+              clientDep.status = "success";
+              clientDep.step = 4;
+              clientDep.progressPercent = 100;
+              clientDep.subtitle = clientDep.port ? `Conteneur actif sur le port ${clientDep.port}` : "Conteneur actif sur votre NAS STEvE_OS";
+              clientDep.badgeText = "🟢 Prêt (100%)";
+              clientDep.badgeClass = "badge-success";
+              clientDep.completedAt = Date.now();
+              hasUpdated = true;
+
+              setTimeout(() => {
+                if (activeDockerDeployments[cleanId] && activeDockerDeployments[cleanId].status === "success") {
+                  dismissDockerDeployToast(cleanId);
+                }
+              }, 12000);
+            }
+          } else if (bDep.status === "failed") {
+            if (clientDep.status !== "error") {
+              clientDep.status = "error";
+              clientDep.step = 3;
+              clientDep.errorMessage = bDep.error || bDep.message || "Erreur de démarrage Docker Compose";
+              clientDep.subtitle = "Erreur de démarrage Docker Compose";
+              clientDep.badgeText = "🔴 Erreur";
+              clientDep.badgeClass = "badge-danger";
+              clientDep.completedAt = Date.now();
+              hasUpdated = true;
+            }
+          } else if (bDep.status === "installing") {
+            if (clientDep.status === "active") {
+              const newStep = Math.max(clientDep.step || 1, bDep.step || 1);
+              const newProgress = Math.max(clientDep.progressPercent || 20, bDep.progress_percent || 20);
+              if (newStep !== clientDep.step || newProgress !== clientDep.progressPercent) {
+                clientDep.step = newStep;
+                clientDep.progressPercent = newProgress;
+                clientDep.subtitle = bDep.message || clientDep.subtitle;
+                clientDep.badgeText = `⏳ En cours (${newProgress}%)`;
+                hasUpdated = true;
+              }
+            }
+          }
+        } else if (bDep.status === "installing") {
+          // Un déploiement en cours sur le serveur n'était pas dans le client local
+          activeDockerDeployments[cleanId] = {
+            appId: cleanId,
+            appName: bDep.app_id.charAt(0).toUpperCase() + bDep.app_id.slice(1),
+            icon: "/favicon.ico",
+            port: null,
+            payload: { app_id: cleanId },
+            status: "active",
+            step: bDep.step || 2,
+            progressPercent: bDep.progress_percent || 45,
+            subtitle: bDep.message || "Installation en cours sur le NAS...",
+            badgeText: `⏳ En cours (${bDep.progress_percent || 45}%)`,
+            badgeClass: "badge-warning",
+            errorMessage: null,
+            startedAt: bDep.started_at ? (bDep.started_at * 1000) : Date.now()
+          };
+          hasUpdated = true;
+        }
+      });
+    }
+
+    // Réconciliation supplémentaire avec /api/docker/containers pour valider les conteneurs actifs
+    const activeKeys = Object.keys(activeDockerDeployments).filter(k => activeDockerDeployments[k].status === "active");
+    if (activeKeys.length > 0) {
+      try {
+        const cRes = await fetch("/api/docker/containers");
+        const cJson = await cRes.json();
+        if (cJson.success && Array.isArray(cJson.data)) {
+          const runningNames = cJson.data
+            .filter(c => (c.status || "").toLowerCase().includes("up") || (c.state || "").toLowerCase() === "running")
+            .map(c => (c.name || "").toLowerCase().replace(/^\//, ""));
+
+          activeKeys.forEach(cleanId => {
+            const dep = activeDockerDeployments[cleanId];
+            if (dep && dep.status === "active") {
+              const isRunning = runningNames.some(n => n === cleanId || n.includes(cleanId) || cleanId.includes(n));
+              if (isRunning) {
+                dep.status = "success";
+                dep.step = 4;
+                dep.progressPercent = 100;
+                dep.subtitle = dep.port ? `Conteneur actif sur le port ${dep.port}` : "Conteneur actif sur votre NAS STEvE_OS";
+                dep.badgeText = "🟢 Prêt (100%)";
+                dep.badgeClass = "badge-success";
+                dep.completedAt = Date.now();
+                hasUpdated = true;
+
+                setTimeout(() => {
+                  if (activeDockerDeployments[cleanId] && activeDockerDeployments[cleanId].status === "success") {
+                    dismissDockerDeployToast(cleanId);
+                  }
+                }, 12000);
+              } else if (dep.startedAt && (Date.now() - dep.startedAt > 300000)) {
+                dep.status = "error";
+                dep.step = 3;
+                dep.errorMessage = "Délai d'attente dépassé (timeout 5 min). Veuillez vérifier les logs du conteneur.";
+                dep.subtitle = "Délai de déploiement dépassé";
+                dep.badgeText = "🔴 Timeout";
+                dep.badgeClass = "badge-danger";
+                dep.completedAt = Date.now();
+                hasUpdated = true;
+              }
+            }
+          });
+        }
+      } catch (errContainers) {
+        console.warn("[Docker Deploy] Erreur vérification conteneurs:", errContainers);
+      }
+    }
+
+    if (hasUpdated) {
+      renderAllDockerDeployToasts();
+      saveDockerDeployStateToStorage();
+      processNextInDockerDeployQueue();
+      const currentConfigAppId = document.getElementById("config-app-id") ? document.getElementById("config-app-id").value.trim() : null;
+      if (currentConfigAppId) {
+        updateDockerConfigModalDeployButton(currentConfigAppId);
+      }
+    }
+  } catch (err) {
+    console.warn("[Docker Deploy] Erreur synchronisation déploiements backend:", err);
+  }
+}
+
+function ensureDockerDeployTicker() {
+  if (dockerDeployTickerInterval) return;
+
+  dockerDeployTickerInterval = setInterval(() => {
+    const hasActive = Object.values(activeDockerDeployments).some(d => d.status === "active");
+    const hasQueue = dockerDeployQueue.length > 0;
+
+    if (!hasActive && !hasQueue) {
+      clearInterval(dockerDeployTickerInterval);
+      dockerDeployTickerInterval = null;
+      return;
+    }
+
+    syncActiveDockerDeploymentsWithBackend();
+  }, 3500);
+}
 
 function updateDockerConfigModalDeployButton(appId) {
   const btn = document.getElementById("btn-submit-docker-deploy");
@@ -10762,6 +11004,7 @@ function processNextInDockerDeployQueue() {
   const runningCount = Object.values(activeDockerDeployments).filter(d => d.status === "active").length;
   if (runningCount < MAX_CONCURRENT_DOCKER_DEPLOYS && dockerDeployQueue.length > 0) {
     const nextItem = dockerDeployQueue.shift();
+    saveDockerDeployStateToStorage();
     renderAllDockerDeployToasts();
     startDockerAppDeploy(nextItem);
   }
@@ -10774,6 +11017,7 @@ function removeDockerFromDeployQueue(appId) {
     const removed = dockerDeployQueue.splice(qIdx, 1)[0];
     showToast(`Application ${removed.appName || cleanId} retirée de la file d'attente.`, "info");
     dismissDockerDeployToast(cleanId);
+    saveDockerDeployStateToStorage();
     renderAllDockerDeployToasts();
     updateDockerConfigModalDeployButton(cleanId);
   }
@@ -10890,6 +11134,7 @@ function dismissDockerDeployToast(appId) {
       if (qIdx !== -1) {
         dockerDeployQueue.splice(qIdx, 1);
       }
+      saveDockerDeployStateToStorage();
       updateDockerConfigModalDeployButton(cleanId);
       updateFloatingDockLayout();
     }, 280);
@@ -10901,6 +11146,7 @@ function dismissDockerDeployToast(appId) {
     if (qIdx !== -1) {
       dockerDeployQueue.splice(qIdx, 1);
     }
+    saveDockerDeployStateToStorage();
     updateDockerConfigModalDeployButton(cleanId);
     updateFloatingDockLayout();
   }
@@ -11084,6 +11330,8 @@ async function startDockerAppDeploy(item) {
   };
   activeDockerDeployments[cleanId] = dep;
 
+  saveDockerDeployStateToStorage();
+  ensureDockerDeployTicker();
   renderAllDockerDeployToasts();
   updateDockerConfigModalDeployButton(cleanId);
 
@@ -11094,6 +11342,7 @@ async function startDockerAppDeploy(item) {
       activeDockerDeployments[cleanId].progressPercent = 45;
       activeDockerDeployments[cleanId].subtitle = "Configuration des volumes persistants...";
       activeDockerDeployments[cleanId].badgeText = "⏳ En cours (45%)";
+      saveDockerDeployStateToStorage();
       renderAllDockerDeployToasts();
     }
   }, 450);
@@ -11105,6 +11354,7 @@ async function startDockerAppDeploy(item) {
       activeDockerDeployments[cleanId].progressPercent = 75;
       activeDockerDeployments[cleanId].subtitle = "Lancement conteneur (docker compose up -d)...";
       activeDockerDeployments[cleanId].badgeText = "⏳ Compose up (75%)";
+      saveDockerDeployStateToStorage();
       renderAllDockerDeployToasts();
     }
   }, 1000);
@@ -11126,6 +11376,8 @@ async function startDockerAppDeploy(item) {
         activeDockerDeployments[cleanId].subtitle = port ? `Conteneur actif sur le port ${port}` : "Conteneur actif sur votre NAS STEvE_OS";
         activeDockerDeployments[cleanId].badgeText = "🟢 Prêt (100%)";
         activeDockerDeployments[cleanId].badgeClass = "badge-success";
+        activeDockerDeployments[cleanId].completedAt = Date.now();
+        saveDockerDeployStateToStorage();
       }
       showToast(json.data || `Application ${appName} configurée et démarrée avec succès !`, "success");
       setTimeout(() => refreshContainersAndStore(), 2000);
@@ -11145,6 +11397,8 @@ async function startDockerAppDeploy(item) {
         activeDockerDeployments[cleanId].subtitle = "Erreur de démarrage Docker Compose";
         activeDockerDeployments[cleanId].badgeText = "🔴 Erreur";
         activeDockerDeployments[cleanId].badgeClass = "badge-danger";
+        activeDockerDeployments[cleanId].completedAt = Date.now();
+        saveDockerDeployStateToStorage();
       }
       showToast(`Erreur déploiement ${appName} : ${json.message}`, "error");
       openDockerDeployErrorModal(appName, json.message);
@@ -11157,10 +11411,13 @@ async function startDockerAppDeploy(item) {
       activeDockerDeployments[cleanId].subtitle = "Erreur de communication avec le NAS";
       activeDockerDeployments[cleanId].badgeText = "🔴 Erreur";
       activeDockerDeployments[cleanId].badgeClass = "badge-danger";
+      activeDockerDeployments[cleanId].completedAt = Date.now();
+      saveDockerDeployStateToStorage();
     }
     showToast(`Erreur requête ${appName} : ${err}`, "error");
     openDockerDeployErrorModal(appName, String(err));
   } finally {
+    saveDockerDeployStateToStorage();
     renderAllDockerDeployToasts();
     updateDockerConfigModalDeployButton(cleanId);
     processNextInDockerDeployQueue();
@@ -11182,6 +11439,7 @@ function completeDockerDeployToast(success, message, port, appId, appName) {
   const cleanId = (appId || "").toLowerCase();
   if (activeDockerDeployments[cleanId]) {
     activeDockerDeployments[cleanId].status = success ? "success" : "error";
+    saveDockerDeployStateToStorage();
     renderAllDockerDeployToasts();
   }
 }
@@ -11269,9 +11527,20 @@ async function submitDockerDeploy() {
   } else {
     // Ajout dans la file d'attente FIFO
     dockerDeployQueue.push(item);
+    saveDockerDeployStateToStorage();
+    ensureDockerDeployTicker();
     showToast(`Application ${appTitle} ajoutée à la file d'attente (Position #${dockerDeployQueue.length})`, "info");
     renderAllDockerDeployToasts();
     updateDockerConfigModalDeployButton(cleanId);
+  }
+}
+
+// Initialisation immédiate de la restauration des déploiements
+if (typeof document !== "undefined") {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => restoreDockerDeployStateFromStorage());
+  } else {
+    restoreDockerDeployStateFromStorage();
   }
 }
 
