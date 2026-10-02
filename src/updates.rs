@@ -1325,26 +1325,18 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
 
     log.push_str(&format!("Point de restauration courant : {}\n", &current_sha[..8.min(current_sha.len())]));
 
-    // 2. Vérifier si des fichiers modifiés localement existent
-    let status_out = git_cmd(&dir_str)
-        .args(["status", "--porcelain"])
+    // Sauvegarde en mémoire des fichiers d'état locaux déclaratifs s'ils existent
+    let saved_firewall_state = fs::read_to_string(config_dir.join("firewall-state.json")).ok();
+    let saved_firewall_rules = fs::read_to_string(config_dir.join("firewall-rules.json")).ok();
+
+    // 2. Détection de la branche locale courante
+    let current_branch = git_cmd(&dir_str)
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default();
+        .unwrap_or_else(|_| "main".to_string());
 
-    let has_uncommitted = !status_out.is_empty();
-    if has_uncommitted {
-        log.push_str("Modifications locales détectées. Création d'un stash de sécurité...\n");
-        let stash_res = git_cmd(&dir_str)
-            .args(["stash", "push", "-u", "-m", "noos-auto-stash"])
-            .output();
-
-        if let Ok(res) = stash_res {
-            log.push_str(&String::from_utf8_lossy(&res.stdout));
-        }
-    }
-
-    // 3. Fetch et merge sécurisé (fast-forward privilégié) selon le canal actif
+    // 3. Fetch et bascule sécurisée selon le canal actif
     let active_channel = get_update_channel();
     let preferred_pull_branch = if active_channel == "testing" { "testing" } else { "main" };
     log.push_str(&format!("\n--- [Étape 2/3] Récupération des nouveautés depuis GitHub (noos-nas, canal {}) ---\n", active_channel));
@@ -1372,92 +1364,46 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
 
     let origin_target = format!("origin/{}", pull_branch);
 
-    // Vérifier si la branche locale a divergé d'origin/<branch> uniquement sur flake.lock
-    let diff_ahead_out = git_cmd(&dir_str)
-        .args(["diff", "--name-only", &format!("{}...HEAD", origin_target)])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default();
+    // Si on change de branche (ex: main -> testing ou testing -> main), basculer proprement
+    if current_branch != pull_branch {
+        log.push_str(&format!("Bascule de branche : alignement de '{}' vers '{}'...\n", current_branch, pull_branch));
+        // Nettoyage préventif des fichiers d'état pour permettre le checkout sans blocage
+        let _ = git_cmd(&dir_str).args(["checkout", "--", "."]).output();
 
-    if !diff_ahead_out.is_empty() && diff_ahead_out.lines().all(|l| l.trim() == "flake.lock") {
-        log.push_str(&format!("Divergence locale détectée uniquement sur flake.lock. Alignement automatique sur {}...\n", origin_target));
-        let _ = git_cmd(&dir_str).args(["reset", "--mixed", &origin_target]).output();
-        let _ = git_cmd(&dir_str).args(["checkout", "--", "flake.lock"]).output();
-    }
-
-    let merge_out = git_cmd(&dir_str)
-        .args(["merge", "--ff-only", &origin_target])
-        .output()
-        .map_err(|e| format!("Échec du merge fast-forward : {}", e))?;
-
-    if !merge_out.status.success() {
-        log.push_str("Merge fast-forward non direct. Tentative de rebase automatique...\n");
-        let rebase_out = git_cmd(&dir_str)
-            .args(["rebase", &origin_target])
+        let switch_out = git_cmd(&dir_str)
+            .args(["checkout", "-B", pull_branch, &origin_target])
             .output();
 
-        match rebase_out {
-            Ok(r) if r.status.success() => {
-                log.push_str("Rebase réussi avec succès.\n");
+        match switch_out {
+            Ok(o) if o.status.success() => {
+                log.push_str(&format!("✔ Branche locale basculée avec succès sur {}.\n", pull_branch));
             }
             _ => {
-                let status_conflict = git_cmd(&dir_str)
-                    .args(["diff", "--name-only", "--diff-filter=U"])
-                    .output()
-                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                    .unwrap_or_default();
-
-                let mut only_safe_conflicts = true;
-                for file in status_conflict.lines() {
-                    let f = file.trim();
-                    if f != "flake.lock" && f != "vars.nix" && f != "firewall-state.json" && f != "firewall-rules.json" {
-                        only_safe_conflicts = false;
-                        break;
-                    }
-                }
-
-                if only_safe_conflicts {
-                    log.push_str("Résolution automatique des conflits de configuration...\n");
-                    let _ = git_cmd(&dir_str).args(["checkout", "--theirs", "flake.lock"]).output();
-                    let _ = git_cmd(&dir_str).args(["add", "flake.lock"]).output();
-                    let rebase_cont = git_cmd(&dir_str)
-                        .args(["-c", "core.editor=true", "rebase", "--continue"])
-                        .output();
-
-                    match rebase_cont {
-                        Ok(cont_res) if cont_res.status.success() => {
-                            log.push_str("Rebase finalisé avec succès.\n");
-                        }
-                        _ => {
-                            let _ = git_cmd(&dir_str).args(["rebase", "--abort"]).output();
-                            if has_uncommitted {
-                                let _ = git_cmd(&dir_str).args(["stash", "pop"]).output();
-                            }
-                            return Err("Conflit Git non résolu. Opération annulée pour préserver vos fichiers.".into());
-                        }
-                    }
-                } else {
-                    let _ = git_cmd(&dir_str).args(["rebase", "--abort"]).output();
-                    if has_uncommitted {
-                        let _ = git_cmd(&dir_str).args(["stash", "pop"]).output();
-                    }
-                    return Err("Conflit Git détecté avec la branche distante. Opération annulée pour préserver vos fichiers.".into());
-                }
+                log.push_str(&format!("Forçage du basculement sur {}...\n", pull_branch));
+                let _ = git_cmd(&dir_str).args(["checkout", "-f", "-B", pull_branch, &origin_target]).output();
             }
         }
     } else {
-        log.push_str(&String::from_utf8_lossy(&merge_out.stdout));
+        // Même branche : tentative de fast-forward, et si divergence sur flake.lock/commits locaux, reset dur sur origin
+        let merge_out = git_cmd(&dir_str)
+            .args(["merge", "--ff-only", &origin_target])
+            .output();
+
+        let ff_success = merge_out.as_ref().map(|o| o.status.success()).unwrap_or(false);
+        if ff_success {
+            log.push_str("Mise à jour rapide appliquée avec succès (fast-forward).\n");
+        } else {
+            log.push_str(&format!("Divergence locale détectée. Alignement sécurisé de la branche {} sur {}...\n", pull_branch, origin_target));
+            let _ = git_cmd(&dir_str).args(["reset", "--hard", &origin_target]).output();
+        }
     }
 
-    // 4. Restaurer le stash si existant
-    if has_uncommitted {
-        log.push_str("Restauration de vos modifications locales...\n");
-        let pop_res = git_cmd(&dir_str).args(["stash", "pop"]).output();
-        if let Ok(r) = pop_res {
-            if !r.status.success() {
-                log.push_str("Résolution automatique des modifications locales après fusion...\n");
-            }
-        }
+    // Restauration des fichiers de règles de pare-feu sauvegardés s'ils existaient
+    if let Some(rules) = saved_firewall_rules {
+        let _ = fs::write(config_dir.join("firewall-rules.json"), rules);
+    }
+    if let Some(state) = saved_firewall_state {
+        let _ = fs::write(config_dir.join("firewall-state.json"), state);
     }
 
     // 4 bis. 🛡️ SANCTUARISATION ET RESTAURATION INCONDITIONNELLE DE VARS.NIX
