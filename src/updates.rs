@@ -391,16 +391,24 @@ pub fn user_exists(username: &str) -> bool {
 
 pub fn find_first_human_user() -> Option<String> {
     if let Ok(content) = fs::read_to_string("/etc/passwd") {
+        let mut fallback: Option<String> = None;
         for line in content.lines() {
             let parts: Vec<&str> = line.split(':').collect();
             if parts.len() >= 4 {
                 let username = parts[0].trim();
                 let uid: u32 = parts[2].trim().parse().unwrap_or(0);
                 if uid >= 1000 && uid < 60000 && username != "nobody" && !username.starts_with("nixbld") {
-                    return Some(username.to_string());
+                    // Priorité absolue aux utilisateurs humains réels différents de 'chomiam' et 'admin'
+                    if username != "chomiam" && username != "admin" {
+                        return Some(username.to_string());
+                    }
+                    if fallback.is_none() {
+                        fallback = Some(username.to_string());
+                    }
                 }
             }
         }
+        return fallback;
     }
     None
 }
@@ -421,12 +429,45 @@ pub fn get_user_home(username: &str) -> PathBuf {
 }
 
 pub fn target_user() -> String {
+    // 1. Lire d'abord vars.local.nix / vars.nix si accessible pour avoir la vérité déclarative absolue
+    let vars_paths = [
+        PathBuf::from("/etc/nixos/vars.local.nix"),
+        PathBuf::from("/etc/nixos/vars.nix"),
+        PathBuf::from("/etc/nixos/.vars.nix.backup"),
+    ];
+    for vp in &vars_paths {
+        if let Ok(c) = fs::read_to_string(vp) {
+            for line in c.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("username") && trimmed.contains('=') {
+                    if let Some(val) = trimmed.split('=').nth(1) {
+                        let unquoted = val.trim().trim_matches(|c| c == '"' || c == ';' || c == ' ');
+                        if !unquoted.is_empty() && unquoted != "admin" && user_exists(unquoted) {
+                            return unquoted.to_string();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Vérifier NOOS_USER / STEVEOS_USER depuis l'environnement
     if let Ok(u) = env::var("NOOS_USER").or_else(|_| env::var("STEVEOS_USER")) {
         let trimmed = u.trim();
         if !trimmed.is_empty() && user_exists(trimmed) {
+            if trimmed != "chomiam" && trimmed != "admin" {
+                return trimmed.to_string();
+            }
+            if let Some(human) = find_first_human_user() {
+                if human != "chomiam" && human != "admin" {
+                    return human;
+                }
+            }
             return trimmed.to_string();
         }
     }
+
+    // 3. Premier utilisateur humain du système
     if let Some(human) = find_first_human_user() {
         return human;
     }
@@ -1087,6 +1128,55 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
     log.push_str("--- [Étape 1/3] Sécurisation de l'espace de travail local ---\n");
 
     let dir_str = config_dir.display().to_string();
+    let vars_path = config_dir.join("vars.nix");
+    let vars_backup_path = config_dir.join(".vars.nix.backup");
+    let vars_local_path = config_dir.join("vars.local.nix");
+    let vars_temp_backup = PathBuf::from("/tmp/noos-vars.backup");
+
+    // 0. Sanctuarisation préalable et détection de la configuration utilisateur de l'hôte
+    let mut saved_vars_content: Option<String> = None;
+    if vars_path.exists() {
+        if let Ok(c) = fs::read_to_string(&vars_path) {
+            if !c.contains("<<<<<<<") && (c.contains("username") || c.contains("hostName")) {
+                saved_vars_content = Some(c.clone());
+                let _ = fs::write(&vars_backup_path, &c);
+                let _ = fs::write(&vars_temp_backup, &c);
+            }
+        }
+    }
+    if saved_vars_content.is_none() || saved_vars_content.as_ref().map(|s| !s.contains("username")).unwrap_or(true) {
+        if let Ok(c) = fs::read_to_string(&vars_local_path) {
+            if c.contains("username") && !c.contains("<<<<<<<") {
+                saved_vars_content = Some(c);
+            }
+        }
+    }
+    if saved_vars_content.is_none() || saved_vars_content.as_ref().map(|s| !s.contains("username")).unwrap_or(true) {
+        if let Ok(c) = fs::read_to_string(&vars_backup_path) {
+            if c.contains("username") && !c.contains("<<<<<<<") {
+                saved_vars_content = Some(c);
+            }
+        }
+    }
+    if saved_vars_content.is_none() || saved_vars_content.as_ref().map(|s| !s.contains("username")).unwrap_or(true) {
+        for p in &["/tmp/noos-vars.backup", "/tmp/steveos-vars.backup"] {
+            if let Ok(c) = fs::read_to_string(p) {
+                if c.contains("username") && !c.contains("<<<<<<<") {
+                    saved_vars_content = Some(c);
+                    break;
+                }
+            }
+        }
+    }
+    if saved_vars_content.is_none() || saved_vars_content.as_ref().map(|s| !s.contains("username")).unwrap_or(true) {
+        let stash_show = git_cmd(&dir_str).args(["show", "stash@{0}:vars.nix"]).output();
+        if let Ok(o) = stash_show {
+            let c = String::from_utf8_lossy(&o.stdout).to_string();
+            if c.contains("username") && !c.contains("<<<<<<<") {
+                saved_vars_content = Some(c);
+            }
+        }
+    }
 
     // Aligner préventivement flake.lock et les fichiers d'état déclaratifs avec le dépôt Git
     let _ = git_cmd(&dir_str).args(["checkout", "--", "flake.lock", "firewall-state.json", "firewall-rules.json"]).output();
@@ -1166,8 +1256,17 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
                     .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
                     .unwrap_or_default();
 
-                if !status_conflict.is_empty() && status_conflict.lines().all(|f| f.trim() == "flake.lock") {
-                    log.push_str("Conflit détecté uniquement sur flake.lock. Résolution automatique en faveur de la version officielle distante...\n");
+                let mut only_safe_conflicts = true;
+                for file in status_conflict.lines() {
+                    let f = file.trim();
+                    if f != "flake.lock" && f != "vars.nix" && f != "firewall-state.json" && f != "firewall-rules.json" {
+                        only_safe_conflicts = false;
+                        break;
+                    }
+                }
+
+                if only_safe_conflicts {
+                    log.push_str("Résolution automatique des conflits de configuration...\n");
                     let _ = git_cmd(&dir_str).args(["checkout", "--theirs", "flake.lock"]).output();
                     let _ = git_cmd(&dir_str).args(["add", "flake.lock"]).output();
                     let rebase_cont = git_cmd(&dir_str)
@@ -1176,7 +1275,7 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
 
                     match rebase_cont {
                         Ok(cont_res) if cont_res.status.success() => {
-                            log.push_str("Rebase finalisé avec succès après résolution de flake.lock.\n");
+                            log.push_str("Rebase finalisé avec succès.\n");
                         }
                         _ => {
                             let _ = git_cmd(&dir_str).args(["rebase", "--abort"]).output();
@@ -1202,25 +1301,74 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
     // 4. Restaurer le stash si existant
     if has_uncommitted {
         log.push_str("Restauration de vos modifications locales...\n");
-        let _ = git_cmd(&dir_str).args(["stash", "pop"]).output();
+        let pop_res = git_cmd(&dir_str).args(["stash", "pop"]).output();
+        if let Ok(r) = pop_res {
+            if !r.status.success() {
+                log.push_str("Résolution automatique des modifications locales après fusion...\n");
+            }
+        }
     }
 
-    // 5. Validation de la syntaxe Nix (nix eval de sécurité)
-    log.push_str("\n--- [Étape 3/3] Validation de la syntaxe de la configuration Nix ---\n");
+    // 4 bis. 🛡️ SANCTUARISATION ET RESTAURATION INCONDITIONNELLE DE VARS.NIX
+    if let Some(ref saved) = saved_vars_content {
+        let current = fs::read_to_string(&vars_path).unwrap_or_default();
+        let needs_restore = current.contains("<<<<<<<")
+            || current.contains(">>>>>>>")
+            || (!current.contains("username") && saved.contains("username"));
+
+        if needs_restore {
+            log.push_str("Rétablissement garanti de vos paramètres hôte et utilisateur dans vars.nix...\n");
+            let _ = fs::write(&vars_path, saved);
+        }
+        let _ = fs::write(&vars_local_path, saved);
+        let _ = fs::write(&vars_backup_path, saved);
+    }
+
+    // Nettoyer d'éventuels marqueurs de conflit résiduels sur vars.nix ou flake.lock
+    let unmerged = git_cmd(&dir_str)
+        .args(["diff", "--name-only", "--diff-filter=U"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+
+    if !unmerged.is_empty() {
+        for file in unmerged.lines() {
+            let f = file.trim();
+            if f == "vars.nix" {
+                if let Some(ref saved) = saved_vars_content {
+                    let _ = fs::write(&vars_path, saved);
+                    let _ = git_cmd(&dir_str).args(["add", "vars.nix"]).output();
+                }
+            } else if f == "flake.lock" || f == "firewall-state.json" || f == "firewall-rules.json" {
+                let _ = git_cmd(&dir_str).args(["checkout", "--theirs", f]).output();
+                let _ = git_cmd(&dir_str).args(["add", f]).output();
+            }
+        }
+    }
+
+    // Indexer vars.nix pour que Nix Flake l'évalue sans conflit
+    let _ = git_cmd(&dir_str).args(["add", "vars.nix"]).output();
+
+    // 5. Validation de la syntaxe Nix (nix eval de sécurité sur la dérivation complète)
+    log.push_str("\n--- [Étape 3/3] Validation de la syntaxe et de la configuration Nix ---\n");
     let nix_b = nix_binary();
-    let eval_target = format!("{}#nixosConfigurations.nas.config.system.nixos.version", dir_str);
+    let eval_target = format!("{}#nixosConfigurations.nas.config.system.build.toplevel.drvPath", dir_str);
     let mut eval_cmd = create_user_command(&nix_b, &["eval", &eval_target]);
     let eval_res = eval_cmd.output();
 
     match eval_res {
         Ok(out) if out.status.success() => {
-            log.push_str("✔ Syntaxe Nix validée avec succès.\n");
+            log.push_str("✔ Configuration système NixOS validée avec succès.\n");
             Ok(())
         }
         Ok(out) => {
             let err = String::from_utf8_lossy(&out.stderr);
-            log.push_str(&format!("⚠ Erreur de syntaxe détectée :\n{}\nAnnulation du pull...\n", err));
+            log.push_str(&format!("⚠ Erreur d'évaluation détectée :\n{}\nAnnulation du pull...\n", err));
             let _ = git_cmd(&dir_str).args(["reset", "--hard", &current_sha]).output();
+            if let Some(ref saved) = saved_vars_content {
+                let _ = fs::write(&vars_path, saved);
+                let _ = git_cmd(&dir_str).args(["add", "vars.nix"]).output();
+            }
             Err(format!("La nouvelle configuration contient une erreur d'évaluation Nix. Rollback de sécurité effectué : {}", err))
         }
         Err(e) => {

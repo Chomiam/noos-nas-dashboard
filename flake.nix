@@ -56,7 +56,7 @@
             };
             user = lib.mkOption {
               type = lib.types.str;
-              default = "chomiam";
+              default = "admin";
               description = "Utilisateur non-root pour les commandes et les mises à jour";
             };
           };
@@ -76,7 +76,7 @@
             };
             user = lib.mkOption {
               type = lib.types.str;
-              default = "chomiam";
+              default = "admin";
               description = "Utilisateur non-root pour les commandes et les mises à jour";
             };
           };
