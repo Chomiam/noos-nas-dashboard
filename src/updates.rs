@@ -1341,14 +1341,16 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
     let preferred_pull_branch = if active_channel == "testing" { "testing" } else { "main" };
     log.push_str(&format!("\n--- [Étape 2/3] Récupération des nouveautés depuis GitHub (noos-nas, canal {}) ---\n", active_channel));
 
+    let refspec = format!("+refs/heads/{}:refs/remotes/origin/{}", preferred_pull_branch, preferred_pull_branch);
     let mut fetch_res = git_cmd(&dir_str)
-        .args(["fetch", "origin", preferred_pull_branch])
+        .args(["fetch", "origin", &refspec])
         .output();
 
     let pull_branch = if fetch_res.as_ref().map(|o| !o.status.success()).unwrap_or(true) && preferred_pull_branch != "main" {
         log.push_str("Branche testing non trouvée sur origin, repli automatique sur la branche main...\n");
+        let main_refspec = "+refs/heads/main:refs/remotes/origin/main";
         fetch_res = git_cmd(&dir_str)
-            .args(["fetch", "origin", "main"])
+            .args(["fetch", "origin", main_refspec])
             .output();
         "main"
     } else {
@@ -1362,7 +1364,7 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
         return Err(format!("Erreur lors de la récupération distante : {}", err));
     }
 
-    let origin_target = format!("origin/{}", pull_branch);
+    let origin_target = "FETCH_HEAD";
 
     // Si on change de branche (ex: main -> testing ou testing -> main), basculer proprement
     if current_branch != pull_branch {
