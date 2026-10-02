@@ -81,6 +81,7 @@ pub struct FirewallPersistentState {
 pub fn get_firewall_state_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     // 1. Emplacement persistant standardisé au niveau système Linux / NixOS
+    paths.push(PathBuf::from("/var/lib/noos/firewall-state.json"));
     paths.push(PathBuf::from("/var/lib/steveos/firewall-state.json"));
 
     // 2. Dossier de configuration résolu du système (ex: /etc/nixos ou repo local)
@@ -92,6 +93,10 @@ pub fn get_firewall_state_paths() -> Vec<PathBuf> {
 
     // 3. Emplacements connus classiques
     let u = crate::updates::target_user();
+    let user_dev_noos = crate::updates::get_user_home(&u).join("Projects/noos-nas/firewall-state.json");
+    if !paths.contains(&user_dev_noos) {
+        paths.push(user_dev_noos);
+    }
     let user_dev_state = crate::updates::get_user_home(&u).join("Projects/steveos-nas/firewall-state.json");
     if !paths.contains(&user_dev_state) {
         paths.push(user_dev_state);
@@ -99,6 +104,7 @@ pub fn get_firewall_state_paths() -> Vec<PathBuf> {
 
     for p in &[
         "/etc/nixos/firewall-state.json",
+        "/etc/nixos/noos-nas/firewall-state.json",
         "/etc/nixos/steveos-nas/firewall-state.json",
         "./firewall-state.json",
     ] {
@@ -113,6 +119,7 @@ pub fn get_firewall_state_paths() -> Vec<PathBuf> {
 pub fn get_firewall_rules_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     // 1. Emplacement persistant standardisé
+    paths.push(PathBuf::from("/var/lib/noos/firewall-rules.json"));
     paths.push(PathBuf::from("/var/lib/steveos/firewall-rules.json"));
 
     // 2. Dossier de configuration résolu
@@ -124,6 +131,10 @@ pub fn get_firewall_rules_paths() -> Vec<PathBuf> {
 
     // 3. Emplacements connus
     let u = crate::updates::target_user();
+    let user_dev_noos = crate::updates::get_user_home(&u).join("Projects/noos-nas/firewall-rules.json");
+    if !paths.contains(&user_dev_noos) {
+        paths.push(user_dev_noos);
+    }
     let user_dev_rules = crate::updates::get_user_home(&u).join("Projects/steveos-nas/firewall-rules.json");
     if !paths.contains(&user_dev_rules) {
         paths.push(user_dev_rules);
@@ -131,6 +142,7 @@ pub fn get_firewall_rules_paths() -> Vec<PathBuf> {
 
     for p in &[
         "/etc/nixos/firewall-rules.json",
+        "/etc/nixos/noos-nas/firewall-rules.json",
         "/etc/nixos/steveos-nas/firewall-rules.json",
         "./firewall-rules.json",
     ] {
@@ -149,8 +161,9 @@ pub fn get_firewall_rules_file_path() -> PathBuf {
             return p;
         }
     }
+    let _ = std::fs::create_dir_all("/var/lib/noos");
     let _ = std::fs::create_dir_all("/var/lib/steveos");
-    PathBuf::from("/var/lib/steveos/firewall-rules.json")
+    PathBuf::from("/var/lib/noos/firewall-rules.json")
 }
 
 #[allow(dead_code)]
@@ -160,8 +173,9 @@ pub fn get_firewall_state_file_path() -> PathBuf {
             return p;
         }
     }
+    let _ = std::fs::create_dir_all("/var/lib/noos");
     let _ = std::fs::create_dir_all("/var/lib/steveos");
-    PathBuf::from("/var/lib/steveos/firewall-state.json")
+    PathBuf::from("/var/lib/noos/firewall-state.json")
 }
 
 pub fn get_vars_nix_paths() -> Vec<PathBuf> {
@@ -172,6 +186,7 @@ pub fn get_vars_nix_paths() -> Vec<PathBuf> {
 
     for p in &[
         "/etc/nixos/vars.nix",
+        "/etc/nixos/noos-nas/vars.nix",
         "/etc/nixos/steveos-nas/vars.nix",
         "./vars.nix",
         "../vars.nix",
@@ -183,6 +198,10 @@ pub fn get_vars_nix_paths() -> Vec<PathBuf> {
     }
 
     let target_u = crate::updates::target_user();
+    let dev_vars_noos = crate::updates::get_user_home(&target_u).join("Projects/noos-nas/vars.nix");
+    if !paths.contains(&dev_vars_noos) {
+        paths.push(dev_vars_noos);
+    }
     let dev_vars = crate::updates::get_user_home(&target_u).join("Projects/steveos-nas/vars.nix");
     if !paths.contains(&dev_vars) {
         paths.push(dev_vars);
@@ -515,7 +534,7 @@ pub fn toggle_firewall(enable: bool) -> Result<String, String> {
     let msg = if enable {
         "Pare-feu NixOS activé avec succès (Protection active en vigueur). État synchronisé et persistant.".to_string()
     } else {
-        "Pare-feu NixOS désactivé (Tous flux autorisés). La désactivation est persistée dans /var/lib/steveos et vars.nix, et reste active après rafraîchissement.".to_string()
+        "Pare-feu NixOS désactivé (Tous flux autorisés). La désactivation est persistée dans /var/lib/noos et vars.nix, et reste active après rafraîchissement.".to_string()
     };
     Ok(msg)
 }
@@ -553,7 +572,7 @@ pub fn get_firewall_overview() -> FirewallOverview {
         PortRule { port: 5357, protocol: "TCP".into(), service_name: "WSDD (Découverte Web Services Windows)".into(), status: "Autorisé".into() },
         PortRule { port: 8096, protocol: "TCP".into(), service_name: "Jellyfin HTTP (Streaming Multimédia)".into(), status: "Autorisé".into() },
         PortRule { port: 8920, protocol: "TCP".into(), service_name: "Jellyfin HTTPS".into(), status: "Autorisé".into() },
-        PortRule { port: 9339, protocol: "TCP".into(), service_name: "STEvE_OS NAS Dashboard (Ce Tableau de bord)".into(), status: "Autorisé".into() },
+        PortRule { port: 9339, protocol: "TCP".into(), service_name: "Noos NAS Dashboard (Ce Tableau de bord)".into(), status: "Autorisé".into() },
     ];
 
     let system_udp_rules = vec![

@@ -152,6 +152,7 @@ pub struct DisconnectSessionRequest {
 
 pub fn get_samba_shares_json_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
+    paths.push(PathBuf::from("/var/lib/noos/samba_shares.json"));
     paths.push(PathBuf::from("/var/lib/steveos/samba_shares.json"));
     let cfg_dir = crate::updates::resolve_config_dir();
     let cfg_shares = cfg_dir.join("samba_shares.json");
@@ -159,17 +160,24 @@ pub fn get_samba_shares_json_paths() -> Vec<PathBuf> {
         paths.push(cfg_shares);
     }
     let u = target_user();
-    let dev_shares = PathBuf::from(format!("/home/{}/Projects/steveos-nas/samba_shares.json", u));
-    if !paths.contains(&dev_shares) {
-        paths.push(dev_shares);
+    let dev_shares_noos = PathBuf::from(format!("/home/{}/Projects/noos-nas/samba_shares.json", u));
+    if !paths.contains(&dev_shares_noos) {
+        paths.push(dev_shares_noos);
     }
+    let dev_shares_steve = PathBuf::from(format!("/home/{}/Projects/steveos-nas/samba_shares.json", u));
+    if !paths.contains(&dev_shares_steve) {
+        paths.push(dev_shares_steve);
+    }
+    paths.push(PathBuf::from("/tmp/noos_samba_shares.json"));
     paths.push(PathBuf::from("/tmp/steveos_samba_shares.json"));
     paths
 }
 
 pub fn get_samba_conf_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
+    paths.push(PathBuf::from("/var/lib/noos/samba_shares.conf"));
     paths.push(PathBuf::from("/var/lib/steveos/samba_shares.conf"));
+    paths.push(PathBuf::from("/tmp/noos_samba_shares.conf"));
     paths.push(PathBuf::from("/tmp/steveos_samba_shares.conf"));
     paths
 }
@@ -256,6 +264,7 @@ pub fn load_samba_shares() -> Vec<SambaShare> {
 
 pub fn save_samba_shares(shares: &[SambaShare]) -> Result<(), String> {
     let json = serde_json::to_string_pretty(shares).map_err(|e| e.to_string())?;
+    let _ = fs::create_dir_all("/var/lib/noos");
     let _ = fs::create_dir_all("/var/lib/steveos");
 
     let mut json_saved = false;
@@ -269,6 +278,7 @@ pub fn save_samba_shares(shares: &[SambaShare]) -> Result<(), String> {
     }
 
     if !json_saved {
+        let _ = fs::write("/tmp/noos_samba_shares.json", &json);
         let _ = fs::write("/tmp/steveos_samba_shares.json", &json);
     }
 
@@ -290,8 +300,8 @@ pub fn save_samba_shares(shares: &[SambaShare]) -> Result<(), String> {
 pub fn generate_smb_shares_conf(shares: &[SambaShare]) -> String {
     let mut out = String::new();
     out.push_str("# =========================================================================\n");
-    out.push_str("# 📁 STEvE_OS NAS Edition — Configuration Dynamique des Partages Samba (SMB)\n");
-    out.push_str("# Généré automatiquement par STEvE_OS Dashboard. Ne pas éditer manuellement.\n");
+    out.push_str("# 📁 Noos NAS Edition — Configuration Dynamique des Partages Samba (SMB)\n");
+    out.push_str("# Généré automatiquement par Noos Dashboard. Ne pas éditer manuellement.\n");
     out.push_str("# =========================================================================\n\n");
 
     for s in shares {
@@ -366,18 +376,24 @@ pub fn generate_smb_shares_conf(shares: &[SambaShare]) -> String {
 }
 
 pub fn load_samba_global_config() -> SambaGlobalConfig {
-    let p = PathBuf::from("/var/lib/steveos/samba_global.json");
-    if p.exists() {
-        if let Ok(c) = fs::read_to_string(&p) {
-            if let Ok(cfg) = serde_json::from_str::<SambaGlobalConfig>(&c) {
-                return cfg;
+    let candidate_paths = [
+        PathBuf::from("/var/lib/noos/samba_global.json"),
+        PathBuf::from("/var/lib/steveos/samba_global.json"),
+    ];
+
+    for p in &candidate_paths {
+        if p.exists() {
+            if let Ok(c) = fs::read_to_string(p) {
+                if let Ok(cfg) = serde_json::from_str::<SambaGlobalConfig>(&c) {
+                    return cfg;
+                }
             }
         }
     }
 
     SambaGlobalConfig {
         workgroup: "WORKGROUP".into(),
-        server_string: "STEvE_OS NAS".into(),
+        server_string: "Noos NAS".into(),
         netbios_name: crate::network::get_hostname(),
         min_protocol: "SMB2_02".into(),
         max_protocol: "SMB3_11".into(),
@@ -389,8 +405,11 @@ pub fn load_samba_global_config() -> SambaGlobalConfig {
 
 pub fn save_samba_global_config(cfg: &SambaGlobalConfig) -> Result<(), String> {
     let json = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
+    let _ = fs::create_dir_all("/var/lib/noos");
     let _ = fs::create_dir_all("/var/lib/steveos");
+    let _ = fs::write("/var/lib/noos/samba_global.json", &json);
     let _ = fs::write("/var/lib/steveos/samba_global.json", &json);
+    let _ = fs::write("/tmp/noos_samba_global.json", &json);
     let _ = fs::write("/tmp/steveos_samba_global.json", &json);
     let _ = reload_samba_service();
     Ok(())
@@ -579,7 +598,7 @@ pub fn create_samba_share(req: CreateShareRequest) -> Result<SambaShare, String>
         id: clean_name.clone(),
         name: clean_name,
         path: clean_path.clone(),
-        comment: req.comment.unwrap_or_else(|| "Partage réseau STEvE_OS".into()),
+        comment: req.comment.unwrap_or_else(|| "Partage réseau Noos".into()),
         read_only: req.read_only.unwrap_or(false),
         browseable: req.browseable.unwrap_or(true),
         guest_ok: req.guest_ok.unwrap_or(false),

@@ -175,8 +175,9 @@ pub fn resolve_store_app_info(project_or_name: &str) -> Option<(String, String, 
     let clean = project_or_name.trim().trim_start_matches('/').to_lowercase();
     let stripped = clean.strip_prefix("docker-").unwrap_or(&clean);
 
-    let cache_file = Path::new("/var/cache/steveos-nas-dashboard/store_cache.json");
-    let catalog: StoreCatalog = if let Ok(txt) = std::fs::read_to_string(cache_file) {
+    let cache_file_noos = Path::new("/var/cache/noos-nas-dashboard/store_cache.json");
+    let cache_file_steve = Path::new("/var/cache/steveos-nas-dashboard/store_cache.json");
+    let catalog: StoreCatalog = if let Ok(txt) = std::fs::read_to_string(cache_file_noos).or_else(|_| std::fs::read_to_string(cache_file_steve)) {
         serde_json::from_str(&txt).unwrap_or_else(|_| get_default_catalog())
     } else {
         get_default_catalog()
@@ -234,36 +235,39 @@ pub fn get_running_containers_map() -> HashMap<String, (String, String, bool)> {
 }
 
 pub fn get_store_catalog() -> StoreCatalog {
-    let cache_dir = Path::new("/var/cache/steveos-nas-dashboard");
-    let cache_file = cache_dir.join("store_cache.json");
+    let cache_dir_noos = Path::new("/var/cache/noos-nas-dashboard");
+    let cache_file_noos = cache_dir_noos.join("store_cache.json");
+    let cache_dir_steve = Path::new("/var/cache/steveos-nas-dashboard");
+    let cache_file_steve = cache_dir_steve.join("store_cache.json");
 
-    // 1. Tenter la récupération depuis GitHub (store.json)
-    let fetched = Command::new("curl")
-        .args([
-            "-s",
-            "--connect-timeout",
-            "4",
-            "--max-time",
-            "8",
-            "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/store.json",
-        ])
-        .output();
+    // 1. Tenter la récupération depuis GitHub (noos_nas_store avec fallback steveos_nas_store)
+    let urls = [
+        "https://raw.githubusercontent.com/Chomiam/noos_nas_store/main/store.json",
+        "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/store.json",
+    ];
 
-    let json_text = if let Ok(out) = fetched {
-        let text = String::from_utf8_lossy(&out.stdout).to_string();
-        if text.trim().starts_with('{') {
-            let _ = std::fs::create_dir_all(cache_dir);
-            let _ = std::fs::write(&cache_file, &text);
-            Some(text)
-        } else {
-            None
+    let mut json_text = None;
+    for u in &urls {
+        if let Ok(out) = Command::new("curl")
+            .args(["-s", "-L", "--connect-timeout", "4", "--max-time", "8", u])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&out.stdout).to_string();
+            if text.trim().starts_with('{') {
+                let _ = std::fs::create_dir_all(cache_dir_noos);
+                let _ = std::fs::write(&cache_file_noos, &text);
+                let _ = std::fs::create_dir_all(cache_dir_steve);
+                let _ = std::fs::write(&cache_file_steve, &text);
+                json_text = Some(text);
+                break;
+            }
         }
-    } else {
-        None
-    };
+    }
 
     // 2. Repli sur le cache local
-    let json_text = json_text.or_else(|| std::fs::read_to_string(&cache_file).ok());
+    let json_text = json_text
+        .or_else(|| std::fs::read_to_string(&cache_file_noos).ok())
+        .or_else(|| std::fs::read_to_string(&cache_file_steve).ok());
 
     // 3. Parser ou repli sur catalogue par défaut
     let mut catalog: StoreCatalog = if let Some(txt) = json_text {
@@ -453,26 +457,27 @@ pub fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
         }
     }
 
-    // 2. Récupérer le compose.yaml depuis steveos_nas_store
-    let url = format!(
-        "https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/{}/compose.yaml",
-        clean_id
-    );
-    let curl_res = Command::new("curl")
-        .args(["-s", "--connect-timeout", "5", "--max-time", "15", &url])
-        .output();
+    // 2. Récupérer le compose.yaml depuis noos_nas_store (avec fallback steveos_nas_store)
+    let candidate_urls = [
+        format!("https://raw.githubusercontent.com/Chomiam/noos_nas_store/main/apps/{}/compose.yaml", clean_id),
+        format!("https://raw.githubusercontent.com/Chomiam/steveos_nas_store/main/apps/{}/compose.yaml", clean_id),
+    ];
 
-    let base_compose = match curl_res {
-        Ok(out) => {
+    let mut fetched_compose = None;
+    for u in &candidate_urls {
+        if let Ok(out) = Command::new("curl")
+            .args(["-s", "-L", "--connect-timeout", "5", "--max-time", "15", u])
+            .output()
+        {
             let s = String::from_utf8_lossy(&out.stdout).to_string();
             if s.contains("services:") {
-                s
-            } else {
-                generate_default_compose(&clean_id, req.port.unwrap_or(8080))
+                fetched_compose = Some(s);
+                break;
             }
         }
-        Err(_) => generate_default_compose(&clean_id, req.port.unwrap_or(8080)),
-    };
+    }
+
+    let base_compose = fetched_compose.unwrap_or_else(|| generate_default_compose(&clean_id, req.port.unwrap_or(8080)));
 
     // 3. Personnaliser le compose.yaml (port et variables d'environnement)
     let customized = customize_compose_yaml(&base_compose, req.port, req.env_vars.as_ref());
@@ -494,8 +499,9 @@ pub fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
         let _ = Command::new("sudo").args(["systemctl", "stop", "systemd-resolved"]).output();
         let _ = Command::new("sudo").args(["mkdir", "-p", "/etc/systemd/resolved.conf.d"]).output();
         let dropin = "[Resolve]\nDNSStubListener=no\n";
-        let tmp_dropin = "/tmp/steveos-resolved-stub.conf";
+        let tmp_dropin = "/tmp/noos-resolved-stub.conf";
         if std::fs::write(tmp_dropin, dropin).is_ok() {
+            let _ = Command::new("sudo").args(["cp", tmp_dropin, "/etc/systemd/resolved.conf.d/noos-dns.conf"]).output();
             let _ = Command::new("sudo").args(["cp", tmp_dropin, "/etc/systemd/resolved.conf.d/steveos-dns.conf"]).output();
             let _ = std::fs::remove_file(tmp_dropin);
         }
@@ -669,7 +675,7 @@ fn get_default_catalog() -> StoreCatalog {
     StoreCatalog {
         version: "2.0.0".to_string(),
         updated_at: "2026-10-01T02:00:00Z".to_string(),
-        repository: "https://github.com/Chomiam/steveos_nas_store".to_string(),
+        repository: "https://github.com/Chomiam/noos_nas_store".to_string(),
         total_apps: 0,
         categories: vec![
             "Tous".into(),

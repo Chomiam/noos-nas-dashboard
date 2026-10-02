@@ -816,7 +816,7 @@ pub fn get_default_eggs() -> Vec<Egg> {
         Egg {
             id: "minecraft-java".into(),
             name: "Minecraft: Java Edition".into(),
-            author: "Pterodactyl & STEvE_OS".into(),
+            author: "Pterodactyl & Noos".into(),
             description: "Serveur Minecraft Java haute performance propulsé par PaperMC 1.21. Supporte les plugins Spigot/Paper, l'optimisation G1GC et l'EULA automatique.".into(),
             category: "Bac à sable / Survie".into(),
             icon: "⛏️".into(),
@@ -845,7 +845,7 @@ pub fn get_default_eggs() -> Vec<Egg> {
                     name: "Message du jour (MOTD)".into(),
                     env_variable: "MOTD".into(),
                     description: "Description affichée dans la liste des serveurs multijoueur".into(),
-                    default_value: "Serveur Minecraft propulsé par STEvE_OS NAS".into(),
+                    default_value: "Serveur Minecraft propulsé par Noos NAS".into(),
                     input_type: "text".into(),
                     options: None,
                 },
@@ -879,7 +879,7 @@ pub fn get_default_eggs() -> Vec<Egg> {
         Egg {
             id: "minecraft-bedrock".into(),
             name: "Minecraft: Bedrock Edition".into(),
-            author: "Mojang & STEvE_OS".into(),
+            author: "Mojang & Noos".into(),
             description: "Serveur officiel Mojang BDS pour consoles (Switch, PS5, Xbox), smartphones (iOS, Android) et Windows 10/11.".into(),
             category: "Bac à sable / Survie".into(),
             icon: "🧱".into(),
@@ -900,7 +900,7 @@ pub fn get_default_eggs() -> Vec<Egg> {
                     name: "Nom du serveur".into(),
                     env_variable: "SERVER_NAME".into(),
                     description: "Nom affiché aux joueurs Bedrock".into(),
-                    default_value: "STEvE_OS Bedrock World".into(),
+                    default_value: "Noos Bedrock World".into(),
                     input_type: "text".into(),
                     options: None,
                 },
@@ -947,7 +947,7 @@ pub fn get_default_eggs() -> Vec<Egg> {
                     name: "Nom du serveur Palworld".into(),
                     env_variable: "SERVER_NAME".into(),
                     description: "Nom affiché dans la liste des serveurs de jeu".into(),
-                    default_value: "Serveur Palworld STEvE_OS".into(),
+                    default_value: "Serveur Palworld Noos".into(),
                     input_type: "text".into(),
                     options: None,
                 },
@@ -963,7 +963,7 @@ pub fn get_default_eggs() -> Vec<Egg> {
                     name: "Mot de passe Administrateur".into(),
                     env_variable: "ADMIN_PASSWORD".into(),
                     description: "Mot de passe pour les commandes d'administration (/AdminPassword)".into(),
-                    default_value: "SteveAdminPass123!".into(),
+                    default_value: "NoosAdminPass123!".into(),
                     input_type: "password".into(),
                     options: None,
                 },
@@ -1002,7 +1002,7 @@ pub fn get_default_eggs() -> Vec<Egg> {
                     name: "Nom du serveur".into(),
                     env_variable: "SERVER_NAME".into(),
                     description: "Nom de votre serveur Valheim".into(),
-                    default_value: "Valheim STEvE_OS World".into(),
+                    default_value: "Valheim Noos World".into(),
                     input_type: "text".into(),
                     options: None,
                 },
@@ -1053,7 +1053,7 @@ pub fn get_default_eggs() -> Vec<Egg> {
                     name: "Nom du serveur".into(),
                     env_variable: "SERVER_NAME".into(),
                     description: "Nom affiché dans la liste des serveurs multijoueur 7DTD".into(),
-                    default_value: "Serveur 7 Days to Die STEvE_OS".into(),
+                    default_value: "Serveur 7 Days to Die Noos".into(),
                     input_type: "text".into(),
                     options: None,
                 },
@@ -1069,7 +1069,7 @@ pub fn get_default_eggs() -> Vec<Egg> {
                     name: "Mot de passe Administrateur (Telnet)".into(),
                     env_variable: "ADMIN_PASSWORD".into(),
                     description: "Mot de passe de gestion console / Telnet".into(),
-                    default_value: "SteveAdminPass123!".into(),
+                    default_value: "NoosAdminPass123!".into(),
                     input_type: "password".into(),
                     options: None,
                 },
@@ -1091,7 +1091,7 @@ pub fn get_default_eggs() -> Vec<Egg> {
                     name: "Nom de la sauvegarde (Game Name)".into(),
                     env_variable: "GAME_NAME".into(),
                     description: "Nom unique du dossier de sauvegarde de la partie".into(),
-                    default_value: "SteveWorld".into(),
+                    default_value: "NoosWorld".into(),
                     input_type: "text".into(),
                     options: None,
                 },
@@ -1159,7 +1159,7 @@ pub fn get_default_eggs() -> Vec<Egg> {
                     name: "Nom du serveur".into(),
                     env_variable: "SERVER_NAME".into(),
                     description: "Nom affiché dans la liste des serveurs Enshrouded".into(),
-                    default_value: "Serveur Enshrouded STEvE_OS".into(),
+                    default_value: "Serveur Enshrouded Noos".into(),
                     input_type: "text".into(),
                     options: None,
                 },
@@ -1220,7 +1220,7 @@ pub fn get_default_eggs() -> Vec<Egg> {
                     name: "Nom du serveur".into(),
                     env_variable: "SERVER_NAME".into(),
                     description: "Nom affiché dans la liste des serveurs communautaires CS2".into(),
-                    default_value: "Serveur CS2 STEvE_OS".into(),
+                    default_value: "Serveur CS2 Noos".into(),
                     input_type: "text".into(),
                     options: None,
                 },
@@ -1270,7 +1270,7 @@ pub fn get_default_eggs() -> Vec<Egg> {
                     name: "Mot de passe RCON".into(),
                     env_variable: "RCON_PASSWORD".into(),
                     description: "Mot de passe de télé-administration RCON console".into(),
-                    default_value: "SteveRconAdmin123!".into(),
+                    default_value: "NoosRconAdmin123!".into(),
                     input_type: "password".into(),
                     options: None,
                 },
@@ -1296,7 +1296,7 @@ pub fn get_default_eggs() -> Vec<Egg> {
         Egg {
             id: "terraria".into(),
             name: "Terraria Dedicated Server".into(),
-            author: "Re-Logic & STEvE_OS".into(),
+            author: "Re-Logic & Noos".into(),
             category: "Aventure / Sandbox 2D".into(),
             icon: "🌳".into(),
             icon_url: Some("https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/eggs/terraria/icon.png".into()),
@@ -1317,7 +1317,7 @@ pub fn get_default_eggs() -> Vec<Egg> {
                     name: "Nom du monde".into(),
                     env_variable: "WORLD_NAME".into(),
                     description: "Nom du fichier de monde Terraria".into(),
-                    default_value: "SteveWorld".into(),
+                    default_value: "NoosWorld".into(),
                     input_type: "text".into(),
                     options: None,
                 },
@@ -1350,23 +1350,30 @@ struct RemoteCatalogResponse {
 }
 
 pub fn sync_remote_eggs() -> Option<Vec<Egg>> {
-    let output = Command::new("curl")
-        .args([
-            "-s",
-            "--connect-timeout", "4",
-            "--max-time", "8",
-            "https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/catalog.json",
-        ])
-        .output()
-        .ok()?;
+    let urls = [
+        "https://raw.githubusercontent.com/Chomiam/noos_nas_eggs/main/catalog.json",
+        "https://raw.githubusercontent.com/Chomiam/steve_nas_eggs/main/catalog.json",
+    ];
 
-    if output.status.success() {
-        let text = String::from_utf8_lossy(&output.stdout);
-        if let Ok(catalog) = serde_json::from_str::<RemoteCatalogResponse>(&text) {
-            if !catalog.eggs.is_empty() {
-                let cache_file = get_games_base_dir().join("catalog_cache.json");
-                let _ = fs::write(&cache_file, text.as_bytes());
-                return Some(catalog.eggs);
+    for url in urls {
+        if let Ok(output) = Command::new("curl")
+            .args([
+                "-s",
+                "--connect-timeout", "4",
+                "--max-time", "8",
+                url,
+            ])
+            .output()
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                if let Ok(catalog) = serde_json::from_str::<RemoteCatalogResponse>(&text) {
+                    if !catalog.eggs.is_empty() {
+                        let cache_file = get_games_base_dir().join("catalog_cache.json");
+                        let _ = fs::write(&cache_file, text.as_bytes());
+                        return Some(catalog.eggs);
+                    }
+                }
             }
         }
     }
@@ -1910,7 +1917,7 @@ mkdir -p mods plugins
 
 if [ ! -s server.jar ] && [ ! -f .installed ]; then
   echo "⚡ Téléchargement certifié de {loader_name} {version}..."
-  curl -f -s -L -A "STEvE_OS/1.0" -o {target_jar} "{download_url}"
+  curl -f -s -L -A "Noos/1.0" -o {target_jar} "{download_url}"
 
   if command -v jar >/dev/null 2>&1; then
     if ! jar -tf {target_jar} >/dev/null 2>&1; then
@@ -2184,7 +2191,7 @@ exec {}
     // Droits complets sur le dossier de données pour le conteneur
     let _ = Command::new("chmod").args(["-R", "777", &data_dir.display().to_string()]).status();
 
-    let container_name = format!("steveos-game-{}", slug);
+    let container_name = format!("noos-game-{}", slug);
 
     // Arrêt préventif si un conteneur orphelin existait
     let _ = Command::new("docker").args(["rm", "-f", &container_name]).status();
@@ -2348,8 +2355,30 @@ exec {}
     Ok(server)
 }
 
+pub fn resolve_game_container_name(id: &str) -> String {
+    let servers = load_saved_servers();
+    if let Some(s) = servers.iter().find(|s| s.id == id) {
+        if !s.container_name.is_empty() {
+            return s.container_name.clone();
+        }
+    }
+    let noos_name = format!("noos-game-{}", id);
+    let steve_name = format!("steveos-game-{}", id);
+    if let Ok(out) = Command::new("docker").args(["inspect", "--format", "{{.Name}}", &noos_name]).output() {
+        if out.status.success() {
+            return noos_name;
+        }
+    }
+    if let Ok(out) = Command::new("docker").args(["inspect", "--format", "{{.Name}}", &steve_name]).output() {
+        if out.status.success() {
+            return steve_name;
+        }
+    }
+    noos_name
+}
+
 pub fn control_game_server(id: &str, action: &str) -> Result<String, String> {
-    let container_name = format!("steveos-game-{}", id);
+    let container_name = resolve_game_container_name(id);
     let cmd = match action {
         "start" => "start",
         "stop" => "stop",
@@ -2391,7 +2420,7 @@ pub fn control_game_server(id: &str, action: &str) -> Result<String, String> {
 pub fn delete_game_server(id: &str, delete_data: bool) -> Result<String, String> {
     STARTING_SERVERS.lock().unwrap().remove(id);
     let mut servers = load_saved_servers();
-    let container_name = format!("steveos-game-{}", id);
+    let container_name = resolve_game_container_name(id);
 
     {
         let mut tracker = DEPLOY_TRACKER.lock().unwrap();
@@ -2405,6 +2434,8 @@ pub fn delete_game_server(id: &str, delete_data: bool) -> Result<String, String>
 
     let _ = Command::new("docker").args(["stop", "-t", "2", &container_name]).status();
     let _ = Command::new("docker").args(["rm", "-f", &container_name]).status();
+    let _ = Command::new("docker").args(["stop", "-t", "2", &format!("steveos-game-{}", id)]).status();
+    let _ = Command::new("docker").args(["rm", "-f", &format!("steveos-game-{}", id)]).status();
 
     if let Some(pos) = servers.iter().position(|s| s.id == id) {
         let server = servers.remove(pos);
@@ -2426,7 +2457,7 @@ pub fn delete_game_server(id: &str, delete_data: bool) -> Result<String, String>
 }
 
 pub fn get_game_server_logs(id: &str, lines: usize) -> Result<String, String> {
-    let container_name = format!("steveos-game-{}", id);
+    let container_name = resolve_game_container_name(id);
     let output = Command::new("docker")
         .args(["logs", "--tail", &lines.to_string(), &container_name])
         .output()
@@ -2439,7 +2470,7 @@ pub fn get_game_server_logs(id: &str, lines: usize) -> Result<String, String> {
 }
 
 pub fn send_game_server_command(id: &str, cmd: &str) -> Result<String, String> {
-    let container_name = format!("steveos-game-{}", id);
+    let container_name = resolve_game_container_name(id);
     let clean_cmd = cmd.trim();
     if clean_cmd.is_empty() {
         return Err("La commande ne peut pas être vide.".into());
@@ -2473,7 +2504,7 @@ pub fn import_egg_file(req: ImportEggRequest) -> Result<Egg, String> {
 
     let egg_name = parsed["name"].as_str().unwrap_or("Serveur Personnalisé").to_string();
     let author = parsed["author"].as_str().unwrap_or("Communauté").to_string();
-    let description = parsed["description"].as_str().unwrap_or("Egg importé pour STEvE_OS").to_string();
+    let description = parsed["description"].as_str().unwrap_or("Egg importé pour Noos").to_string();
     let docker_image = parsed["image"].as_str()
         .or_else(|| parsed["docker_images"].as_object().and_then(|m| m.values().next().and_then(|v| v.as_str())))
         .unwrap_or("ghcr.io/pterodactyl/yolks:java_21")

@@ -403,12 +403,12 @@ pub fn get_hardware_overview() -> HardwareOverview {
 
     let hostname = fs::read_to_string("/etc/hostname")
         .map(|s| s.trim().to_string())
-        .unwrap_or_else(|_| "steveos-nas".to_string());
+        .unwrap_or_else(|_| "noos-nas".to_string());
 
     let uptime = format_uptime();
 
     let system_summary = SystemSummaryInfo {
-        os_name: "STEvE_OS NAS Edition".to_string(),
+        os_name: "Noos NAS Edition".to_string(),
         version: "26.05 (Ailurus)".to_string(),
         kernel_version: kernel,
         uptime,

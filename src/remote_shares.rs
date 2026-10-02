@@ -64,11 +64,19 @@ enum PinnedStore {
 }
 
 fn get_pinned_mounts_file() -> PathBuf {
-    let var_lib = Path::new("/var/lib/steveos");
+    let noos_p = PathBuf::from("/var/lib/noos/pinned_mounts.json");
+    if noos_p.exists() {
+        return noos_p;
+    }
+    let steve_p = PathBuf::from("/var/lib/steveos/pinned_mounts.json");
+    if steve_p.exists() {
+        return steve_p;
+    }
+    let var_lib = Path::new("/var/lib/noos");
     if var_lib.exists() || fs::create_dir_all(var_lib).is_ok() {
         var_lib.join("pinned_mounts.json")
     } else {
-        PathBuf::from("/tmp/steveos_pinned_mounts.json")
+        PathBuf::from("/tmp/noos_pinned_mounts.json")
     }
 }
 
@@ -89,12 +97,14 @@ pub fn load_pinned_mounts_config() -> PinnedMountsConfig {
 }
 
 pub fn save_pinned_mounts_config(config: &PinnedMountsConfig) -> Result<(), String> {
-    let path = get_pinned_mounts_file();
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
+    let _ = fs::create_dir_all("/var/lib/noos");
+    let _ = fs::create_dir_all("/var/lib/steveos");
     let json = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| format!("Impossible de sauvegarder les favoris : {}", e))
+    let _ = fs::write("/var/lib/noos/pinned_mounts.json", &json);
+    let _ = fs::write("/var/lib/steveos/pinned_mounts.json", &json);
+    let _ = fs::write("/tmp/noos_pinned_mounts.json", &json);
+    let _ = fs::write("/tmp/steveos_pinned_mounts.json", &json);
+    Ok(())
 }
 
 pub fn get_storage_mounts_raw() -> Vec<StorageMountItem> {
@@ -663,11 +673,19 @@ pub struct CreateRemoteMountRequest {
 }
 
 fn get_remote_mounts_file() -> PathBuf {
-    let var_lib = Path::new("/var/lib/steveos");
+    let noos_p = PathBuf::from("/var/lib/noos/remote_mounts.json");
+    if noos_p.exists() {
+        return noos_p;
+    }
+    let steve_p = PathBuf::from("/var/lib/steveos/remote_mounts.json");
+    if steve_p.exists() {
+        return steve_p;
+    }
+    let var_lib = Path::new("/var/lib/noos");
     if var_lib.exists() || fs::create_dir_all(var_lib).is_ok() {
         var_lib.join("remote_mounts.json")
     } else {
-        PathBuf::from("/tmp/steveos_remote_mounts.json")
+        PathBuf::from("/tmp/noos_remote_mounts.json")
     }
 }
 
@@ -694,12 +712,14 @@ pub fn load_remote_mounts() -> Vec<RemoteMountConfig> {
 }
 
 pub fn save_remote_mounts(mounts: &[RemoteMountConfig]) -> Result<(), String> {
-    let path = get_remote_mounts_file();
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
+    let _ = fs::create_dir_all("/var/lib/noos");
+    let _ = fs::create_dir_all("/var/lib/steveos");
     let json = serde_json::to_string_pretty(mounts).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| format!("Impossible de sauvegarder les partages distants : {}", e))
+    let _ = fs::write("/var/lib/noos/remote_mounts.json", &json);
+    let _ = fs::write("/var/lib/steveos/remote_mounts.json", &json);
+    let _ = fs::write("/tmp/noos_remote_mounts.json", &json);
+    let _ = fs::write("/tmp/steveos_remote_mounts.json", &json);
+    Ok(())
 }
 
 pub fn is_dir_mounted(mount_point: &str) -> bool {

@@ -28,11 +28,15 @@ pub struct DocumentInfoResponse {
 }
 
 fn get_cache_dir() -> PathBuf {
-    let primary = PathBuf::from("/var/cache/steveos-nas-dashboard/documents");
+    let primary = PathBuf::from("/var/cache/noos-nas-dashboard/documents");
     if fs::create_dir_all(&primary).is_ok() {
         primary
     } else {
-        let fallback = std::env::temp_dir().join("steveos_doc_cache");
+        let legacy = PathBuf::from("/var/cache/steveos-nas-dashboard/documents");
+        if legacy.exists() {
+            return legacy;
+        }
+        let fallback = std::env::temp_dir().join("noos_doc_cache");
         let _ = fs::create_dir_all(&fallback);
         fallback
     }

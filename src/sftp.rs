@@ -134,23 +134,51 @@ pub struct DisconnectSftpSessionRequest {
 // =========================================================================
 
 fn resolve_sftp_dir() -> PathBuf {
-    let var_lib = Path::new("/var/lib/steveos");
-    if var_lib.exists() || fs::create_dir_all(var_lib).is_ok() {
-        return var_lib.to_path_buf();
+    let var_lib_noos = Path::new("/var/lib/noos");
+    let _ = fs::create_dir_all(var_lib_noos);
+    let _ = fs::create_dir_all("/var/lib/steveos");
+
+    if var_lib_noos.exists() {
+        return var_lib_noos.to_path_buf();
+    }
+    let var_lib_steve = Path::new("/var/lib/steveos");
+    if var_lib_steve.exists() {
+        return var_lib_steve.to_path_buf();
     }
     PathBuf::from("/tmp")
 }
 
 fn get_sftp_shares_json_path() -> PathBuf {
-    resolve_sftp_dir().join("sftp_shares.json")
+    let noos_p = PathBuf::from("/var/lib/noos/sftp_shares.json");
+    if !noos_p.exists() {
+        let steve_p = PathBuf::from("/var/lib/steveos/sftp_shares.json");
+        if steve_p.exists() {
+            return steve_p;
+        }
+    }
+    noos_p
 }
 
 fn get_sftp_global_json_path() -> PathBuf {
-    resolve_sftp_dir().join("sftp_global.json")
+    let noos_p = PathBuf::from("/var/lib/noos/sftp_global.json");
+    if !noos_p.exists() {
+        let steve_p = PathBuf::from("/var/lib/steveos/sftp_global.json");
+        if steve_p.exists() {
+            return steve_p;
+        }
+    }
+    noos_p
 }
 
 fn get_sftp_shares_conf_path() -> PathBuf {
-    resolve_sftp_dir().join("sftp_shares.conf")
+    let noos_p = PathBuf::from("/var/lib/noos/sftp_shares.conf");
+    if !noos_p.exists() {
+        let steve_p = PathBuf::from("/var/lib/steveos/sftp_shares.conf");
+        if steve_p.exists() {
+            return steve_p;
+        }
+    }
+    noos_p
 }
 
 pub fn load_sftp_global_config() -> SftpGlobalConfig {
@@ -219,17 +247,18 @@ pub fn save_sftp_shares_and_generate_conf(
     shares: &[SftpShare],
     _global_cfg: &SftpGlobalConfig,
 ) -> Result<(), String> {
-    let json_path = get_sftp_shares_json_path();
     let json_content = serde_json::to_string_pretty(shares)
         .map_err(|e| format!("Erreur sérialisation sftp_shares.json: {}", e))?;
-    fs::write(&json_path, json_content)
-        .map_err(|e| format!("Erreur écriture sftp_shares.json: {}", e))?;
 
-    let conf_path = get_sftp_shares_conf_path();
+    let _ = fs::create_dir_all("/var/lib/noos");
+    let _ = fs::create_dir_all("/var/lib/steveos");
+    let _ = fs::write("/var/lib/noos/sftp_shares.json", &json_content);
+    let _ = fs::write("/var/lib/steveos/sftp_shares.json", &json_content);
+
     let mut conf = String::new();
     conf.push_str("# =========================================================================\n");
-    conf.push_str("# STEvE_OS NAS — Configuration Dynamique des Partages sFTP & Chroot\n");
-    conf.push_str("# Généré automatiquement par le Dashboard STEvE_OS (Catppuccin Mocha)\n");
+    conf.push_str("# 📁 Noos NAS — Configuration Dynamique des Partages sFTP & Chroot\n");
+    conf.push_str("# Généré automatiquement par le Dashboard Noos (Catppuccin Mocha)\n");
     conf.push_str("# =========================================================================\n\n");
 
     conf.push_str("Subsystem sftp internal-sftp\n\n");
@@ -264,8 +293,8 @@ pub fn save_sftp_shares_and_generate_conf(
         conf.push_str("    PasswordAuthentication yes\n\n");
     }
 
-    fs::write(&conf_path, conf)
-        .map_err(|e| format!("Erreur écriture sftp_shares.conf: {}", e))?;
+    let _ = fs::write("/var/lib/noos/sftp_shares.conf", &conf);
+    let _ = fs::write("/var/lib/steveos/sftp_shares.conf", &conf);
 
     reload_sshd_service();
 
@@ -348,9 +377,16 @@ pub fn get_sftp_allowed_users() -> Vec<SftpUserAccess> {
     let mut allowed_users = Vec::new();
     let primary_user = target_user();
 
-    let registry_path = Path::new("/var/lib/steveos/users-registry.json");
-    let registry_meta: HashMap<String, (String, String, bool)> = if let Ok(c) = fs::read_to_string(registry_path) {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&c) {
+    let registry_candidates = [
+        PathBuf::from("/var/lib/noos/users-registry.json"),
+        PathBuf::from("/var/lib/steveos/users-registry.json"),
+    ];
+    let registry_meta: HashMap<String, (String, String, bool)> = registry_candidates
+        .iter()
+        .find(|p| p.exists())
+        .and_then(|p| fs::read_to_string(p).ok())
+        .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+        .map(|v| {
             let mut map = HashMap::new();
             if let Some(users_obj) = v.get("users").and_then(|u| u.as_object()) {
                 for (u, obj) in users_obj {
@@ -361,12 +397,8 @@ pub fn get_sftp_allowed_users() -> Vec<SftpUserAccess> {
                 }
             }
             map
-        } else {
-            HashMap::new()
-        }
-    } else {
-        HashMap::new()
-    };
+        })
+        .unwrap_or_default();
 
     if let Ok(passwd) = fs::read_to_string("/etc/passwd") {
         for line in passwd.lines() {

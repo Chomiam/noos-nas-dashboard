@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>STEvE_OS NAS Edition — Dashboard</title>
+  <title>Noos NAS Edition — Dashboard</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico">
   <link rel="icon" type="image/png" href="/assets/logo.png">
@@ -21,7 +21,7 @@
         if (valid.indexOf(h) !== -1) {
           target = h === 'docker' ? 'tab-containers' : 'tab-' + h;
         } else {
-          var saved = localStorage.getItem('steveos_active_tab') || sessionStorage.getItem('steveos_active_tab');
+          var saved = localStorage.getItem('noos_active_tab') || localStorage.getItem('steveos_active_tab') || sessionStorage.getItem('noos_active_tab') || sessionStorage.getItem('steveos_active_tab');
           if (saved && saved.startsWith('tab-')) target = saved;
         }
         if (target && target !== 'tab-overview') {
@@ -33,13 +33,13 @@
 </head>
 <body class="not-authenticated">
 
-  <!-- MODAL / ÉCRAN DE CONNEXION STEvE_OS -->
+  <!-- MODAL / ÉCRAN DE CONNEXION NOOS -->
   <div class="login-modal-overlay" id="login-modal">
     <div class="login-card">
       <div class="login-logo-box">
-        <img src="/assets/logo.png" alt="STEvE_OS Logo">
+        <img src="/assets/logo.png" alt="Noos Logo">
       </div>
-      <h2 class="login-title">STEvE_OS NAS</h2>
+      <h2 class="login-title">Noos NAS</h2>
       <p class="login-subtitle">Connectez-vous avec votre compte système NixOS</p>
       
       <form class="login-form" id="login-form" onsubmit="handleLoginSubmit(event)">
@@ -47,7 +47,7 @@
           <label class="login-label" for="login-username">Nom d'utilisateur</label>
           <div class="login-input-wrap">
             <span class="login-input-icon">👤</span>
-            <input type="text" id="login-username" class="login-input" placeholder="ex: steve ou root" autocomplete="username" required>
+            <input type="text" id="login-username" class="login-input" placeholder="ex: noos, steve ou root" autocomplete="username" required>
           </div>
         </div>
 
@@ -88,7 +88,7 @@
         <span class="update-reload-icon">✨</span>
         <div class="update-reload-pulse-ring"></div>
       </div>
-      <h2 class="update-reload-title">Mise à jour STEvE_OS appliquée !</h2>
+      <h2 class="update-reload-title">Mise à jour Noos appliquée !</h2>
       <p class="update-reload-subtitle" id="update-reload-subtitle">Actualisation et synchronisation du tableau de bord...</p>
       
       <div class="update-reload-progress-track">
@@ -107,11 +107,11 @@
 
   <!-- HEADER -->
   <header class="header">
-    <div class="logo-wrap" id="header-logo-wrap" onclick="handleLogoEasterEggClick()" style="cursor: pointer;" title="STEvE_OS NAS Edition">
-      <div class="logo-badge-img-box"><img src="/assets/logo.png" alt="STEvE_OS Logo" class="brand-logo-img"></div>
+    <div class="logo-wrap" id="header-logo-wrap" onclick="handleLogoEasterEggClick()" style="cursor: pointer;" title="Noos NAS Edition">
+      <div class="logo-badge-img-box"><img src="/assets/logo.png" alt="Noos Logo" class="brand-logo-img"></div>
       <div class="logo-text">
-        <h1>STEvE_OS <span class="edition-tag">NAS Edition</span></h1>
-        <p id="header-hostname">steveos-nas • NixOS 26.05</p>
+        <h1>Noos <span class="edition-tag">NAS Edition</span></h1>
+        <p id="header-hostname">noos-nas • NixOS 26.05</p>
       </div>
     </div>
 
@@ -143,9 +143,9 @@
       <!-- BADGE UTILISATEUR & DECONNEXION -->
       <div class="user-pill" id="header-user-pill" style="display:none;">
         <span>👤</span>
-        <span id="header-username">steve</span>
+        <span id="header-username">noos</span>
         <span id="header-user-role" style="font-size:0.75rem; opacity:0.8;">(admin)</span>
-        <button type="button" class="btn-logout" id="header-logout-btn" onclick="logoutUser()" title="Se déconnecter de STEvE_OS">
+        <button type="button" class="btn-logout" id="header-logout-btn" onclick="logoutUser()" title="Se déconnecter de Noos">
           <span>Déconnexion</span>
         </button>
       </div>
@@ -444,7 +444,7 @@
               </span>
               <span class="hw-spec-pill hw-spec-pill-mauve">
                 <span class="hw-spec-tag">Système</span>
-                <strong id="hw-os-kernel">STEvE_OS (Linux)</strong>
+                <strong id="hw-os-kernel">Noos NAS (Linux)</strong>
               </span>
             </div>
           </div>
@@ -1095,7 +1095,7 @@
           <div class="section-title-wrap">
             <div class="section-icon-box" style="background:rgba(203,166,247,0.15); color:var(--mauve);">⚡</div>
             <div>
-              <div class="section-title">Centre de Mises à Jour STEvE_OS</div>
+              <div class="section-title">Centre de Mises à Jour Noos</div>
               <div class="section-subtitle">Gestion déclarative des versions, synchronisation GitHub et déploiement NixOS</div>
             </div>
           </div>
@@ -1126,7 +1126,7 @@
             <button type="button" class="btn-update-primary-action" id="btn-single-update" onclick="triggerSingleUpdate()">
               <span class="btn-update-glow"></span>
               <span class="btn-update-icon" id="btn-single-update-icon">🚀</span>
-              <span class="btn-update-text" id="btn-single-update-text">Mettre à jour STEvE_OS</span>
+              <span class="btn-update-text" id="btn-single-update-text">Mettre à jour Noos</span>
               <span class="btn-update-badge" id="btn-single-update-badge" style="display:none;">0 màj</span>
             </button>
           </div>
@@ -1192,14 +1192,14 @@
 
         <!-- 2 CARTES DE VERSIONS COMPARATIVES : DOUBLE TÉLÉMÉTRIE -->
         <div class="version-cards-grid">
-          <!-- Carte 1 : Configuration OS NixOS (steve_os-nix) -->
+          <!-- Carte 1 : Configuration OS NixOS (noos-nas) -->
           <div class="version-card" id="card-telemetry-os">
             <div class="version-card-header">
               <div class="version-card-title-wrap">
                 <span class="version-card-icon">🖥️</span>
                 <div>
                   <div class="version-card-title">Configuration Système NixOS</div>
-                  <div class="version-card-sub" id="version-local-gen">Dépôt steve_os-nix • Génération active</div>
+                  <div class="version-card-sub" id="version-local-gen">Dépôt noos-nas • Génération active</div>
                 </div>
               </div>
               <span class="badge badge-success" id="version-os-badge">À jour</span>
@@ -1219,20 +1219,20 @@
               </div>
               <div class="version-info-row">
                 <span class="info-label">Dépôt distant :</span>
-                <a href="https://github.com/Chomiam/steve_os-nix" target="_blank" class="info-link" style="color:var(--mauve); text-decoration:none; font-weight:600;">Chomiam/steve_os-nix ↗</a>
+                <a href="https://github.com/Chomiam/noos-nas" target="_blank" class="info-link" style="color:var(--mauve); text-decoration:none; font-weight:600;">Chomiam/noos-nas ↗</a>
               </div>
               <div class="version-commit-msg-box" id="git-local-msg">Chargement du statut de configuration...</div>
             </div>
           </div>
 
-          <!-- Carte 2 : Dashboard Web & Moteurs (steveos-nas-dashboard) -->
+          <!-- Carte 2 : Dashboard Web & Moteurs (noos-nas-dashboard) -->
           <div class="version-card" id="card-telemetry-dashboard">
             <div class="version-card-header">
               <div class="version-card-title-wrap">
                 <span class="version-card-icon">⚡</span>
                 <div>
                   <div class="version-card-title">Tableau de Bord & Moteurs Web</div>
-                  <div class="version-card-sub">Dépôt steveos-nas-dashboard • Service Axum</div>
+                  <div class="version-card-sub">Dépôt noos-nas-dashboard • Service Axum</div>
                 </div>
               </div>
               <span class="badge badge-success" id="version-dashboard-badge">Actif</span>
@@ -1252,7 +1252,7 @@
               </div>
               <div class="version-info-row">
                 <span class="info-label">Dépôt distant :</span>
-                <a href="https://github.com/Chomiam/steveos-nas-dashboard" target="_blank" class="info-link" style="color:var(--mauve); text-decoration:none; font-weight:600;">Chomiam/steveos-nas-dashboard ↗</a>
+                <a href="https://github.com/Chomiam/noos-nas-dashboard" target="_blank" class="info-link" style="color:var(--mauve); text-decoration:none; font-weight:600;">Chomiam/noos-nas-dashboard ↗</a>
               </div>
               <div class="version-commit-msg-box" id="dashboard-status-msg">Moteur Rust asynchrone & interface réactive Catppuccin Mocha.</div>
             </div>
@@ -1699,7 +1699,7 @@
             </div>
             <div style="background:var(--mantle); padding:14px; border-radius:var(--radius-md); border:1px solid rgba(255,255,255,0.05);">
               <div style="font-weight:700; color:var(--text); margin-bottom:6px;">3. Connectez-vous en un clic</div>
-              Activez le tunnel : vous avez désormais un accès direct et chiffré à vos partages Samba, votre serveur sFTP et au tableau de bord STEvE_OS sans ouvrir de ports vulnérables.
+              Activez le tunnel : vous avez désormais un accès direct et chiffré à vos partages Samba, votre serveur sFTP et au tableau de bord Noos sans ouvrir de ports vulnérables.
             </div>
           </div>
         </div>
@@ -1708,13 +1708,13 @@
             <div class="section-title-wrap">
               <div class="section-icon-box" style="background:rgba(203,166,247,0.15); color:var(--mauve);">💡</div>
               <div>
-                <div class="section-title">Pourquoi utiliser WireGuard sur votre STEvE_OS NAS ?</div>
+                <div class="section-title">Pourquoi utiliser WireGuard sur votre Noos NAS ?</div>
                 <div class="section-subtitle">Sécurisez l'accès à vos données sans exposer vos ports sur Internet</div>
               </div>
             </div>
           </div>
           <div style="font-size:0.88rem; color:var(--subtext1); line-height:1.6;">
-            En activant <strong>WireGuard</strong>, vous accédez à vos partages Samba, vos sauvegardes sFTP et à votre tableau de bord STEvE_OS depuis n'importe où dans le monde (PC portable, smartphone) avec un chiffrement moderne haute performance, tout en conservant l'isolation stricte de votre réseau local.
+            En activant <strong>WireGuard</strong>, vous accédez à vos partages Samba, vos sauvegardes sFTP et à votre tableau de bord Noos depuis n'importe où dans le monde (PC portable, smartphone) avec un chiffrement moderne haute performance, tout en conservant l'isolation stricte de votre réseau local.
           </div>
         </div>
       </div>
@@ -1731,7 +1731,7 @@
             </div>
             <div>
               <div class="firewall-hero-title-row">
-                <h3 class="firewall-hero-title">Protection Pare-feu STEvE_OS</h3>
+                <h3 class="firewall-hero-title">Protection Pare-feu Noos</h3>
                 <span class="badge badge-success" id="firewall-status-badge">🟢 Protection Active</span>
               </div>
               <p class="firewall-hero-subtitle" id="firewall-status-desc">
@@ -2820,14 +2820,14 @@
         <div class="games-catalog-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; flex-wrap:wrap; gap:12px; background:var(--surface0); padding:16px 20px; border-radius:var(--radius-md); border:1px solid rgba(255,255,255,0.06);">
           <div>
             <h3 style="margin:0; font-size:1.15rem; font-weight:700; color:var(--text); display:flex; align-items:center; gap:8px;">
-              <span>🥚</span> Store Officiel d'Eggs STEvE_OS
+              <span>🥚</span> Store Officiel d'Eggs Noos
             </h3>
             <p style="margin:4px 0 0 0; font-size:0.82rem; color:var(--subtext0);">
-              Déployez en 1-clic vos serveurs de jeux préconfigurés, synchronisés en direct depuis le dépôt GitHub <a href="https://github.com/Chomiam/steve_nas_eggs" target="_blank" rel="noopener noreferrer" style="color:var(--mauve, #cba6f7); text-decoration:none; font-weight:600;">Chomiam/steve_nas_eggs</a>.
+              Déployez en 1-clic vos serveurs de jeux préconfigurés, synchronisés en direct depuis le dépôt GitHub <a href="https://github.com/Chomiam/noos_nas_eggs" target="_blank" rel="noopener noreferrer" style="color:var(--mauve, #cba6f7); text-decoration:none; font-weight:600;">Chomiam/noos_nas_eggs</a>.
             </p>
           </div>
           <div style="display:flex; gap:10px;">
-            <button type="button" class="btn btn-secondary btn-sm" onclick="syncEggCatalog(true)" title="Forcer la synchronisation avec le dépôt GitHub steve_nas_eggs">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="syncEggCatalog(true)" title="Forcer la synchronisation avec le catalogue officiel d'Eggs">
               <span id="sync-eggs-spinner">🔄</span> Actualiser le Store
             </button>
             <button type="button" class="btn btn-primary btn-sm" onclick="openImportEggModal()">
@@ -3020,7 +3020,7 @@
             <!-- Barre d'invite de commande interactive -->
             <form class="game-terminal-prompt-bar" onsubmit="event.preventDefault(); sendGameTerminalCommand();">
               <span class="prompt-symbol">❯</span>
-              <input type="text" id="game-terminal-input" class="game-terminal-input" placeholder="Tapez une commande serveur (ex: op steve, time set day, save-all, /help)..." autocomplete="off" spellcheck="false" onkeydown="handleGameConsoleInputKey(event)">
+              <input type="text" id="game-terminal-input" class="game-terminal-input" placeholder="Tapez une commande serveur (ex: op admin, time set day, save-all, /help)..." autocomplete="off" spellcheck="false" onkeydown="handleGameConsoleInputKey(event)">
               <button type="submit" class="game-terminal-send-btn" id="btn-send-game-cmd">
                 <span>Envoyer</span>
                 <span class="send-shortcut">⏎</span>
@@ -3265,7 +3265,7 @@
         <div style="background: var(--base); border-radius: var(--radius-lg); border: 1px solid var(--surface0); padding: 20px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
             <h3 style="margin: 0; font-size: 1.1rem; color: var(--text); display: flex; align-items: center; gap: 8px;">
-              <span>📊</span> Sessions Web STEvE_OS Actives
+              <span>📊</span> Sessions Web Noos Actives
             </h3>
             <button type="button" class="btn btn-secondary btn-sm" onclick="loadActiveSessions()">
               <span>🔄</span> Actualiser
@@ -3294,7 +3294,7 @@
           <div class="console-sidebar-footer">
             <div class="sidebar-user-pill">
               <span class="status-indicator status-online"></span>
-              <span>admin@steveos-nas</span>
+              <span>admin@noos-nas</span>
             </div>
             <div style="font-size:0.75rem; color:var(--subtext0); margin-top:8px;">
               Shell : <code>bash</code><br>
@@ -3324,7 +3324,8 @@
                     <option value="jellyfin">jellyfin (Multimédia)</option>
                     <option value="docker">docker (Conteneurs)</option>
                     <option value="fail2ban">fail2ban (Sécurité)</option>
-                    <option value="steveos-nas-dashboard">steveos-nas-dashboard (Web)</option>
+                    <option value="noos-nas-dashboard">noos-nas-dashboard (Web)</option>
+                    <option value="steveos-nas-dashboard">steveos-nas-dashboard (Legacy)</option>
                   </select>
                   <button type="button" class="btn btn-secondary btn-xs" onclick="loadLogs()">
                     🔄 Actualiser
@@ -3375,7 +3376,7 @@
               <div class="bash-output-window">
                 <div class="bash-output-body" id="bash-terminal-body">
                   <div class="term-welcome-msg">
-                    <span style="color:var(--mauve); font-weight:bold;">🚀 STEvE_OS Interactive Bash Console</span> — Session prête.<br>
+                    <span style="color:var(--mauve); font-weight:bold;">🚀 Noos Interactive Bash Console</span> — Session prête.<br>
                     <span style="color:var(--subtext0); font-size:0.8rem;">• Touche <kbd>Tab</kbd> : Autocomplétion intelligente des commandes et fichiers<br>
                     • Flèches <kbd>↑</kbd> / <kbd>↓</kbd> : Navigation dans l'historique • <kbd>Ctrl+L</kbd> : Nettoyer l'écran</span>
                   </div>
@@ -3384,7 +3385,7 @@
                 <!-- Ligne de saisie interactive -->
                 <div class="bash-input-row">
                   <div class="autocomplete-dropdown" id="term-autocomplete-dropdown"></div>
-                  <span class="bash-prompt-label" id="bash-prompt-label">admin@steveos-nas:<b>/etc/nixos</b>$</span>
+                  <span class="bash-prompt-label" id="bash-prompt-label">admin@noos-nas:<b>/etc/nixos</b>$</span>
                   <input type="text" id="bash-input" class="bash-input-field" placeholder="Tapez une commande (ex: nh os switch, git status, ls -la)..." autocomplete="off" spellcheck="false">
                   <button type="button" class="btn btn-primary btn-xs" onclick="submitBashCommand()">Exécuter ↵</button>
                 </div>
@@ -5161,7 +5162,7 @@
             <span>Nom d'utilisateur ou d'appareil <span style="color:var(--red);">*</span></span>
             <span style="font-size:0.75rem; color:var(--subtext0);">Unique</span>
           </label>
-          <input type="text" id="wg-input-username" class="form-control" placeholder="Ex: steve-iphone, laptop-bureau, alice" autofocus>
+          <input type="text" id="wg-input-username" class="form-control" placeholder="Ex: noos-iphone, laptop-bureau, alice" autofocus>
           <div style="font-size:0.75rem; color:var(--subtext0); margin-top:4px;">Utilisez uniquement des lettres, chiffres, tirets et underscores.</div>
         </div>
 
@@ -5535,7 +5536,7 @@
           <div class="section-icon-box" style="background:rgba(250,179,135,0.18); color:var(--peach); width:36px; height:36px; display:flex; align-items:center; justify-content:center; border-radius:8px;">🎮</div>
           <div>
             <div class="file-modal-title modal-title" style="font-size:1.05rem;">Diagnostic GPU & Passthrough IOMMU</div>
-            <div style="font-size:0.78rem; color:var(--subtext0);">Matériel graphique physique détecté sur STEvE_OS NAS</div>
+            <div style="font-size:0.78rem; color:var(--subtext0);">Matériel graphique physique détecté sur Noos NAS</div>
           </div>
         </div>
         <button type="button" class="btn-close-modal" onclick="closeGpuInfoModal()" title="Fermer">&times;</button>
@@ -5939,7 +5940,7 @@
     <div class="update-toast-content">
       <div class="update-toast-icon-box" id="update-toast-icon">🚀</div>
       <div class="update-toast-info">
-        <div class="update-toast-title" id="update-toast-title">Mise à jour STEvE_OS en cours...</div>
+        <div class="update-toast-title" id="update-toast-title">Mise à jour Noos en cours...</div>
         <div class="update-toast-detail" id="update-toast-detail">Téléchargement et construction des composants...</div>
         <div class="update-toast-progress-wrap">
           <div class="update-toast-progress-bar" id="update-toast-progress-bar" style="width: 5%;"></div>
@@ -6122,7 +6123,7 @@
             <div id="mc-tab-pane-general" class="mc-tab-pane">
               <div class="form-group" style="margin-bottom:12px;">
                 <label class="form-label" style="font-size:0.8rem; font-weight:600;">Message du jour (MOTD) :</label>
-                <input type="text" id="mc-cfg-motd" class="form-input" value="Serveur Minecraft propulsé par STEvE_OS NAS">
+                <input type="text" id="mc-cfg-motd" class="form-input" value="Serveur Minecraft propulsé par Noos NAS">
               </div>
               <div class="mc-props-grid">
                 <div class="form-group" style="margin:0;">
@@ -7012,7 +7013,7 @@
       <div class="modal-body" style="padding: 24px;">
         <input type="hidden" id="sp-username">
         <p style="font-size: 0.85rem; color: var(--subtext0); margin: 0 0 16px 0; line-height: 1.4;">
-          Définissez ou synchronisez le mot de passe réseau Samba pour <strong id="sp-user-display" style="color: var(--text);"></strong>. Ce mot de passe permet d'authentifier les connexions SMB depuis l'Explorateur Windows (<code style="color:var(--sapphire);">\\steveos-nas</code>), macOS Finder (<code style="color:var(--sapphire);">smb://steveos-nas</code>) ou Linux.
+          Définissez ou synchronisez le mot de passe réseau Samba pour <strong id="sp-user-display" style="color: var(--text);"></strong>. Ce mot de passe permet d'authentifier les connexions SMB depuis l'Explorateur Windows (<code style="color:var(--sapphire);">\\noos-nas</code>), macOS Finder (<code style="color:var(--sapphire);">smb://noos-nas</code>) ou Linux.
         </p>
         <div class="form-group" style="margin-bottom: 16px;">
           <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text);">Mot de passe Samba *</label>
@@ -7395,7 +7396,7 @@
         <!-- GRILLE D'OPTIONS VFS & PROTOCOLES AVANCÉS (TOGGLES CATPPUCCIN) -->
         <div style="margin-bottom:20px;">
           <label class="form-label" style="font-weight:700; color:var(--mauve); margin-bottom:10px; display:flex; align-items:center; gap:8px;">
-            <span>⚡</span> Options & Extensions Avancées STEvE_OS
+            <span>⚡</span> Options & Extensions Avancées Noos
           </label>
           <div class="samba-options-grid">
             <!-- Option 1 : Visibilité -->
@@ -7524,7 +7525,7 @@
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:16px;">
           <div class="form-group">
             <label class="form-label" style="font-weight:600;">Nom du Serveur (NetBIOS)</label>
-            <input type="text" id="samba-global-server-string" class="form-input" placeholder="STEvE_OS NAS Media">
+            <input type="text" id="samba-global-server-string" class="form-input" placeholder="Noos NAS Media">
           </div>
           <div class="form-group">
             <label class="form-label" style="font-weight:600;">Groupe de Travail (Workgroup)</label>
@@ -7651,7 +7652,7 @@
                 <button type="button" class="btn btn-secondary btn-xs" onclick="copyElementText('guide-code-win', 'Copié !')">📋</button>
               </div>
             </li>
-            <li>Saisissez votre identifiant et mot de passe utilisateur créés dans le Dashboard STEvE_OS.</li>
+            <li>Saisissez votre identifiant et mot de passe utilisateur créés dans le Dashboard Noos.</li>
             <li><strong>Optionnel :</strong> Faites un clic droit sur un dossier &gt; <em>« Connecter un lecteur réseau »</em> (ex: lettre <code>Z:</code>) pour reconnecter automatiquement à chaque démarrage de Windows.</li>
           </ol>
         </div>

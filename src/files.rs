@@ -1,4 +1,4 @@
-//! # Moteur de Gestion de Fichiers & Système de Fichiers (STEvE_OS Files)
+//! # Moteur de Gestion de Fichiers & Système de Fichiers (Noos Files)
 //!
 //! Ce module centralise l'ensemble des opérations d'E/S sur le système de fichiers :
 //! - **Navigation & Arborescence** : Exploration de dossiers avec calcul de taille,
@@ -92,7 +92,7 @@ pub struct DeleteRequest {
     /// Chemin absolu de l'élément à supprimer.
     pub path: String,
     /// Si `true`, supprime définitivement l'élément (`rm -rf`).
-    /// Si `false` ou omis, déplace l'élément vers la corbeille sécurisée STEvE_OS.
+    /// Si `false` ou omis, déplace l'élément vers la corbeille sécurisée Noos.
     pub permanent: Option<bool>,
 }
 
@@ -509,7 +509,7 @@ pub fn create_directory(base_dir: &str, dir_name: &str) -> Result<String, String
 /// Supprime un fichier ou un dossier :
 /// - **Protection critique** : Refuse formellement la suppression si le dossier
 ///   correspond à un point de montage de disque protégé (`is_mount_point`).
-/// - Si `permanent == false`, délègue le déplacement sécurisé vers la corbeille STEvE_OS.
+/// - Si `permanent == false`, délègue le déplacement sécurisé vers la corbeille Noos.
 /// - Si `permanent == true`, procède à une suppression définitive directe (`rm -rf`).
 pub fn delete_item(item_path: &str, permanent: bool) -> Result<String, String> {
     let p = normalize_user_path(PathBuf::from(item_path));
@@ -938,7 +938,7 @@ fn calculate_hash<T: std::hash::Hash>(t: &T) -> u64 {
 ///
 /// - **Formats Web natifs directs** : Les formats courants (JPEG, PNG, WebP, SVG, GIF)
 ///   sont retournés directement sans conversion si la pleine résolution est demandée.
-/// - **Cache de conversion (`/tmp/steveos_image_cache`)** : Les formats lourds ou non lisibles
+/// - **Cache de conversion (`/tmp/noos_image_cache` / `/tmp/steveos_image_cache`)** : Les formats lourds ou non lisibles
 ///   par le navigateur (RAW, HEIC, TIFF, PSD, DDS, TGA) ou les miniatures sont convertis et
 ///   mis en cache en utilisant une clé de hachage invalidée dès que le fichier source change.
 /// - **Stratégie en cascade à 3 niveaux** :
@@ -977,7 +977,7 @@ pub fn get_image_preview_path(path_str: &str, is_thumb: bool) -> Result<(PathBuf
         .unwrap_or(0);
     let size = meta.len();
 
-    let cache_dir = PathBuf::from("/tmp/steveos_image_cache");
+    let cache_dir = PathBuf::from("/tmp/noos_image_cache");
     let _ = fs::create_dir_all(&cache_dir);
 
     let raw_key = format!("{}_{}_{}_{}", p.display(), mtime, size, is_thumb);
@@ -986,6 +986,11 @@ pub fn get_image_preview_path(path_str: &str, is_thumb: bool) -> Result<(PathBuf
 
     if cached_path.exists() && cached_path.metadata().map(|m| m.len() > 100).unwrap_or(false) {
         return Ok((cached_path, "image/jpeg".to_string()));
+    }
+
+    let legacy_cached_path = PathBuf::from("/tmp/steveos_image_cache").join(format!("{}.jpg", hash));
+    if legacy_cached_path.exists() && legacy_cached_path.metadata().map(|m| m.len() > 100).unwrap_or(false) {
+        return Ok((legacy_cached_path, "image/jpeg".to_string()));
     }
 
     let is_raw = matches!(

@@ -255,7 +255,7 @@ fn resolve_cwd(cwd_opt: Option<&str>) -> PathBuf {
         }
     }
 
-    if let Ok(dir) = env::var("STEVEOS_CONFIG_DIR") {
+    if let Ok(dir) = env::var("NOOS_CONFIG_DIR").or_else(|_| env::var("STEVEOS_CONFIG_DIR")) {
         let p = PathBuf::from(dir);
         if p.is_dir() {
             return p;
@@ -269,6 +269,10 @@ fn resolve_cwd(cwd_opt: Option<&str>) -> PathBuf {
 
     let target_u = crate::updates::target_user();
     let user_home = crate::updates::get_user_home(&target_u);
+    let p_noos = user_home.join("Projects/noos-nas");
+    if p_noos.is_dir() {
+        return p_noos;
+    }
     let p2 = user_home.join("Projects/steveos-nas");
     if p2.is_dir() {
         return p2;

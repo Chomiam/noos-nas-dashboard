@@ -65,14 +65,22 @@ fn now_secs() -> u64 {
 }
 
 fn get_clients_file_path() -> PathBuf {
-    if let Ok(env_path) = std::env::var("STEVEOS_WG_CLIENTS_FILE") {
+    if let Ok(env_path) = std::env::var("NOOS_WG_CLIENTS_FILE").or_else(|_| std::env::var("STEVEOS_WG_CLIENTS_FILE")) {
         return PathBuf::from(env_path);
     }
-    let var_lib = Path::new("/var/lib/steveos");
+    let noos_file = Path::new("/var/lib/noos/wireguard_clients.json");
+    if noos_file.exists() {
+        return noos_file.to_path_buf();
+    }
+    let steve_file = Path::new("/var/lib/steveos/wireguard_clients.json");
+    if steve_file.exists() {
+        return steve_file.to_path_buf();
+    }
+    let var_lib = Path::new("/var/lib/noos");
     if var_lib.exists() || fs::create_dir_all(var_lib).is_ok() {
         return var_lib.join("wireguard_clients.json");
     }
-    PathBuf::from("/run/steveos-wireguard-clients.json")
+    PathBuf::from("/run/noos-wireguard-clients.json")
 }
 
 pub fn load_wireguard_clients() -> Vec<WireguardClient> {
@@ -151,26 +159,39 @@ pub fn get_server_public_key() -> String {
     }
 
     // 2. Tenter de lire depuis un fichier de clé serveur persistant
-    let key_path = Path::new("/var/lib/steveos/server_public.key");
-    if let Ok(k) = fs::read_to_string(key_path) {
-        let trimmed = k.trim().to_string();
-        if !trimmed.is_empty() {
-            return trimmed;
+    let key_candidates = [
+        PathBuf::from("/var/lib/noos/server_public.key"),
+        PathBuf::from("/var/lib/steveos/server_public.key"),
+    ];
+    for kp in &key_candidates {
+        if let Ok(k) = fs::read_to_string(kp) {
+            let trimmed = k.trim().to_string();
+            if !trimmed.is_empty() {
+                return trimmed;
+            }
         }
     }
 
     // 3. Tenter d'extraire la clé publique depuis une clé privée serveur existante
-    let priv_path = Path::new("/var/lib/steveos/server_private.key");
-    if let Ok(priv_k) = fs::read_to_string(priv_path) {
-        if let Ok(mut child) = Command::new(get_wg_bin()).arg("pubkey").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn() {
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(priv_k.trim().as_bytes());
-            }
-            if let Ok(out) = child.wait_with_output() {
-                let pub_k = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if !pub_k.is_empty() {
-                    let _ = fs::write(key_path, &pub_k);
-                    return pub_k;
+    let priv_candidates = [
+        PathBuf::from("/var/lib/noos/server_private.key"),
+        PathBuf::from("/var/lib/steveos/server_private.key"),
+    ];
+    for pp in &priv_candidates {
+        if let Ok(priv_k) = fs::read_to_string(pp) {
+            if let Ok(mut child) = Command::new(get_wg_bin()).arg("pubkey").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn() {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(priv_k.trim().as_bytes());
+                }
+                if let Ok(out) = child.wait_with_output() {
+                    let pub_k = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    if !pub_k.is_empty() {
+                        let _ = fs::create_dir_all("/var/lib/noos");
+                        let _ = fs::create_dir_all("/var/lib/steveos");
+                        let _ = fs::write("/var/lib/noos/server_public.key", &pub_k);
+                        let _ = fs::write("/var/lib/steveos/server_public.key", &pub_k);
+                        return pub_k;
+                    }
                 }
             }
         }
@@ -186,9 +207,12 @@ pub fn get_server_public_key() -> String {
                 }
                 if let Ok(out) = child.wait_with_output() {
                     let pub_k = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    let _ = fs::create_dir_all("/var/lib/noos");
                     let _ = fs::create_dir_all("/var/lib/steveos");
+                    let _ = fs::write("/var/lib/noos/server_private.key", &priv_k);
                     let _ = fs::write("/var/lib/steveos/server_private.key", &priv_k);
-                    let _ = fs::write(key_path, &pub_k);
+                    let _ = fs::write("/var/lib/noos/server_public.key", &pub_k);
+                    let _ = fs::write("/var/lib/steveos/server_public.key", &pub_k);
                     return pub_k;
                 }
             }
@@ -295,14 +319,14 @@ pub fn build_client_config_text(
 ) -> String {
     format!(
 r#"[Interface]
-# Profil Client WireGuard - STEvE_OS NAS Edition
+# Profil Client WireGuard - Noos NAS Edition
 # Attention : Cette clé privée est strictement confidentielle
 PrivateKey = {}
 Address = {}/32
 DNS = {}
 
 [Peer]
-# Serveur STEvE_OS NAS
+# Serveur Noos NAS
 # Règle de sécurité : Accès exclusif à la machine hôte ({})
 PublicKey = {}
 Endpoint = {}

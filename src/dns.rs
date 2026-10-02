@@ -63,20 +63,26 @@ pub struct UpdateDnsRequest {
 
 pub fn get_dns_json_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
+    paths.push(PathBuf::from("/var/lib/noos/dns.json"));
     paths.push(PathBuf::from("/var/lib/steveos/dns.json"));
-    if let Ok(config_dir) = std::env::var("STEVEOS_CONFIG_DIR") {
+    if let Ok(config_dir) = std::env::var("NOOS_CONFIG_DIR").or_else(|_| std::env::var("STEVEOS_CONFIG_DIR")) {
         let p = PathBuf::from(config_dir).join("dns.json");
         if !paths.contains(&p) {
             paths.push(p);
         }
     }
     let target_u = crate::updates::target_user();
-    let user_dev_dns = crate::updates::get_user_home(&target_u).join("Projects/steveos-nas/dns.json");
-    if !paths.contains(&user_dev_dns) {
-        paths.push(user_dev_dns);
+    let user_dev_noos = crate::updates::get_user_home(&target_u).join("Projects/noos-nas/dns.json");
+    if !paths.contains(&user_dev_noos) {
+        paths.push(user_dev_noos);
+    }
+    let user_dev_steve = crate::updates::get_user_home(&target_u).join("Projects/steveos-nas/dns.json");
+    if !paths.contains(&user_dev_steve) {
+        paths.push(user_dev_steve);
     }
     for p in &[
         "/etc/nixos/dns.json",
+        "/etc/nixos/noos-nas/dns.json",
         "/etc/nixos/steveos-nas/dns.json",
         "./dns.json",
         "../dns.json",
@@ -112,6 +118,7 @@ pub fn load_dns_config() -> DnsConfig {
 
 pub fn save_dns_config(cfg: &DnsConfig) -> Result<(), String> {
     let json = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
+    let _ = std::fs::create_dir_all("/var/lib/noos");
     let _ = std::fs::create_dir_all("/var/lib/steveos");
 
     let mut written = false;
@@ -362,11 +369,10 @@ fn apply_dns_runtime(cfg: &DnsConfig) -> Result<(), String> {
 
         // Écriture déclarative du drop-in désactivant le stub listener
         let _ = Command::new("sudo").args(["mkdir", "-p", "/etc/systemd/resolved.conf.d"]).output();
-        let dropin = "[Resolve]
-DNSStubListener=no
-";
-        let tmp_dropin = "/tmp/steveos-resolved-stub.conf";
+        let dropin = "[Resolve]\nDNSStubListener=no\n";
+        let tmp_dropin = "/tmp/noos-resolved-stub.conf";
         if std::fs::write(tmp_dropin, dropin).is_ok() {
+            let _ = Command::new("sudo").args(["cp", tmp_dropin, "/etc/systemd/resolved.conf.d/noos-dns.conf"]).output();
             let _ = Command::new("sudo").args(["cp", tmp_dropin, "/etc/systemd/resolved.conf.d/steveos-dns.conf"]).output();
             let _ = std::fs::remove_file(tmp_dropin);
         }
@@ -380,18 +386,16 @@ DNSStubListener=no
 
     // 2. Écriture immédiate dans /etc/resolv.conf
     let mut resolv_lines = vec![
-        "# Generated dynamically by STEvE_OS Dashboard (Runtime DNS)".to_string(),
+        "# Generated dynamically by Noos Dashboard (Runtime DNS)".to_string(),
     ];
     for ip in &effective_servers {
         resolv_lines.push(format!("nameserver {}", ip.trim()));
     }
     resolv_lines.push("options timeout:2 attempts:3".to_string());
-    let resolv_content = resolv_lines.join("
-") + "
-";
+    let resolv_content = resolv_lines.join("\n") + "\n";
 
     let _ = std::fs::write("/run/systemd/resolve/resolv.conf", &resolv_content);
-    let tmp_resolv = "/tmp/steveos-resolv.conf";
+    let tmp_resolv = "/tmp/noos-resolv.conf";
     if std::fs::write(tmp_resolv, &resolv_content).is_ok() {
         let _ = Command::new("sudo").args(["cp", tmp_resolv, "/etc/resolv.conf"]).output();
         let _ = std::fs::remove_file(tmp_resolv);

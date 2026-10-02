@@ -148,11 +148,19 @@ pub fn find_bin(name: &str) -> String {
 
 // Emplacement du registre persistant
 fn get_registry_path() -> PathBuf {
-    let var_lib = StdPath::new("/var/lib/steveos");
+    let noos_p = StdPath::new("/var/lib/noos/users-registry.json");
+    if noos_p.exists() {
+        return noos_p.to_path_buf();
+    }
+    let steve_p = StdPath::new("/var/lib/steveos/users-registry.json");
+    if steve_p.exists() {
+        return steve_p.to_path_buf();
+    }
+    let var_lib = StdPath::new("/var/lib/noos");
     if var_lib.exists() || std::fs::create_dir_all(var_lib).is_ok() {
         return var_lib.join("users-registry.json");
     }
-    PathBuf::from("/run/steveos-users-registry.json")
+    PathBuf::from("/run/noos-users-registry.json")
 }
 
 fn load_registry() -> UsersRegistry {
@@ -166,15 +174,11 @@ fn load_registry() -> UsersRegistry {
 }
 
 fn save_registry(registry: &UsersRegistry) {
-    let path = get_registry_path();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
+    let _ = std::fs::create_dir_all("/var/lib/noos");
+    let _ = std::fs::create_dir_all("/var/lib/steveos");
     if let Ok(bytes) = serde_json::to_vec_pretty(registry) {
-        let tmp = path.with_extension("json.tmp");
-        if std::fs::write(&tmp, bytes).is_ok() {
-            let _ = std::fs::rename(&tmp, &path);
-        }
+        let _ = std::fs::write("/var/lib/noos/users-registry.json", &bytes);
+        let _ = std::fs::write("/var/lib/steveos/users-registry.json", &bytes);
     }
 }
 
@@ -602,7 +606,9 @@ pub async fn handle_users_list(headers: HeaderMap) -> Response {
     };
 
     let users = list_all_users().await;
-    let main_admin_user = std::env::var("STEVEOS_USER").unwrap_or_else(|_| crate::updates::target_user());
+    let main_admin_user = std::env::var("NOOS_USER")
+        .or_else(|_| std::env::var("STEVEOS_USER"))
+        .unwrap_or_else(|_| crate::updates::target_user());
     (
         StatusCode::OK,
         Json(serde_json::json!({
@@ -1420,7 +1426,7 @@ pub async fn handle_users_delete(
             .into_response();
     }
 
-    if let Ok(main_admin) = std::env::var("STEVEOS_USER") {
+    if let Ok(main_admin) = std::env::var("NOOS_USER").or_else(|_| std::env::var("STEVEOS_USER")) {
         if username == main_admin {
             return (
                 StatusCode::BAD_REQUEST,

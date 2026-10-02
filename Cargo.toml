@@ -1,8 +1,8 @@
 [package]
-name = "steveos-nas-dashboard"
-version = "0.2.129"
+name = "noos-nas-dashboard"
+version = "0.3.0"
 edition = "2021"
-description = "Tableau de bord web en Rust & JS pour STEvE_OS NAS Edition (Catppuccin Mocha)"
+description = "Tableau de bord web en Rust & JS pour Noos NAS Edition (Catppuccin Mocha)"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }

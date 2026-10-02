@@ -29,14 +29,22 @@ pub struct Session {
 static SESSIONS: OnceLock<Arc<RwLock<HashMap<String, Session>>>> = OnceLock::new();
 
 fn get_sessions_file_path() -> std::path::PathBuf {
-    if let Ok(env_path) = std::env::var("STEVEOS_SESSIONS_FILE") {
+    if let Ok(env_path) = std::env::var("NOOS_SESSIONS_FILE").or_else(|_| std::env::var("STEVEOS_SESSIONS_FILE")) {
         return std::path::PathBuf::from(env_path);
     }
-    let var_lib = std::path::Path::new("/var/lib/steveos");
+    let noos_p = std::path::Path::new("/var/lib/noos/sessions.json");
+    if noos_p.exists() {
+        return noos_p.to_path_buf();
+    }
+    let steve_p = std::path::Path::new("/var/lib/steveos/sessions.json");
+    if steve_p.exists() {
+        return steve_p.to_path_buf();
+    }
+    let var_lib = std::path::Path::new("/var/lib/noos");
     if var_lib.exists() || std::fs::create_dir_all(var_lib).is_ok() {
         return var_lib.join("sessions.json");
     }
-    std::path::PathBuf::from("/run/steveos-sessions.json")
+    std::path::PathBuf::from("/run/noos-sessions.json")
 }
 
 fn load_sessions_from_disk() -> HashMap<String, Session> {
@@ -73,7 +81,7 @@ fn save_sessions_to_disk(sessions: &HashMap<String, Session>) {
 
     if let Ok(json_bytes) = serde_json::to_vec_pretty(&valid_sessions) {
         let tmp_path = path.with_extension("json.tmp");
-        if std::fs::write(&tmp_path, json_bytes).is_ok() {
+        if std::fs::write(&tmp_path, &json_bytes).is_ok() {
             let _ = std::fs::rename(&tmp_path, &path);
             #[cfg(unix)]
             {
@@ -81,6 +89,11 @@ fn save_sessions_to_disk(sessions: &HashMap<String, Session>) {
                 let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
             }
         }
+        // Mirroring de sécurité pour rétrocompatibilité
+        let _ = std::fs::create_dir_all("/var/lib/noos");
+        let _ = std::fs::create_dir_all("/var/lib/steveos");
+        let _ = std::fs::write("/var/lib/noos/sessions.json", &json_bytes);
+        let _ = std::fs::write("/var/lib/steveos/sessions.json", &json_bytes);
     }
 }
 
@@ -276,6 +289,7 @@ pub fn verify_linux_credentials(username: &str, password: &str) -> Result<bool, 
     if stored_hash.is_none() {
         for vars_path in &[
             "/etc/nixos/vars.nix",
+            "/etc/nixos/noos-nas/vars.nix",
             "/etc/nixos/steveos-nas/vars.nix",
             "./vars.nix",
             "../vars.nix",
@@ -393,12 +407,19 @@ async fn handle_login(Json(req): Json<LoginRequest>) -> Response {
             )
                 .into_response();
 
-            let cookie_val = format!(
+            let cookie_noos = format!(
+                "noos_token={}; Path=/; Max-Age={}; SameSite=Lax",
+                token, duration
+            );
+            if let Ok(hv) = header::HeaderValue::from_str(&cookie_noos) {
+                response.headers_mut().append(header::SET_COOKIE, hv);
+            }
+            let cookie_steve = format!(
                 "steveos_token={}; Path=/; Max-Age={}; SameSite=Lax",
                 token, duration
             );
-            if let Ok(hv) = header::HeaderValue::from_str(&cookie_val) {
-                response.headers_mut().insert(header::SET_COOKIE, hv);
+            if let Ok(hv) = header::HeaderValue::from_str(&cookie_steve) {
+                response.headers_mut().append(header::SET_COOKIE, hv);
             }
 
             response
@@ -452,12 +473,12 @@ fn extract_token(req: &Request) -> Option<String> {
         }
     }
 
-    // 2. Cookie: steveos_token=<token> ou steveos_auth_token=<token>
+    // 2. Cookie: noos_token=<token>, noos_auth_token=<token>, steveos_token=<token>
     if let Some(cookie_header) = req.headers().get(header::COOKIE) {
         if let Ok(cookies) = cookie_header.to_str() {
             for c in cookies.split(';') {
                 let parts: Vec<&str> = c.trim().split('=').collect();
-                if parts.len() == 2 && (parts[0] == "steveos_token" || parts[0] == "steveos_auth_token") {
+                if parts.len() == 2 && (parts[0] == "noos_token" || parts[0] == "noos_auth_token" || parts[0] == "steveos_token" || parts[0] == "steveos_auth_token") {
                     return Some(parts[1].trim().to_string());
                 }
             }
@@ -497,8 +518,11 @@ async fn handle_logout(req: Request) -> Response {
     )
         .into_response();
 
+    if let Ok(hv) = header::HeaderValue::from_str("noos_token=; Path=/; Max-Age=0; SameSite=Lax") {
+        response.headers_mut().append(header::SET_COOKIE, hv);
+    }
     if let Ok(hv) = header::HeaderValue::from_str("steveos_token=; Path=/; Max-Age=0; SameSite=Lax") {
-        response.headers_mut().insert(header::SET_COOKIE, hv);
+        response.headers_mut().append(header::SET_COOKIE, hv);
     }
 
     response
@@ -666,7 +690,7 @@ pub fn extract_token_from_headers(headers: &axum::http::HeaderMap) -> Option<Str
         if let Ok(cookies) = cookie_header.to_str() {
             for c in cookies.split(';') {
                 let parts: Vec<&str> = c.trim().split('=').collect();
-                if parts.len() == 2 && (parts[0] == "steveos_token" || parts[0] == "steveos_auth_token") {
+                if parts.len() == 2 && (parts[0] == "noos_token" || parts[0] == "noos_auth_token" || parts[0] == "steveos_token" || parts[0] == "steveos_auth_token") {
                     return Some(parts[1].trim().to_string());
                 }
             }

@@ -93,7 +93,7 @@ pub fn get_hostname() -> String {
     Command::new("hostname")
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|_| "steveos-nas".to_string())
+        .unwrap_or_else(|_| "noos-nas".to_string())
 }
 
 pub fn get_primary_lan_ip() -> String {
@@ -236,7 +236,7 @@ fn get_samba_section() -> SambaSection {
         unit: "samba-smbd".into(),
         status_text: if is_active { "Actif (Partages SMB en ligne)".into() } else { "Inactif / Arrêté".into() },
         workgroup: "WORKGROUP".into(),
-        server_string: "STEvE_OS NAS".into(),
+        server_string: "Noos NAS".into(),
         shares,
         active_sessions,
     }

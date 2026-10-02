@@ -155,9 +155,9 @@ pub fn is_updating() -> bool {
 fn get_update_log_path() -> std::path::PathBuf {
     let log_dir = std::path::Path::new("/var/log");
     if log_dir.exists() {
-        return log_dir.join("steveos-update.log");
+        return log_dir.join("noos-update.log");
     }
-    std::path::PathBuf::from("/run/steveos-update.log")
+    std::path::PathBuf::from("/run/noos-update.log")
 }
 
 pub fn append_live_log(msg: &str) {
@@ -169,6 +169,10 @@ pub fn append_live_log(msg: &str) {
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
         let _ = f.write_all(msg.as_bytes());
     }
+    let legacy_log = std::path::PathBuf::from("/run/steveos-update.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&legacy_log) {
+        let _ = f.write_all(msg.as_bytes());
+    }
 }
 
 pub fn get_live_log() -> (String, bool) {
@@ -177,6 +181,11 @@ pub fn get_live_log() -> (String, bool) {
         let log_path = get_update_log_path();
         if let Ok(content) = std::fs::read_to_string(&log_path) {
             log_str = content;
+        } else {
+            let legacy_log = std::path::PathBuf::from("/run/steveos-update.log");
+            if let Ok(content) = std::fs::read_to_string(&legacy_log) {
+                log_str = content;
+            }
         }
     }
     (log_str, is_updating())
@@ -207,13 +216,14 @@ pub fn get_system_generations_count() -> u32 {
 }
 
 pub fn get_update_state_file_path() -> PathBuf {
-    PathBuf::from("/run/steveos-update-state.json")
+    PathBuf::from("/run/noos-update-state.json")
 }
 
 pub fn save_update_progress(state: &UpdateProgressState) {
     let path = get_update_state_file_path();
     if let Ok(json) = serde_json::to_string_pretty(state) {
-        let _ = fs::write(&path, json);
+        let _ = fs::write(&path, &json);
+        let _ = fs::write("/run/steveos-update-state.json", &json);
     }
 }
 
@@ -411,7 +421,7 @@ pub fn get_user_home(username: &str) -> PathBuf {
 }
 
 pub fn target_user() -> String {
-    if let Ok(u) = env::var("STEVEOS_USER") {
+    if let Ok(u) = env::var("NOOS_USER").or_else(|_| env::var("STEVEOS_USER")) {
         let trimmed = u.trim();
         if !trimmed.is_empty() && user_exists(trimmed) {
             return trimmed.to_string();
@@ -466,11 +476,11 @@ pub fn create_user_command(bin: &str, args: &[&str]) -> Command {
 
 fn git_cmd(repo_dir: &str) -> Command {
     let git_b = git_binary();
-    create_user_command(&git_b, &["-c", "safe.directory=*", "-c", "user.name=STEvE_OS", "-c", "user.email=steveos@local", "-C", repo_dir])
+    create_user_command(&git_b, &["-c", "safe.directory=*", "-c", "user.name=Noos", "-c", "user.email=noos@local", "-C", repo_dir])
 }
 
 pub fn resolve_config_dir() -> PathBuf {
-    if let Ok(dir) = env::var("STEVEOS_CONFIG_DIR") {
+    if let Ok(dir) = env::var("NOOS_CONFIG_DIR").or_else(|_| env::var("STEVEOS_CONFIG_DIR")) {
         let p = PathBuf::from(dir);
         if p.exists() {
             return p;
@@ -483,6 +493,10 @@ pub fn resolve_config_dir() -> PathBuf {
     }
 
     let user = target_user();
+    let candidate_noos = get_user_home(&user).join("Projects/noos-nas");
+    if candidate_noos.exists() {
+        return candidate_noos;
+    }
     let candidate2 = get_user_home(&user).join("Projects/steveos-nas");
     if candidate2.exists() {
         return candidate2;
@@ -584,75 +598,84 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
     let mut config_pending_commits = Vec::new();
     let mut config_changed_files = Vec::new();
 
-    // 2. Détection du commit distant sur GitHub (Chomiam/steve_os-nix)
-    let remote_url = "https://github.com/Chomiam/steve_os-nix.git";
-    if let Ok(out) = git_cmd(&config_dir_str)
-        .args(["ls-remote", remote_url, "refs/heads/main"])
-        .output()
-    {
-        if out.status.success() {
-            let text = String::from_utf8_lossy(&out.stdout);
-            if let Some(token) = text.split_whitespace().next() {
-                let full_remote = token.to_string();
-                let short_remote = token[..7.min(token.len())].to_string();
-                config_remote_commit = Some(short_remote);
-                config_remote_commit_full = Some(full_remote.clone());
+    // 2. Détection du commit distant sur GitHub (Chomiam/noos-nas avec fallback steve_os-nix)
+    let candidate_remotes = [
+        "https://github.com/Chomiam/noos-nas.git",
+        "https://github.com/Chomiam/steve_os-nix.git",
+    ];
+    let mut _resolved_remote_url = candidate_remotes[0];
 
-                if !full_local_commit.is_empty() && full_remote != full_local_commit {
-                    // Récupération sans toucher aux fichiers de travail
-                    let _ = git_cmd(&config_dir_str)
-                        .args(["fetch", remote_url, "main"])
-                        .output();
+    for remote_url in &candidate_remotes {
+        if let Ok(out) = git_cmd(&config_dir_str)
+            .args(["ls-remote", remote_url, "refs/heads/main"])
+            .output()
+        {
+            if out.status.success() {
+                _resolved_remote_url = remote_url;
+                let text = String::from_utf8_lossy(&out.stdout);
+                if let Some(token) = text.split_whitespace().next() {
+                    let full_remote = token.to_string();
+                    let short_remote = token[..7.min(token.len())].to_string();
+                    config_remote_commit = Some(short_remote);
+                    config_remote_commit_full = Some(full_remote.clone());
 
-                    let is_ancestor = git_cmd(&config_dir_str)
-                        .args(["merge-base", "--is-ancestor", &full_remote, "HEAD"])
-                        .status()
-                        .map(|s| s.success())
-                        .unwrap_or(false);
+                    if !full_local_commit.is_empty() && full_remote != full_local_commit {
+                        // Récupération sans toucher aux fichiers de travail
+                        let _ = git_cmd(&config_dir_str)
+                            .args(["fetch", remote_url, "main"])
+                            .output();
 
-                    if !is_ancestor {
-                        config_update_available = true;
+                        let is_ancestor = git_cmd(&config_dir_str)
+                            .args(["merge-base", "--is-ancestor", &full_remote, "HEAD"])
+                            .status()
+                            .map(|s| s.success())
+                            .unwrap_or(false);
 
-                        // Liste des commits en retard
-                        if let Ok(log_out) = git_cmd(&config_dir_str)
-                            .args(["log", "HEAD..FETCH_HEAD", "--pretty=format:%h|%an|%ad|%s", "--date=short"])
-                            .output()
-                        {
-                            let log_str = String::from_utf8_lossy(&log_out.stdout);
-                            for line in log_str.lines() {
-                                let parts: Vec<&str> = line.splitn(4, '|').collect();
-                                if parts.len() == 4 {
-                                    config_pending_commits.push(GitCommitItem {
-                                        hash: parts[0].to_string(),
-                                        author: parts[1].to_string(),
-                                        date: parts[2].to_string(),
-                                        message: parts[3].to_string(),
-                                    });
+                        if !is_ancestor {
+                            config_update_available = true;
+
+                            // Liste des commits en retard
+                            if let Ok(log_out) = git_cmd(&config_dir_str)
+                                .args(["log", "HEAD..FETCH_HEAD", "--pretty=format:%h|%an|%ad|%s", "--date=short"])
+                                .output()
+                            {
+                                let log_str = String::from_utf8_lossy(&log_out.stdout);
+                                for line in log_str.lines() {
+                                    let parts: Vec<&str> = line.splitn(4, '|').collect();
+                                    if parts.len() == 4 {
+                                        config_pending_commits.push(GitCommitItem {
+                                            hash: parts[0].to_string(),
+                                            author: parts[1].to_string(),
+                                            date: parts[2].to_string(),
+                                            message: parts[3].to_string(),
+                                        });
+                                    }
+                                }
+                                config_commits_behind = config_pending_commits.len() as u32;
+                            }
+
+                            // Liste des fichiers modifiés
+                            if let Ok(diff_out) = git_cmd(&config_dir_str)
+                                .args(["diff", "--name-status", "HEAD", "FETCH_HEAD"])
+                                .output()
+                            {
+                                let diff_str = String::from_utf8_lossy(&diff_out.stdout);
+                                for line in diff_str.lines() {
+                                    let l = line.trim();
+                                    if !l.is_empty() {
+                                        config_changed_files.push(l.to_string());
+                                    }
                                 }
                             }
-                            config_commits_behind = config_pending_commits.len() as u32;
-                        }
 
-                        // Liste des fichiers modifiés
-                        if let Ok(diff_out) = git_cmd(&config_dir_str)
-                            .args(["diff", "--name-status", "HEAD", "FETCH_HEAD"])
-                            .output()
-                        {
-                            let diff_str = String::from_utf8_lossy(&diff_out.stdout);
-                            for line in diff_str.lines() {
-                                let l = line.trim();
-                                if !l.is_empty() {
-                                    config_changed_files.push(l.to_string());
-                                }
-                            }
+                            config_commit_message = if !config_pending_commits.is_empty() {
+                                Some(format!("{} nouvelle(s) révision(s) en attente : {}", config_commits_behind, config_pending_commits[0].message))
+                            } else {
+                                Some("Nouvelle révision disponible sur GitHub (noos-nas)".into())
+                            };
                         }
-
-                        config_commit_message = if !config_pending_commits.is_empty() {
-                            Some(format!("{} nouvelle(s) révision(s) en attente : {}", config_commits_behind, config_pending_commits[0].message))
-                        } else {
-                            Some("Nouvelle révision disponible sur GitHub (steve_os-nix)".into())
-                        };
                     }
+                    break;
                 }
             }
         }
@@ -671,7 +694,7 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
         "Modifications locales détectées (stash automatique)".to_string()
     };
 
-    // 3. Télémétrie spécifique du Dashboard STEvE_OS (Double Télémétrie)
+    // 3. Télémétrie spécifique du Dashboard Noos (Double Télémétrie)
     let running_dashboard_version = env!("CARGO_PKG_VERSION").to_string();
     let mut dashboard_target_commit = None;
     let mut dashboard_target_commit_full = None;
@@ -680,44 +703,56 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
     let mut dashboard_remote_version = None;
     let mut dashboard_update_available = false;
 
-    let dashboard_git_url = "https://github.com/Chomiam/steveos-nas-dashboard.git";
-    if let Ok(ls_out) = Command::new(git_binary())
-        .args(["-c", "safe.directory=*", "ls-remote", dashboard_git_url, "refs/heads/main"])
-        .output()
-    {
-        if ls_out.status.success() {
-            let text = String::from_utf8_lossy(&ls_out.stdout);
-            if let Some(sha) = text.split_whitespace().next() {
-                dashboard_remote_commit_full = Some(sha.to_string());
-                dashboard_remote_commit = Some(sha[..7.min(sha.len())].to_string());
+    let candidate_dashboard_urls = [
+        "https://github.com/Chomiam/noos-nas-dashboard.git",
+        "https://github.com/Chomiam/steveos-nas-dashboard.git",
+    ];
+
+    for dashboard_git_url in &candidate_dashboard_urls {
+        if let Ok(ls_out) = Command::new(git_binary())
+            .args(["-c", "safe.directory=*", "ls-remote", dashboard_git_url, "refs/heads/main"])
+            .output()
+        {
+            if ls_out.status.success() {
+                let text = String::from_utf8_lossy(&ls_out.stdout);
+                if let Some(sha) = text.split_whitespace().next() {
+                    dashboard_remote_commit_full = Some(sha.to_string());
+                    dashboard_remote_commit = Some(sha[..7.min(sha.len())].to_string());
+                    break;
+                }
             }
         }
     }
 
-    if let Ok(tags_out) = Command::new(git_binary())
-        .args(["-c", "safe.directory=*", "ls-remote", "--tags", dashboard_git_url])
-        .output()
-    {
-        if tags_out.status.success() {
-            let text = String::from_utf8_lossy(&tags_out.stdout);
-            let mut highest_tag: Option<String> = None;
-            for line in text.lines() {
-                for part in line.split_whitespace() {
-                    if let Some(tag) = part.strip_prefix("refs/tags/v") {
-                        let clean_tag = tag.trim_end_matches("^{}");
-                        if is_valid_semver(clean_tag) {
-                            if let Some(ref current) = highest_tag {
-                                if compare_semver(clean_tag, current) > 0 {
+    for dashboard_git_url in &candidate_dashboard_urls {
+        if let Ok(tags_out) = Command::new(git_binary())
+            .args(["-c", "safe.directory=*", "ls-remote", "--tags", dashboard_git_url])
+            .output()
+        {
+            if tags_out.status.success() {
+                let text = String::from_utf8_lossy(&tags_out.stdout);
+                let mut highest_tag: Option<String> = None;
+                for line in text.lines() {
+                    for part in line.split_whitespace() {
+                        if let Some(tag) = part.strip_prefix("refs/tags/v") {
+                            let clean_tag = tag.trim_end_matches("^{}");
+                            if is_valid_semver(clean_tag) {
+                                if let Some(ref current) = highest_tag {
+                                    if compare_semver(clean_tag, current) > 0 {
+                                        highest_tag = Some(clean_tag.to_string());
+                                    }
+                                } else {
                                     highest_tag = Some(clean_tag.to_string());
                                 }
-                            } else {
-                                highest_tag = Some(clean_tag.to_string());
                             }
                         }
                     }
                 }
+                if highest_tag.is_some() {
+                    dashboard_remote_version = highest_tag;
+                    break;
+                }
             }
-            dashboard_remote_version = highest_tag;
         }
     }
 
@@ -755,7 +790,7 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
                         continue;
                     }
 
-                    if node_name == "steveos-nas-dashboard" {
+                    if node_name == "noos-nas-dashboard" || node_name == "steveos-nas-dashboard" {
                         dashboard_target_commit_full = Some(locked_rev.to_string());
                         dashboard_target_commit = Some(locked_rev[..7.min(locked_rev.len())].to_string());
                         continue;
@@ -826,7 +861,7 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
     }
 
     let os_telemetry = OsTelemetry {
-        repo_name: "Chomiam/steve_os-nix".to_string(),
+        repo_name: "Chomiam/noos-nas".to_string(),
         local_commit: local_commit.clone(),
         local_commit_full: full_local_commit.clone(),
         remote_commit: config_remote_commit.clone(),
@@ -846,7 +881,7 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
     };
 
     let dashboard_telemetry = DashboardTelemetry {
-        repo_name: "Chomiam/steveos-nas-dashboard".to_string(),
+        repo_name: "Chomiam/noos-nas-dashboard".to_string(),
         running_version: running_dashboard_version.clone(),
         running_commit: None,
         target_version: Some(target_dashboard_version.clone()),
@@ -887,12 +922,12 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
         }
         UpdateType::PackagesOnly => {
             if dashboard_update_available {
-                format!("⚡ Mise à jour du Dashboard STEvE_OS disponible (v{} → v{})", running_dashboard_version, target_dashboard_version)
+                format!("⚡ Mise à jour du Dashboard Noos disponible (v{} → v{})", running_dashboard_version, target_dashboard_version)
             } else {
                 "📦 Mises à jour de paquets système prêtes à être appliquées".to_string()
             }
         }
-        UpdateType::None => "✨ Système d'exploitation et Dashboard STEvE_OS à jour".to_string(),
+        UpdateType::None => "✨ Système d'exploitation et Dashboard Noos à jour".to_string(),
     };
 
     let status = UpdateCheckStatus {
@@ -1076,7 +1111,7 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
     if has_uncommitted {
         log.push_str("Modifications locales détectées. Création d'un stash de sécurité...\n");
         let stash_res = git_cmd(&dir_str)
-            .args(["stash", "push", "-u", "-m", "steveos-auto-stash"])
+            .args(["stash", "push", "-u", "-m", "noos-auto-stash"])
             .output();
 
         if let Ok(res) = stash_res {
@@ -1085,7 +1120,7 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
     }
 
     // 3. Fetch et merge sécurisé (fast-forward privilégié)
-    log.push_str("\n--- [Étape 2/3] Récupération des nouveautés depuis GitHub (steve_os-nix) ---\n");
+    log.push_str("\n--- [Étape 2/3] Récupération des nouveautés depuis GitHub (noos-nas) ---\n");
     let fetch_out = git_cmd(&dir_str)
         .args(["fetch", "origin", "main"])
         .output()
@@ -1235,7 +1270,7 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
     };
 
     let header = format!(
-        "==========================================================\n🚀 Lancement de la mise à jour intelligente STEvE_OS\n   Mode détecté : {:?}\n   Répertoire   : {}\n==========================================================\n\n",
+        "==========================================================\n🚀 Lancement de la mise à jour intelligente Noos\n   Mode détecté : {:?}\n   Répertoire   : {}\n==========================================================\n\n",
         update_type, dir_str
     );
 
@@ -1334,7 +1369,7 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
     if let Ok(mut guard) = UPDATE_CACHE.lock() {
         let (short_c, full_c) = get_local_commit_from_fs(&config_dir);
         let clean_os_telemetry = OsTelemetry {
-            repo_name: "Chomiam/steve_os-nix".to_string(),
+            repo_name: "Chomiam/noos-nas".to_string(),
             local_commit: short_c.clone(),
             local_commit_full: full_c.clone(),
             remote_commit: Some(short_c.clone()),
@@ -1348,7 +1383,7 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
         };
         let clean_dash_ver = env!("CARGO_PKG_VERSION").to_string();
         let clean_dashboard_telemetry = DashboardTelemetry {
-            repo_name: "Chomiam/steveos-nas-dashboard".to_string(),
+            repo_name: "Chomiam/noos-nas-dashboard".to_string(),
             running_version: clean_dash_ver.clone(),
             running_commit: None,
             target_version: Some(clean_dash_ver.clone()),
@@ -1418,8 +1453,7 @@ pub fn start_detached_update(force_packages: bool) -> Result<(), String> {
         generation_before: cur_gen,
         generation_after: None,
         dashboard_restarting: false,
-        log_tail: "🚀 Démarrage de la mise à jour STEvE_OS...
-".to_string(),
+        log_tail: "🚀 Démarrage de la mise à jour Noos...\n".to_string(),
         total_derivations: None,
         current_derivation_index: None,
         current_package_name: None,
@@ -1428,7 +1462,9 @@ pub fn start_detached_update(force_packages: bool) -> Result<(), String> {
     };
     save_update_progress(&initial_state);
 
-    let exe = if Path::new("/run/current-system/sw/bin/steveos-nas-dashboard").exists() {
+    let exe = if Path::new("/run/current-system/sw/bin/noos-nas-dashboard").exists() {
+        PathBuf::from("/run/current-system/sw/bin/noos-nas-dashboard")
+    } else if Path::new("/run/current-system/sw/bin/steveos-nas-dashboard").exists() {
         PathBuf::from("/run/current-system/sw/bin/steveos-nas-dashboard")
     } else {
         env::current_exe().unwrap_or_else(|_| PathBuf::from("/proc/self/exe"))
@@ -1446,11 +1482,11 @@ pub fn start_detached_update(force_packages: bool) -> Result<(), String> {
         let mut cmd = Command::new(systemd_run);
         let complete_path = "/run/wrappers/bin:/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/usr/bin:/bin";
         cmd.args([
-            "--unit=steveos-system-update",
+            "--unit=noos-system-update",
             "--property=KillMode=process",
             &format!("--setenv=PATH={}", complete_path),
             "--setenv=NIX_PATH=nixpkgs=flake:nixpkgs",
-            "--description=STEvE_OS System Update Runner",
+            "--description=Noos System Update Runner",
             "--",
             &exe_str,
             "--run-system-update",
@@ -1499,7 +1535,7 @@ pub fn run_detached_update_process(force_packages: bool) {
         state.total_steps = 4;
         state.progress_percent = 8;
         state.status_title = "Synchronisation de la configuration...".to_string();
-        state.status_detail = "Récupération des nouveautés depuis GitHub (steve_os-nix)...".to_string();
+        state.status_detail = "Récupération des nouveautés depuis GitHub (noos-nas)...".to_string();
         save_update_progress(&state);
 
         let mut pull_log = String::new();
@@ -1666,9 +1702,9 @@ pub fn run_detached_update_process(force_packages: bool) {
 
             // 6. Redémarrage dashboard (strictement pendant l'activation, jamais pendant le build .drv !)
             if (state.step_index >= 3 || state.stage == "activating") &&
-               (line.contains("stopping the following units:") && line.contains("steveos-nas-dashboard") ||
-                line.contains("stopping steveos-nas-dashboard") ||
-                line.contains("restarting steveos-nas-dashboard")) {
+               ((line.contains("stopping the following units:") && (line.contains("noos-nas-dashboard") || line.contains("steveos-nas-dashboard"))) ||
+                line.contains("stopping noos-nas-dashboard") || line.contains("stopping steveos-nas-dashboard") ||
+                line.contains("restarting noos-nas-dashboard") || line.contains("restarting steveos-nas-dashboard")) {
                 state.progress_percent = 92.max(state.progress_percent);
                 state.dashboard_restarting = true;
                 state.status_title = "Redémarrage du Dashboard...".to_string();
@@ -1726,9 +1762,9 @@ pub fn run_detached_update_process(force_packages: bool) {
         let is_effective_update = switch_success || (gen_advanced && matches!(exit_code, Some(2) | Some(3) | Some(4)));
 
         if is_effective_update {
-            // S'assurer que le service steveos-nas-dashboard est bien relancé avec le nouveau binaire
+            // S'assurer que le service noos-nas-dashboard (ou steveos-nas-dashboard) est bien relancé avec le nouveau binaire
             let _ = Command::new("/run/current-system/sw/bin/systemctl")
-                .args(["try-restart", "steveos-nas-dashboard.service"])
+                .args(["try-restart", "noos-nas-dashboard.service", "steveos-nas-dashboard.service"])
                 .status();
 
             let now_ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);

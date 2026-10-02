@@ -1,8 +1,9 @@
 // ==========================================================================
-// STEvE_OS NAS Edition — Application Client (Vanilla JavaScript)
+// Noos NAS Edition — Application Client (Vanilla JavaScript)
 // ==========================================================================
 
-const AUTH_TOKEN_KEY = "steveos_auth_token";
+const AUTH_TOKEN_KEY = "noos_auth_token";
+const LEGACY_AUTH_TOKEN_KEY = "steveos_auth_token";
 let currentUserSession = null;
 let isAppInitialized = false;
 let currentUserHome = "";
@@ -15,7 +16,7 @@ function getCurrentDashboardUsername() {
   if (headerUser && headerUser.textContent && headerUser.textContent.trim()) {
     return headerUser.textContent.trim();
   }
-  return "steveos";
+  return "noos";
 }
 
 function updateSftpQuickUrisWithUser(username) {
@@ -42,7 +43,7 @@ function getUserHome() {
     currentUserHome = currentUserSession.home_dir;
     return currentUserHome;
   }
-  const u = (currentUserSession && currentUserSession.username) || "steveos";
+  const u = (currentUserSession && currentUserSession.username) || "noos";
   return `/home/${u}`;
 }
 
@@ -59,6 +60,9 @@ function getAuthToken() {
     if (qToken) {
       localStorage.setItem(AUTH_TOKEN_KEY, qToken);
       sessionStorage.setItem(AUTH_TOKEN_KEY, qToken);
+      localStorage.setItem(LEGACY_AUTH_TOKEN_KEY, qToken);
+      sessionStorage.setItem(LEGACY_AUTH_TOKEN_KEY, qToken);
+      document.cookie = `noos_token=${qToken}; path=/; max-age=604800; SameSite=Lax`;
       document.cookie = `steveos_token=${qToken}; path=/; max-age=604800; SameSite=Lax`;
       try {
         const cleanUrl = window.location.pathname + (window.location.hash || "");
@@ -67,9 +71,15 @@ function getAuthToken() {
       return qToken;
     }
   } catch (e) {}
-  const token = sessionStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(AUTH_TOKEN_KEY);
+  const token = sessionStorage.getItem(AUTH_TOKEN_KEY) 
+    || localStorage.getItem(AUTH_TOKEN_KEY)
+    || sessionStorage.getItem(LEGACY_AUTH_TOKEN_KEY) 
+    || localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
   if (token) {
     try {
+      if (!document.cookie.includes("noos_token=")) {
+        document.cookie = `noos_token=${token}; path=/; max-age=604800; SameSite=Lax`;
+      }
       if (!document.cookie.includes("steveos_token=")) {
         document.cookie = `steveos_token=${token}; path=/; max-age=604800; SameSite=Lax`;
       }
@@ -107,11 +117,16 @@ function setAuthToken(token, remember) {
   if (remember) {
     localStorage.setItem(AUTH_TOKEN_KEY, token);
     sessionStorage.setItem(AUTH_TOKEN_KEY, token);
+    localStorage.setItem(LEGACY_AUTH_TOKEN_KEY, token);
+    sessionStorage.setItem(LEGACY_AUTH_TOKEN_KEY, token);
   } else {
     sessionStorage.setItem(AUTH_TOKEN_KEY, token);
+    sessionStorage.setItem(LEGACY_AUTH_TOKEN_KEY, token);
     localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
   }
   try {
+    document.cookie = `noos_token=${token}; path=/; max-age=604800; SameSite=Lax`;
     document.cookie = `steveos_token=${token}; path=/; max-age=604800; SameSite=Lax`;
   } catch (e) {}
 }
@@ -119,7 +134,11 @@ function setAuthToken(token, remember) {
 function clearAuthToken() {
   sessionStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(AUTH_TOKEN_KEY);
+  sessionStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
+  localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
   try {
+    document.cookie = "noos_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
+    document.cookie = "noos_auth_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
     document.cookie = "steveos_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
     document.cookie = "steveos_auth_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
   } catch (e) {}
@@ -235,10 +254,10 @@ function getStoredTabId() {
   if (route.tabId) return route.tabId;
 
   try {
-    const local = localStorage.getItem("steveos_active_tab");
+    const local = localStorage.getItem("noos_active_tab") || localStorage.getItem("steveos_active_tab");
     if (local && TAB_IDS.includes(local)) return local;
 
-    const session = sessionStorage.getItem("steveos_active_tab");
+    const session = sessionStorage.getItem("noos_active_tab") || sessionStorage.getItem("steveos_active_tab");
     if (session && TAB_IDS.includes(session)) return session;
   } catch (e) {}
 
@@ -285,19 +304,19 @@ function applyInitialTabStateEarly() {
 function restoreStoredSubtabs(tabId) {
   try {
     if (tabId === "tab-network") {
-      const saved = localStorage.getItem("steveos_subtab_network");
+      const saved = localStorage.getItem("noos_subtab_network") || localStorage.getItem("steveos_subtab_network");
       if (saved) switchNetworkSubtab(saved, false);
     } else if (tabId === "tab-containers") {
-      const saved = localStorage.getItem("steveos_subtab_containers");
+      const saved = localStorage.getItem("noos_subtab_containers") || localStorage.getItem("steveos_subtab_containers");
       if (saved) switchDockerSubTab(saved, false);
     } else if (tabId === "tab-games") {
-      const saved = localStorage.getItem("steveos_subtab_games");
+      const saved = localStorage.getItem("noos_subtab_games") || localStorage.getItem("steveos_subtab_games");
       if (saved) switchGamesSubtab(saved, false);
     } else if (tabId === "tab-updates") {
-      const saved = localStorage.getItem("steveos_subtab_updates");
+      const saved = localStorage.getItem("noos_subtab_updates") || localStorage.getItem("steveos_subtab_updates");
       if (saved) switchUpdateSubtab(saved, false);
     } else if (tabId === "tab-users") {
-      const saved = localStorage.getItem("steveos_subtab_users");
+      const saved = localStorage.getItem("noos_subtab_users") || localStorage.getItem("steveos_subtab_users");
       if (saved) switchUsersSubtab(saved, false);
     }
   } catch (e) {}
@@ -373,8 +392,8 @@ function initApp() {
       setTimeout(() => { triggerUpdateSuccessReload(true); }, 300);
     }
 
-    if (sessionStorage.getItem("steveos_just_updated") === "true") {
-      sessionStorage.removeItem("steveos_just_updated");
+    if (sessionStorage.getItem("noos_just_updated") === "true" || sessionStorage.getItem("steveos_just_updated") === "true") {
+      sessionStorage.removeItem("noos_just_updated"); sessionStorage.removeItem("steveos_just_updated");
       setTimeout(() => {
         showToast("✨ Le tableau de bord a été actualisé avec succès !", "success");
       }, 700);
@@ -442,6 +461,8 @@ function switchTab(tabId, updateHash = true) {
 
   activeTab = tabId;
   try {
+    localStorage.setItem("noos_active_tab", tabId);
+    sessionStorage.setItem("noos_active_tab", tabId);
     localStorage.setItem("steveos_active_tab", tabId);
     sessionStorage.setItem("steveos_active_tab", tabId);
   } catch (e) {}
@@ -479,7 +500,7 @@ function switchTab(tabId, updateHash = true) {
   if (tabId === "tab-overview") loadSystem();
   if (tabId === "tab-files") {
     try {
-      const savedPath = localStorage.getItem("steveos_files_path");
+      const savedPath = localStorage.getItem("noos_files_path") || localStorage.getItem("steveos_files_path");
       if (savedPath && !savedPath.includes("/chomiam")) {
         currentFolderPath = savedPath;
       } else {
@@ -610,7 +631,7 @@ let updateSubtabCurrent = 'commits';
 function switchUpdateSubtab(tabName, updateHash = true) {
   updateSubtabCurrent = tabName;
   try {
-    localStorage.setItem("steveos_subtab_updates", tabName);
+    localStorage.setItem("noos_subtab_updates", tabName); localStorage.setItem("steveos_subtab_updates", tabName);
   } catch (e) {}
   if (updateHash && activeTab === "tab-updates") {
     updateUrlHash("tab-updates", tabName);
@@ -805,11 +826,11 @@ function renderUpdatesUI(status) {
       if (status.package_updates_count > 0) {
         parts.push(`📦 ${status.package_updates_count} paquet(s) système`);
       }
-      if (heroSubtitle) heroSubtitle.textContent = parts.join(" • ") || "Une nouvelle version de STEvE_OS NAS Edition est prête à être déployée.";
+      if (heroSubtitle) heroSubtitle.textContent = parts.join(" • ") || "Une nouvelle version de Noos NAS Edition est prête à être déployée.";
     } else {
       heroBanner.classList.remove("has-updates");
       if (heroIcon) heroIcon.textContent = "✨";
-      if (heroTitle) heroTitle.textContent = "STEvE_OS NAS Edition est à jour";
+      if (heroTitle) heroTitle.textContent = "Noos NAS Edition est à jour";
       if (heroSubtitle) heroSubtitle.textContent = "Votre système d'exploitation et votre tableau de bord fonctionnent sur la dernière version.";
     }
   }
@@ -820,17 +841,17 @@ function renderUpdatesUI(status) {
   }
   if (heroHeading) {
     if (status.is_updating) {
-      heroHeading.textContent = "Mise à jour de STEvE_OS en cours d'exécution";
+      heroHeading.textContent = "Mise à jour de Noos en cours d'exécution";
     } else if (hasConfigUpdate && hasDashboardUpdate) {
-      heroHeading.textContent = "Mise à jour globale STEvE_OS disponible (OS & Dashboard)";
+      heroHeading.textContent = "Mise à jour globale Noos disponible (OS & Dashboard)";
     } else if (hasDashboardUpdate) {
-      heroHeading.textContent = "Mise à jour du Dashboard STEvE_OS disponible";
+      heroHeading.textContent = "Mise à jour du Dashboard Noos disponible";
     } else if (hasConfigUpdate) {
       heroHeading.textContent = "Mise à jour de la configuration NixOS disponible";
     } else if (hasAnyUpdate) {
       heroHeading.textContent = "Mises à jour système prêtes à être appliquées";
     } else {
-      heroHeading.textContent = "Votre système STEvE_OS est parfaitement à jour";
+      heroHeading.textContent = "Votre système Noos est parfaitement à jour";
     }
   }
   if (heroSubheading) {
@@ -873,7 +894,7 @@ function renderUpdatesUI(status) {
         const count = status.package_updates_count || 1;
         targetLabel = `(${count} paquet${count > 1 ? 's' : ''})`;
       }
-      if (btnSingleUpdateText) btnSingleUpdateText.textContent = `Mettre à jour STEvE_OS ${targetLabel}`.trim();
+      if (btnSingleUpdateText) btnSingleUpdateText.textContent = `Mettre à jour Noos ${targetLabel}`.trim();
       if (btnSingleUpdateBadge) {
         btnSingleUpdateBadge.style.display = "inline-block";
         btnSingleUpdateBadge.textContent = totalCount > 0 ? `${totalCount} màj` : "Prêt";
@@ -958,7 +979,7 @@ function renderUpdatesUI(status) {
     if (hasDashboardUpdate) {
       dashMsgEl.textContent = `Nouvelle version v${targetVer} prête. Le déploiement compilera ou appliquera le nouveau binaire sans interrompre votre session.`;
     } else {
-      dashMsgEl.textContent = `Tableau de bord STEvE_OS actif sur la version v${runningVer} (moteur asynchrone Rust Axum).`;
+      dashMsgEl.textContent = `Tableau de bord Noos actif sur la version v${runningVer} (moteur asynchrone Rust Axum).`;
     }
   }
 
@@ -977,7 +998,7 @@ function renderUpdatesUI(status) {
       pendingCommits.forEach(c => {
         html += `
           <div class="commit-timeline-item">
-            <a href="https://github.com/Chomiam/steve_os-nix/commit/${c.hash}" target="_blank" class="commit-sha-badge">${c.hash.substring(0, 7)}</a>
+            <a href="https://github.com/Chomiam/noos-nas/commit/${c.hash}" target="_blank" class="commit-sha-badge">${c.hash.substring(0, 7)}</a>
             <div class="commit-details-col">
               <div class="commit-msg-text">${escapeHtml(c.message)}</div>
               <div class="commit-meta-text">Par <strong>${escapeHtml(c.author)}</strong> • ${escapeHtml(c.date)}</div>
@@ -1049,7 +1070,7 @@ async function triggerSingleUpdate() {
 
   const hasAnyUpdate = lastUpdateStatus && (lastUpdateStatus.config_update_available || lastUpdateStatus.dashboard_update_available || (lastUpdateStatus.dashboard_telemetry && lastUpdateStatus.dashboard_telemetry.update_available) || lastUpdateStatus.package_updates_available);
   const promptMsg = hasAnyUpdate 
-    ? "Voulez-vous lancer la mise à jour de STEvE_OS ?\nL'opération s'exécute en arrière-plan et survit aux rafraîchissements de page."
+    ? "Voulez-vous lancer la mise à jour de Noos ?\nL'opération s'exécute en arrière-plan et survit aux rafraîchissements de page."
     : "Le système est déjà à jour. Souhaitez-vous forcer une synchronisation et une réévaluation complète de la configuration ?";
 
   if (!confirm(promptMsg)) return;
@@ -1191,9 +1212,9 @@ function updateProgressView(data) {
     }
   }
 
-  if (panelTitle) panelTitle.textContent = data.status_title || "Mise à jour STEvE_OS";
+  if (panelTitle) panelTitle.textContent = data.status_title || "Mise à jour Noos";
   if (panelDetail) panelDetail.textContent = data.status_detail || "Exécution des étapes de déploiement...";
-  if (toastTitle) toastTitle.textContent = data.status_title || "Mise à jour STEvE_OS";
+  if (toastTitle) toastTitle.textContent = data.status_title || "Mise à jour Noos";
   if (toastDetail) toastDetail.textContent = data.status_detail || "";
 
   // Stepper visuel 1..4
@@ -1231,7 +1252,7 @@ function updateProgressView(data) {
       if (panelSpinner) panelSpinner.textContent = "⚠️";
       if (toastIcon) toastIcon.textContent = "⚠️";
       if (toastTitle) toastTitle.textContent = data.status_title || "Mise à jour appliquée avec avertissements";
-      if (toastDetail) toastDetail.textContent = data.status_detail || "Le système STEvE_OS a été actualisé avec des avertissements.";
+      if (toastDetail) toastDetail.textContent = data.status_detail || "Le système Noos a été actualisé avec des avertissements.";
       if (toastBar) {
         toastBar.style.width = "100%";
         toastBar.style.background = "linear-gradient(90deg, var(--peach, #fab387), var(--yellow, #f9e2af))";
@@ -1241,12 +1262,12 @@ function updateProgressView(data) {
       if (panelSpinner) panelSpinner.textContent = "✅";
       if (toastIcon) toastIcon.textContent = "🎉";
       if (toastTitle) toastTitle.textContent = data.status_title || "Mise à jour terminée avec succès !";
-      if (toastDetail) toastDetail.textContent = data.status_detail || "Le système STEvE_OS a été actualisé.";
+      if (toastDetail) toastDetail.textContent = data.status_detail || "Le système Noos a été actualisé.";
       if (toastBar) {
         toastBar.style.width = "100%";
         toastBar.style.background = "linear-gradient(90deg, var(--green), var(--teal))";
       }
-      showToast("🎉 STEvE_OS a été mis à jour avec succès !", "success");
+      showToast("🎉 Noos a été mis à jour avec succès !", "success");
     }
 
     // Auto-dismiss de la bulle après 10 secondes
@@ -1298,8 +1319,8 @@ function triggerUpdateSuccessReload(skipReload = false) {
   isReloadingAfterUpdate = true;
 
   try {
-    sessionStorage.setItem("steveos_active_tab", activeTab || "tab-overview");
-    sessionStorage.setItem("steveos_just_updated", "true");
+    sessionStorage.setItem("noos_active_tab", activeTab || "tab-overview"); sessionStorage.setItem("steveos_active_tab", activeTab || "tab-overview");
+    sessionStorage.setItem("noos_just_updated", "true"); sessionStorage.setItem("steveos_just_updated", "true");
   } catch (e) {}
 
   // Appliquer le flou et l'atténuation sur toute l'interface
@@ -3373,7 +3394,7 @@ function appendCommandToTerminal(cmd, cwd) {
   entry.innerHTML = `
     <div class="term-cmd-line">
       <div>
-        <span class="term-cmd-prompt">${escapeHtml(u)}@steveos-nas:<b>${escapeHtml(formatShortCwd(cwd))}</b>$</span>
+        <span class="term-cmd-prompt">${escapeHtml(u)}@noos-nas:<b>${escapeHtml(formatShortCwd(cwd))}</b>$</span>
         <span class="term-cmd-text">${escapeHtml(cmd)}</span>
       </div>
       <span class="badge badge-warning">⏳ En cours</span>
@@ -3424,7 +3445,7 @@ function updateTerminalPrompt() {
   const u = getCurrentDashboardUsername();
 
   if (promptLabel) {
-    promptLabel.innerHTML = `${escapeHtml(u)}@steveos-nas:<b>${escapeHtml(shortCwd)}</b>$`;
+    promptLabel.innerHTML = `${escapeHtml(u)}@noos-nas:<b>${escapeHtml(shortCwd)}</b>$`;
   }
   if (cwdBadge) {
     cwdBadge.textContent = `📁 ${shortCwd}`;
@@ -3458,7 +3479,7 @@ function clearBashTerminal() {
   if (!body) return;
   body.innerHTML = `
     <div class="term-welcome-msg">
-      <span style="color:var(--mauve); font-weight:bold;">🚀 STEvE_OS Interactive Bash Console</span> — Écran effacé.<br>
+      <span style="color:var(--mauve); font-weight:bold;">🚀 Noos Interactive Bash Console</span> — Écran effacé.<br>
       <span style="color:var(--subtext0); font-size:0.8rem;">• Touche <kbd>Tab</kbd> : Autocomplétion • Flèches <kbd>↑</kbd> / <kbd>↓</kbd> : Historique • <kbd>Ctrl+L</kbd> : Effacer</span>
     </div>
   `;
@@ -3617,9 +3638,9 @@ let trashOverview = null;
 let selectedTrashItem = null;
 let currentFolderParent = null;
 let currentEntries = [];
-let fileViewMode = localStorage.getItem("steveos_file_view_mode") || "grid";
-let fileSortColumn = localStorage.getItem("steveos_file_sort_col") || "name";
-let fileSortDirection = localStorage.getItem("steveos_file_sort_dir") || "asc";
+let fileViewMode = localStorage.getItem("noos_file_view_mode") || localStorage.getItem("steveos_file_view_mode") || "grid";
+let fileSortColumn = localStorage.getItem("noos_file_sort_col") || localStorage.getItem("steveos_file_sort_col") || "name";
+let fileSortDirection = localStorage.getItem("noos_file_sort_dir") || localStorage.getItem("steveos_file_sort_dir") || "asc";
 let pinnedMountsList = [];
 let remoteMountsList = [];
 let storageMountsList = [];
@@ -3661,7 +3682,7 @@ async function navigateToPath(targetPath) {
     currentFolderParent = data.parent_path;
     currentEntries = data.entries || [];
     try {
-      localStorage.setItem("steveos_files_path", currentFolderPath);
+      localStorage.setItem("noos_files_path", currentFolderPath); localStorage.setItem("steveos_files_path", currentFolderPath);
     } catch (e) {}
 
     updateFilesBreadcrumbs(currentFolderPath);
@@ -4092,7 +4113,7 @@ function refreshCurrentFolder() {
 function setFileViewMode(mode) {
   fileViewMode = mode;
   try {
-    localStorage.setItem("steveos_file_view_mode", mode);
+    localStorage.setItem("noos_file_view_mode", mode); localStorage.setItem("steveos_file_view_mode", mode);
   } catch (e) {}
 
   const btnGrid = document.getElementById("btn-view-grid");
@@ -4112,8 +4133,8 @@ function toggleSortFiles(column) {
     fileSortDirection = "asc";
   }
   try {
-    localStorage.setItem("steveos_file_sort_col", fileSortColumn);
-    localStorage.setItem("steveos_file_sort_dir", fileSortDirection);
+    localStorage.setItem("noos_file_sort_col", fileSortColumn); localStorage.setItem("steveos_file_sort_col", fileSortColumn);
+    localStorage.setItem("noos_file_sort_dir", fileSortDirection); localStorage.setItem("steveos_file_sort_dir", fileSortDirection);
   } catch (e) {}
 
   updateSortIndicators();
@@ -9588,7 +9609,7 @@ let currentFirewallData = null;
 function switchDockerSubTab(subTab, updateHash = true) {
   activeDockerSubTab = subTab;
   try {
-    localStorage.setItem("steveos_subtab_containers", subTab);
+    localStorage.setItem("noos_subtab_containers", subTab); localStorage.setItem("steveos_subtab_containers", subTab);
   } catch (e) {}
   if (updateHash && activeTab === "tab-containers") {
     updateUrlHash("tab-containers", subTab);
@@ -9660,10 +9681,10 @@ async function loadDockerContainers() {
     }
 
     const rawContainers = Array.isArray(json.data) ? json.data : [];
-    // Règle STEvE_OS : Masquer impérativement les conteneurs correspondant aux serveurs de jeux (steveos-game*)
+    // Règle Noos : Masquer impérativement les conteneurs correspondant aux serveurs de jeux (noos-game* et legacy steveos-game*)
     allDockerContainers = rawContainers.filter(c => {
       const name = (c.name || "").replace(/^\//, "").toLowerCase();
-      return !name.startsWith("steveos-game");
+      return !name.startsWith("noos-game") && !name.startsWith("steveos-game");
     });
 
     const runningCount = allDockerContainers.filter(c => c.is_running).length;
@@ -10744,7 +10765,7 @@ async function checkModalFirewallStatus(justOpened = false) {
         if (title) title.innerHTML = `<span style="color:var(--green); font-weight:700;">✅ Port ${port} (TCP) ouvert et vérifié avec succès !</span>`;
         if (desc) desc.textContent = `Le pare-feu STEvE_OS autorise désormais le trafic sur le port ${port}. L'application sera accessible immédiatement sur votre réseau local.`;
       } else {
-        if (title) title.innerHTML = `<span style="color:var(--green); font-weight:700;">Pare-feu STEvE_OS : Port ${port} (TCP) Ouvert</span>`;
+        if (title) title.innerHTML = `<span style="color:var(--green); font-weight:700;">Pare-feu Noos : Port ${port} (TCP) Ouvert</span>`;
         if (desc) desc.textContent = `Ce port est déjà autorisé dans le pare-feu. Vos appareils du réseau local pourront y accéder sans blocage.`;
       }
 
@@ -10758,7 +10779,7 @@ async function checkModalFirewallStatus(justOpened = false) {
     } else {
       if (alertBox) alertBox.className = "modal-fw-alert fw-closed";
       if (icon) icon.textContent = "⚠️";
-      if (title) title.innerHTML = `<span>Pare-feu STEvE_OS : Port ${port} (TCP) Non Ouvert</span>`;
+      if (title) title.innerHTML = `<span>Pare-feu Noos : Port ${port} (TCP) Non Ouvert</span>`;
       if (desc) desc.textContent = `Le pare-feu bloque actuellement ce port. Cliquez ci-contre pour l'autoriser immédiatement sur le réseau local.`;
       if (btn) {
         btn.style.display = "inline-flex";
@@ -11211,7 +11232,7 @@ function openDockerComposeNvimPreview() {
   else if (appId === "home-assistant") image = "ghcr.io/home-assistant/home-assistant:stable";
 
   let composeYaml = `# =========================================================================\n`;
-  composeYaml += `# 🐳 STEvE_OS NAS Edition — Configuration Docker Compose\n`;
+  composeYaml += `# 🐳 Noos NAS Edition — Configuration Docker Compose\n`;
   composeYaml += `# Application  : ${title} (${appId})\n`;
   composeYaml += `# Port hôte    : ${port}\n`;
   composeYaml += `# Données hôte : ${dataDir}\n`;
@@ -11325,7 +11346,7 @@ function addDockerConfigEnvRow(key = '', val = '') {
 // GESTIONNAIRE D'ORCHESTRATION & FILE D'ATTENTE DOCKER STORE (MULTI-POPUPS & PERSISTANCE)
 // ============================================================================
 const MAX_CONCURRENT_DOCKER_DEPLOYS = 2;
-const DOCKER_DEPLOY_STORAGE_KEY = "steveos_docker_deployments_v1";
+const DOCKER_DEPLOY_STORAGE_KEY = "noos_docker_deployments_v1"; const LEGACY_DOCKER_DEPLOY_STORAGE_KEY = "steveos_docker_deployments_v1";
 const activeDockerDeployments = {}; // appId -> { appId, appName, icon, port, payload, status, step, progressPercent, subtitle, badgeText, badgeClass, errorMessage, startedAt, ... }
 const dockerDeployQueue = [];        // [ { appId, appName, icon, port, payload }, ... ]
 let dockerDeployTickerInterval = null;
@@ -11366,7 +11387,7 @@ function saveDockerDeployStateToStorage() {
 
 function restoreDockerDeployStateFromStorage() {
   try {
-    const raw = localStorage.getItem(DOCKER_DEPLOY_STORAGE_KEY);
+    const raw = (localStorage.getItem(DOCKER_DEPLOY_STORAGE_KEY) || localStorage.getItem(LEGACY_DOCKER_DEPLOY_STORAGE_KEY));
     if (!raw) return;
     const data = JSON.parse(raw);
     if (!data) return;
@@ -12444,7 +12465,7 @@ async function handleLoginSubmit(event) {
         setupPolling();
       }
 
-      showToast(`Bienvenue sur STEvE_OS, ${data.username} !`, "success");
+      showToast(`Bienvenue sur Noos, ${data.username} !`, "success");
     } else {
       if (errorBox && errorMsg) {
         errorMsg.textContent = data.message || "Identifiants invalides ou accès refusé.";
@@ -12524,7 +12545,7 @@ window.allFirewallPorts = [];
 function switchNetworkSubtab(subtabId, updateHash = true) {
   activeNetworkSubtab = subtabId;
   try {
-    localStorage.setItem("steveos_subtab_network", subtabId);
+    localStorage.setItem("noos_subtab_network", subtabId); localStorage.setItem("steveos_subtab_network", subtabId);
   } catch (e) {}
   if (updateHash && activeTab === "tab-network") {
     updateUrlHash("tab-network", subtabId);
@@ -12588,7 +12609,7 @@ async function loadNetwork(showFeedback = false) {
 
     // --- 1. Adresses IP & Hôte ---
     const lanIp = net.primary_lan_ip || "127.0.0.1";
-    const user = (currentUserSession && currentUserSession.username) || "steveos";
+    const user = (currentUserSession && currentUserSession.username) || "noos";
 
     // Mettre à jour les URI directes
     const sftpUri = `sftp://${user}@${lanIp}:22`;
@@ -15007,7 +15028,7 @@ let currentGamesSubtab = "servers";
 function switchGamesSubtab(subtab, updateHash = true) {
   currentGamesSubtab = subtab;
   try {
-    localStorage.setItem("steveos_subtab_games", subtab);
+    localStorage.setItem("noos_subtab_games", subtab); localStorage.setItem("steveos_subtab_games", subtab);
   } catch (e) {}
   if (updateHash && activeTab === "tab-games") {
     updateUrlHash("tab-games", subtab);
@@ -15953,7 +15974,7 @@ async function submitCreateGameServer() {
   if (selectedEggForCreate.id === "minecraft-java") {
     variables["LOADER"] = selectedMinecraftLoader;
     variables["MINECRAFT_VERSION"] = (document.getElementById("mc-version-select") || {}).value || "1.21.1";
-    variables["MOTD"] = (document.getElementById("mc-cfg-motd") || {}).value || "STEvE_OS Minecraft";
+    variables["MOTD"] = (document.getElementById("mc-cfg-motd") || {}).value || "Noos Minecraft";
     variables["LEVEL_NAME"] = (document.getElementById("mc-cfg-level-name") || {}).value || "world";
     variables["LEVEL_SEED"] = (document.getElementById("mc-cfg-seed") || {}).value || "";
     variables["GAMEMODE"] = (document.getElementById("mc-cfg-gamemode") || {}).value || "survival";
@@ -16219,7 +16240,7 @@ function updateConsoleHeaderStats(server) {
   if (titleEl) {
     const onlineCount = server.online_players || 0;
     const onlineInfo = isOnline ? ` • ${onlineCount} joueur${onlineCount > 1 ? "s" : ""}` : "";
-    titleEl.textContent = `container@steveos-nas:~/games/${server.id} (${server.name} • Port ${server.port}/${proto}${onlineInfo})`;
+    titleEl.textContent = `container@noos-nas:~/games/${server.id} (${server.name} • Port ${server.port}/${proto}${onlineInfo})`;
   }
 }
 
@@ -17363,7 +17384,7 @@ let currentLoggedInUser = '';
 function switchUsersSubtab(subtabId, updateHash = true) {
   activeUsersSubtab = subtabId;
   try {
-    localStorage.setItem("steveos_subtab_users", subtabId);
+    localStorage.setItem("noos_subtab_users", subtabId); localStorage.setItem("steveos_subtab_users", subtabId);
   } catch (e) {}
   if (updateHash && activeTab === "tab-users") {
     updateUrlHash("tab-users", subtabId);
@@ -18743,7 +18764,7 @@ const GRANNY_QUOTES = [
   "Ouh là là, j'ai laissé la tarte aux pommes au four ! 🥧",
   "Poussez-vous les jeunes, mamie est pressée ! 👵💨",
   "Vite, les soldes sur les disques durs SSD ! 💾",
-  "Steve ! N'oublie pas ton pull en laine ! 🧶",
+  "Noos ! N'oublie pas ton pull en laine ! 🧶",
   "Hop hop hop, un serveur NAS ça n'attend pas ! ⚡",
   "Mon tricot va refroidir ! 🧣"
 ];
@@ -19200,7 +19221,7 @@ async function submitMountRemovable() {
 function openFilesAtPath(path) {
   if (!path) return;
   try {
-    localStorage.setItem("steveos_files_path", path);
+    localStorage.setItem("noos_files_path", path); localStorage.setItem("steveos_files_path", path);
   } catch (e) {}
   switchTab("tab-files");
   if (typeof navigateToPath === "function") {
@@ -19773,7 +19794,7 @@ async function loadSambaData(showFeedback = false) {
     const uriLnx = document.getElementById("samba-uri-val-lnx");
 
     const ip = data.primary_lan_ip || data.primary_ip || window.location.hostname;
-    const host = data.hostname || "steveos-nas";
+    const host = data.hostname || "noos-nas";
 
     if (uriWin) uriWin.textContent = `\\${ip}`;
     if (uriMac) uriMac.textContent = `smb://${ip}`;
@@ -20241,7 +20262,7 @@ async function deleteSambaShareConfirm(shareId, shareName) {
 function openSambaGlobalModal() {
   if (currentSambaData && currentSambaData.global_config) {
     const cfg = currentSambaData.global_config;
-    document.getElementById("samba-global-server-string").value = cfg.server_string || "STEvE_OS NAS";
+    document.getElementById("samba-global-server-string").value = cfg.server_string || "Noos NAS";
     document.getElementById("samba-global-workgroup").value = cfg.workgroup || "WORKGROUP";
     document.getElementById("samba-global-min-protocol").value = cfg.min_protocol || "SMB2_10";
     document.getElementById("samba-global-encrypt").value = cfg.smb_encrypt || "auto";
@@ -20258,7 +20279,7 @@ function closeSambaGlobalModal() {
 
 async function submitSambaGlobalForm() {
   const payload = {
-    server_string: document.getElementById("samba-global-server-string").value.trim() || "STEvE_OS NAS",
+    server_string: document.getElementById("samba-global-server-string").value.trim() || "Noos NAS",
     workgroup: document.getElementById("samba-global-workgroup").value.trim().toUpperCase() || "WORKGROUP",
     min_protocol: document.getElementById("samba-global-min-protocol").value,
     smb_encrypt: document.getElementById("samba-global-encrypt").value,
@@ -20348,7 +20369,7 @@ async function runSambaDiag() {
 
 function openSambaGuideModal() {
   const ip = currentSambaData?.primary_lan_ip || currentSambaData?.primary_ip || window.location.hostname;
-  const host = currentSambaData?.hostname || "steveos-nas";
+  const host = currentSambaData?.hostname || "noos-nas";
 
   const winCode = document.getElementById("guide-code-win");
   const macCode = document.getElementById("guide-code-mac");
@@ -20484,7 +20505,7 @@ async function loadSftpData(showFeedback = false) {
     const connectedUser = getCurrentDashboardUsername();
     const primaryUser = (connectedUser && connectedUser !== "root")
       ? connectedUser
-      : ((data.allowed_users && data.allowed_users.find(u => u.username !== "root")?.username) || "steveos");
+      : ((data.allowed_users && data.allowed_users.find(u => u.username !== "root")?.username) || "noos");
 
     if (uriClient) uriClient.textContent = `sftp://${primaryUser}@${ip}:${data.port}`;
     if (uriCli) uriCli.textContent = `sftp -P ${data.port} ${primaryUser}@${ip}`;
@@ -20984,7 +21005,7 @@ function openSftpGuideModal() {
   const connectedUser = getCurrentDashboardUsername();
   const user = (connectedUser && connectedUser !== "root")
     ? connectedUser
-    : ((currentSftpData?.allowed_users && currentSftpData.allowed_users.find(u => u.username !== "root")?.username) || "steveos");
+    : ((currentSftpData?.allowed_users && currentSftpData.allowed_users.find(u => u.username !== "root")?.username) || "noos");
 
   const hostEl = document.getElementById("sftp-guide-val-host");
   const portEl = document.getElementById("sftp-guide-val-port");

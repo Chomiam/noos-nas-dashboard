@@ -1,7 +1,7 @@
-//! # STEvE_OS NAS Dashboard — Serveur Web Backend Principal
+//! # Noos NAS Dashboard — Serveur Web Backend Principal
 //!
 //! Ce module constitue le point d'entrée principal (`main.rs`) du tableau de bord web
-//! pour le système d'exploitation **STEvE_OS NAS Edition**.
+//! pour le système d'exploitation **Noos NAS Edition**.
 //!
 //! ## Architecture générale
 //! - **Runtime asynchrone** : Conçu sur Tokio (`#[tokio::main]`), garantissant une
@@ -128,7 +128,9 @@ async fn main() {
     storage::init_storage_tasks_tracker();
 
     // 3. Résolution du chemin des fichiers statiques du frontend (HTML/CSS/JS)
-    let frontend_dir = env::var("STEVEOS_FRONTEND_DIR").unwrap_or_else(|_| "frontend".to_string());
+    let frontend_dir = env::var("NOOS_FRONTEND_DIR")
+        .or_else(|_| env::var("STEVEOS_FRONTEND_DIR"))
+        .unwrap_or_else(|_| "frontend".to_string());
 
     // 4. Construction du routeur API protégé
     // - Les routes `/api/auth` restent ouvertes pour la connexion initiale.
@@ -150,7 +152,7 @@ async fn main() {
     // 6. Affichage de la bannière de démarrage stylisée Catppuccin Mocha
     println!("\x1b[38;2;203;166;247m\x1b[1m");
     println!("╔════════════════════════════════════════════════════════════╗");
-    println!("║       🚀 STEvE_OS NAS Edition — Web Dashboard Server       ║");
+    println!("║       🚀 Noos NAS Edition — Web Dashboard Server           ║");
     println!("║       Propulsé par Rust & Catppuccin Mocha                 ║");
     println!("╠════════════════════════════════════════════════════════════╣");
     println!("║  📡 Port d'écoute : {:<39}║", port);
@@ -179,7 +181,7 @@ async fn main() {
 
 /// Analyse le port réseau à utiliser selon l'ordre de priorité suivant :
 /// 1. Argument CLI `--port <NUM>` ou `-p <NUM>`
-/// 2. Variable d'environnement `STEVEOS_PORT`
+/// 2. Variable d'environnement `NOOS_PORT` (ou legacy `STEVEOS_PORT`)
 /// 3. Constante de secours [`DEFAULT_PORT`] (9339)
 fn parse_port() -> u16 {
     let args: Vec<String> = env::args().collect();
@@ -191,7 +193,7 @@ fn parse_port() -> u16 {
         }
     }
 
-    if let Ok(env_p) = env::var("STEVEOS_PORT") {
+    if let Ok(env_p) = env::var("NOOS_PORT").or_else(|_| env::var("STEVEOS_PORT")) {
         if let Ok(p) = env_p.parse::<u16>() {
             return p;
         }

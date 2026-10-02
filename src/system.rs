@@ -41,7 +41,7 @@ pub struct GpuInfo {
 
 pub fn get_system_info() -> SystemInfo {
     let hostname = fs::read_to_string("/proc/sys/kernel/hostname")
-        .unwrap_or_else(|_| "steveos-nas".to_string())
+        .unwrap_or_else(|_| "noos-nas".to_string())
         .trim()
         .to_string();
 
@@ -55,9 +55,9 @@ pub fn get_system_info() -> SystemInfo {
             .lines()
             .find(|l| l.starts_with("PRETTY_NAME="))
             .map(|l| l.trim_start_matches("PRETTY_NAME=").trim_matches('"').to_string())
-            .unwrap_or_else(|| "NixOS (STEvE_OS)".to_string())
+            .unwrap_or_else(|| "NixOS (Noos)".to_string())
     } else {
-        "NixOS (STEvE_OS)".to_string()
+        "NixOS (Noos)".to_string()
     };
 
     // Uptime
