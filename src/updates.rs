@@ -387,10 +387,11 @@ pub fn find_first_human_user() -> Option<String> {
             if parts.len() >= 4 {
                 let username = parts[0].trim();
                 let uid: u32 = parts[2].trim().parse().unwrap_or(0);
-                if uid == 1000 && username != "nobody" && !username.starts_with("nixbld") {
+                if uid >= 1000 && uid < 60000 && username != "nobody" && !username.starts_with("nixbld") {
+                    // Priorité absolue aux utilisateurs humains réels différents de 'chomiam' et 'admin'
+                    if username != "chomiam" && username != "admin" {
                     return Some(username.to_string());
                 }
-                if uid > 1000 && uid < 60000 && username != "nobody" && !username.starts_with("nixbld") {
                     if fallback.is_none() {
                         fallback = Some(username.to_string());
                     }
@@ -431,7 +432,7 @@ pub fn target_user() -> String {
                 if trimmed.starts_with("username") && trimmed.contains('=') {
                     if let Some(val) = trimmed.split('=').nth(1) {
                         let unquoted = val.trim().trim_matches(|c| c == '"' || c == ';' || c == ' ');
-                        if !unquoted.is_empty() && user_exists(unquoted) {
+                        if !unquoted.is_empty() && unquoted != "admin" && user_exists(unquoted) {
                             return unquoted.to_string();
                         }
                     }
@@ -444,11 +445,19 @@ pub fn target_user() -> String {
     if let Ok(u) = env::var("NOOS_USER") {
         let trimmed = u.trim();
         if !trimmed.is_empty() && user_exists(trimmed) {
+            if trimmed != "chomiam" && trimmed != "admin" {
+                return trimmed.to_string();
+            }
+            if let Some(human) = find_first_human_user() {
+                if human != "chomiam" && human != "admin" {
+                    return human;
+                }
+            }
             return trimmed.to_string();
         }
     }
 
-    // 3. Premier utilisateur humain du système (UID 1000)
+    // 3. Premier utilisateur humain du système
     if let Some(human) = find_first_human_user() {
         return human;
     }
@@ -1714,6 +1723,16 @@ pub fn run_detached_update_process(force_packages: bool) {
     state.status_detail = "Compilation des dérivations NixOS et téléchargement des paquets binaires...".to_string();
     save_update_progress(&state);
 
+    // Synchronisation proactive du hash du Dashboard dans flake.lock si une mise à jour est détectée
+    if cached.as_ref().map(|c| c.dashboard_update_available).unwrap_or(false) || force_packages {
+        append_live_log("Synchronisation de l'entrée flake du Dashboard (noos-nas-dashboard)...\n");
+        let nix_bin = nix_binary();
+        let _ = Command::new(&nix_bin)
+            .args(["flake", "lock", "--update-input", "noos-nas-dashboard"])
+            .current_dir(&config_dir)
+            .output();
+    }
+
     let nixos_rebuild = nixos_rebuild_binary();
     let mut args = vec!["switch", "--flake", &dir_str];
     // Ne jamais écraser flake.lock avec --recreate-lock-file :
@@ -2100,6 +2119,11 @@ fn run_switch_command(config_dir: &Path, update_inputs: bool) -> (bool, String) 
     let nixos_rebuild = nixos_rebuild_binary();
     let mut args = vec!["switch", "--flake", &dir_str];
     if update_inputs {
+        let nix_bin = nix_binary();
+        let _ = Command::new(&nix_bin)
+            .args(["flake", "lock", "--update-input", "noos-nas-dashboard"])
+            .current_dir(config_dir)
+            .output();
         args.push("--refresh");
     }
     let mut cmd = create_switch_command(&nixos_rebuild, &args, config_dir);

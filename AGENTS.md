@@ -63,3 +63,19 @@
   1. Le workflow GitHub Actions (`.github/workflows/build.yml`) **doit obligatoirement compiler le binaire et le pousser dans le cache Cachix officiel `steveos`** via le secret `CACHIX_AUTH_TOKEN`.
   2. L'agent IA ou le développeur doit **systématiquement surveiller et attendre la réussite du run GitHub Actions** (`gh run list` / `gh run view`) avant de déclarer la mise à jour prête.
   3. Aucun déploiement de mise à jour côté NAS ne doit nécessiter une compilation Rust locale : le cache binaire `steveos.cachix.org` doit être alimenté sans exception.
+
+---
+
+## 🔗 Règle n°7 : Propagation obligatoire du hash dans `noos-nas` (`flake.lock`)
+- **Dès la complétion du build Cachix sur GitHub Actions :**
+  1. **Mettre à jour immédiatement l'input dans le dépôt de configuration de l'OS (`../steveos-nas`) :**
+     ```bash
+     cd ../steveos-nas
+     nix flake lock --update-input noos-nas-dashboard
+     nix eval .#nixosConfigurations.noos-nas.config.system.build.toplevel.drvPath
+     git commit -am "chore(flake): mise à jour de noos-nas-dashboard vers vX.Y.Z"
+     git push origin main
+     ```
+  2. **Alternative recommandée :** Utiliser le script automatisé [`scripts/release.sh`](file:///home/chomiam/Projects/steveos-nas-dashboard/scripts/release.sh) qui enchaîne l'intégralité du cycle sans risque d'omission.
+  3. **Principe fondamental :** Sans cette propagation sur GitHub, le NAS reconstruit l'ancien binaire verrouillé dans `flake.lock` et ne bascule jamais sur la nouvelle version.
+
