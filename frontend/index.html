@@ -685,6 +685,22 @@
             </div>
           </div>
 
+          <!-- SECTION STOCKAGES CLOUD : KDRIVE INFOMANIAK -->
+          <div class="files-sidebar-section-header" style="margin-top:14px;">
+            <span class="files-category-title">Stockages Cloud</span>
+            <button type="button" class="files-sidebar-action-btn" onclick="openConnectKDriveModal()" title="Connecter un kDrive Infomaniak (API)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+          </div>
+          <div id="files-kdrive-accounts-container" class="files-sidebar-remote-list">
+            <div style="padding:6px 10px; font-size:0.75rem; color:var(--subtext0); font-style:italic;">
+              Aucun kDrive connecté.
+            </div>
+          </div>
+
           <div class="files-sidebar-section-header" style="margin-top:14px;">
             <span class="files-category-title">Système</span>
           </div>
@@ -8306,6 +8322,145 @@
 
       <div class="file-modal-footer" style="padding:12px 20px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end;">
         <button type="button" class="btn btn-primary" onclick="closeStorageMountsModal()">Terminé</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODALE : CONNECTER UN KDRIVE (INFOMANIAK API) ================= -->
+  <div class="file-modal-overlay" id="modal-connect-kdrive" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-connect-kdrive')">
+    <div class="file-modal-window" style="max-width: 620px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(137, 180, 250, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-primary" style="font-size:0.75rem; font-weight:800; background:rgba(137,180,250,0.18); color:var(--blue);">☁️ KDRIVE API</span>
+          <span class="file-modal-title">Connecter mon kDrive (Infomaniak)</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeConnectKDriveModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:22px;">
+        <!-- Guide pas-à-pas pour l'utilisateur avec lien direct -->
+        <div class="kdrive-guide-card">
+          <div class="kdrive-guide-header">
+            <span class="kdrive-guide-icon">💡</span>
+            <div>
+              <div class="kdrive-guide-title">Comment générer votre Jeton API Infomaniak ?</div>
+              <div class="kdrive-guide-sub">Fonctionne avec toutes les offres kDrive (y compris Solo & Gratuit 15 Go).</div>
+            </div>
+          </div>
+
+          <div class="kdrive-guide-steps">
+            <div class="kdrive-step-item">
+              <span class="kdrive-step-num">1</span>
+              <span>Accédez à votre espace Infomaniak :</span>
+            </div>
+            <div style="margin: 8px 0 10px 24px;">
+              <a href="https://manager.infomaniak.com/v3/ng/profile/user/token" target="_blank" rel="noopener noreferrer" class="btn-kdrive-external-link">
+                <span>🔗 Ouvrir le Gestionnaire de Jetons Infomaniak</span>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+              </a>
+            </div>
+            <div class="kdrive-step-item">
+              <span class="kdrive-step-num">2</span>
+              <span>Cliquez sur <strong>« Créer un jeton »</strong>, nommez-le (ex: <code>Noos NAS</code>) et cochez la permission <strong>kDrive</strong>.</span>
+            </div>
+            <div class="kdrive-step-item">
+              <span class="kdrive-step-num">3</span>
+              <span>Copiez le jeton généré et collez-le ci-dessous.</span>
+            </div>
+          </div>
+        </div>
+
+        <form id="form-connect-kdrive" onsubmit="event.preventDefault(); submitConnectKDrive();" style="margin-top:18px;">
+          <!-- Champ Jeton API -->
+          <div class="form-group" style="margin-bottom:16px;">
+            <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
+              <span>Jeton d'accès API (Bearer Token) <span style="color:var(--red);">*</span></span>
+              <span style="font-size:0.75rem; color:var(--subtext0);">Ne sera jamais partagé</span>
+            </label>
+            <div style="display:flex; gap:8px;">
+              <input type="password" id="kdrive-input-token" class="form-input" style="flex:1; font-family:var(--font-mono); font-size:0.85rem;" placeholder="Ex: inf_api_xxxxxxxxxxxxxxxxxxxx" required>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="toggleKDriveTokenVisibility()" title="Afficher / Masquer le jeton">
+                <span id="kdrive-token-eye-icon">👁️</span>
+              </button>
+              <button type="button" class="btn btn-primary btn-sm" id="btn-detect-kdrives" onclick="testAndDetectKDrives()">
+                <span id="btn-detect-kdrives-icon">🔍</span> Détecter
+              </button>
+            </div>
+          </div>
+
+          <!-- Section dynamique des Drives détectés -->
+          <div id="kdrive-detected-section" style="display:none; margin-top:16px; background:var(--mantle); padding:16px; border-radius:var(--radius-md); border:1px solid rgba(137,180,250,0.2);">
+            <div style="font-size:0.85rem; font-weight:700; color:var(--text); margin-bottom:10px; display:flex; align-items:center; gap:8px;">
+              <span style="color:var(--green);">✓</span> kDrive(s) détecté(s) sur votre compte
+            </div>
+
+            <div class="form-group" style="margin-bottom:14px;">
+              <label class="form-label">Sélectionnez le kDrive à connecter</label>
+              <select id="kdrive-select-drive" class="form-select" onchange="onKDriveSelectChange()"></select>
+            </div>
+
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label">Nom d'affichage dans le Dashboard</label>
+              <input type="text" id="kdrive-input-name" class="form-input" placeholder="Ex: Mon kDrive Pro" required>
+            </div>
+          </div>
+
+          <div class="file-modal-footer" style="padding-top:18px; margin-top:18px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+            <button type="button" class="btn btn-secondary" onclick="closeConnectKDriveModal()">Annuler</button>
+            <button type="submit" class="btn btn-success" id="btn-submit-kdrive" disabled>
+              <span>☁️ Connecter et Explorer</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODALE : COPIE KDRIVE VERS NAS ================= -->
+  <div class="file-modal-overlay" id="modal-kdrive-copy-nas" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-kdrive-copy-nas')">
+    <div class="file-modal-window" style="max-width: 520px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(166, 227, 161, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-success" style="font-size:0.75rem; font-weight:800;">📥 TÉLÉCHARGEMENT DIRECT</span>
+          <span class="file-modal-title">Copier vers le NAS</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeKDriveCopyModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:20px;">
+        <div style="font-size:0.85rem; color:var(--subtext0); margin-bottom:14px;">
+          Le NAS télécharge le fichier directement depuis kDrive en tâche de fond (sans utiliser la bande passante de votre ordinateur).
+        </div>
+
+        <div style="background:var(--mantle); padding:12px; border-radius:var(--radius-sm); border:1px solid rgba(255,255,255,0.06); margin-bottom:16px;">
+          <div style="font-size:0.75rem; color:var(--subtext0); text-transform:uppercase; font-weight:700;">Fichier kDrive :</div>
+          <div style="font-size:0.92rem; font-weight:700; color:var(--text); margin-top:2px;" id="kdrive-copy-file-name">--</div>
+        </div>
+
+        <form id="form-kdrive-copy" onsubmit="event.preventDefault(); submitKDriveCopyToNas();">
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="form-label">Dossier de destination sur le NAS</label>
+            <input type="text" id="kdrive-copy-dest-dir" class="form-input" value="/storage/media" required>
+          </div>
+
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px;">
+            <button type="button" class="badge-pill-btn" onclick="setKDriveCopyDest('/storage/media')">📁 /storage/media</button>
+            <button type="button" class="badge-pill-btn" onclick="setKDriveCopyDest('/storage/documents')">📁 /storage/documents</button>
+            <button type="button" class="badge-pill-btn" onclick="setKDriveCopyDest('/storage/backups')">📁 /storage/backups</button>
+          </div>
+
+          <div class="file-modal-footer" style="padding-top:14px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+            <div style="display:flex; gap:8px;">
+              <button type="button" class="btn btn-secondary" onclick="closeKDriveCopyModal()">Annuler</button>
+              <button type="button" class="btn btn-secondary" onclick="downloadKDriveFileDirectly()" title="Télécharger le fichier directement via votre navigateur">
+                <span>💾 Télécharger sur ce PC</span>
+              </button>
+            </div>
+            <button type="submit" class="btn btn-primary" id="btn-submit-kdrive-copy">
+              <span>🚀 Lancer la copie sur le NAS</span>
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   </div>

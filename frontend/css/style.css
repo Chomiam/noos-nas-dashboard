@@ -17199,4 +17199,181 @@ body.app-updating-reload #app-shell {
   border: 1px solid rgba(166, 227, 161, 0.35);
 }
 
+/* ==========================================================================
+   STOCKAGE CLOUD KDRIVE (INFOMANIAK)
+   ========================================================================== */
+
+/* Carte guide dans la modale de connexion */
+.kdrive-guide-card {
+  background: rgba(137, 180, 250, 0.08);
+  border: 1px solid rgba(137, 180, 250, 0.25);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 8px;
+}
+
+.kdrive-guide-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.kdrive-guide-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.kdrive-guide-title {
+  font-weight: 700;
+  color: var(--blue);
+  font-size: 0.95rem;
+}
+
+.kdrive-guide-sub {
+  font-size: 0.78rem;
+  color: var(--subtext0);
+  margin-top: 2px;
+}
+
+.kdrive-guide-steps {
+  font-size: 0.82rem;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.kdrive-step-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.kdrive-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--blue);
+  color: #11111b;
+  font-size: 0.72rem;
+  font-weight: 800;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.btn-kdrive-external-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, rgba(137, 180, 250, 0.25) 0%, rgba(180, 190, 254, 0.2) 100%);
+  border: 1px solid rgba(137, 180, 250, 0.4);
+  color: var(--blue);
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.83rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.btn-kdrive-external-link:hover {
+  background: linear-gradient(135deg, rgba(137, 180, 250, 0.35) 0%, rgba(180, 190, 254, 0.3) 100%);
+  border-color: var(--blue);
+  transform: translateY(-1px);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(137, 180, 250, 0.25);
+}
+
+/* Item kDrive dans la barre latérale du gestionnaire de fichiers */
+.files-kdrive-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-bottom: 2px;
+}
+
+.files-kdrive-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.files-kdrive-item.active {
+  background: rgba(137, 180, 250, 0.12);
+  border-color: rgba(137, 180, 250, 0.3);
+  color: var(--blue);
+  font-weight: 700;
+}
+
+.files-kdrive-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-kdrive-item-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.files-kdrive-item-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.files-kdrive-item:hover .files-kdrive-item-actions {
+  opacity: 1;
+}
+
+.btn-kdrive-item-action {
+  background: transparent;
+  border: none;
+  color: var(--subtext0);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.btn-kdrive-item-action:hover {
+  color: var(--red);
+  background: rgba(243, 139, 168, 0.15);
+}
+
+/* Badge pilule pour dossier destination */
+.badge-pill-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--subtext0);
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.badge-pill-btn:hover {
+  background: rgba(166, 227, 161, 0.15);
+  border-color: var(--green);
+  color: var(--green);
+}
+
+
 

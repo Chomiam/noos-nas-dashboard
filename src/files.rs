@@ -30,7 +30,7 @@ use std::time::SystemTime;
 // ============================================================================
 
 /// Représentation détaillée d'une entrée de système de fichiers (fichier ou dossier).
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileEntry {
     /// Nom du fichier ou dossier (ex: `rapport.pdf` ou `photos`).
     pub name: String,

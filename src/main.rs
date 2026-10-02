@@ -45,6 +45,7 @@ mod trash;         // Corbeille de rétention temporaire et purge automatique
 mod samba;         // Partages réseau Windows / macOS via Samba (SMB/CIFS)
 mod sftp;          // Partages sécurisés SFTP avec isolation chroot
 mod remote_shares; // Montage de partages distants NFS / SMB
+mod kdrive;        // Intégration cloud kDrive (Infomaniak API REST)
 
 // 4. Conteneurs, Applications & Virtualisation
 mod docker_store; // Catalogue d'applications conteneurisées Docker Compose

@@ -396,6 +396,7 @@ function initApp() {
   initDragAndDrop();
   loadPinnedMounts();
   loadRemoteMounts();
+  loadKDriveAccounts();
   setFileViewMode(fileViewMode);
 }
 
@@ -495,6 +496,7 @@ function switchTab(tabId, updateHash = true) {
     }
     navigateToPath(currentFolderPath || getUserHome());
     loadPinnedMounts();
+    loadKDriveAccounts();
   }
   if (tabId === "tab-updates") { checkForUpdates(false); loadGenerations(); }
   if (tabId === "tab-storage") loadStorage();
@@ -4188,6 +4190,8 @@ let currentCompressLevel = "normal";
 
 async function navigateToPath(targetPath) {
   isTrashView = false;
+  isKDriveView = false;
+  currentKDriveAccountId = null;
   selectedTrashItem = null;
   clearFileSelection();
   const normalTb = document.getElementById("files-toolbar-normal");
@@ -4254,6 +4258,7 @@ function updateSidebarNavActive(path) {
   };
 
   document.querySelectorAll(".files-nav-item").forEach(item => item.classList.remove("active"));
+  document.querySelectorAll(".files-kdrive-item").forEach(item => item.classList.remove("active"));
   const activeId = mapping[path] || mapping[normPath];
   if (activeId) {
     const el = document.getElementById(activeId);
@@ -4289,6 +4294,31 @@ function copyCurrentFolderPath() {
 function updateFilesBreadcrumbs(path) {
   const container = document.getElementById("files-breadcrumbs");
   const quickDisplay = document.getElementById("files-quick-path-display");
+
+  if (isKDriveView) {
+    if (quickDisplay) {
+      quickDisplay.textContent = `kDrive://${currentKDriveAccountName}${currentKDriveFolderId === 0 ? '' : ` (Dossier #${currentKDriveFolderId})`}`;
+      quickDisplay.title = "Stockage Cloud kDrive Infomaniak";
+    }
+    if (!container) return;
+
+    let html = `<span class="crumb-item" onclick="navigateToKDrive('${escapeHtml(currentKDriveAccountId)}', 0, '${escapeHtml(currentKDriveAccountName)}')" title="Racine de votre kDrive">
+      <span style="margin-right:4px;">☁️</span>
+      <span>${escapeHtml(currentKDriveAccountName || "Mon kDrive")}</span>
+    </span>`;
+
+    if (kdriveBreadcrumbsStack && kdriveBreadcrumbsStack.length > 1) {
+      for (let i = 1; i < kdriveBreadcrumbsStack.length; i++) {
+        const crumb = kdriveBreadcrumbsStack[i];
+        const isLast = i === kdriveBreadcrumbsStack.length - 1;
+        html += `<span class="crumb-separator"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></span>`;
+        html += `<span class="crumb-item ${isLast ? 'active' : ''}" onclick="navigateToKDrive('${escapeHtml(currentKDriveAccountId)}', ${crumb.id}, '${escapeHtml(crumb.name)}')" title="${escapeHtml(crumb.name)}">${escapeHtml(crumb.name)}</span>`;
+      }
+    }
+    container.innerHTML = html;
+    return;
+  }
+
   const cleanPath = (path || "/").replace(/\/+$/, "") || "/";
   if (quickDisplay) {
     quickDisplay.textContent = cleanPath;
@@ -4607,6 +4637,22 @@ function isNvimEditableFile(fileName, category) {
 }
 
 function handleFileDblClick(path, isDir) {
+  if (path && path.startsWith("kdrive://")) {
+    const clean = path.replace("kdrive://", "");
+    const parts = clean.split("/");
+    const accountId = parts[0];
+    const fileId = parseInt(parts[1], 10) || 0;
+    if (isDir) {
+      const item = currentEntries.find(i => i.path === path);
+      navigateToKDrive(accountId, fileId, item ? item.name : "Dossier");
+    } else {
+      const item = currentEntries.find(i => i.path === path);
+      const fileName = item ? item.name : "Fichier";
+      openKDriveFileActionModal(accountId, fileId, fileName);
+    }
+    return;
+  }
+
   if (isDir) {
     navigateToPath(path);
   } else {
@@ -4633,6 +4679,15 @@ function handleFileDblClick(path, isDir) {
 }
 
 function navigateUpFolder() {
+  if (isKDriveView) {
+    if (currentKDriveFolderId !== 0) {
+      navigateToKDrive(currentKDriveAccountId, currentKDriveParentFolderId || 0);
+    } else {
+      showToast("Vous êtes déjà à la racine de votre kDrive.", "info");
+    }
+    return;
+  }
+
   if (currentFolderParent) {
     navigateToPath(currentFolderParent);
   } else {
@@ -4641,6 +4696,10 @@ function navigateUpFolder() {
 }
 
 function refreshCurrentFolder() {
+  if (isKDriveView) {
+    navigateToKDrive(currentKDriveAccountId, currentKDriveFolderId);
+    return;
+  }
   navigateToPath(currentFolderPath);
 }
 
@@ -5042,6 +5101,32 @@ async function triggerFileAction(action) {
 }
 
 async function promptCreateFolder() {
+  if (isKDriveView) {
+    const name = prompt("Nom du nouveau dossier sur kDrive :", "Nouveau_Dossier");
+    if (!name || !name.trim()) return;
+
+    try {
+      const res = await fetch(`/api/kdrive/accounts/${encodeURIComponent(currentKDriveAccountId)}/mkdir`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          parent_id: currentKDriveFolderId,
+          name: name.trim()
+        })
+      });
+      const json = await res.json();
+      if (json.success) {
+        showToast("Dossier kDrive créé avec succès !", "success");
+        refreshCurrentFolder();
+      } else {
+        showToast(json.message || "Erreur lors de la création sur kDrive", "error");
+      }
+    } catch (err) {
+      showToast("Erreur réseau kDrive : " + err, "error");
+    }
+    return;
+  }
+
   const name = prompt("Nom du nouveau dossier :", "Nouveau_Dossier");
   if (!name || !name.trim()) return;
 
@@ -5099,6 +5184,29 @@ async function promptRename(item) {
 async function confirmDelete(item, permanent = false) {
   if (item && item.is_mount_point) {
     showToast(`Suppression interdite : '${item.name}' est un point de montage de disque protégé.`, "error");
+    return;
+  }
+
+  if (item && item.path && item.path.startsWith("kdrive://")) {
+    const parts = item.path.replace("kdrive://", "").split("/");
+    const accountId = parts[0];
+    const fileId = parseInt(parts[1], 10) || 0;
+    if (!confirm(`Déplacer "${item.name}" vers la corbeille de votre kDrive ?`)) return;
+
+    try {
+      const res = await fetch(`/api/kdrive/accounts/${encodeURIComponent(accountId)}/files/${fileId}`, {
+        method: "DELETE"
+      });
+      const json = await res.json();
+      if (json.success) {
+        showToast(json.message || `"${item.name}" déplacé dans la corbeille kDrive.`, "success");
+        refreshCurrentFolder();
+      } else {
+        showToast(json.message || "Erreur lors de la suppression sur kDrive", "error");
+      }
+    } catch (err) {
+      showToast("Erreur réseau kDrive : " + err, "error");
+    }
     return;
   }
 
@@ -22421,3 +22529,338 @@ function connectFromDiscovery(ip, proto, shareName = "") {
     port: proto === "sftp" ? 22 : 445
   });
 }
+
+// =========================================================================
+// INTÉGRATION KDRIVE INFOMANIAK (STOCKAGE CLOUD API REST SÉCURISÉ)
+// =========================================================================
+
+let isKDriveView = false;
+let currentKDriveAccountId = null;
+let currentKDriveFolderId = 0;
+let currentKDriveParentFolderId = null;
+let currentKDriveAccountName = "";
+let kdriveBreadcrumbsStack = [];
+let kdriveAccountsList = [];
+let currentKDriveActionFile = null;
+
+async function loadKDriveAccounts() {
+  try {
+    const res = await fetch("/api/kdrive/accounts");
+    const json = await res.json();
+    if (json.success && json.data) {
+      kdriveAccountsList = json.data;
+      renderKDriveAccounts(kdriveAccountsList);
+    }
+  } catch (err) {
+    console.error("Erreur chargement comptes kDrive:", err);
+  }
+}
+
+function renderKDriveAccounts(accounts) {
+  const container = document.getElementById("files-kdrive-accounts-container");
+  if (!container) return;
+
+  if (!accounts || accounts.length === 0) {
+    container.innerHTML = `
+      <div style="padding:6px 10px; font-size:0.75rem; color:var(--subtext0); font-style:italic;">
+        Aucun compte kDrive lié.
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = accounts.map(acc => {
+    const isActive = isKDriveView && currentKDriveAccountId === acc.id;
+    return `
+      <div class="files-kdrive-item ${isActive ? "active" : ""}" 
+           data-account-id="${escapeHtml(acc.id)}" 
+           onclick="navigateToKDrive('${escapeHtml(acc.id)}', 0, '${escapeHtml(acc.name)}')" 
+           title="kDrive : ${escapeHtml(acc.name)} (${escapeHtml(acc.used_size_human)} / ${escapeHtml(acc.total_size_human)})">
+        <div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1;">
+          <span style="font-size:1.1rem; line-height:1;">☁️</span>
+          <div style="min-width:0; flex:1;">
+            <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:0.8rem; color:var(--text);">
+              ${escapeHtml(acc.name)}
+            </div>
+            <div style="font-size:0.68rem; color:var(--subtext0); font-family:var(--font-mono);">
+              ${escapeHtml(acc.used_size_human)} / ${escapeHtml(acc.total_size_human)}
+            </div>
+          </div>
+        </div>
+        <button type="button" class="files-mount-unpin-btn" onclick="disconnectKDriveAccount('${escapeHtml(acc.id)}', '${escapeHtml(acc.name)}', event)" title="Déconnecter ce kDrive du NAS">
+          🗑️
+        </button>
+      </div>
+    `;
+  }).join("");
+}
+
+function openConnectKDriveModal() {
+  const form = document.getElementById("form-connect-kdrive");
+  if (form) form.reset();
+  const detectedSec = document.getElementById("kdrive-detected-section");
+  if (detectedSec) detectedSec.style.display = "none";
+  const btnSubmit = document.getElementById("btn-submit-kdrive");
+  if (btnSubmit) btnSubmit.disabled = true;
+  const modal = document.getElementById("modal-connect-kdrive");
+  if (modal) modal.style.display = "flex";
+}
+
+function closeConnectKDriveModal() {
+  const modal = document.getElementById("modal-connect-kdrive");
+  if (modal) modal.style.display = "none";
+}
+
+function toggleKDriveTokenVisibility() {
+  const inp = document.getElementById("kdrive-input-token");
+  const icon = document.getElementById("kdrive-token-eye-icon");
+  if (!inp) return;
+  if (inp.type === "password") {
+    inp.type = "text";
+    if (icon) icon.textContent = "🙈";
+  } else {
+    inp.type = "password";
+    if (icon) icon.textContent = "👁️";
+  }
+}
+
+async function testAndDetectKDrives() {
+  const tokenInp = document.getElementById("kdrive-input-token");
+  const token = tokenInp ? tokenInp.value.trim() : "";
+  if (!token) {
+    showToast("Veuillez saisir votre jeton d'accès API Infomaniak.", "warning");
+    return;
+  }
+
+  const btn = document.getElementById("btn-detect-kdrives");
+  const icon = document.getElementById("btn-detect-kdrives-icon");
+  if (btn) btn.disabled = true;
+  if (icon) icon.textContent = "⏳";
+
+  try {
+    const res = await fetch("/api/kdrive/detect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token })
+    });
+    const json = await res.json();
+
+    if (json.success && json.data && json.data.length > 0) {
+      const select = document.getElementById("kdrive-select-drive");
+      if (select) {
+        select.innerHTML = json.data.map(d => `
+          <option value="${d.id}" data-name="${escapeHtml(d.name)}">
+            ${escapeHtml(d.name)} (${escapeHtml(d.used_size_human)} / ${escapeHtml(d.size_human)})
+          </option>
+        `).join("");
+      }
+      const nameInp = document.getElementById("kdrive-input-name");
+      if (nameInp) {
+        nameInp.value = json.data[0].name;
+      }
+      const detectedSec = document.getElementById("kdrive-detected-section");
+      if (detectedSec) detectedSec.style.display = "block";
+      const btnSubmit = document.getElementById("btn-submit-kdrive");
+      if (btnSubmit) btnSubmit.disabled = false;
+
+      showToast(`✓ ${json.data.length} kDrive détecté(s) sur votre compte !`, "success");
+    } else {
+      showToast(json.message || "Aucun kDrive trouvé avec ce jeton. Vérifiez les permissions du jeton.", "error");
+    }
+  } catch (err) {
+    showToast("Erreur lors de la détection : " + err, "error");
+  } finally {
+    if (btn) btn.disabled = false;
+    if (icon) icon.textContent = "🔍";
+  }
+}
+
+function onKDriveSelectChange() {
+  const select = document.getElementById("kdrive-select-drive");
+  const nameInp = document.getElementById("kdrive-input-name");
+  if (select && nameInp && select.selectedOptions[0]) {
+    nameInp.value = select.selectedOptions[0].getAttribute("data-name") || "Mon kDrive";
+  }
+}
+
+async function submitConnectKDrive() {
+  const tokenInp = document.getElementById("kdrive-input-token");
+  const nameInp = document.getElementById("kdrive-input-name");
+  const select = document.getElementById("kdrive-select-drive");
+  const token = tokenInp ? tokenInp.value.trim() : "";
+  const name = nameInp ? nameInp.value.trim() : "";
+  const drive_id = select ? parseInt(select.value, 10) : 0;
+
+  if (!token || !drive_id) {
+    showToast("Veuillez d'abord détecter et sélectionner un kDrive.", "warning");
+    return;
+  }
+
+  const btn = document.getElementById("btn-submit-kdrive");
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch("/api/kdrive/accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, token, drive_id })
+    });
+    const json = await res.json();
+    if (json.success && json.data) {
+      showToast(`☁️ kDrive '${json.data.name}' connecté avec succès !`, "success");
+      closeConnectKDriveModal();
+      await loadKDriveAccounts();
+      navigateToKDrive(json.data.id, 0, json.data.name);
+    } else {
+      showToast(json.message || "Échec de l'enregistrement du kDrive", "error");
+    }
+  } catch (err) {
+    showToast("Erreur lors de la connexion du kDrive : " + err, "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function disconnectKDriveAccount(accountId, accountName, event) {
+  if (event) event.stopPropagation();
+  if (!confirm(`Voulez-vous vraiment déconnecter le compte kDrive "${accountName}" du NAS ?\n\nVos fichiers distants sur Infomaniak restent totalement intacts.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/kdrive/accounts/${encodeURIComponent(accountId)}`, {
+      method: "DELETE"
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(`Compte kDrive "${accountName}" déconnecté.`, "info");
+      await loadKDriveAccounts();
+      if (isKDriveView && currentKDriveAccountId === accountId) {
+        navigateToPath(getUserHome());
+      }
+    } else {
+      showToast(json.message || "Erreur lors de la déconnexion", "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau : " + err, "error");
+  }
+}
+
+async function navigateToKDrive(accountId, folderId = 0, folderName = null) {
+  isTrashView = false;
+  isKDriveView = true;
+  selectedTrashItem = null;
+  clearFileSelection();
+
+  const normalTb = document.getElementById("files-toolbar-normal");
+  const trashTb = document.getElementById("files-toolbar-trash");
+  if (normalTb) normalTb.style.display = "flex";
+  if (trashTb) trashTb.style.display = "none";
+
+  currentKDriveAccountId = accountId;
+  currentKDriveFolderId = folderId;
+  currentFolderPath = `kdrive://${accountId}/${folderId}`;
+
+  try {
+    const res = await fetch(`/api/kdrive/accounts/${encodeURIComponent(accountId)}/files?folder_id=${folderId}`);
+    const json = await res.json();
+
+    if (!json.success || !json.data) {
+      showToast(json.message || "Impossible de charger le dossier kDrive", "error");
+      return;
+    }
+
+    const data = json.data;
+    currentKDriveAccountName = data.account_name;
+    currentKDriveParentFolderId = data.parent_folder_id;
+    currentEntries = data.entries || [];
+
+    // Gestion de la pile de miettes kDrive
+    if (folderId === 0) {
+      kdriveBreadcrumbsStack = [{ id: 0, name: data.account_name || folderName || "kDrive" }];
+    } else {
+      const existingIdx = kdriveBreadcrumbsStack.findIndex(c => c.id === folderId);
+      if (existingIdx !== -1) {
+        kdriveBreadcrumbsStack = kdriveBreadcrumbsStack.slice(0, existingIdx + 1);
+      } else {
+        kdriveBreadcrumbsStack.push({ id: folderId, name: data.current_folder_name || folderName || "Dossier" });
+      }
+    }
+
+    updateFilesBreadcrumbs();
+    renderFilesList(currentEntries);
+    updateFilesStatusBar(data.total_items, data.total_size_bytes);
+
+    // Mettre à jour l'élément actif dans la barre latérale
+    document.querySelectorAll(".files-nav-item").forEach(item => item.classList.remove("active"));
+    document.querySelectorAll(".files-mount-item").forEach(item => item.classList.remove("active"));
+    document.querySelectorAll(".files-kdrive-item").forEach(item => {
+      item.classList.toggle("active", item.getAttribute("data-account-id") === accountId);
+    });
+
+  } catch (err) {
+    showToast("Erreur lors de la navigation kDrive : " + err, "error");
+  }
+}
+
+function openKDriveFileActionModal(accountId, fileId, fileName) {
+  currentKDriveActionFile = { accountId, fileId, fileName };
+  const label = document.getElementById("kdrive-copy-file-name");
+  if (label) label.textContent = fileName;
+  const modal = document.getElementById("modal-kdrive-copy-nas");
+  if (modal) modal.style.display = "flex";
+}
+
+function closeKDriveCopyModal() {
+  const modal = document.getElementById("modal-kdrive-copy-nas");
+  if (modal) modal.style.display = "none";
+  currentKDriveActionFile = null;
+}
+
+function setKDriveCopyDest(path) {
+  const inp = document.getElementById("kdrive-copy-dest-dir");
+  if (inp) inp.value = path;
+}
+
+function downloadKDriveFileDirectly() {
+  if (!currentKDriveActionFile) return;
+  const { accountId, fileId, fileName } = currentKDriveActionFile;
+  const dlUrl = `/api/kdrive/accounts/${encodeURIComponent(accountId)}/download/${fileId}`;
+  window.open(dlUrl, "_blank");
+  closeKDriveCopyModal();
+  showToast(`Téléchargement lancé pour "${fileName}"`, "info");
+}
+
+async function submitKDriveCopyToNas() {
+  if (!currentKDriveActionFile) return;
+  const { accountId, fileId, fileName } = currentKDriveActionFile;
+  const destDirInp = document.getElementById("kdrive-copy-dest-dir");
+  const destDir = destDirInp ? destDirInp.value.trim() : "/storage/media";
+
+  const btn = document.getElementById("btn-submit-kdrive-copy");
+  if (btn) btn.disabled = true;
+
+  showToast(`🚀 Copie en cours vers ${destDir} en tâche de fond...`, "info");
+  closeKDriveCopyModal();
+
+  try {
+    const res = await fetch(`/api/kdrive/accounts/${encodeURIComponent(accountId)}/copy-to-nas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file_id: fileId,
+        file_name: fileName,
+        dest_dir: destDir
+      })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(`✓ Fichier "${fileName}" copié avec succès dans ${destDir} !`, "success");
+    } else {
+      showToast(json.message || "Échec de la copie vers le NAS", "error");
+    }
+  } catch (err) {
+    showToast("Erreur lors de la copie sur le NAS : " + err, "error");
+  }
+}
+

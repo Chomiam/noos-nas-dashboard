@@ -386,6 +386,18 @@ pub fn api_routes() -> Router {
         .route("/files/remote-mounts/:id/unmount", post(handle_remote_mounts_unmount))
 
         // --------------------------------------------------------------------
+        // 12b. STOCKAGE CLOUD KDRIVE (INFOMANIAK)
+        // --------------------------------------------------------------------
+        .route("/kdrive/accounts", get(handle_kdrive_accounts_list).post(handle_kdrive_account_create))
+        .route("/kdrive/detect", post(handle_kdrive_detect))
+        .route("/kdrive/accounts/:id", delete(handle_kdrive_account_delete))
+        .route("/kdrive/accounts/:id/files", get(handle_kdrive_files_list))
+        .route("/kdrive/accounts/:id/mkdir", post(handle_kdrive_mkdir))
+        .route("/kdrive/accounts/:id/files/:file_id", delete(handle_kdrive_file_delete))
+        .route("/kdrive/accounts/:id/download/:file_id", get(handle_kdrive_download))
+        .route("/kdrive/accounts/:id/copy-to-nas", post(handle_kdrive_copy_to_nas))
+
+        // --------------------------------------------------------------------
         // 13. CORBEILLE SYSTÈME
         // --------------------------------------------------------------------
         .route("/files/trash", get(handle_trash_overview))
@@ -3267,6 +3279,266 @@ async fn handle_remote_mounts_unmount(
             success: false,
             data: None,
             message: Some(err),
+        }),
+    }
+}
+
+// ============================================================================
+// CONTRÔLEURS : KDRIVE INFOMANIAK CLOUD STORAGE
+// ============================================================================
+
+/// Liste tous les comptes kDrive connectés au NAS avec jetons strictement masqués.
+async fn handle_kdrive_accounts_list() -> Json<ApiResponse<Vec<crate::kdrive::KDriveAccountPublic>>> {
+    let accounts = crate::kdrive::load_kdrive_accounts();
+    let public_accounts: Vec<crate::kdrive::KDriveAccountPublic> = accounts.into_iter().map(|a| a.to_public()).collect();
+    Json(ApiResponse {
+        success: true,
+        data: Some(public_accounts),
+        message: None,
+    })
+}
+
+/// Teste un jeton API Infomaniak et renvoie les kDrives disponibles.
+async fn handle_kdrive_detect(
+    Json(payload): Json<crate::kdrive::DetectTokenRequest>,
+) -> Json<ApiResponse<Vec<crate::kdrive::KDriveDriveInfo>>> {
+    let token = payload.token;
+    let res = tokio::task::spawn_blocking(move || {
+        crate::kdrive::test_and_fetch_drives(&token)
+    }).await;
+
+    match res {
+        Ok(Ok(drives)) => Json(ApiResponse {
+            success: true,
+            data: Some(drives),
+            message: None,
+        }),
+        Ok(Err(e)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur d'exécution : {}", e)),
+        }),
+    }
+}
+
+/// Connecte et enregistre un compte kDrive sur le NAS (renvoie le profil avec token masqué).
+async fn handle_kdrive_account_create(
+    Json(payload): Json<crate::kdrive::CreateKDriveAccountRequest>,
+) -> Json<ApiResponse<crate::kdrive::KDriveAccountPublic>> {
+    let name = payload.name;
+    let token = payload.token;
+    let drive_id = payload.drive_id;
+
+    let res = tokio::task::spawn_blocking(move || {
+        crate::kdrive::add_kdrive_account(&name, &token, drive_id)
+    }).await;
+
+    match res {
+        Ok(Ok(account)) => Json(ApiResponse {
+            success: true,
+            data: Some(account),
+            message: Some("Compte kDrive connecté avec succès.".into()),
+        }),
+        Ok(Err(e)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur d'exécution : {}", e)),
+        }),
+    }
+}
+
+/// Supprime / déconnecte un compte kDrive du NAS.
+async fn handle_kdrive_account_delete(
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Json<ApiResponse<bool>> {
+    match crate::kdrive::delete_kdrive_account(&id) {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            data: Some(true),
+            message: Some("Compte kDrive déconnecté.".into()),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+    }
+}
+
+/// Liste les fichiers et sous-dossiers d'un répertoire kDrive.
+async fn handle_kdrive_files_list(
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Query(params): Query<crate::kdrive::KDriveListQuery>,
+) -> Json<ApiResponse<crate::kdrive::KDriveFolderListing>> {
+    let folder_id = params.folder_id;
+    let id_clone = id.clone();
+
+    let res = tokio::task::spawn_blocking(move || {
+        crate::kdrive::list_kdrive_folder(&id_clone, folder_id)
+    }).await;
+
+    match res {
+        Ok(Ok(listing)) => Json(ApiResponse {
+            success: true,
+            data: Some(listing),
+            message: None,
+        }),
+        Ok(Err(e)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur d'exécution : {}", e)),
+        }),
+    }
+}
+
+/// Crée un sous-dossier sur kDrive.
+async fn handle_kdrive_mkdir(
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(payload): Json<crate::kdrive::KDriveMkdirRequest>,
+) -> Json<ApiResponse<bool>> {
+    let parent_id = payload.parent_id;
+    let name = payload.name;
+    let id_clone = id.clone();
+
+    let res = tokio::task::spawn_blocking(move || {
+        crate::kdrive::create_kdrive_folder(&id_clone, parent_id, &name)
+    }).await;
+
+    match res {
+        Ok(Ok(_)) => Json(ApiResponse {
+            success: true,
+            data: Some(true),
+            message: Some("Dossier créé sur kDrive avec succès.".into()),
+        }),
+        Ok(Err(e)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur d'exécution : {}", e)),
+        }),
+    }
+}
+
+/// Supprime un élément kDrive (vers la corbeille).
+async fn handle_kdrive_file_delete(
+    axum::extract::Path((id, file_id)): axum::extract::Path<(String, u64)>,
+) -> Json<ApiResponse<bool>> {
+    let id_clone = id.clone();
+
+    let res = tokio::task::spawn_blocking(move || {
+        crate::kdrive::delete_kdrive_item(&id_clone, file_id)
+    }).await;
+
+    match res {
+        Ok(Ok(_)) => Json(ApiResponse {
+            success: true,
+            data: Some(true),
+            message: Some("Élément kDrive déplacé vers la corbeille.".into()),
+        }),
+        Ok(Err(e)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur d'exécution : {}", e)),
+        }),
+    }
+}
+
+/// Téléchargement direct d'un fichier kDrive servi au navigateur de manière sécurisée.
+async fn handle_kdrive_download(
+    axum::extract::Path((id, file_id)): axum::extract::Path<(String, u64)>,
+    req: axum::extract::Request,
+) -> impl axum::response::IntoResponse {
+    use tower_http::services::fs::ServeFile;
+    use tower::ServiceExt;
+    use axum::response::IntoResponse;
+    use axum::http::{header, HeaderValue, StatusCode};
+
+    let id_clone = id.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        crate::kdrive::download_kdrive_file_to_temp(&id_clone, file_id)
+    }).await;
+
+    match res {
+        Ok(Ok((temp_file, filename))) => {
+            let service = ServeFile::new(&temp_file);
+            match service.oneshot(req).await {
+                Ok(mut response) => {
+                    let disposition = format!("attachment; filename=\"{}\"", filename);
+                    if let Ok(val) = HeaderValue::from_str(&disposition) {
+                        response.headers_mut().insert(header::CONTENT_DISPOSITION, val);
+                    }
+                    response.into_response()
+                }
+                Err(err) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Erreur lecture fichier kDrive : {}", err),
+                ).into_response(),
+            }
+        }
+        Ok(Err(err)) => (
+            StatusCode::BAD_REQUEST,
+            format!("Échec téléchargement kDrive : {}", err),
+        ).into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Erreur de tâche : {}", err),
+        ).into_response(),
+    }
+}
+
+/// Copie un fichier kDrive directement vers un répertoire local du NAS en tâche de fond.
+async fn handle_kdrive_copy_to_nas(
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(payload): Json<crate::kdrive::KDriveCopyToNasRequest>,
+) -> Json<ApiResponse<String>> {
+    let dest_dir = payload.dest_dir;
+    let file_id = payload.file_id;
+    let file_name = payload.file_name;
+    let id_clone = id.clone();
+
+    let res = tokio::task::spawn_blocking(move || {
+        crate::kdrive::copy_kdrive_file_to_nas(&id_clone, file_id, &file_name, &dest_dir)
+    }).await;
+
+    match res {
+        Ok(Ok(dest_path)) => Json(ApiResponse {
+            success: true,
+            data: Some(dest_path),
+            message: Some("Fichier kDrive copié avec succès sur le NAS.".into()),
+        }),
+        Ok(Err(e)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur d'exécution : {}", e)),
         }),
     }
 }
