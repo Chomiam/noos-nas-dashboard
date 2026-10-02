@@ -1364,7 +1364,11 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
             let f = file.trim();
             if f == "vars.nix" {
                 if let Some(ref saved) = saved_vars_content {
-                    let _ = fs::write(&vars_path, saved);
+                    let mut f_content = saved.clone();
+                    if f_content.contains("hostName = \"steveos-nas\"") {
+                        f_content = f_content.replace("hostName = \"steveos-nas\"", "hostName = \"noos-nas\"");
+                    }
+                    let _ = fs::write(&vars_path, &f_content);
                     let _ = git_cmd(&dir_str).args(["add", "vars.nix"]).output();
                 }
             } else if f == "flake.lock" || f == "firewall-state.json" || f == "firewall-rules.json" {
