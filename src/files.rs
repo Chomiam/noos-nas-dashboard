@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,6 +15,8 @@ pub struct FileEntry {
     pub modified: String,
     pub permissions: String,
     pub category: String, // "folder", "image", "video", "audio", "document", "archive", "code", "file"
+    #[serde(default)]
+    pub is_mount_point: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -52,6 +55,125 @@ pub struct RenameRequest {
 pub struct ActionRequest {
     pub src_path: String,
     pub dest_dir: String,
+}
+
+fn unescape_proc_mount_path(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            let mut octal = String::new();
+            for _ in 0..3 {
+                if let Some(&next_c) = chars.peek() {
+                    if ('0'..='7').contains(&next_c) {
+                        octal.push(chars.next().unwrap());
+                    } else {
+                        break;
+                    }
+                }
+            }
+            if octal.len() == 3 {
+                if let Ok(byte) = u8::from_str_radix(&octal, 8) {
+                    result.push(byte as char);
+                    continue;
+                }
+            }
+            result.push('\\');
+            result.push_str(&octal);
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
+pub fn get_all_mount_points() -> HashSet<PathBuf> {
+    let mut set = HashSet::new();
+
+    // 1. Racines système critiques protégées
+    for sys in &[
+        "/", "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/lib64",
+        "/lost+found", "/media", "/mnt", "/nix", "/opt", "/proc", "/root",
+        "/run", "/sbin", "/srv", "/sys", "/tmp", "/usr", "/var"
+    ] {
+        let pb = PathBuf::from(sys);
+        if let Ok(c) = pb.canonicalize() {
+            set.insert(c);
+        }
+        set.insert(pb);
+    }
+
+    // 2. Points de montage déclarés et persistés (mounts.json)
+    for pm in crate::storage::load_persisted_mounts() {
+        let trimmed = pm.mount_point.trim();
+        if !trimmed.is_empty() {
+            let normalized = if trimmed.len() > 1 {
+                trimmed.trim_end_matches('/')
+            } else {
+                trimmed
+            };
+            let pb = PathBuf::from(normalized);
+            if let Ok(c) = pb.canonicalize() {
+                set.insert(c);
+            }
+            set.insert(pb);
+        }
+    }
+
+    // 3. Points de montage actifs dans le noyau (/proc/mounts ou /proc/self/mounts)
+    for mounts_file in &["/proc/mounts", "/proc/self/mounts"] {
+        if let Ok(content) = fs::read_to_string(mounts_file) {
+            for line in content.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let mp_unescaped = unescape_proc_mount_path(parts[1]);
+                    let trimmed = if mp_unescaped.len() > 1 {
+                        mp_unescaped.trim_end_matches('/')
+                    } else {
+                        &mp_unescaped
+                    };
+                    let pb = PathBuf::from(trimmed);
+                    if let Ok(c) = pb.canonicalize() {
+                        set.insert(c);
+                    }
+                    set.insert(pb);
+                }
+            }
+            break;
+        }
+    }
+
+    set
+}
+
+pub fn is_mount_point(path: &Path) -> bool {
+    let canonical = match path.canonicalize() {
+        Ok(c) => c,
+        Err(_) => path.to_path_buf(),
+    };
+
+    let mount_points = get_all_mount_points();
+    if mount_points.contains(&canonical) || mount_points.contains(path) {
+        return true;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if canonical.is_dir() {
+            if let Ok(meta) = fs::metadata(&canonical) {
+                if let Some(parent) = canonical.parent() {
+                    if let Ok(parent_meta) = fs::metadata(parent) {
+                        if meta.dev() != parent_meta.dev() {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    false
 }
 
 
@@ -168,6 +290,13 @@ pub fn list_directory(req_path: Option<&str>) -> Result<DirectoryListing, String
     let mut entries = Vec::new();
     let mut total_size: u64 = 0;
 
+    let mount_points = get_all_mount_points();
+    #[cfg(unix)]
+    let parent_dev = fs::metadata(&canonical).ok().map(|m| {
+        use std::os::unix::fs::MetadataExt;
+        m.dev()
+    });
+
     let dir_entries = fs::read_dir(&canonical)
         .map_err(|e| format!("Erreur lors de la lecture du dossier : {}", e))?;
 
@@ -203,6 +332,27 @@ pub fn list_directory(req_path: Option<&str>) -> Result<DirectoryListing, String
             categorize_file(&file_name)
         };
 
+        let is_mount_point = if is_dir {
+            let item_canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
+            if mount_points.contains(&item_canonical) || mount_points.contains(&path) {
+                true
+            } else {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::MetadataExt;
+                    if let (Some(p_dev), Some(meta)) = (parent_dev, metadata.as_ref()) {
+                        meta.dev() != p_dev
+                    } else {
+                        false
+                    }
+                }
+                #[cfg(not(unix))]
+                false
+            }
+        } else {
+            false
+        };
+
         entries.push(FileEntry {
             name: file_name,
             path: path_str,
@@ -212,6 +362,7 @@ pub fn list_directory(req_path: Option<&str>) -> Result<DirectoryListing, String
             modified,
             permissions,
             category,
+            is_mount_point,
         });
     }
 
@@ -254,18 +405,22 @@ pub fn create_directory(base_dir: &str, dir_name: &str) -> Result<String, String
 }
 
 pub fn delete_item(item_path: &str, permanent: bool) -> Result<String, String> {
+    let p = normalize_user_path(PathBuf::from(item_path));
+    if !p.exists() {
+        return Err("Fichier ou dossier introuvable.".into());
+    }
+
+    let canonical = match p.canonicalize() {
+        Ok(c) => c,
+        Err(_) => p.clone(),
+    };
+
+    if is_mount_point(&canonical) || is_mount_point(&p) {
+        let name = canonical.file_name().and_then(|f| f.to_str()).unwrap_or(item_path);
+        return Err(format!("Suppression interdite : le dossier '{}' est un point de montage de disque protégé.", name));
+    }
+
     if permanent {
-        let p = normalize_user_path(PathBuf::from(item_path));
-        if !p.exists() {
-            return Err("Fichier ou dossier introuvable.".into());
-        }
-
-        let canonical = p.canonicalize().map_err(|e| e.to_string())?;
-        let path_str = canonical.display().to_string();
-        if path_str == "/" || path_str == "/home" || path_str == "/etc" || path_str == "/nix" || path_str == "/boot" || path_str == "/mnt" {
-            return Err("Suppression interdite sur un répertoire système racine.".into());
-        }
-
         if canonical.is_dir() {
             fs::remove_dir_all(&canonical)
                 .map_err(|e| format!("Échec de suppression du dossier : {}", e))?;
@@ -289,6 +444,16 @@ pub fn rename_item(item_path: &str, new_name: &str) -> Result<String, String> {
     let p = normalize_user_path(PathBuf::from(item_path));
     if !p.exists() {
         return Err("Élément introuvable.".into());
+    }
+
+    let canonical = match p.canonicalize() {
+        Ok(c) => c,
+        Err(_) => p.clone(),
+    };
+
+    if is_mount_point(&canonical) || is_mount_point(&p) {
+        let name = canonical.file_name().and_then(|f| f.to_str()).unwrap_or(item_path);
+        return Err(format!("Renommage interdit : le dossier '{}' est un point de montage de disque protégé.", name));
     }
 
     let parent = p.parent().ok_or("Impossible de trouver le dossier parent.")?;
@@ -374,6 +539,16 @@ pub fn move_item(src: &str, dest_dir: &str) -> Result<String, String> {
     }
     if !dest_folder.is_dir() {
         return Err("Dossier de destination invalide.".into());
+    }
+
+    let canonical_src = match src_path.canonicalize() {
+        Ok(c) => c,
+        Err(_) => src_path.clone(),
+    };
+
+    if is_mount_point(&canonical_src) || is_mount_point(&src_path) {
+        let name = canonical_src.file_name().and_then(|f| f.to_str()).unwrap_or(src);
+        return Err(format!("Déplacement interdit : le dossier '{}' est un point de montage de disque protégé.", name));
     }
 
     let file_name = src_path.file_name().and_then(|f| f.to_str()).ok_or("Nom de fichier source invalide.")?;

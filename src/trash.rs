@@ -215,11 +215,11 @@ pub fn move_to_trash(item_path: &str) -> Result<String, String> {
     }
 
     let canonical = p.canonicalize().map_err(|e| e.to_string())?;
-    let path_str = canonical.display().to_string();
 
-    // Protection des répertoires vitaux
-    if path_str == "/" || path_str == "/home" || path_str == "/etc" || path_str == "/nix" || path_str == "/boot" || path_str == "/mnt" {
-        return Err("Suppression interdite sur un répertoire système racine.".into());
+    // Protection des répertoires vitaux et des points de montage
+    if crate::files::is_mount_point(&canonical) || crate::files::is_mount_point(&p) {
+        let name = canonical.file_name().and_then(|f| f.to_str()).unwrap_or(item_path);
+        return Err(format!("Suppression interdite : le dossier '{}' est un point de montage de disque protégé.", name));
     }
 
     let trash_root = get_trash_dir_for_path(&canonical);

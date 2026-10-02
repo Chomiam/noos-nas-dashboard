@@ -3813,6 +3813,9 @@ function renderFilesList(entries) {
       const thumbUrl = buildAuthenticatedUrl("/api/files/image-view", { path: item.path, thumb: "true" });
       cardPreview = `<div class="file-card-icon file-card-img-preview" style="width:100%; height:80px; max-height:80px; overflow:hidden; border-radius:6px; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.35);"><img src="${thumbUrl}" loading="lazy" alt="${escapeHtml(item.name)}" style="width:100%; height:100%; max-width:100%; max-height:100%; object-fit:cover; display:block; border-radius:5px;" onerror="this.onerror=null; this.parentElement.className='file-card-icon'; this.parentElement.style='width:100%; height:80px; display:flex; align-items:center; justify-content:center; font-size:2.4rem;'; this.parentElement.innerHTML='${icon}';"></div>`;
     }
+    const metaHtml = item.is_mount_point
+      ? `<span style="color:var(--yellow); font-weight:600; display:inline-flex; align-items:center; gap:3px;">💾 Montage</span>`
+      : escapeHtml(item.size_human);
     return `
       <div class="file-card ${isSelected ? 'selected' : ''}" style="min-width:0; overflow:hidden;"
            data-path="${escapeHtml(item.path)}"
@@ -3823,8 +3826,10 @@ function renderFilesList(entries) {
           <input type="checkbox" class="file-card-checkbox" ${isSelected ? 'checked' : ''} tabindex="-1">
         </div>
         ${cardPreview}
-        <div class="file-card-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
-        <div class="file-card-meta">${escapeHtml(item.size_human)}</div>
+        <div class="file-card-name" title="${escapeHtml(item.name)}${item.is_mount_point ? ' (Point de montage protégé)' : ''}">
+          ${escapeHtml(item.name)}${item.is_mount_point ? ' <span title="Point de montage protégé" style="font-size:0.8rem;">🔒</span>' : ''}
+        </div>
+        <div class="file-card-meta">${metaHtml}</div>
       </div>
     `;
   }).join("");
@@ -3845,10 +3850,11 @@ function renderFilesList(entries) {
         <td>
           <span style="font-size:1.1rem; margin-right:8px;">${icon}</span>
           <strong style="color:var(--text);">${escapeHtml(item.name)}</strong>
+          ${item.is_mount_point ? ' <span title="Point de montage protégé" style="font-size:0.8rem; margin-left:4px;">🔒</span>' : ''}
         </td>
         <td style="color:var(--subtext0); font-family:var(--font-mono); font-size:0.8rem;">${escapeHtml(item.size_human)}</td>
         <td style="color:var(--subtext0); font-size:0.8rem;">${escapeHtml(item.modified)}</td>
-        <td><span class="badge ${item.is_dir ? "badge-primary" : "badge-secondary"}" style="font-size:0.75rem;">${escapeHtml(getFileTypeLabel(item))}</span></td>
+        <td><span class="badge ${item.is_mount_point ? "badge-warning" : (item.is_dir ? "badge-primary" : "badge-secondary")}" style="font-size:0.75rem;">${escapeHtml(getFileTypeLabel(item))}</span></td>
         <td><code style="color:var(--mauve); font-size:0.75rem;">${escapeHtml(item.permissions)}</code></td>
       </tr>
     `;
@@ -3875,6 +3881,7 @@ function isDocumentFile(fileName, category) {
 }
 
 function getFileIcon(item) {
+  if (item.is_mount_point) return "💾";
   if (item.is_dir) return "📁";
   const name = item.name.toLowerCase();
   if (isArchiveFile(name)) return "📦";
@@ -4002,6 +4009,19 @@ function updateSelectionUI() {
     if (selectedFilePaths.size > 0) {
       bar.style.display = "flex";
       countEl.textContent = `${selectedFilePaths.size} élément${selectedFilePaths.size > 1 ? "s" : ""} sélectionné${selectedFilePaths.size > 1 ? "s" : ""}`;
+
+      const selectedEntries = currentEntries.filter(e => selectedFilePaths.has(e.path));
+      const hasOnlyMounts = selectedEntries.length > 0 && selectedEntries.every(e => e.is_mount_point);
+      const delBtn = document.getElementById("btn-files-multi-delete");
+      const cutBtn = document.getElementById("btn-files-multi-cut");
+      if (delBtn) {
+        delBtn.style.opacity = hasOnlyMounts ? "0.45" : "1";
+        delBtn.title = hasOnlyMounts ? "Suppression impossible : point(s) de montage protégé(s)" : "Supprimer les éléments sélectionnés";
+      }
+      if (cutBtn) {
+        cutBtn.style.opacity = hasOnlyMounts ? "0.45" : "1";
+        cutBtn.title = hasOnlyMounts ? "Déplacement impossible : point(s) de montage protégé(s)" : "Couper les éléments sélectionnés";
+      }
     } else {
       bar.style.display = "none";
     }
@@ -4114,6 +4134,7 @@ function updateSortIndicators() {
 }
 
 function getFileTypeLabel(item) {
+  if (item.is_mount_point) return "Point de montage";
   if (item.is_dir) return "Dossier";
   const name = item.name.toLowerCase();
   const ext = name.split(".").pop() || "";
@@ -4249,6 +4270,7 @@ function handleBackgroundContextMenu(e) {
   const ctxCut = document.getElementById("ctx-cut");
   const ctxRename = document.getElementById("ctx-rename");
   const ctxDelete = document.getElementById("ctx-delete");
+  const ctxDeletePerm = document.getElementById("ctx-delete-perm");
   const ctxPaste = document.getElementById("ctx-paste");
 
   if (ctxOpen) ctxOpen.style.display = "none";
@@ -4256,6 +4278,7 @@ function handleBackgroundContextMenu(e) {
   if (ctxCut) ctxCut.style.display = "none";
   if (ctxRename) ctxRename.style.display = "none";
   if (ctxDelete) ctxDelete.style.display = "none";
+  if (ctxDeletePerm) ctxDeletePerm.style.display = "none";
 
   const ctxEdit = document.getElementById("ctx-edit-nvim");
   const ctxPlay = document.getElementById("ctx-play-video");
@@ -4275,9 +4298,20 @@ function handleBackgroundContextMenu(e) {
 function positionContextMenu(menu, x, y) {
   // Rétablir l'affichage des actions de fichier si sélectionné
   if (selectedFileItem) {
-    ["ctx-copy", "ctx-cut", "ctx-rename", "ctx-delete", "ctx-paste"].forEach(id => {
+    const hasMountInSelection = Array.from(selectedFilePaths).some(p => {
+      const it = currentEntries.find(e => e.path === p);
+      return it && it.is_mount_point;
+    });
+    const isMount = selectedFileItem.is_mount_point || hasMountInSelection;
+
+    ["ctx-copy", "ctx-paste"].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = "flex";
+    });
+    // Les actions destructives ou de déplacement sont formellement masquées pour les points de montage protégés
+    ["ctx-cut", "ctx-rename", "ctx-delete", "ctx-delete-perm"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = isMount ? "none" : "flex";
     });
   }
 
@@ -4410,16 +4444,28 @@ async function triggerFileAction(action) {
 
     case "rename":
       if (!selectedFileItem) return;
+      if (selectedFileItem.is_mount_point) {
+        showToast(`Renommage interdit : '${selectedFileItem.name}' est un point de montage de disque protégé.`, "error");
+        return;
+      }
       promptRename(selectedFileItem);
       break;
 
     case "delete":
       if (!selectedFileItem) return;
+      if (selectedFileItem.is_mount_point) {
+        showToast(`Suppression interdite : '${selectedFileItem.name}' est un point de montage de disque protégé.`, "error");
+        return;
+      }
       confirmDelete(selectedFileItem, false);
       break;
 
     case "delete-permanent":
       if (!selectedFileItem) return;
+      if (selectedFileItem.is_mount_point) {
+        showToast(`Suppression interdite : '${selectedFileItem.name}' est un point de montage de disque protégé.`, "error");
+        return;
+      }
       confirmDelete(selectedFileItem, true);
       break;
 
@@ -4463,6 +4509,11 @@ async function promptCreateFolder() {
 }
 
 async function promptRename(item) {
+  if (item && item.is_mount_point) {
+    showToast(`Renommage interdit : '${item.name}' est un point de montage de disque protégé.`, "error");
+    return;
+  }
+
   const newName = prompt(`Renommer "${item.name}" en :`, item.name);
   if (!newName || !newName.trim() || newName.trim() === item.name) return;
 
@@ -4488,6 +4539,11 @@ async function promptRename(item) {
 }
 
 async function confirmDelete(item, permanent = false) {
+  if (item && item.is_mount_point) {
+    showToast(`Suppression interdite : '${item.name}' est un point de montage de disque protégé.`, "error");
+    return;
+  }
+
   if (permanent) {
     const isDir = item.is_dir;
     const msg = isDir 
@@ -5852,6 +5908,15 @@ function triggerMultiCopy() {
 
 function triggerMultiCut() {
   if (selectedFilePaths.size === 0) return;
+
+  const selectedEntries = currentEntries.filter(e => selectedFilePaths.has(e.path));
+  const mountPoints = selectedEntries.filter(e => e.is_mount_point);
+  if (mountPoints.length > 0) {
+    const mpNames = mountPoints.map(m => m.name).join(", ");
+    showToast(`Impossible de couper : ${mpNames} est un point de montage de disque protégé.`, "error");
+    return;
+  }
+
   const paths = Array.from(selectedFilePaths);
   fileClipboard = {
     action: "cut",
@@ -5865,19 +5930,35 @@ function triggerMultiCut() {
 
 async function triggerMultiDelete() {
   if (selectedFilePaths.size === 0) return;
-  const count = selectedFilePaths.size;
+
+  const selectedEntries = currentEntries.filter(e => selectedFilePaths.has(e.path));
+  const mountPoints = selectedEntries.filter(e => e.is_mount_point);
+  const targets = selectedEntries.filter(e => !e.is_mount_point);
+
+  if (mountPoints.length > 0) {
+    const mpNames = mountPoints.map(m => m.name).join(", ");
+    if (targets.length === 0) {
+      showToast(`Suppression interdite : ${mpNames} est un point de montage de disque protégé.`, "error");
+      return;
+    } else {
+      showToast(`Note : les points de montage suivants sont protégés et exclus de la suppression : ${mpNames}`, "warning");
+    }
+  }
+
+  const count = targets.length;
+  if (count === 0) return;
+
   if (!confirm(`Voulez-vous déplacer ces ${count} élément(s) vers la corbeille ?`)) {
     return;
   }
 
-  const paths = Array.from(selectedFilePaths);
   let successCount = 0;
-  for (const p of paths) {
+  for (const item of targets) {
     try {
       const res = await fetch("/api/files/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: p, permanent: false })
+        body: JSON.stringify({ path: item.path, permanent: false })
       });
       const json = await res.json();
       if (json.success) successCount++;
