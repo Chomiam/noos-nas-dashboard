@@ -16757,6 +16757,7 @@ function openServerConsoleView(id) {
   const sel = document.getElementById("game-console-server-select");
   if (sel) sel.value = id;
   switchGamesSubtab("console");
+  detectAndInitMinecraftModrinth(id);
 }
 
 function onGameConsoleServerChange() {
@@ -16770,6 +16771,7 @@ function onGameConsoleServerChange() {
     const current = gameServersData.find(s => s.id === activeConsoleServerId);
     updateConsoleHeaderStats(current);
     fetchGameConsoleLogs();
+    detectAndInitMinecraftModrinth(activeConsoleServerId);
   }
 }
 
@@ -17028,6 +17030,944 @@ function actionCurrentConsoleServer(action) {
     showToast("Veuillez sélectionner un serveur de jeu.", "warning");
   }
 }
+
+// ==========================================================================
+// 🧩 MINECRAFT MODRINTH HUB & GESTIONNAIRE D'ADDONS
+// ==========================================================================
+
+let activeGameConsoleView = 'terminal'; // 'terminal' | 'modrinth' | 'addons'
+let currentMinecraftProfile = null;
+let modrinthSearchDebounceTimer = null;
+let modrinthCurrentQuery = "";
+let modrinthCurrentType = ""; // '' | 'mod' | 'plugin' | 'datapack'
+let modrinthCurrentOffset = 0;
+const modrinthPageLimit = 20;
+let modrinthTotalHits = 0;
+let modrinthAutoCompatEnabled = true;
+let installedAddonsList = [];
+let installedAddonsFilterType = 'all'; // 'all' | 'plugin' | 'mod'
+let installedAddonsSearchQuery = '';
+
+/**
+ * Bascule entre l'affichage Terminal/Logs, Modrinth Hub et Addons Installés
+ */
+function switchGameConsoleView(view) {
+  activeGameConsoleView = view;
+
+  // Mise à jour visuelle des boutons de navigation
+  const btnTerm = document.getElementById("tab-btn-console-term");
+  const btnModrinth = document.getElementById("tab-btn-console-modrinth");
+  const btnAddons = document.getElementById("tab-btn-console-addons");
+
+  if (btnTerm) btnTerm.classList.toggle("active", view === 'terminal');
+  if (btnModrinth) btnModrinth.classList.toggle("active", view === 'modrinth');
+  if (btnAddons) btnAddons.classList.toggle("active", view === 'addons');
+
+  // Affichage des conteneurs
+  const paneTerm = document.getElementById("game-console-view-terminal");
+  const paneModrinth = document.getElementById("game-console-view-modrinth");
+  const paneAddons = document.getElementById("game-console-view-addons");
+
+  if (paneTerm) paneTerm.style.display = view === 'terminal' ? 'block' : 'none';
+  if (paneModrinth) paneModrinth.style.display = view === 'modrinth' ? 'block' : 'none';
+  if (paneAddons) paneAddons.style.display = view === 'addons' ? 'block' : 'none';
+
+  if (view === 'modrinth') {
+    if (!activeConsoleServerId) {
+      showToast("Veuillez sélectionner un serveur dans la liste déroulante.", "warning");
+    } else {
+      triggerModrinthSearch(false);
+    }
+  } else if (view === 'addons') {
+    if (!activeConsoleServerId) {
+      showToast("Veuillez sélectionner un serveur dans la liste déroulante.", "warning");
+    } else {
+      fetchInstalledAddons();
+    }
+  }
+}
+
+/**
+ * Détecte le profil Minecraft (chargeur et version) pour le serveur actif
+ */
+async function detectAndInitMinecraftModrinth(serverId) {
+  if (!serverId) {
+    currentMinecraftProfile = null;
+    updateModrinthProfileUI(null);
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/games/${encodeURIComponent(serverId)}/minecraft/profile`);
+    const json = await res.json();
+    if (json.success && json.data) {
+      currentMinecraftProfile = json.data;
+      updateModrinthProfileUI(json.data);
+    } else {
+      currentMinecraftProfile = null;
+      updateModrinthProfileUI(null);
+    }
+  } catch (err) {
+    console.error("Erreur lors de la détection du profil Minecraft:", err);
+    currentMinecraftProfile = null;
+    updateModrinthProfileUI(null);
+  }
+
+  // Actualise le compteur d'addons installés en arrière-plan
+  fetchInstalledAddonsCountSilent(serverId);
+}
+
+/**
+ * Met à jour les éléments de l'interface en fonction du profil détecté
+ */
+function updateModrinthProfileUI(profile) {
+  const badgeProfile = document.getElementById("console-modrinth-profile-badge");
+  const pillSummary = document.getElementById("modrinth-profile-summary-text");
+  const warningNonMc = document.getElementById("modrinth-not-minecraft-alert");
+  const manualLoader = document.getElementById("modrinth-manual-loader");
+  const manualVersion = document.getElementById("modrinth-manual-version");
+
+  if (profile && profile.is_minecraft) {
+    const loaderName = (profile.loader || "Serveur").toUpperCase();
+    const verText = profile.game_version ? `v${profile.game_version}` : "Dernière version";
+
+    if (badgeProfile) {
+      badgeProfile.textContent = `${loaderName} ${profile.game_version || ''}`.trim();
+      badgeProfile.style.display = "inline-flex";
+    }
+
+    if (pillSummary) {
+      pillSummary.innerHTML = `<strong>${loaderName}</strong> • ${verText}`;
+    }
+
+    if (warningNonMc) warningNonMc.style.display = "none";
+
+    // Pré-remplit les filtres manuels
+    if (manualLoader && profile.loader) manualLoader.value = profile.loader.toLowerCase();
+    if (manualVersion && profile.game_version) manualVersion.value = profile.game_version;
+
+    // Prérégler intelligemment le type selon le loader si aucun filtre sélectionné
+    if (!modrinthCurrentType) {
+      if (profile.supports_plugins && !profile.supports_mods) {
+        setModrinthFilterType('plugin', false);
+      } else if (profile.supports_mods && !profile.supports_plugins) {
+        setModrinthFilterType('mod', false);
+      }
+    }
+  } else {
+    if (badgeProfile) {
+      badgeProfile.textContent = "Catalogue Général";
+    }
+    if (pillSummary) {
+      pillSummary.textContent = "Serveur standard";
+    }
+    if (warningNonMc) warningNonMc.style.display = "flex";
+  }
+}
+
+/**
+ * Recharge manuellement le profil et relance la recherche
+ */
+function reloadModrinthProfileAndSearch() {
+  if (!activeConsoleServerId) {
+    showToast("Aucun serveur sélectionné.", "warning");
+    return;
+  }
+  showToast("Actualisation du profil serveur...", "info");
+  detectAndInitMinecraftModrinth(activeConsoleServerId).then(() => {
+    triggerModrinthSearch(true);
+    fetchInstalledAddons();
+  });
+}
+
+/**
+ * Gestion de l'input de recherche avec debounce
+ */
+function onModrinthSearchInput(event) {
+  const q = event.target.value.trim();
+  modrinthCurrentQuery = q;
+
+  const clearBtn = document.getElementById("btn-modrinth-clear");
+  if (clearBtn) clearBtn.style.display = q ? "block" : "none";
+
+  clearTimeout(modrinthSearchDebounceTimer);
+  modrinthSearchDebounceTimer = setTimeout(() => {
+    triggerModrinthSearch(true);
+  }, 350);
+}
+
+/**
+ * Efface la recherche
+ */
+function clearModrinthSearch() {
+  const input = document.getElementById("modrinth-search-input");
+  if (input) input.value = "";
+  modrinthCurrentQuery = "";
+  const clearBtn = document.getElementById("btn-modrinth-clear");
+  if (clearBtn) clearBtn.style.display = "none";
+  triggerModrinthSearch(true);
+}
+
+/**
+ * Sélectionne le type de projet (Tous, Mods, Plugins, Datapacks)
+ */
+function setModrinthFilterType(type, trigger = true) {
+  modrinthCurrentType = type;
+  const pills = document.querySelectorAll("#modrinth-type-pills .modrinth-type-pill");
+  pills.forEach(p => {
+    p.classList.toggle("active", p.dataset.type === type);
+  });
+  if (trigger) triggerModrinthSearch(true);
+}
+
+/**
+ * Bascule le filtre de compatibilité automatique
+ */
+function toggleModrinthAutoCompat() {
+  const chk = document.getElementById("modrinth-filter-auto-compat");
+  modrinthAutoCompatEnabled = chk ? chk.checked : true;
+
+  const manualFilters = document.getElementById("modrinth-manual-filters");
+  if (manualFilters) {
+    manualFilters.style.display = modrinthAutoCompatEnabled ? "none" : "flex";
+  }
+  triggerModrinthSearch(true);
+}
+
+/**
+ * Exécute la recherche Modrinth auprès de l'API Noos NAS
+ */
+async function triggerModrinthSearch(resetPage = false) {
+  if (!activeConsoleServerId) return;
+
+  if (resetPage) {
+    modrinthCurrentOffset = 0;
+  }
+
+  const spinner = document.getElementById("modrinth-loading-spinner");
+  const grid = document.getElementById("modrinth-cards-grid");
+  const empty = document.getElementById("modrinth-empty-state");
+  const paginationBar = document.getElementById("modrinth-pagination-bar");
+  const sortSelect = document.getElementById("modrinth-sort-select");
+  const sort = sortSelect ? sortSelect.value : "downloads";
+
+  if (spinner) spinner.style.display = "flex";
+  if (empty) empty.style.display = "none";
+  if (grid) grid.style.opacity = "0.4";
+
+  // Détermine loader et game_version à envoyer
+  let loader = "";
+  let gameVersion = "";
+
+  if (modrinthAutoCompatEnabled && currentMinecraftProfile && currentMinecraftProfile.is_minecraft) {
+    loader = currentMinecraftProfile.loader || "";
+    gameVersion = currentMinecraftProfile.game_version || "";
+  } else if (!modrinthAutoCompatEnabled) {
+    const manLoader = document.getElementById("modrinth-manual-loader");
+    const manVer = document.getElementById("modrinth-manual-version");
+    if (manLoader) loader = manLoader.value.trim();
+    if (manVer) gameVersion = manVer.value.trim();
+  }
+
+  const params = new URLSearchParams();
+  if (modrinthCurrentQuery) params.set("query", modrinthCurrentQuery);
+  if (modrinthCurrentType) params.set("project_type", modrinthCurrentType);
+  if (loader) params.set("loader", loader);
+  if (gameVersion) params.set("game_version", gameVersion);
+  if (sort) params.set("sort", sort);
+  params.set("offset", modrinthCurrentOffset.toString());
+  params.set("limit", modrinthPageLimit.toString());
+
+  try {
+    const res = await fetch(`/api/games/${encodeURIComponent(activeConsoleServerId)}/modrinth/search?${params.toString()}`);
+    const json = await res.json();
+
+    if (spinner) spinner.style.display = "none";
+    if (grid) grid.style.opacity = "1";
+
+    if (!json.success || !json.data || !json.data.hits || json.data.hits.length === 0) {
+      if (grid) grid.innerHTML = "";
+      if (empty) empty.style.display = "block";
+      if (paginationBar) paginationBar.style.display = "none";
+      return;
+    }
+
+    const { hits, total_hits, offset, limit } = json.data;
+    modrinthTotalHits = total_hits;
+    modrinthCurrentOffset = offset;
+
+    renderModrinthCards(hits);
+    updateModrinthPaginationUI(offset, limit, total_hits);
+  } catch (err) {
+    if (spinner) spinner.style.display = "none";
+    if (grid) grid.style.opacity = "1";
+    console.error("Erreur lors de la recherche Modrinth:", err);
+    showToast(`Erreur Modrinth : ${err.message}`, "error");
+  }
+}
+
+/**
+ * Formate un nombre de téléchargements avec suffixe K / M
+ */
+function formatNumberCompact(num) {
+  if (num === null || num === undefined) return "0";
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + "M";
+  if (num >= 1000) return (num / 1000).toFixed(1) + "k";
+  return num.toString();
+}
+
+/**
+ * Affiche la grille des cartes Modrinth
+ */
+function renderModrinthCards(hits) {
+  const grid = document.getElementById("modrinth-cards-grid");
+  if (!grid) return;
+
+  const activeLoader = (currentMinecraftProfile && currentMinecraftProfile.loader) ? currentMinecraftProfile.loader.toLowerCase() : "";
+
+  grid.innerHTML = hits.map(hit => {
+    const icon = hit.icon_url || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='%23313244'%3E%3Crect width='24' height='24' rx='6'/%3E%3Cpath d='M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' stroke='%23a6adc8' stroke-width='2' fill='none'/%3E%3C/svg%3E";
+    const type = hit.project_type || "mod";
+    let typeClass = "tag-mod";
+    if (type === "plugin") typeClass = "tag-plugin";
+    else if (type === "datapack") typeClass = "tag-datapack";
+
+    // Badges de loaders
+    const loaders = hit.loaders || [];
+    const loaderBadges = loaders.slice(0, 4).map(l => {
+      const isMatch = activeLoader && l.toLowerCase().includes(activeLoader);
+      return `<span class="loader-badge ${isMatch ? 'highlight' : ''}">${escapeHtml(l)}</span>`;
+    }).join("");
+
+    const extraLoadersCount = loaders.length > 4 ? `<span class="loader-badge">+${loaders.length - 4}</span>` : "";
+
+    // Détermination de la cible (mods ou plugins)
+    const targetDirType = type === "plugin" ? "plugins" : "mods";
+
+    const titleEscaped = escapeHtml(hit.title || hit.slug);
+    const authorEscaped = escapeHtml(hit.author || "Auteur inconnu");
+    const descEscaped = escapeHtml(hit.description || "Aucune description disponible pour ce projet.");
+    const projectIdEscaped = escapeHtml(hit.project_id);
+
+    return `
+      <div class="modrinth-card" data-project-id="${projectIdEscaped}">
+        <div class="modrinth-card-top">
+          <img src="${escapeHtml(icon)}" class="modrinth-card-icon" alt="${titleEscaped}" onerror="this.src='/favicon.ico';">
+          <div class="modrinth-card-header-info">
+            <div class="modrinth-card-title-row">
+              <h4 class="modrinth-card-title" title="${titleEscaped}">${titleEscaped}</h4>
+              <span class="modrinth-type-tag ${typeClass}">${escapeHtml(type)}</span>
+            </div>
+            <div class="modrinth-card-author">Par <strong>${authorEscaped}</strong></div>
+          </div>
+        </div>
+
+        <p class="modrinth-card-desc" title="${descEscaped}">${descEscaped}</p>
+
+        <div class="modrinth-card-badges">
+          ${loaderBadges}
+          ${extraLoadersCount}
+        </div>
+
+        <div class="modrinth-card-footer">
+          <div class="modrinth-card-stats" title="${hit.downloads || 0} téléchargements • ${hit.follows || 0} abonnés">
+            <span>📥 ${formatNumberCompact(hit.downloads)}</span>
+            <span>⭐ ${formatNumberCompact(hit.follows)}</span>
+          </div>
+
+          <div class="modrinth-card-actions">
+            <button type="button" class="btn-modrinth-details" onclick="openModrinthProjectDetails('${projectIdEscaped}', '${titleEscaped.replace(/'/g, "\\'")}')" title="Voir les versions compatibles">
+              <span>ℹ️ Versions</span>
+            </button>
+            <button type="button" class="btn-modrinth-install" id="btn-quick-install-${projectIdEscaped}" onclick="installLatestModrinthAddon('${projectIdEscaped}', '${titleEscaped.replace(/'/g, "\\'")}', '${targetDirType}', this)" title="Installer la dernière version compatible">
+              <span>📥</span>
+              <span>Installer</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+/**
+ * Mise à jour de la pagination Modrinth
+ */
+function updateModrinthPaginationUI(offset, limit, totalHits) {
+  const bar = document.getElementById("modrinth-pagination-bar");
+  const info = document.getElementById("modrinth-page-info");
+  const prevBtn = document.getElementById("btn-modrinth-prev-page");
+  const nextBtn = document.getElementById("btn-modrinth-next-page");
+
+  if (!bar || !info) return;
+
+  if (totalHits <= limit) {
+    bar.style.display = "none";
+    return;
+  }
+
+  bar.style.display = "flex";
+  const start = offset + 1;
+  const end = Math.min(offset + limit, totalHits);
+  info.textContent = `Résultats ${start} à ${end} sur ${totalHits}`;
+
+  if (prevBtn) prevBtn.disabled = offset <= 0;
+  if (nextBtn) nextBtn.disabled = end >= totalHits;
+}
+
+function modrinthPrevPage() {
+  if (modrinthCurrentOffset >= modrinthPageLimit) {
+    modrinthCurrentOffset -= modrinthPageLimit;
+    triggerModrinthSearch(false);
+  }
+}
+
+function modrinthNextPage() {
+  if (modrinthCurrentOffset + modrinthPageLimit < modrinthTotalHits) {
+    modrinthCurrentOffset += modrinthPageLimit;
+    triggerModrinthSearch(false);
+  }
+}
+
+/**
+ * Installe directement la version la plus récente et compatible d'un projet
+ */
+async function installLatestModrinthAddon(projectId, projectTitle, targetDirType, btnElement) {
+  if (!activeConsoleServerId) {
+    showToast("Aucun serveur sélectionné.", "warning");
+    return;
+  }
+
+  const origHtml = btnElement ? btnElement.innerHTML : "";
+  if (btnElement) {
+    btnElement.disabled = true;
+    btnElement.innerHTML = `<span class="spin-slow">⏳</span> <span>Téléchargement...</span>`;
+  }
+
+  try {
+    // 1. Récupère la liste des versions pour ce projet
+    const params = new URLSearchParams();
+    params.set("project_id", projectId);
+    if (modrinthAutoCompatEnabled && currentMinecraftProfile && currentMinecraftProfile.is_minecraft) {
+      if (currentMinecraftProfile.loader) params.set("loader", currentMinecraftProfile.loader);
+      if (currentMinecraftProfile.game_version) params.set("game_version", currentMinecraftProfile.game_version);
+    }
+
+    const resVer = await fetch(`/api/games/${encodeURIComponent(activeConsoleServerId)}/modrinth/versions?${params.toString()}`);
+    const jsonVer = await resVer.json();
+
+    if (!jsonVer.success || !jsonVer.data || jsonVer.data.length === 0) {
+      throw new Error("Aucune version compatible trouvée pour ce projet et la configuration actuelle du serveur.");
+    }
+
+    // Prend la première version compatible ayant un fichier primaire ou jar
+    const latestVersion = jsonVer.data[0];
+    const primaryFile = latestVersion.files.find(f => f.primary) || latestVersion.files[0];
+
+    if (!primaryFile || !primaryFile.url) {
+      throw new Error("Aucun fichier téléchargeable valide dans cette version.");
+    }
+
+    // 2. Déclenche l'installation sur le NAS
+    const installReq = {
+      project_id: projectId,
+      project_title: projectTitle,
+      version_id: latestVersion.id,
+      version_number: latestVersion.version_number,
+      filename: primaryFile.filename,
+      file_url: primaryFile.url,
+      target_dir_type: targetDirType
+    };
+
+    const resInst = await fetch(`/api/games/${encodeURIComponent(activeConsoleServerId)}/modrinth/install`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(installReq)
+    });
+    const jsonInst = await resInst.json();
+
+    if (!jsonInst.success) {
+      throw new Error(jsonInst.message || "Erreur lors du téléchargement.");
+    }
+
+    // Succès
+    if (btnElement) {
+      btnElement.innerHTML = `<span>✅ Installé</span>`;
+      btnElement.style.background = "#181825";
+      btnElement.style.color = "var(--green)";
+      btnElement.style.borderColor = "var(--green)";
+    }
+
+    showToast(`✅ "${primaryFile.filename}" installé avec succès dans ${targetDirType}/ !`, "success");
+
+    // Actualise le compteur d'addons
+    fetchInstalledAddonsCountSilent(activeConsoleServerId);
+
+    // Si le serveur est en ligne, proposer un redémarrage
+    const serverObj = gameServersData.find(s => s.id === activeConsoleServerId);
+    if (serverObj && serverObj.status === "online") {
+      setTimeout(() => {
+        showToast("💡 Astuce : Redémarrez le serveur depuis la console pour charger le nouvel addon.", "info");
+      }, 1500);
+    }
+
+  } catch (err) {
+    if (btnElement) {
+      btnElement.disabled = false;
+      btnElement.innerHTML = origHtml;
+    }
+    console.error("Erreur installation modrinth:", err);
+    showToast(`Erreur d'installation : ${err.message}`, "error");
+  }
+}
+
+/**
+ * Ouvre le modal de détails et choix de version pour un projet Modrinth
+ */
+async function openModrinthProjectDetails(projectId, projectTitle) {
+  if (!activeConsoleServerId) return;
+
+  const modal = document.getElementById("modal-modrinth-versions");
+  const modalTitle = document.getElementById("modrinth-modal-title");
+  const modalAuthor = document.getElementById("modrinth-modal-author");
+  const modalDesc = document.getElementById("modrinth-modal-description");
+  const modalExtLink = document.getElementById("modrinth-modal-ext-link");
+  const spinner = document.getElementById("modrinth-modal-versions-spinner");
+  const list = document.getElementById("modrinth-modal-versions-list");
+  const empty = document.getElementById("modrinth-modal-versions-empty");
+  const countBadge = document.getElementById("modrinth-modal-versions-count");
+
+  if (!modal) return;
+
+  // Pré-remplissage avec ce qu'on sait déjà
+  if (modalTitle) modalTitle.textContent = projectTitle;
+  if (modalAuthor) modalAuthor.textContent = "Chargement...";
+  if (modalDesc) modalDesc.textContent = "Récupération des informations et versions en cours...";
+  if (modalExtLink) modalExtLink.href = `https://modrinth.com/project/${projectId}`;
+  if (spinner) spinner.style.display = "flex";
+  if (list) {
+    list.style.display = "none";
+    list.innerHTML = "";
+  }
+  if (empty) empty.style.display = "none";
+  if (countBadge) countBadge.textContent = "0 version";
+
+  modal.style.display = "flex";
+
+  try {
+    const params = new URLSearchParams();
+    params.set("project_id", projectId);
+    if (modrinthAutoCompatEnabled && currentMinecraftProfile && currentMinecraftProfile.is_minecraft) {
+      if (currentMinecraftProfile.loader) params.set("loader", currentMinecraftProfile.loader);
+      if (currentMinecraftProfile.game_version) params.set("game_version", currentMinecraftProfile.game_version);
+    }
+
+    const res = await fetch(`/api/games/${encodeURIComponent(activeConsoleServerId)}/modrinth/versions?${params.toString()}`);
+    const json = await res.json();
+
+    if (spinner) spinner.style.display = "none";
+
+    if (!json.success || !json.data || json.data.length === 0) {
+      if (empty) empty.style.display = "block";
+      return;
+    }
+
+    const versions = json.data;
+    if (countBadge) countBadge.textContent = `${versions.length} version${versions.length > 1 ? 's' : ''}`;
+    if (list) list.style.display = "flex";
+
+    // Rendu des versions
+    renderModrinthVersionsList(projectId, projectTitle, versions);
+
+  } catch (err) {
+    if (spinner) spinner.style.display = "none";
+    console.error("Erreur versions Modrinth:", err);
+    showToast(`Erreur chargement versions : ${err.message}`, "error");
+  }
+}
+
+/**
+ * Rendu des versions dans le modal Modrinth
+ */
+function renderModrinthVersionsList(projectId, projectTitle, versions) {
+  const list = document.getElementById("modrinth-modal-versions-list");
+  if (!list) return;
+
+  list.innerHTML = versions.map(ver => {
+    const verType = (ver.version_type || "release").toLowerCase();
+    const primaryFile = ver.files.find(f => f.primary) || ver.files[0];
+    const fileName = primaryFile ? primaryFile.filename : "fichier inconnu";
+    const fileSize = primaryFile ? formatFileSize(primaryFile.size) : "";
+    const fileUrl = primaryFile ? primaryFile.url : "";
+
+    const loaders = (ver.loaders || []).join(", ");
+    const gameVersions = (ver.game_versions || []).slice(0, 4).join(", ");
+
+    const targetDirType = (ver.project_type === "plugin" || (currentMinecraftProfile && currentMinecraftProfile.supports_plugins && !currentMinecraftProfile.supports_mods)) ? "plugins" : "mods";
+
+    const verIdEscaped = escapeHtml(ver.id);
+    const verNumEscaped = escapeHtml(ver.version_number || ver.name);
+
+    return `
+      <div class="modrinth-version-row">
+        <div class="modrinth-ver-info">
+          <div class="modrinth-ver-name-row">
+            <span class="modrinth-ver-name">${escapeHtml(ver.name || ver.version_number)}</span>
+            <span class="modrinth-ver-type-tag ${verType}">${verType}</span>
+            <span class="badge badge-subtle">v${verNumEscaped}</span>
+          </div>
+          <div class="modrinth-ver-meta">
+            <span>💾 <span class="modrinth-ver-file-badge">${escapeHtml(fileName)}</span> (${fileSize})</span>
+            <span>⚙️ ${escapeHtml(loaders)}</span>
+            <span>🎮 MC ${escapeHtml(gameVersions)}</span>
+          </div>
+        </div>
+
+        <div>
+          <button type="button" class="btn-modrinth-install" onclick="installSpecificModrinthVersion('${projectId}', '${projectTitle.replace(/'/g, "\\'")}', '${verIdEscaped}', '${verNumEscaped}', '${escapeHtml(fileName).replace(/'/g, "\\'")}', '${fileUrl.replace(/'/g, "\\'")}', '${targetDirType}', this)">
+            <span>📥 Installer</span>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+/**
+ * Installe une version spécifique sélectionnée dans le modal
+ */
+async function installSpecificModrinthVersion(projectId, projectTitle, versionId, versionNumber, filename, fileUrl, targetDirType, btnElement) {
+  if (!activeConsoleServerId) return;
+
+  const origHtml = btnElement ? btnElement.innerHTML : "";
+  if (btnElement) {
+    btnElement.disabled = true;
+    btnElement.innerHTML = `<span class="spin-slow">⏳</span> <span>Téléchargement...</span>`;
+  }
+
+  try {
+    const installReq = {
+      project_id: projectId,
+      project_title: projectTitle,
+      version_id: versionId,
+      version_number: versionNumber,
+      filename: filename,
+      file_url: fileUrl,
+      target_dir_type: targetDirType
+    };
+
+    const res = await fetch(`/api/games/${encodeURIComponent(activeConsoleServerId)}/modrinth/install`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(installReq)
+    });
+    const json = await res.json();
+
+    if (!json.success) {
+      throw new Error(json.message || "Erreur de téléchargement");
+    }
+
+    if (btnElement) {
+      btnElement.innerHTML = `<span>✅ Installé</span>`;
+      btnElement.style.background = "#181825";
+      btnElement.style.color = "var(--green)";
+      btnElement.style.borderColor = "var(--green)";
+    }
+
+    showToast(`✅ "${filename}" installé avec succès dans ${targetDirType}/ !`, "success");
+    fetchInstalledAddonsCountSilent(activeConsoleServerId);
+
+    // Met également à jour le bouton de la carte principale si présente
+    const mainBtn = document.getElementById(`btn-quick-install-${projectId}`);
+    if (mainBtn) {
+      mainBtn.innerHTML = `<span>✅ Installé</span>`;
+      mainBtn.style.background = "#181825";
+      mainBtn.style.color = "var(--green)";
+    }
+
+  } catch (err) {
+    if (btnElement) {
+      btnElement.disabled = false;
+      btnElement.innerHTML = origHtml;
+    }
+    console.error("Erreur install version:", err);
+    showToast(`Erreur : ${err.message}`, "error");
+  }
+}
+
+function closeModrinthVersionsModal() {
+  const modal = document.getElementById("modal-modrinth-versions");
+  if (modal) modal.style.display = "none";
+}
+
+// ==========================================================================
+// 📦 GESTIONNAIRE D'ADDONS INSTALLÉS (MODS & PLUGINS DU SERVEUR)
+// ==========================================================================
+
+/**
+ * Récupère le nombre d'addons installés de manière silencieuse pour les badges
+ */
+async function fetchInstalledAddonsCountSilent(serverId) {
+  if (!serverId) return;
+  try {
+    const res = await fetch(`/api/games/${encodeURIComponent(serverId)}/addons`);
+    const json = await res.json();
+    if (json.success && json.data) {
+      const count = json.data.length;
+      const countBadge = document.getElementById("console-addons-count-badge");
+      const inHeader = document.getElementById("modrinth-counter-in-header");
+      const totalBadge = document.getElementById("addons-total-badge");
+
+      if (countBadge) countBadge.textContent = count.toString();
+      if (inHeader) inHeader.textContent = count.toString();
+      if (totalBadge) totalBadge.textContent = `${count} addon${count > 1 ? 's' : ''}`;
+    }
+  } catch (e) {
+    // Silencieux
+  }
+}
+
+/**
+ * Récupère la liste complète des mods et plugins installés sur le serveur
+ */
+async function fetchInstalledAddons() {
+  if (!activeConsoleServerId) return;
+
+  const spinner = document.getElementById("addons-loading-spinner");
+  const empty = document.getElementById("addons-empty-state");
+  const container = document.getElementById("addons-table-container");
+
+  if (spinner) spinner.style.display = "flex";
+  if (empty) empty.style.display = "none";
+  if (container) container.innerHTML = "";
+
+  try {
+    const res = await fetch(`/api/games/${encodeURIComponent(activeConsoleServerId)}/addons`);
+    const json = await res.json();
+
+    if (spinner) spinner.style.display = "none";
+
+    if (!json.success || !json.data || json.data.length === 0) {
+      installedAddonsList = [];
+      updateAddonsCountBadges([]);
+      if (empty) empty.style.display = "block";
+      return;
+    }
+
+    installedAddonsList = json.data;
+    updateAddonsCountBadges(installedAddonsList);
+    renderInstalledAddonsTable();
+
+  } catch (err) {
+    if (spinner) spinner.style.display = "none";
+    console.error("Erreur fetch addons:", err);
+    showToast(`Erreur chargement addons : ${err.message}`, "error");
+  }
+}
+
+/**
+ * Met à jour les compteurs dans les onglets Addons
+ */
+function updateAddonsCountBadges(addons) {
+  const total = addons.length;
+  const plugins = addons.filter(a => a.addon_type === "plugin").length;
+  const mods = addons.filter(a => a.addon_type === "mod").length;
+
+  const totalBadge = document.getElementById("addons-total-badge");
+  const navBadge = document.getElementById("console-addons-count-badge");
+  const headerCount = document.getElementById("modrinth-counter-in-header");
+  const countAll = document.getElementById("addons-count-all");
+  const countPlugins = document.getElementById("addons-count-plugins");
+  const countMods = document.getElementById("addons-count-mods");
+
+  if (totalBadge) totalBadge.textContent = `${total} addon${total > 1 ? 's' : ''}`;
+  if (navBadge) navBadge.textContent = total.toString();
+  if (headerCount) headerCount.textContent = total.toString();
+  if (countAll) countAll.textContent = total.toString();
+  if (countPlugins) countPlugins.textContent = plugins.toString();
+  if (countMods) countMods.textContent = mods.toString();
+}
+
+/**
+ * Filtre les addons par type (Tous, Plugins, Mods)
+ */
+function setAddonsFilterType(filter) {
+  installedAddonsFilterType = filter;
+  const tabs = document.querySelectorAll(".addons-type-tab");
+  tabs.forEach(t => {
+    t.classList.toggle("active", t.dataset.filter === filter);
+  });
+  renderInstalledAddonsTable();
+}
+
+/**
+ * Filtre textuel de la liste des addons
+ */
+function filterInstalledAddonsList(query) {
+  installedAddonsSearchQuery = query.toLowerCase().trim();
+  renderInstalledAddonsTable();
+}
+
+/**
+ * Rendu du tableau des addons installés
+ */
+function renderInstalledAddonsTable() {
+  const container = document.getElementById("addons-table-container");
+  const empty = document.getElementById("addons-empty-state");
+  if (!container) return;
+
+  // Filtrage
+  let filtered = installedAddonsList;
+  if (installedAddonsFilterType !== 'all') {
+    filtered = filtered.filter(a => a.addon_type === installedAddonsFilterType);
+  }
+  if (installedAddonsSearchQuery) {
+    filtered = filtered.filter(a => a.filename.toLowerCase().includes(installedAddonsSearchQuery));
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div style="text-align:center; padding:40px; color:var(--subtext0); font-size:0.9rem;">
+        Aucun addon ne correspond aux filtres actuels.
+      </div>
+    `;
+    return;
+  }
+
+  if (empty) empty.style.display = "none";
+
+  const rowsHtml = filtered.map(addon => {
+    const isEnabled = addon.is_enabled;
+    const typeTag = addon.addon_type === "plugin"
+      ? `<span class="modrinth-type-tag tag-plugin">PLUGIN</span>`
+      : `<span class="modrinth-type-tag tag-mod">MOD</span>`;
+
+    const statusBadge = isEnabled
+      ? `<span class="addon-badge-status active">🟢 Actif</span>`
+      : `<span class="addon-badge-status disabled">⚪ Désactivé</span>`;
+
+    const filenameClass = isEnabled ? "" : "addon-disabled-strike";
+    const sizeFormatted = formatFileSize(addon.size_bytes);
+    const dateFormatted = formatDate(addon.modified_at);
+
+    const safeFilename = escapeHtml(addon.filename);
+    const safeType = escapeHtml(addon.addon_type);
+
+    return `
+      <tr>
+        <td>
+          <div class="addon-filename-cell">
+            <span class="file-icon">🧩</span>
+            <span class="${filenameClass}" title="${safeFilename}">${safeFilename}</span>
+          </div>
+        </td>
+        <td>${typeTag}</td>
+        <td><span style="color:var(--subtext0); font-size:0.82rem;">${escapeHtml(addon.directory)}/</span></td>
+        <td><span style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text);">${sizeFormatted}</span></td>
+        <td><span style="font-size:0.78rem; color:var(--subtext0);">${dateFormatted}</span></td>
+        <td>${statusBadge}</td>
+        <td>
+          <label class="addon-toggle-switch" title="${isEnabled ? 'Désactiver cet addon (.jar.disabled)' : 'Activer cet addon (.jar)'}">
+            <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="toggleAddonStatus('${safeType}', '${safeFilename.replace(/'/g, "\\'")}', this)">
+            <span class="addon-toggle-slider"></span>
+          </label>
+        </td>
+        <td style="text-align:right;">
+          <button type="button" class="btn-addon-delete" onclick="deleteInstalledAddon('${safeType}', '${safeFilename.replace(/'/g, "\\'")}')" title="Supprimer définitivement ce fichier">
+            <span>🗑️ Supprimer</span>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  container.innerHTML = `
+    <table class="addons-table">
+      <thead>
+        <tr>
+          <th>Fichier</th>
+          <th>Type</th>
+          <th>Dossier</th>
+          <th>Taille</th>
+          <th>Modifié le</th>
+          <th>Statut</th>
+          <th>Actif / Inactif</th>
+          <th style="text-align:right;">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+    </table>
+  `;
+}
+
+/**
+ * Bascule l'activation d'un addon (.jar <-> .jar.disabled)
+ */
+async function toggleAddonStatus(addonType, filename, inputElement) {
+  if (!activeConsoleServerId) return;
+
+  const targetEnable = inputElement ? inputElement.checked : true;
+
+  try {
+    const res = await fetch(`/api/games/${encodeURIComponent(activeConsoleServerId)}/addons/toggle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        addon_type: addonType,
+        filename: filename,
+        enable: targetEnable
+      })
+    });
+    const json = await res.json();
+
+    if (!json.success) {
+      // Revert checkbox
+      if (inputElement) inputElement.checked = !targetEnable;
+      throw new Error(json.message || "Erreur lors du changement d'état");
+    }
+
+    const stateWord = targetEnable ? "activé" : "désactivé";
+    showToast(`Addon ${filename} ${stateWord} avec succès.`, "success");
+
+    // Recharge la liste
+    fetchInstalledAddons();
+
+  } catch (err) {
+    console.error("Erreur toggle addon:", err);
+    showToast(`Erreur : ${err.message}`, "error");
+  }
+}
+
+/**
+ * Supprime définitivement un addon installé
+ */
+async function deleteInstalledAddon(addonType, filename) {
+  if (!activeConsoleServerId) return;
+
+  const confirmed = confirm(`Êtes-vous sûr de vouloir supprimer définitivement "${filename}" du serveur ?\nCette action est irréversible.`);
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`/api/games/${encodeURIComponent(activeConsoleServerId)}/addons/${encodeURIComponent(addonType)}/${encodeURIComponent(filename)}`, {
+      method: "DELETE"
+    });
+    const json = await res.json();
+
+    if (!json.success) {
+      throw new Error(json.message || "Erreur lors de la suppression");
+    }
+
+    showToast(`Addon "${filename}" supprimé avec succès.`, "success");
+    fetchInstalledAddons();
+
+  } catch (err) {
+    console.error("Erreur suppression addon:", err);
+    showToast(`Erreur : ${err.message}`, "error");
+  }
+}
+
 
 // --------------------------------------------------------------------------
 // IMPORT D'EGG
