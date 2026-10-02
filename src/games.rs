@@ -2449,16 +2449,45 @@ pub fn delete_game_server(id: &str, delete_data: bool) -> Result<String, String>
 }
 
 pub fn get_game_server_logs(id: &str, lines: usize) -> Result<String, String> {
+    // 1. Si un déploiement est en cours pour ce serveur
+    let deploy_logs = get_deployment_status(id).and_then(|status| {
+        if !status.logs.is_empty() {
+            let slice = if status.logs.len() > lines {
+                &status.logs[status.logs.len() - lines..]
+            } else {
+                &status.logs[..]
+            };
+            Some(slice.join("\n"))
+        } else {
+            None
+        }
+    });
+
     let container_name = resolve_game_container_name(id);
     let output = Command::new("docker")
         .args(["logs", "--tail", &lines.to_string(), &container_name])
-        .output()
-        .map_err(|e| format!("Impossible de lire les logs : {}", e))?;
+        .output();
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let combined = format!("{}{}", stdout, stderr);
-    Ok(combined)
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let combined = format!("{}{}", stdout, stderr);
+            if combined.trim().is_empty() {
+                if let Some(dlogs) = deploy_logs {
+                    return Ok(dlogs);
+                }
+            }
+            Ok(combined)
+        }
+        Err(_) => {
+            if let Some(dlogs) = deploy_logs {
+                Ok(dlogs)
+            } else {
+                Ok(format!("Serveur '{}' : conteneur Docker en attente d'initialisation...", id))
+            }
+        }
+    }
 }
 
 pub fn send_game_server_command(id: &str, cmd: &str) -> Result<String, String> {

@@ -16541,6 +16541,7 @@ let gameConsoleAutoScrollEnabled = true;
 let isGameConsoleExpanded = false;
 let isGameConsoleProgrammaticScrolling = false;
 let lastGameConsoleRawMap = {};
+let currentlyRenderedConsoleServerId = null;
 
 function isMinecraftServer(server) {
   if (!server) return false;
@@ -16559,8 +16560,14 @@ function updateGameConsoleSelectOptions() {
   if (gameServersData.length === 0) {
     sel.innerHTML = '<option value="">Aucun serveur déployé</option>';
     activeConsoleServerId = null;
+    currentlyRenderedConsoleServerId = null;
     updateConsoleHeaderStats(null);
     return;
+  }
+
+  // Vérifier si activeConsoleServerId est toujours valide
+  if (!activeConsoleServerId || !gameServersData.some(s => s.id === activeConsoleServerId)) {
+    activeConsoleServerId = gameServersData[0].id;
   }
 
   sel.innerHTML = gameServersData.map(s => {
@@ -16573,9 +16580,9 @@ function updateGameConsoleSelectOptions() {
     `;
   }).join('');
 
-  if (!activeConsoleServerId && gameServersData.length > 0) {
-    activeConsoleServerId = gameServersData[0].id;
-  }
+  // Verrouillage impératif de la sélection sur l'élément DOM
+  sel.value = activeConsoleServerId;
+
   const current = gameServersData.find(s => s.id === activeConsoleServerId) || gameServersData[0];
   updateConsoleHeaderStats(current);
 }
@@ -16778,26 +16785,44 @@ function openConsoleServerFolder() {
   openServerFolderInFiles(current.data_dir);
 }
 
-function openServerConsoleView(id) {
-  activeConsoleServerId = id;
+function switchConsoleActiveServer(serverId) {
+  if (!serverId) return;
+  activeConsoleServerId = serverId;
   const sel = document.getElementById("game-console-server-select");
-  if (sel) sel.value = id;
+  if (sel) sel.value = serverId;
+
+  const current = gameServersData.find(s => s.id === serverId);
+  updateConsoleHeaderStats(current);
+
+  // Vider visuellement et afficher un indicateur de chargement pour le nouveau serveur
+  const outputEl = document.getElementById("game-terminal-output");
+  if (outputEl && currentlyRenderedConsoleServerId !== serverId) {
+    const serverName = current ? (current.game_name || current.name) : serverId;
+    outputEl.innerHTML = `<div class="game-terminal-welcome" style="padding:40px 20px;">` +
+      `<div class="spinner-sm" style="margin: 0 auto 12px auto;"></div>` +
+      `<div style="font-weight:600; color:var(--text);">Connexion à la console de ${escapeHtml(serverName)}...</div>` +
+      `<div style="font-size:0.85rem; color:var(--subtext0); margin-top:4px;">Chargement des flux de logs en direct...</div>` +
+    `</div>`;
+  }
+
+  currentlyRenderedConsoleServerId = null; // Force le rendu du nouveau serveur
+  gameConsoleAutoScrollEnabled = true;
+  const dot = document.getElementById("game-console-autoscroll-dot");
+  if (dot) dot.className = "terminal-status-dot active";
+
+  fetchGameConsoleLogs();
+  detectAndInitMinecraftModrinth(serverId);
+}
+
+function openServerConsoleView(id) {
+  switchConsoleActiveServer(id);
   switchGamesSubtab("console");
-  detectAndInitMinecraftModrinth(id);
 }
 
 function onGameConsoleServerChange() {
   const sel = document.getElementById("game-console-server-select");
-  if (sel) {
-    activeConsoleServerId = sel.value;
-    delete lastGameConsoleRawMap[activeConsoleServerId];
-    gameConsoleAutoScrollEnabled = true;
-    const dot = document.getElementById("game-console-autoscroll-dot");
-    if (dot) dot.className = "terminal-status-dot active";
-    const current = gameServersData.find(s => s.id === activeConsoleServerId);
-    updateConsoleHeaderStats(current);
-    fetchGameConsoleLogs();
-    detectAndInitMinecraftModrinth(activeConsoleServerId);
+  if (sel && sel.value) {
+    switchConsoleActiveServer(sel.value);
   }
 }
 
@@ -16947,70 +16972,106 @@ async function fetchGameConsoleLogs() {
 
   if (!activeConsoleServerId) return;
 
+  const requestedServerId = activeConsoleServerId;
   const linesSelect = document.getElementById("game-console-lines-select");
   const linesCount = linesSelect ? linesSelect.value : "200";
 
   try {
-    const res = await fetch(`/api/games/${encodeURIComponent(activeConsoleServerId)}/logs?lines=${linesCount}`);
+    const res = await fetch(`/api/games/${encodeURIComponent(requestedServerId)}/logs?lines=${linesCount}`);
     const json = await res.json();
+
+    // Si l'utilisateur a basculé sur un autre serveur pendant la requête HTTP, ignorer cette réponse obsolète
+    if (requestedServerId !== activeConsoleServerId) return;
+
+    const outputEl = document.getElementById("game-terminal-output");
+    if (!outputEl) return;
+
     if (json.success && json.data !== undefined) {
-      const outputEl = document.getElementById("game-terminal-output");
-      if (outputEl) {
-        const rawText = json.data || "";
-        const cacheKey = `${activeConsoleServerId}_${linesCount}`;
+      const rawText = json.data || "";
+      const cacheKey = `${requestedServerId}_${linesCount}`;
+      const isSameServerAlreadyRendered = (currentlyRenderedConsoleServerId === requestedServerId);
 
-        if (lastGameConsoleRawMap[cacheKey] === rawText && outputEl.children.length > 0) {
-          if (gameConsoleAutoScrollEnabled) {
-            isGameConsoleProgrammaticScrolling = true;
-            outputEl.scrollTop = outputEl.scrollHeight;
-            setTimeout(() => { isGameConsoleProgrammaticScrolling = false; }, 80);
-          }
-          return;
+      // Ne court-circuiter QUE si on affiche déjà ce serveur et que le contenu n'a pas bougé
+      if (isSameServerAlreadyRendered && lastGameConsoleRawMap[cacheKey] === rawText && outputEl.children.length > 0) {
+        if (gameConsoleAutoScrollEnabled) {
+          isGameConsoleProgrammaticScrolling = true;
+          outputEl.scrollTop = outputEl.scrollHeight;
+          setTimeout(() => { isGameConsoleProgrammaticScrolling = false; }, 80);
         }
+        return;
+      }
 
-        lastGameConsoleRawMap[cacheKey] = rawText;
+      lastGameConsoleRawMap[cacheKey] = rawText;
+      currentlyRenderedConsoleServerId = requestedServerId;
 
-        const rawLines = rawText.split("\n");
-        let html = "";
-        let lineIdx = 1;
-        for (const rawLine of rawLines) {
-          const parsed = formatGameConsoleLogLine(rawLine);
-          if (parsed) {
-            html += `<div class="game-term-line">` +
-              `<span class="game-term-num">${lineIdx}</span>` +
-              `<span class="game-term-text ${parsed.cls}">${escapeHtml(parsed.text)}</span>` +
-            `</div>`;
-            lineIdx++;
-          }
-        }
-        if (lineIdx === 1) {
-          html = `<div class="game-terminal-welcome" style="padding:40px 20px;">` +
-            `<div style="font-size:2rem; margin-bottom:8px;">💤</div>` +
-            `<div style="font-weight:600; color:var(--subtext0);">Aucun log disponible pour ce serveur pour l'instant.</div>` +
+      const rawLines = rawText.split("\n");
+      let html = "";
+      let lineIdx = 1;
+      for (const rawLine of rawLines) {
+        const parsed = formatGameConsoleLogLine(rawLine);
+        if (parsed) {
+          html += `<div class="game-term-line">` +
+            `<span class="game-term-num">${lineIdx}</span>` +
+            `<span class="game-term-text ${parsed.cls}">${escapeHtml(parsed.text)}</span>` +
           `</div>`;
-        } else {
-          html += `<div class="game-term-line"><span class="game-term-num"></span><span class="game-term-text"><span class="terminal-cursor"></span></span></div>`;
+          lineIdx++;
         }
+      }
+      if (lineIdx === 1) {
+        const gameTitle = server ? (server.game_name || server.name) : requestedServerId;
+        const statusDesc = server && (server.status === 'starting' || server.status === 'deploying')
+          ? "Initialisation ou téléchargement en cours..."
+          : "Aucun log disponible pour ce serveur pour l'instant.";
+        html = `<div class="game-terminal-welcome" style="padding:40px 20px;">` +
+          `<div style="font-size:2rem; margin-bottom:8px;">${server && server.status === 'starting' ? '🚀' : '💤'}</div>` +
+          `<div style="font-weight:600; color:var(--text);">${escapeHtml(gameTitle)}</div>` +
+          `<div style="font-size:0.85rem; color:var(--subtext0); margin-top:4px;">${statusDesc}</div>` +
+        `</div>`;
+      } else {
+        html += `<div class="game-term-line"><span class="game-term-num"></span><span class="game-term-text"><span class="terminal-cursor"></span></span></div>`;
+      }
 
-        isGameConsoleProgrammaticScrolling = true;
-        outputEl.innerHTML = html;
+      isGameConsoleProgrammaticScrolling = true;
+      outputEl.innerHTML = html;
 
+      if (gameConsoleAutoScrollEnabled) {
+        outputEl.scrollTop = outputEl.scrollHeight;
+      }
+
+      requestAnimationFrame(() => {
         if (gameConsoleAutoScrollEnabled) {
           outputEl.scrollTop = outputEl.scrollHeight;
         }
-
-        requestAnimationFrame(() => {
-          if (gameConsoleAutoScrollEnabled) {
-            outputEl.scrollTop = outputEl.scrollHeight;
-          }
-          setTimeout(() => {
-            isGameConsoleProgrammaticScrolling = false;
-          }, 80);
-        });
+        setTimeout(() => {
+          isGameConsoleProgrammaticScrolling = false;
+        }, 80);
+      });
+    } else {
+      // En cas d'erreur API, afficher un message explicite si ce serveur n'est pas encore rendu
+      if (currentlyRenderedConsoleServerId !== requestedServerId) {
+        currentlyRenderedConsoleServerId = requestedServerId;
+        const gameTitle = server ? (server.game_name || server.name) : requestedServerId;
+        outputEl.innerHTML = `<div class="game-terminal-welcome" style="padding:40px 20px;">` +
+          `<div style="font-size:2rem; margin-bottom:8px;">⏹️</div>` +
+          `<div style="font-weight:600; color:var(--text);">${escapeHtml(gameTitle)}</div>` +
+          `<div style="font-size:0.85rem; color:var(--subtext0); margin-top:4px;">${json.message || "Serveur en cours d'initialisation ou arrêté."}</div>` +
+        `</div>`;
       }
     }
   } catch (e) {
     console.error("Échec de la récupération des logs console :", e);
+    if (currentlyRenderedConsoleServerId !== requestedServerId) {
+      currentlyRenderedConsoleServerId = requestedServerId;
+      const outputEl = document.getElementById("game-terminal-output");
+      if (outputEl) {
+        const gameTitle = server ? (server.game_name || server.name) : requestedServerId;
+        outputEl.innerHTML = `<div class="game-terminal-welcome" style="padding:40px 20px;">` +
+          `<div style="font-size:2rem; margin-bottom:8px;">⚠️</div>` +
+          `<div style="font-weight:600; color:var(--text);">${escapeHtml(gameTitle)}</div>` +
+          `<div style="font-size:0.85rem; color:var(--subtext0); margin-top:4px;">Impossible de contacter le conteneur Docker.</div>` +
+        `</div>`;
+      }
+    }
   }
 }
 
@@ -18618,12 +18679,8 @@ function jumpToGameConsole() {
   const serverId = activeGameDeployModalServerId;
   closeGameDeployProgressModal();
   if (serverId) {
+    switchConsoleActiveServer(serverId);
     switchGamesSubtab("console");
-    const select = document.getElementById("game-console-server-select");
-    if (select) {
-      select.value = serverId;
-      onGameConsoleServerChange();
-    }
   }
 }
 
