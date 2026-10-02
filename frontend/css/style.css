@@ -879,27 +879,251 @@ html[data-initial-tab="tab-updates"] #tab-updates { display: block !important; }
   min-width: 0;
 }
 
-.bash-output-window {
+/* ==========================================================================
+   CONSOLE, TERMINAL PRO & EXPLORATEUR DE LOGS
+   ========================================================================== */
+
+.terminal-window-mac {
   background: #090a10;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-lg);
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  height: 520px;
-  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.5);
+  height: 540px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: height 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+  position: relative;
 }
 
+.terminal-window-mac.compact-height {
+  height: 340px;
+}
+
+.terminal-window-mac.fullscreen-mode {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 99999 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.mac-window-topbar {
+  background: #11111b;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  user-select: none;
+  min-height: 38px;
+}
+
+.mac-dots {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.mac-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  display: inline-block;
+}
+
+.mac-dot:hover {
+  transform: scale(1.15);
+  opacity: 0.85;
+}
+
+.mac-dot-red {
+  background: #f38ba8;
+  border: 1px solid #eba0ac;
+}
+
+.mac-dot-yellow {
+  background: #f9e2af;
+  border: 1px solid #fab387;
+}
+
+.mac-dot-green {
+  background: #a6e3a1;
+  border: 1px solid #94e2d5;
+}
+
+.mac-window-title {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--subtext0);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+
+.mac-window-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.term-status-pill {
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.term-status-pill.online {
+  background: rgba(166, 227, 161, 0.15);
+  color: #a6e3a1;
+  border: 1px solid rgba(166, 227, 161, 0.3);
+}
+
+.term-status-pill.busy {
+  background: rgba(249, 226, 175, 0.15);
+  color: #f9e2af;
+  border: 1px solid rgba(249, 226, 175, 0.3);
+  animation: pulseTermStatus 1.5s infinite ease-in-out;
+}
+
+@keyframes pulseTermStatus {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.term-mini-btn {
+  background: var(--surface0);
+  border: 1px solid var(--surface1);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.term-mini-btn:hover {
+  background: var(--surface1);
+  color: var(--mauve);
+}
+
+/* BANNIÈRE DE MOT DE PASSE SUDO */
+.terminal-sudo-banner {
+  background: linear-gradient(135deg, rgba(243, 139, 168, 0.15) 0%, rgba(203, 166, 247, 0.1) 100%);
+  border-bottom: 1px solid rgba(243, 139, 168, 0.35);
+  padding: 12px 16px;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  animation: slideDownBanner 0.25s ease-out;
+}
+
+@keyframes slideDownBanner {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.sudo-banner-icon {
+  font-size: 1.4rem;
+  padding-top: 2px;
+}
+
+.sudo-banner-body {
+  flex: 1;
+}
+
+.sudo-banner-title {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--red);
+  margin-bottom: 4px;
+}
+
+.sudo-banner-desc {
+  font-size: 0.8rem;
+  color: var(--subtext1);
+  margin-bottom: 10px;
+}
+
+.sudo-banner-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sudo-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.sudo-input-field {
+  background: var(--surface0);
+  border: 1px solid rgba(243, 139, 168, 0.4);
+  color: var(--text);
+  padding: 6px 32px 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  outline: none;
+  font-family: var(--font-mono);
+  min-width: 220px;
+}
+
+.sudo-input-field:focus {
+  border-color: var(--red);
+  box-shadow: 0 0 0 2px rgba(243, 139, 168, 0.25);
+}
+
+.sudo-eye-btn {
+  position: absolute;
+  right: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+
+.sudo-eye-btn:hover {
+  opacity: 1;
+}
+
+.sudo-remember-label {
+  font-size: 0.78rem;
+  color: var(--subtext0);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* SORTIE TERMINAL */
 .bash-output-body {
   flex: 1;
   padding: 16px;
   overflow-y: auto;
   font-family: var(--font-mono);
-  font-size: 0.84rem;
+  font-size: 0.85rem;
   line-height: 1.55;
   color: var(--text);
   white-space: pre-wrap;
   word-break: break-all;
+  background: #090a10;
 }
 
 .term-welcome-msg {
@@ -920,7 +1144,7 @@ html[data-initial-tab="tab-updates"] #tab-updates { display: block !important; }
 }
 
 .term-cmd-text {
-  color: var(--yellow);
+  color: var(--peach);
   font-weight: 600;
 }
 
@@ -949,17 +1173,21 @@ html[data-initial-tab="tab-updates"] #tab-updates { display: block !important; }
   align-items: center;
   gap: 12px;
   background: var(--surface0);
-  padding: 12px 16px;
+  padding: 10px 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   position: relative;
 }
 
 .bash-prompt-label {
   font-family: var(--font-mono);
-  font-size: 0.82rem;
+  font-size: 0.84rem;
   color: var(--green);
   font-weight: 600;
   white-space: nowrap;
+}
+
+.bash-prompt-label.sudo-active {
+  color: var(--red);
 }
 
 .bash-input-field {
@@ -972,34 +1200,128 @@ html[data-initial-tab="tab-updates"] #tab-updates { display: block !important; }
   font-size: 0.88rem;
 }
 
-.autocomplete-dropdown {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 16px;
-  right: 16px;
-  background: var(--mantle);
-  border: 1px solid var(--mauve);
-  border-radius: var(--radius-md);
-  max-height: 180px;
-  overflow-y: auto;
-  z-index: 100;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
-  display: none;
+.btn-sudo-prefix {
+  border-color: rgba(243, 139, 168, 0.3) !important;
+  color: var(--subtext0);
 }
 
-.autocomplete-item {
-  padding: 8px 14px;
+.btn-sudo-prefix.active {
+  background: rgba(243, 139, 168, 0.25) !important;
+  color: var(--red) !important;
+  border-color: var(--red) !important;
+}
+
+/* EXPLORATEUR DE LOGS */
+.logs-filter-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: var(--surface0);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.logs-filter-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.logs-filter-label {
+  font-size: 0.78rem;
+  color: var(--subtext0);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.logs-filter-select, .logs-filter-input {
+  background: var(--mantle);
+  border: 1px solid var(--surface1);
+  color: var(--text);
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  outline: none;
+}
+
+.logs-filter-select:focus, .logs-filter-input:focus {
+  border-color: var(--mauve);
+}
+
+.logs-filter-search {
+  flex: 1;
+  min-width: 180px;
+}
+
+.logs-filter-search input {
+  width: 100%;
+}
+
+.live-stream-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--subtext0);
+  margin-right: 4px;
+  transition: all 0.2s ease;
+}
+
+.live-stream-dot.active {
+  background: #a6e3a1;
+  box-shadow: 0 0 8px #a6e3a1;
+  animation: pulseLiveStream 1.5s infinite;
+}
+
+@keyframes pulseLiveStream {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.logs-window-body {
+  flex: 1;
+  padding: 14px 16px;
+  overflow-y: auto;
   font-family: var(--font-mono);
   font-size: 0.82rem;
-  cursor: pointer;
+  line-height: 1.5;
   color: var(--text);
-  display: flex;
-  justify-content: space-between;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: #090a10;
+  height: 480px;
 }
 
-.autocomplete-item:hover, .autocomplete-item.selected {
-  background: rgba(203, 166, 247, 0.2);
-  color: var(--mauve);
+.log-line-err {
+  color: #f38ba8;
+  background: rgba(243, 139, 168, 0.08);
+  border-left: 3px solid #f38ba8;
+  padding-left: 6px;
+  display: block;
+}
+
+.log-line-warn {
+  color: #fab387;
+  background: rgba(250, 179, 135, 0.06);
+  border-left: 3px solid #fab387;
+  padding-left: 6px;
+  display: block;
+}
+
+.log-line-info {
+  display: block;
+  padding-left: 9px;
+}
+
+mark.log-search-match {
+  background: #f9e2af;
+  color: #11111b;
+  border-radius: 2px;
+  padding: 0 2px;
+  font-weight: 700;
 }
 
 .term-quick-bar {

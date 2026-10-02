@@ -3288,16 +3288,17 @@
             <span>📜</span> Journaux Système
           </button>
           <button type="button" class="console-side-btn" id="btn-side-terminal" onclick="switchConsoleSubTab('terminal')">
-            <span>💻</span> Terminal Bash
+            <span>💻</span> Terminal Bash Pro
           </button>
 
           <div class="console-sidebar-footer">
             <div class="sidebar-user-pill">
               <span class="status-indicator status-online"></span>
-              <span>admin@noos-nas</span>
+              <span id="console-sidebar-user">chomiam@noos-nas</span>
             </div>
             <div style="font-size:0.75rem; color:var(--subtext0); margin-top:8px;">
               Shell : <code>bash</code><br>
+              Élévation : <span id="sidebar-sudo-status-badge" style="color:var(--yellow); font-weight:600;">Sudo disponible</span><br>
               Complétion : <span style="color:var(--green); font-weight:600;">Active (Tab)</span>
             </div>
           </div>
@@ -3306,57 +3307,132 @@
         <!-- PANNEAU DROIT (CONTENU) -->
         <div class="console-main-pane">
 
-          <!-- SOUS-ONGLET 1 : JOURNAUX SYSTÈME -->
+          <!-- SOUS-ONGLET 1 : JOURNAUX SYSTÈME PRO -->
           <div id="subpane-logs" class="subpane-content active">
             <div class="section-card" style="margin-top:0;">
               <div class="section-header">
                 <div class="section-title-wrap">
                   <div class="section-icon-box">📜</div>
                   <div>
-                    <div class="section-title">Journal Système en Temps Réel</div>
-                    <div class="section-subtitle">Consultez les journaux des services critiques du NAS</div>
+                    <div class="section-title">Explorateur des Journaux Système</div>
+                    <div class="section-subtitle">Consultation temps réel, filtres de sévérité et streaming des journaux NixOS / systemd</div>
                   </div>
                 </div>
-                <div style="display:flex; gap:10px; align-items:center;">
-                  <select id="select-log-unit" class="btn btn-secondary" onchange="loadLogs()" style="padding:6px 12px;">
-                    <option value="sshd">sshd (SSH & sFTP)</option>
-                    <option value="samba-smbd">samba-smbd (Samba SMB)</option>
-                    <option value="jellyfin">jellyfin (Multimédia)</option>
-                    <option value="docker">docker (Conteneurs)</option>
-                    <option value="fail2ban">fail2ban (Sécurité)</option>
-                    <option value="noos-nas-dashboard">noos-nas-dashboard (Web)</option>
-                  </select>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                  <button type="button" class="btn btn-secondary btn-xs" id="btn-logs-live" onclick="toggleLogsLiveStream()">
+                    <span class="live-stream-dot" id="live-stream-dot"></span> <span id="btn-logs-live-text">Flux Direct (Off)</span>
+                  </button>
                   <button type="button" class="btn btn-secondary btn-xs" onclick="loadLogs()">
                     🔄 Actualiser
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="exportLogsFile()">
+                    💾 Exporter (.log)
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="copyLogs()">
+                    📋 Copier
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="toggleLogsFullscreen()" title="Plein Écran">
+                    ⛶
                   </button>
                 </div>
               </div>
 
-              <div class="terminal-window">
-                <div class="terminal-header">
-                  <span style="font-size:0.78rem; color:var(--subtext0); font-family:var(--font-mono);" id="terminal-unit-title">journalctl -u sshd -n 50</span>
-                  <button type="button" class="btn btn-secondary btn-xs" onclick="copyLogs()">📋 Copier</button>
+              <!-- BARRE DE FILTRAGE DES LOGS -->
+              <div class="logs-filter-toolbar">
+                <div class="logs-filter-item">
+                  <label for="select-log-unit" class="logs-filter-label">Source / Service :</label>
+                  <select id="select-log-unit" class="logs-filter-select" onchange="onLogUnitChanged()">
+                    <optgroup label="Système Global">
+                      <option value="_SYSTEM_">🌐 Système Complet (journald)</option>
+                      <option value="_KERNEL_">🐧 Noyau Linux (dmesg / kernel)</option>
+                      <option value="_BOOT_">🚀 Dernier Démarrage (boot)</option>
+                    </optgroup>
+                    <optgroup label="Services Noos & Réseau">
+                      <option value="noos-nas-dashboard">⚡ noos-nas-dashboard (Web UI)</option>
+                      <option value="sshd">🔒 sshd (SSH & sFTP)</option>
+                      <option value="samba-smbd">📁 samba-smbd (Samba SMB)</option>
+                      <option value="systemd-networkd">🌐 systemd-networkd (Réseau)</option>
+                      <option value="wireguard">🛡️ wireguard (VPN)</option>
+                    </optgroup>
+                    <optgroup label="Applications & Multimédia">
+                      <option value="docker">🐳 docker (Moteur Conteneurs)</option>
+                      <option value="jellyfin">🎬 jellyfin (Multimédia)</option>
+                      <option value="fail2ban">🛑 fail2ban (Sécurité Anti-BruteForce)</option>
+                      <option value="avahi-daemon">📡 avahi-daemon (mDNS / Bonjour)</option>
+                    </optgroup>
+                    <optgroup label="Avancé">
+                      <option value="__CUSTOM__">✏️ Autre unité systemd...</option>
+                    </optgroup>
+                  </select>
+                  <input type="text" id="input-custom-log-unit" class="logs-filter-input" placeholder="ex: nginx, certbot..." style="display:none;" onkeydown="if(event.key==='Enter') loadLogs()">
                 </div>
-                <div class="terminal-body" id="terminal-content">Chargement des logs...</div>
+
+                <div class="logs-filter-item">
+                  <label for="select-log-priority" class="logs-filter-label">Sévérité :</label>
+                  <select id="select-log-priority" class="logs-filter-select" onchange="loadLogs()">
+                    <option value="all">⚡ Tous les niveaux</option>
+                    <option value="err">🔴 Erreurs & Critiques (err+)</option>
+                    <option value="warning">🟡 Avertissements (warn+)</option>
+                    <option value="info">🔵 Infos & Normal (info+)</option>
+                  </select>
+                </div>
+
+                <div class="logs-filter-item">
+                  <label for="select-log-lines" class="logs-filter-label">Lignes :</label>
+                  <select id="select-log-lines" class="logs-filter-select" onchange="loadLogs()">
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="250" selected>250</option>
+                    <option value="500">500</option>
+                    <option value="1000">1000</option>
+                  </select>
+                </div>
+
+                <div class="logs-filter-item logs-filter-search">
+                  <label for="input-log-search" class="logs-filter-label">Recherche rapide :</label>
+                  <input type="text" id="input-log-search" class="logs-filter-input" placeholder="🔍 Filtrer les lignes (ex: error, fail, accepted)..." oninput="filterDisplayedLogs()">
+                </div>
+              </div>
+
+              <!-- FENÊTRE DE LOGS STYLE TERMINAL -->
+              <div class="terminal-window-mac" id="logs-window-frame">
+                <div class="mac-window-topbar">
+                  <div class="mac-dots">
+                    <span class="mac-dot mac-dot-red" onclick="clearLogsView()" title="Effacer la vue"></span>
+                    <span class="mac-dot mac-dot-yellow" onclick="scrollLogsToBottom()" title="Aller tout en bas"></span>
+                    <span class="mac-dot mac-dot-green" onclick="toggleLogsFullscreen()" title="Plein Écran"></span>
+                  </div>
+                  <div class="mac-window-title" id="terminal-unit-title">journalctl -n 250 --no-pager</div>
+                  <div class="mac-window-badges">
+                    <span class="badge badge-info" id="logs-line-count-badge">0 lignes</span>
+                    <span class="badge badge-danger" id="logs-error-count-badge" style="display:none;">0 erreurs</span>
+                  </div>
+                </div>
+                <div class="logs-window-body" id="terminal-content">Chargement des logs du système...</div>
               </div>
             </div>
           </div>
 
-          <!-- SOUS-ONGLET 2 : TERMINAL INTERACTIF BASH -->
+          <!-- SOUS-ONGLET 2 : TERMINAL BASH PRO AVEC AUTHENTIFICATION SUDO -->
           <div id="subpane-terminal" class="subpane-content" style="display:none;">
             <div class="section-card" style="margin-top:0;">
               <div class="section-header">
                 <div class="section-title-wrap">
                   <div class="section-icon-box">💻</div>
                   <div>
-                    <div class="section-title">Terminal Interactif Bash</div>
-                    <div class="section-subtitle">Session Bash avec autocomplétion intelligente (Tab), historique (↑/↓) et raccourcis</div>
+                    <div class="section-title">Terminal Interactif Bash Pro</div>
+                    <div class="section-subtitle">Fenêtre shell complète avec élévation sudo, saisie sécurisée de mot de passe et autocomplétion intelligente</div>
                   </div>
                 </div>
-                <div style="display:flex; gap:8px;">
-                  <span class="badge badge-info" id="term-cwd-badge">📁 /etc/nixos</span>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                  <button type="button" class="btn btn-secondary btn-xs" id="btn-term-sudo-toggle" onclick="toggleTerminalSudoMode()">
+                    <span id="term-sudo-lock-icon">🔒</span> <span id="term-sudo-status-text">Mode Sudo</span>
+                  </button>
+                  <span class="badge badge-info" id="term-cwd-badge">📁 ~</span>
                   <button type="button" class="btn btn-secondary btn-xs" onclick="clearBashTerminal()">🧹 Effacer</button>
                   <button type="button" class="btn btn-secondary btn-xs" onclick="copyBashTerminal()">📋 Copier</button>
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="exportTerminalSession()">💾 Sauvegarder</button>
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="toggleTerminalFullscreen()" title="Plein Écran">⛶</button>
                 </div>
               </div>
 
@@ -3364,29 +3440,84 @@
               <div class="term-quick-bar">
                 <span style="font-size:0.78rem; color:var(--subtext0); align-self:center;">Raccourcis :</span>
                 <button type="button" class="btn btn-secondary btn-xs" onclick="runQuickCommand('nh os switch')">⚡ nh os switch</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="runQuickCommand('nh os test')">🧪 nh os test</button>
                 <button type="button" class="btn btn-secondary btn-xs" onclick="runQuickCommand('df -hT')">💾 df -hT</button>
                 <button type="button" class="btn btn-secondary btn-xs" onclick="runQuickCommand('docker ps')">🐳 docker ps</button>
-                <button type="button" class="btn btn-secondary btn-xs" onclick="runQuickCommand('zpool status 2>/dev/null || btrfs filesystem show /')">💿 État Stockage</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="runQuickCommand('zpool status 2>/dev/null || btrfs filesystem show /')">💿 Stockage</button>
                 <button type="button" class="btn btn-secondary btn-xs" onclick="runQuickCommand('ip -br a')">🌐 ip -br a</button>
-                <button type="button" class="btn btn-secondary btn-xs" onclick="runQuickCommand('systemctl list-units --type=service --state=running')">⚡ Services actifs</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="runQuickCommand('systemctl --failed')">⚠️ Pannes</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="runQuickCommand('free -h')">📊 free -h</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="runQuickCommand('uptime')">🕒 uptime</button>
               </div>
 
-              <!-- Fenêtre Terminal Bash -->
-              <div class="bash-output-window">
-                <div class="bash-output-body" id="bash-terminal-body">
-                  <div class="term-welcome-msg">
-                    <span style="color:var(--mauve); font-weight:bold;">🚀 Noos Interactive Bash Console</span> — Session prête.<br>
-                    <span style="color:var(--subtext0); font-size:0.8rem;">• Touche <kbd>Tab</kbd> : Autocomplétion intelligente des commandes et fichiers<br>
-                    • Flèches <kbd>↑</kbd> / <kbd>↓</kbd> : Navigation dans l'historique • <kbd>Ctrl+L</kbd> : Nettoyer l'écran</span>
+              <!-- FENÊTRE TERMINAL BASH PRO (MACOS / LINUX WINDOW) -->
+              <div class="terminal-window-mac" id="term-window-frame">
+                <!-- Fenêtre Mac Topbar -->
+                <div class="mac-window-topbar">
+                  <div class="mac-dots">
+                    <span class="mac-dot mac-dot-red" onclick="clearBashTerminal()" title="Effacer l'écran (Ctrl+L)"></span>
+                    <span class="mac-dot mac-dot-yellow" onclick="toggleTerminalHeight()" title="Réduire / Agrandir la hauteur"></span>
+                    <span class="mac-dot mac-dot-green" onclick="toggleTerminalFullscreen()" title="Basculer Plein Écran"></span>
+                  </div>
+                  <div class="mac-window-title" id="term-mac-title">
+                    <span id="term-mac-user">user</span>@noos-nas : <span id="term-mac-cwd">~</span> (bash)
+                  </div>
+                  <div class="mac-window-badges">
+                    <span class="term-status-pill online" id="term-status-pill">● Prêt</span>
+                    <button type="button" class="term-mini-btn" onclick="adjustTermFontSize(-1)" title="Diminuer police">A-</button>
+                    <button type="button" class="term-mini-btn" onclick="adjustTermFontSize(1)" title="Agrandir police">A+</button>
                   </div>
                 </div>
 
-                <!-- Ligne de saisie interactive -->
-                <div class="bash-input-row">
+                <!-- BANNIÈRE INTERACTIVE DE SAISIE DE MOT DE PASSE SUDO -->
+                <div class="terminal-sudo-banner" id="terminal-sudo-banner" style="display:none;">
+                  <div class="sudo-banner-icon">🔑</div>
+                  <div class="sudo-banner-body">
+                    <div class="sudo-banner-title">Authentification Administrateur Requise (sudo)</div>
+                    <div class="sudo-banner-desc" id="sudo-banner-desc">
+                      Cette commande nécessite les privilèges root. Saisissez votre mot de passe utilisateur Linux pour exécuter.
+                    </div>
+                    <div class="sudo-banner-controls">
+                      <div class="sudo-input-wrapper">
+                        <input type="password" id="terminal-sudo-password" class="sudo-input-field" placeholder="Mot de passe administrateur / sudo..." autocomplete="current-password" onkeydown="if(event.key==='Enter') submitTerminalSudoAuth()">
+                        <button type="button" class="sudo-eye-btn" onclick="toggleSudoPasswordVisibility()" title="Afficher/Masquer">👁</button>
+                      </div>
+                      <button type="button" class="btn btn-primary btn-sm" onclick="submitTerminalSudoAuth()">
+                        Exécuter avec Sudo ↵
+                      </button>
+                      <button type="button" class="btn btn-secondary btn-sm" onclick="cancelTerminalSudoAuth()">
+                        Annuler
+                      </button>
+                      <label class="sudo-remember-label">
+                        <input type="checkbox" id="terminal-sudo-remember" checked> Mémoriser pour la session
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- CORPS DU TERMINAL (BUFFER HISTORIQUE) -->
+                <div class="bash-output-body" id="bash-terminal-body">
+                  <div class="term-welcome-msg">
+                    <span style="color:var(--mauve); font-weight:bold;">🚀 Noos Interactive Terminal Pro</span> — Session shell prête.<br>
+                    <span style="color:var(--subtext0); font-size:0.8rem;">
+                      • Touche <kbd>Tab</kbd> : Autocomplétion intelligente des commandes et fichiers<br>
+                      • Flèches <kbd>↑</kbd> / <kbd>↓</kbd> : Navigation dans l'historique • <kbd>Ctrl+L</kbd> : Effacer l'écran • <kbd>Échap</kbd> : Quitter le plein écran<br>
+                      • Sudo & Privilèges : Saisie sécurisée et mémorisation en session du mot de passe
+                    </span>
+                  </div>
+                </div>
+
+                <!-- LIGNE DE SAISIE INTERACTIVE BASH -->
+                <div class="bash-input-row" id="bash-input-row">
                   <div class="autocomplete-dropdown" id="term-autocomplete-dropdown"></div>
-                  <span class="bash-prompt-label" id="bash-prompt-label">admin@noos-nas:<b>/etc/nixos</b>$</span>
-                  <input type="text" id="bash-input" class="bash-input-field" placeholder="Tapez une commande (ex: nh os switch, git status, ls -la)..." autocomplete="off" spellcheck="false">
-                  <button type="button" class="btn btn-primary btn-xs" onclick="submitBashCommand()">Exécuter ↵</button>
+                  <span class="bash-prompt-label" id="bash-prompt-label">user@noos-nas:<b>~</b>$</span>
+                  <input type="text" id="bash-input" class="bash-input-field" placeholder="Tapez une commande (ex: nh os switch, sudo systemctl restart docker, ls -la)..." autocomplete="off" spellcheck="false">
+                  <button type="button" class="btn btn-secondary btn-xs btn-sudo-prefix" id="btn-sudo-prefix" onclick="toggleInputSudoPrefix()" title="Préfixer par sudo">
+                    🔒 sudo
+                  </button>
+                  <button type="button" class="btn btn-primary btn-xs" onclick="submitBashCommand()">
+                    Exécuter ↵
+                  </button>
                 </div>
               </div>
             </div>

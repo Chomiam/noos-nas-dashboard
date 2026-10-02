@@ -351,12 +351,63 @@ pub fn control_service(unit: &str, action: &str) -> Result<String, String> {
     }
 }
 
+#[allow(dead_code)]
 pub fn get_service_logs(unit: &str, lines: usize) -> Result<String, String> {
+    get_service_logs_filtered(unit, lines, None, None, None)
+}
+
+pub fn get_service_logs_filtered(
+    unit: &str,
+    lines: usize,
+    priority: Option<&str>,
+    grep: Option<&str>,
+    boot: Option<bool>,
+) -> Result<String, String> {
     let lines_str = lines.to_string();
-    let output = Command::new("journalctl")
-        .args(["-u", unit, "-n", &lines_str, "--no-pager"])
+    let mut cmd = Command::new("journalctl");
+
+    let clean_unit = unit.trim();
+    if clean_unit == "_KERNEL_" || clean_unit.eq_ignore_ascii_case("kernel") || clean_unit.eq_ignore_ascii_case("dmesg") {
+        cmd.arg("-k");
+    } else if clean_unit == "_SYSTEM_" || clean_unit.eq_ignore_ascii_case("system") || clean_unit.eq_ignore_ascii_case("all") {
+        // pas de filtre -u pour lire l'ensemble du journal système
+    } else if clean_unit == "_BOOT_" || clean_unit.eq_ignore_ascii_case("boot") {
+        cmd.arg("-b");
+    } else if !clean_unit.is_empty() {
+        cmd.args(["-u", clean_unit]);
+    }
+
+    if let Some(prio) = priority {
+        let p = prio.trim();
+        if !p.is_empty() && p != "all" {
+            cmd.args(["-p", p]);
+        }
+    }
+
+    if let Some(g) = grep {
+        let clean_g = g.trim();
+        if !clean_g.is_empty() {
+            cmd.args(["-g", clean_g]);
+        }
+    }
+
+    if boot == Some(true) && clean_unit != "_BOOT_" {
+        cmd.arg("-b");
+    }
+
+    cmd.args(["-n", &lines_str, "--no-pager"]);
+
+    let output = cmd
         .output()
         .map_err(|e| format!("Impossible de lire le journal : {}", e))?;
 
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr).to_string();
+        if !err.trim().is_empty() {
+            return Err(err);
+        }
+    }
+
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
+

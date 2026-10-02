@@ -21,7 +21,7 @@
 
 use axum::{
     extract::{Path, Query},
-    response::Json,
+    response::{IntoResponse, Json},
     routing::{delete, get, post, put},
     Router,
 };
@@ -91,7 +91,7 @@ use crate::network::{
     get_live_traffic, get_network_overview, get_traffic_history, LiveTrafficOverview,
     NetworkOverview, TrafficHistoryOverview,
 };
-use crate::services::{control_service, get_service_logs, get_services_overview, ServicesOverview};
+use crate::services::{control_service, get_service_logs_filtered, get_services_overview, ServicesOverview};
 use crate::storage::{
     create_partition, delete_partition, dismiss_storage_job, eject_removable, format_disk,
     get_active_storage_job, get_raid_sync_progress, get_storage_overview, mount_volume,
@@ -106,7 +106,8 @@ use crate::system::{
     ImmediatePowerRequest, PowerStatusResponse, SchedulePowerRequest, SystemInfo,
 };
 use crate::terminal::{
-    autocomplete, execute_command, CompleteRequest, CompleteResponse, ExecRequest, ExecResponse,
+    autocomplete, drop_sudo_cache, execute_command, sudo_status, validate_sudo_password,
+    CompleteRequest, CompleteResponse, ExecRequest, ExecResponse, SudoAuthRequest, SudoStatusResponse,
 };
 use crate::updates::{
     apply_intelligent_update, check_updates, dismiss_update_progress, get_live_log,
@@ -153,10 +154,16 @@ pub struct ImageInfoQuery {
 /// Paramètres de consultation des logs systemd / journalctl.
 #[derive(Debug, Deserialize)]
 pub struct LogsQuery {
-    /// Nom de l'unité systemd (ex: "samba-smbd.service", "sshd.service").
+    /// Nom de l'unité systemd (ex: "samba-smbd.service", "sshd.service", "_SYSTEM_", "_KERNEL_", "_BOOT_").
     pub unit: Option<String>,
     /// Nombre maximal de lignes à récupérer.
     pub lines: Option<usize>,
+    /// Niveau de sévérité journalctl ("err", "warning", "info", etc.).
+    pub priority: Option<String>,
+    /// Filtre de recherche textuelle journalctl (-g).
+    pub grep: Option<String>,
+    /// Filtrer sur le démarrage actuel (-b).
+    pub boot: Option<bool>,
 }
 
 /// Paramètres de vérification de mises à jour système.
@@ -309,6 +316,7 @@ pub fn api_routes() -> Router {
         .route("/firewall/rules/:id", put(handle_firewall_update_rule).delete(handle_firewall_delete_rule))
         .route("/firewall/unban", post(handle_firewall_unban))
         .route("/logs", get(handle_logs))
+        .route("/logs/export", get(handle_logs_export))
 
         // --------------------------------------------------------------------
         // 10. VPN SÉCURISÉ WIREGUARD
@@ -388,6 +396,9 @@ pub fn api_routes() -> Router {
         // --------------------------------------------------------------------
         .route("/terminal/exec", post(handle_terminal_exec))
         .route("/terminal/complete", post(handle_terminal_complete))
+        .route("/terminal/sudo-status", get(handle_terminal_sudo_status))
+        .route("/terminal/sudo-auth", post(handle_terminal_sudo_auth))
+        .route("/terminal/sudo-drop", post(handle_terminal_sudo_drop))
 
         // --------------------------------------------------------------------
         // 17. MISES À JOUR SYSTÈME & GÉNÉRATIONS NIXOS
@@ -539,12 +550,15 @@ async fn handle_firewall() -> Json<ApiResponse<FirewallOverview>> {
     })
 }
 
-/// Récupère les dernières lignes du journal systemd pour une unité de service donnée.
+/// Récupère les dernières lignes du journal systemd pour une unité de service donnée, avec filtres avancés.
 async fn handle_logs(Query(params): Query<LogsQuery>) -> Json<ApiResponse<String>> {
-    let unit = params.unit.unwrap_or_else(|| "sshd".to_string());
+    let unit = params.unit.unwrap_or_else(|| "_SYSTEM_".to_string());
     let lines = params.lines.unwrap_or(50);
+    let priority = params.priority.as_deref();
+    let grep = params.grep.as_deref();
+    let boot = params.boot;
 
-    match get_service_logs(&unit, lines) {
+    match get_service_logs_filtered(&unit, lines, priority, grep, boot) {
         Ok(logs) => Json(ApiResponse {
             success: true,
             data: Some(logs),
@@ -556,6 +570,34 @@ async fn handle_logs(Query(params): Query<LogsQuery>) -> Json<ApiResponse<String
             message: Some(err),
         }),
     }
+}
+
+/// Télécharge un export brut des logs système ou de service au format texte.
+async fn handle_logs_export(Query(params): Query<LogsQuery>) -> axum::response::Response {
+    let unit = params.unit.unwrap_or_else(|| "_SYSTEM_".to_string());
+    let lines = params.lines.unwrap_or(500);
+    let priority = params.priority.as_deref();
+    let grep = params.grep.as_deref();
+    let boot = params.boot;
+
+    let content = match get_service_logs_filtered(&unit, lines, priority, grep, boot) {
+        Ok(logs) => logs,
+        Err(e) => format!("Erreur lors de l'export des logs : {}", e),
+    };
+
+    let safe_unit = unit.replace(['/', '\\', ' '], "_").to_lowercase();
+    let filename = format!("noos-logs-{}.log", safe_unit);
+
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        "text/plain; charset=utf-8".parse().unwrap(),
+    );
+    if let Ok(disposition) = format!("attachment; filename=\"{}\"", filename).parse() {
+        headers.insert(axum::http::header::CONTENT_DISPOSITION, disposition);
+    }
+
+    (headers, content).into_response()
 }
 
 // ============================================================================
@@ -662,6 +704,7 @@ async fn handle_terminal_exec(Json(req): Json<ExecRequest>) -> Json<ApiResponse<
         exit_code: -1,
         cwd: crate::updates::get_user_home(&crate::updates::target_user()).to_string_lossy().to_string(),
         duration_ms: 0,
+        needs_password: false,
     });
 
     Json(ApiResponse {
@@ -683,6 +726,55 @@ async fn handle_terminal_complete(Json(req): Json<CompleteRequest>) -> Json<ApiR
         success: true,
         data: Some(res),
         message: None,
+    })
+}
+
+/// Vérifie si l'utilisateur actif dispose de privilèges sudo actifs et identifie l'utilisateur cible.
+async fn handle_terminal_sudo_status() -> Json<ApiResponse<SudoStatusResponse>> {
+    let status = tokio::task::spawn_blocking(sudo_status).await.unwrap_or_else(|_| SudoStatusResponse {
+        cached: false,
+        user: crate::updates::target_user(),
+    });
+
+    Json(ApiResponse {
+        success: true,
+        data: Some(status),
+        message: None,
+    })
+}
+
+/// Authentifie l'utilisateur pour l'élévation sudo en validant le mot de passe via PAM.
+async fn handle_terminal_sudo_auth(Json(req): Json<SudoAuthRequest>) -> Json<ApiResponse<bool>> {
+    let res = tokio::task::spawn_blocking(move || {
+        validate_sudo_password(&req.password)
+    }).await;
+
+    match res {
+        Ok(Ok(())) => Json(ApiResponse {
+            success: true,
+            data: Some(true),
+            message: Some("Privilèges administrateur (sudo) activés pour la session.".to_string()),
+        }),
+        Ok(Err(e)) => Json(ApiResponse {
+            success: false,
+            data: Some(false),
+            message: Some(e),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur d'exécution : {}", e)),
+        }),
+    }
+}
+
+/// Révoque immédiatement le ticket de cache sudo pour l'utilisateur.
+async fn handle_terminal_sudo_drop() -> Json<ApiResponse<bool>> {
+    let _ = tokio::task::spawn_blocking(drop_sudo_cache).await;
+    Json(ApiResponse {
+        success: true,
+        data: Some(true),
+        message: Some("Privilèges administrateur (sudo) désactivés.".to_string()),
     })
 }
 

@@ -1,8 +1,10 @@
-{ pkgs ? import <nixpkgs> {} }:
+{
+  pkgs ? import <nixpkgs> { },
+}:
 
 pkgs.rustPlatform.buildRustPackage rec {
   pname = "noos-nas-dashboard";
-  version = "0.3.6";
+  version = "0.3.5";
 
   src = ./.;
 

@@ -2891,27 +2891,223 @@ async function loadFirewall() {
 }
 
 // --------------------------------------------------------------------------
-// LOGS EN TEMPS RÉEL
+// EXPLORATEUR DE LOGS SYSTÈME PRO
 // --------------------------------------------------------------------------
-async function loadLogs() {
+let rawLogsBuffer = "";
+let logsLiveInterval = null;
+let isLogsLiveActive = false;
+
+function onLogUnitChanged() {
   const select = document.getElementById("select-log-unit");
-  const unit = select ? select.value : "sshd";
+  const customInput = document.getElementById("input-custom-log-unit");
+  if (!select) return;
+
+  if (select.value === "__CUSTOM__") {
+    if (customInput) {
+      customInput.style.display = "inline-block";
+      customInput.focus();
+    }
+  } else {
+    if (customInput) {
+      customInput.style.display = "none";
+    }
+    loadLogs();
+  }
+}
+
+async function loadLogs() {
+  const selectUnit = document.getElementById("select-log-unit");
+  const customInput = document.getElementById("input-custom-log-unit");
+  const selectPrio = document.getElementById("select-log-priority");
+  const selectLines = document.getElementById("select-log-lines");
   const content = document.getElementById("terminal-content");
   const title = document.getElementById("terminal-unit-title");
 
-  if (title) title.textContent = `journalctl -u ${unit} -n 50`;
-  if (content) content.textContent = "Lecture du journal système...";
+  let unit = selectUnit ? selectUnit.value : "_SYSTEM_";
+  if (unit === "__CUSTOM__") {
+    unit = customInput && customInput.value.trim() ? customInput.value.trim() : "_SYSTEM_";
+  }
+
+  const priority = selectPrio ? selectPrio.value : "all";
+  const lines = selectLines ? selectLines.value : "250";
+
+  if (title) {
+    let prioFlag = priority && priority !== "all" ? ` -p ${priority}` : "";
+    let unitFlag = (unit === "_SYSTEM_" || unit === "all") ? "" : (unit === "_KERNEL_" ? " -k" : (unit === "_BOOT_" ? " -b" : ` -u ${unit}`));
+    title.textContent = `journalctl${unitFlag}${prioFlag} -n ${lines} --no-pager`;
+  }
+
+  if (content && !rawLogsBuffer && !isLogsLiveActive) {
+    content.innerHTML = `<span style="color:var(--subtext0);">Lecture du journal système...</span>`;
+  }
 
   try {
-    const res = await fetch(`/api/logs?unit=${unit}&lines=50`);
+    const params = new URLSearchParams({
+      unit: unit,
+      lines: lines,
+    });
+    if (priority && priority !== "all") {
+      params.append("priority", priority);
+    }
+
+    const res = await fetch(`/api/logs?${params.toString()}`);
     const json = await res.json();
     if (json.success && json.data) {
-      if (content) content.textContent = json.data;
+      rawLogsBuffer = json.data;
+      renderLogsContent(rawLogsBuffer);
     } else {
-      if (content) content.textContent = "Aucun log disponible pour ce service.";
+      rawLogsBuffer = "";
+      if (content) content.innerHTML = `<span style="color:var(--subtext0);">Aucun journal disponible pour cette sélection ou service inactif.</span>`;
+      updateLogsBadges(0, 0);
     }
   } catch (e) {
-    if (content) content.textContent = "Erreur de lecture des logs : " + e;
+    if (content) content.innerHTML = `<span style="color:var(--red);">Erreur lors de la lecture des logs : ${escapeHtml(e.message || e)}</span>`;
+  }
+}
+
+function renderLogsContent(text) {
+  const content = document.getElementById("terminal-content");
+  if (!content) return;
+
+  if (!text) {
+    content.innerHTML = `<span style="color:var(--subtext0);">Aucune entrée de journal.</span>`;
+    updateLogsBadges(0, 0);
+    return;
+  }
+
+  const searchInput = document.getElementById("input-log-search");
+  const query = searchInput ? searchInput.value.trim().toLowerCase() : "";
+
+  const lines = text.split("\n");
+  let errorCount = 0;
+  let matchingLines = 0;
+  let htmlLines = [];
+
+  for (let line of lines) {
+    if (!line.trim()) continue;
+
+    const lower = line.toLowerCase();
+    const isError = lower.includes("err") || lower.includes("fail") || lower.includes("crit") || lower.includes("fatal") || lower.includes("emerg");
+    const isWarning = !isError && (lower.includes("warn") || lower.includes("attention"));
+
+    if (isError) errorCount++;
+
+    if (query && !lower.includes(query)) {
+      continue;
+    }
+
+    matchingLines++;
+    let escaped = escapeHtml(line);
+
+    if (query) {
+      const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, "gi");
+      escaped = escaped.replace(regex, '<mark class="log-search-match">$1</mark>');
+    }
+
+    let lineClass = isError ? "log-line-err" : (isWarning ? "log-line-warn" : "log-line-info");
+    htmlLines.push(`<span class="${lineClass}">${escaped}</span>`);
+  }
+
+  content.innerHTML = htmlLines.length > 0 ? htmlLines.join("\n") : `<span style="color:var(--subtext0);">Aucune ligne ne correspond à la recherche "${escapeHtml(query)}".</span>`;
+  updateLogsBadges(matchingLines, errorCount);
+
+  if (isLogsLiveActive) {
+    content.scrollTop = content.scrollHeight;
+  }
+}
+
+function filterDisplayedLogs() {
+  renderLogsContent(rawLogsBuffer);
+}
+
+function updateLogsBadges(totalLines, errorCount) {
+  const lineBadge = document.getElementById("logs-line-count-badge");
+  const errBadge = document.getElementById("logs-error-count-badge");
+
+  if (lineBadge) {
+    lineBadge.textContent = `${totalLines} ligne${totalLines > 1 ? "s" : ""}`;
+  }
+  if (errBadge) {
+    if (errorCount > 0) {
+      errBadge.style.display = "inline-block";
+      errBadge.textContent = `⚠️ ${errorCount} erreur${errorCount > 1 ? "s" : ""}`;
+    } else {
+      errBadge.style.display = "none";
+    }
+  }
+}
+
+function toggleLogsLiveStream() {
+  const btn = document.getElementById("btn-logs-live");
+  const dot = document.getElementById("live-stream-dot");
+  const text = document.getElementById("btn-logs-live-text");
+
+  if (isLogsLiveActive) {
+    clearInterval(logsLiveInterval);
+    logsLiveInterval = null;
+    isLogsLiveActive = false;
+    if (dot) dot.classList.remove("active");
+    if (text) text.textContent = "Flux Direct (Off)";
+    if (btn) btn.classList.remove("btn-primary");
+    showToast("Flux de logs en direct arrêté", "info");
+  } else {
+    isLogsLiveActive = true;
+    if (dot) dot.classList.add("active");
+    if (text) text.textContent = "Flux Direct (Actif)";
+    if (btn) btn.classList.add("btn-primary");
+    loadLogs();
+    logsLiveInterval = setInterval(() => {
+      loadLogs();
+    }, 2000);
+    showToast("Flux de logs en direct activé (actualisation 2s)", "success");
+  }
+}
+
+function clearLogsView() {
+  const content = document.getElementById("terminal-content");
+  if (content) content.innerHTML = `<span style="color:var(--subtext0);">Vue des logs effacée. Cliquez sur Actualiser pour recharger.</span>`;
+  updateLogsBadges(0, 0);
+}
+
+function scrollLogsToBottom() {
+  const content = document.getElementById("terminal-content");
+  if (content) {
+    content.scrollTo({ top: content.scrollHeight, behavior: "smooth" });
+  }
+}
+
+function toggleLogsFullscreen() {
+  const frame = document.getElementById("logs-window-frame");
+  if (!frame) return;
+  const isFull = frame.classList.toggle("fullscreen-mode");
+  if (isFull) {
+    showToast("Mode Plein Écran activé. Appuyez sur Échap pour quitter.", "info");
+  }
+}
+
+function exportLogsFile() {
+  const selectUnit = document.getElementById("select-log-unit");
+  const customInput = document.getElementById("input-custom-log-unit");
+  const selectPrio = document.getElementById("select-log-priority");
+  const selectLines = document.getElementById("select-log-lines");
+
+  let unit = selectUnit ? selectUnit.value : "_SYSTEM_";
+  if (unit === "__CUSTOM__") {
+    unit = customInput && customInput.value.trim() ? customInput.value.trim() : "_SYSTEM_";
+  }
+  const priority = selectPrio ? selectPrio.value : "all";
+  const lines = selectLines ? selectLines.value : "500";
+
+  const url = `/api/logs/export?unit=${encodeURIComponent(unit)}&lines=${lines}&priority=${encodeURIComponent(priority)}`;
+  window.open(url, "_blank");
+  showToast("Téléchargement du fichier de logs en cours...", "success");
+}
+
+function copyLogs() {
+  const content = document.getElementById("terminal-content");
+  if (content) {
+    copyText(content.innerText);
+    showToast("Logs copiés dans le presse-papiers", "success");
   }
 }
 
@@ -3302,6 +3498,16 @@ let termHistory = [];
 let termHistoryIdx = -1;
 let currentInputDraft = "";
 
+let activeConsoleSubTab = "logs";
+let terminalCwd = "/etc/nixos";
+let termHistory = [];
+let termHistoryIdx = -1;
+let currentInputDraft = "";
+let sessionSudoPassword = null;
+let terminalSudoMode = false;
+let termFontSize = 13.5;
+let pendingSudoCommand = null;
+
 function switchConsoleSubTab(subTab) {
   activeConsoleSubTab = subTab;
 
@@ -3316,12 +3522,223 @@ function switchConsoleSubTab(subTab) {
   if (paneLogs) paneLogs.style.display = subTab === "logs" ? "block" : "none";
   if (paneTerm) paneTerm.style.display = subTab === "terminal" ? "block" : "none";
 
+  const u = getCurrentDashboardUsername();
+  const sidebarUser = document.getElementById("console-sidebar-user");
+  if (sidebarUser) sidebarUser.textContent = `${u}@noos-nas`;
+
   if (subTab === "terminal") {
+    checkTerminalSudoStatus();
+    updateTerminalPrompt();
     const input = document.getElementById("bash-input");
-    if (input) setTimeout(() => input.focus(), 50);
+    if (input) setTimeout(() => input.focus(), 60);
   } else {
     loadLogs();
   }
+}
+
+async function checkTerminalSudoStatus() {
+  const badge = document.getElementById("sidebar-sudo-status-badge");
+  const lockIcon = document.getElementById("term-sudo-lock-icon");
+  const statusText = document.getElementById("term-sudo-status-text");
+  const btnToggle = document.getElementById("btn-term-sudo-toggle");
+
+  let isCached = false;
+  try {
+    const res = await fetch("/api/terminal/sudo-status");
+    const json = await res.json();
+    if (json.success && json.data) {
+      isCached = json.data.cached;
+    }
+  } catch (e) {
+    console.warn("Erreur vérification sudo:", e);
+  }
+
+  const isElevated = isCached || !!sessionSudoPassword;
+  terminalSudoMode = isElevated;
+
+  if (badge) {
+    if (isElevated) {
+      badge.style.color = "var(--green)";
+      badge.textContent = "Sudo actif (0 mot de passe)";
+    } else {
+      badge.style.color = "var(--yellow)";
+      badge.textContent = "Sudo disponible";
+    }
+  }
+
+  if (lockIcon) lockIcon.textContent = isElevated ? "🔓" : "🔒";
+  if (statusText) statusText.textContent = isElevated ? "Sudo Actif" : "Mode Sudo";
+  if (btnToggle) {
+    btnToggle.classList.toggle("btn-primary", isElevated);
+    btnToggle.classList.toggle("btn-secondary", !isElevated);
+  }
+
+  updateTerminalPrompt();
+}
+
+function toggleTerminalSudoMode() {
+  if (terminalSudoMode || sessionSudoPassword) {
+    if (confirm("Souhaitez-vous révoquer l'élévation des privilèges administrateur (sudo) pour cette session ?")) {
+      sessionSudoPassword = null;
+      terminalSudoMode = false;
+      fetch("/api/terminal/sudo-drop", { method: "POST" })
+        .then(() => {
+          checkTerminalSudoStatus();
+          showToast("Privilèges administrateur (sudo) révoqués", "info");
+        })
+        .catch(() => {
+          checkTerminalSudoStatus();
+        });
+    }
+  } else {
+    showTerminalSudoBanner(null);
+  }
+}
+
+function showTerminalSudoBanner(cmdToRetry) {
+  const banner = document.getElementById("terminal-sudo-banner");
+  const desc = document.getElementById("sudo-banner-desc");
+  const input = document.getElementById("terminal-sudo-password");
+  if (!banner) return;
+
+  pendingSudoCommand = cmdToRetry;
+
+  if (cmdToRetry) {
+    if (desc) desc.textContent = `La commande "${cmdToRetry}" requiert les privilèges administrateur. Saisissez votre mot de passe utilisateur Linux :`;
+  } else {
+    if (desc) desc.textContent = "Saisissez votre mot de passe utilisateur pour activer la session sudo sans confirmation :";
+  }
+
+  banner.style.display = "flex";
+  if (input) {
+    input.value = "";
+    setTimeout(() => input.focus(), 50);
+  }
+}
+
+function hideTerminalSudoBanner() {
+  const banner = document.getElementById("terminal-sudo-banner");
+  const input = document.getElementById("terminal-sudo-password");
+  if (banner) banner.style.display = "none";
+  if (input) input.value = "";
+  pendingSudoCommand = null;
+
+  const bashInput = document.getElementById("bash-input");
+  if (bashInput) setTimeout(() => bashInput.focus(), 50);
+}
+
+function cancelTerminalSudoAuth() {
+  hideTerminalSudoBanner();
+  showToast("Authentification administrateur annulée", "info");
+}
+
+function toggleSudoPasswordVisibility() {
+  const input = document.getElementById("terminal-sudo-password");
+  if (!input) return;
+  input.type = input.type === "password" ? "text" : "password";
+}
+
+async function submitTerminalSudoAuth() {
+  const input = document.getElementById("terminal-sudo-password");
+  const rememberCheck = document.getElementById("terminal-sudo-remember");
+  if (!input) return;
+
+  const password = input.value;
+  if (!password) {
+    showToast("Veuillez saisir votre mot de passe", "warning");
+    input.focus();
+    return;
+  }
+
+  showToast("Validation des privilèges administrateur...", "info");
+
+  try {
+    const res = await fetch("/api/terminal/sudo-auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: password })
+    });
+    const json = await res.json();
+
+    if (json.success && json.data) {
+      if (rememberCheck && rememberCheck.checked) {
+        sessionSudoPassword = password;
+      }
+      terminalSudoMode = true;
+      showToast(json.message || "Privilèges sudo validés avec succès !", "success");
+
+      const cmdToRun = pendingSudoCommand;
+      hideTerminalSudoBanner();
+      checkTerminalSudoStatus();
+
+      if (cmdToRun) {
+        executeBashCommandWithPassword(cmdToRun, password);
+      }
+    } else {
+      showToast(json.message || "Mot de passe incorrect ou refusé par sudo", "error");
+      input.focus();
+      input.select();
+    }
+  } catch (err) {
+    showToast("Erreur lors de la validation sudo : " + err, "error");
+  }
+}
+
+function toggleInputSudoPrefix() {
+  const input = document.getElementById("bash-input");
+  const btn = document.getElementById("btn-sudo-prefix");
+  if (!input) return;
+
+  let val = input.value.trim();
+  if (val.startsWith("sudo ")) {
+    input.value = val.substring(5);
+    if (btn) btn.classList.remove("active");
+  } else {
+    input.value = "sudo " + val;
+    if (btn) btn.classList.add("active");
+  }
+  input.focus();
+}
+
+function toggleTerminalHeight() {
+  const frame = document.getElementById("term-window-frame");
+  if (frame) {
+    frame.classList.toggle("compact-height");
+  }
+}
+
+function toggleTerminalFullscreen() {
+  const frame = document.getElementById("term-window-frame");
+  if (!frame) return;
+  const isFull = frame.classList.toggle("fullscreen-mode");
+  if (isFull) {
+    showToast("Terminal plein écran activé. Appuyez sur Échap pour quitter.", "info");
+  }
+}
+
+function adjustTermFontSize(delta) {
+  const body = document.getElementById("bash-terminal-body");
+  if (!body) return;
+
+  termFontSize = Math.max(10, Math.min(22, termFontSize + delta));
+  body.style.fontSize = `${termFontSize}px`;
+}
+
+function exportTerminalSession() {
+  const body = document.getElementById("bash-terminal-body");
+  if (!body) return;
+
+  const text = body.innerText;
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `noos-terminal-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast("Session terminal sauvegardée avec succès", "success");
 }
 
 async function submitBashCommand() {
@@ -3337,19 +3754,53 @@ async function submitBashCommand() {
   input.value = "";
   hideAutocompleteDropdown();
 
+  const sudoPrefixBtn = document.getElementById("btn-sudo-prefix");
+  if (sudoPrefixBtn) sudoPrefixBtn.classList.remove("active");
+
+  executeBashCommandWithPassword(cmd, sessionSudoPassword);
+}
+
+async function executeBashCommandWithPassword(cmd, password) {
   appendCommandToTerminal(cmd, terminalCwd);
 
+  const statusPill = document.getElementById("term-status-pill");
+  if (statusPill) {
+    statusPill.className = "term-status-pill busy";
+    statusPill.textContent = "● Exécution...";
+  }
+
   try {
+    const payload = {
+      command: cmd,
+      cwd: terminalCwd,
+      password: password || undefined,
+      run_as_root: terminalSudoMode,
+    };
+
     const res = await fetch("/api/terminal/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        command: cmd,
-        cwd: terminalCwd
-      })
+      body: JSON.stringify(payload)
     });
     const json = await res.json();
     const result = json.data || {};
+
+    if (statusPill) {
+      statusPill.className = "term-status-pill online";
+      statusPill.textContent = "● Prêt";
+    }
+
+    if (result.needs_password) {
+      appendResultToTerminal({
+        success: false,
+        stdout: result.stdout || "",
+        stderr: result.stderr || "[sudo] Mot de passe requis pour exécuter cette commande.",
+        exit_code: 1,
+        duration_ms: result.duration_ms || 0
+      });
+      showTerminalSudoBanner(cmd);
+      return;
+    }
 
     if (result.cwd) {
       terminalCwd = result.cwd;
@@ -3358,6 +3809,10 @@ async function submitBashCommand() {
 
     appendResultToTerminal(result);
   } catch (err) {
+    if (statusPill) {
+      statusPill.className = "term-status-pill online";
+      statusPill.textContent = "● Erreur";
+    }
     appendResultToTerminal({
       success: false,
       stdout: "",
@@ -3373,12 +3828,16 @@ function appendCommandToTerminal(cmd, cwd) {
   if (!body) return;
 
   const u = getCurrentDashboardUsername();
+  const isSudo = cmd.trim().startsWith("sudo ") || terminalSudoMode;
+  const suffix = isSudo ? "#" : "$";
+  const prefixTag = isSudo ? `<span style="color:var(--red); font-weight:700;">[sudo] </span>` : "";
+
   const entry = document.createElement("div");
   entry.className = "term-history-entry";
   entry.innerHTML = `
     <div class="term-cmd-line">
       <div>
-        <span class="term-cmd-prompt">${escapeHtml(u)}@noos-nas:<b>${escapeHtml(formatShortCwd(cwd))}</b>$</span>
+        <span class="term-cmd-prompt">${prefixTag}${escapeHtml(u)}@noos-nas:<b>${escapeHtml(formatShortCwd(cwd))}</b>${suffix}</span>
         <span class="term-cmd-text">${escapeHtml(cmd)}</span>
       </div>
       <span class="badge badge-warning">⏳ En cours</span>
@@ -3425,15 +3884,27 @@ function appendResultToTerminal(res) {
 function updateTerminalPrompt() {
   const promptLabel = document.getElementById("bash-prompt-label");
   const cwdBadge = document.getElementById("term-cwd-badge");
+  const macUser = document.getElementById("term-mac-user");
+  const macCwd = document.getElementById("term-mac-cwd");
   const shortCwd = formatShortCwd(terminalCwd);
   const u = getCurrentDashboardUsername();
 
+  const isSudo = terminalSudoMode || !!sessionSudoPassword;
+  const suffix = isSudo ? "#" : "$";
+  const prefixTag = isSudo ? `<span style="color:var(--red); font-weight:700;">[sudo] </span>` : "";
+
   if (promptLabel) {
-    promptLabel.innerHTML = `${escapeHtml(u)}@noos-nas:<b>${escapeHtml(shortCwd)}</b>$`;
+    promptLabel.className = isSudo ? "bash-prompt-label sudo-active" : "bash-prompt-label";
+    promptLabel.innerHTML = `${prefixTag}${escapeHtml(u)}@noos-nas:<b>${escapeHtml(shortCwd)}</b>${suffix}`;
   }
   if (cwdBadge) {
     cwdBadge.textContent = `📁 ${shortCwd}`;
   }
+  if (macUser) macUser.textContent = u;
+  if (macCwd) macCwd.textContent = shortCwd;
+
+  const sidebarUser = document.getElementById("console-sidebar-user");
+  if (sidebarUser) sidebarUser.textContent = `${u}@noos-nas`;
 }
 
 function formatShortCwd(cwd) {
@@ -3463,8 +3934,11 @@ function clearBashTerminal() {
   if (!body) return;
   body.innerHTML = `
     <div class="term-welcome-msg">
-      <span style="color:var(--mauve); font-weight:bold;">🚀 Noos Interactive Bash Console</span> — Écran effacé.<br>
-      <span style="color:var(--subtext0); font-size:0.8rem;">• Touche <kbd>Tab</kbd> : Autocomplétion • Flèches <kbd>↑</kbd> / <kbd>↓</kbd> : Historique • <kbd>Ctrl+L</kbd> : Effacer</span>
+      <span style="color:var(--mauve); font-weight:bold;">🚀 Noos Interactive Terminal Pro</span> — Écran effacé.<br>
+      <span style="color:var(--subtext0); font-size:0.8rem;">
+        • Touche <kbd>Tab</kbd> : Autocomplétion • Flèches <kbd>↑</kbd> / <kbd>↓</kbd> : Historique • <kbd>Ctrl+L</kbd> : Effacer<br>
+        • Mode Sudo : Élévation et mémorisation du mot de passe activées
+      </span>
     </div>
   `;
 }
@@ -3473,6 +3947,7 @@ function copyBashTerminal() {
   const body = document.getElementById("bash-terminal-body");
   if (body) {
     copyText(body.innerText);
+    showToast("Contenu du terminal copié dans le presse-papiers", "success");
   }
 }
 
@@ -3535,6 +4010,18 @@ function setupBashInputListeners() {
 
     if (e.key === "Escape") {
       hideAutocompleteDropdown();
+      const sudoBanner = document.getElementById("terminal-sudo-banner");
+      if (sudoBanner && sudoBanner.style.display !== "none") {
+        cancelTerminalSudoAuth();
+      }
+      const termFrame = document.getElementById("term-window-frame");
+      if (termFrame && termFrame.classList.contains("fullscreen-mode")) {
+        termFrame.classList.remove("fullscreen-mode");
+      }
+      const logsFrame = document.getElementById("logs-window-frame");
+      if (logsFrame && logsFrame.classList.contains("fullscreen-mode")) {
+        logsFrame.classList.remove("fullscreen-mode");
+      }
       return;
     }
   });

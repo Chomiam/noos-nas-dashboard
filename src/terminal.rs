@@ -2,12 +2,15 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::Instant;
 
 #[derive(Debug, Deserialize)]
 pub struct ExecRequest {
     pub command: String,
     pub cwd: Option<String>,
+    pub password: Option<String>,
+    pub run_as_root: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -18,6 +21,7 @@ pub struct ExecResponse {
     pub exit_code: i32,
     pub cwd: String,
     pub duration_ms: u128,
+    pub needs_password: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -29,6 +33,82 @@ pub struct CompleteRequest {
 #[derive(Debug, Serialize)]
 pub struct CompleteResponse {
     pub suggestions: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SudoAuthRequest {
+    pub password: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SudoStatusResponse {
+    pub cached: bool,
+    pub user: String,
+}
+
+/// Vérifie si l'utilisateur courant dispose actuellement de privilèges sudo mis en cache.
+pub fn is_sudo_cached() -> bool {
+    let mut check_cmd = crate::updates::create_user_command("sudo", &["-n", "-v"]);
+    check_cmd.output().map(|o| o.status.success()).unwrap_or(false)
+}
+
+/// Valide le mot de passe utilisateur via PAM / sudo -S -v et rafraîchit le ticket d'horodatage.
+pub fn validate_sudo_password(password: &str) -> Result<(), String> {
+    let pass = password.trim();
+    if pass.is_empty() {
+        return Err("Le mot de passe ne peut pas être vide.".to_string());
+    }
+
+    let mut val_cmd = if crate::updates::is_root_process() {
+        crate::updates::create_user_command("sudo", &["-S", "-v", "-p", ""])
+    } else {
+        let mut c = Command::new("sudo");
+        c.args(["-S", "-v", "-p", ""]);
+        c
+    };
+
+    val_cmd.stdin(std::process::Stdio::piped());
+    val_cmd.stdout(std::process::Stdio::piped());
+    val_cmd.stderr(std::process::Stdio::piped());
+
+    let mut child = val_cmd.spawn().map_err(|e| format!("Erreur lancement sudo : {}", e))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        let _ = writeln!(stdin, "{}", pass);
+    }
+
+    let out = child.wait_with_output().map_err(|e| format!("Erreur exécution sudo : {}", e))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        let err = String::from_utf8_lossy(&out.stderr).to_string();
+        if err.trim().is_empty() {
+            Err("Mot de passe administrateur incorrect ou refusé.".to_string())
+        } else {
+            Err(err.trim().to_string())
+        }
+    }
+}
+
+/// Révoque immédiatement le ticket de cache sudo (sudo -k).
+pub fn drop_sudo_cache() -> Result<(), String> {
+    let mut cmd = if crate::updates::is_root_process() {
+        crate::updates::create_user_command("sudo", &["-k"])
+    } else {
+        let mut c = Command::new("sudo");
+        c.arg("-k");
+        c
+    };
+    cmd.output().map_err(|e| format!("Erreur révocation sudo : {}", e))?;
+    Ok(())
+}
+
+/// Fournit le statut d'authentification sudo en cours pour l'utilisateur ciblé.
+pub fn sudo_status() -> SudoStatusResponse {
+    SudoStatusResponse {
+        cached: is_sudo_cached(),
+        user: crate::updates::target_user(),
+    }
 }
 
 pub fn execute_command(req: ExecRequest) -> ExecResponse {
@@ -45,6 +125,7 @@ pub fn execute_command(req: ExecRequest) -> ExecResponse {
             exit_code: 0,
             cwd: current_cwd.display().to_string(),
             duration_ms: start.elapsed().as_millis(),
+            needs_password: false,
         };
     }
 
@@ -62,6 +143,7 @@ pub fn execute_command(req: ExecRequest) -> ExecResponse {
             exit_code: 0,
             cwd: current_cwd.display().to_string(),
             duration_ms: start.elapsed().as_millis(),
+            needs_password: false,
         };
     }
 
@@ -87,6 +169,7 @@ pub fn execute_command(req: ExecRequest) -> ExecResponse {
                     exit_code: 0,
                     cwd: current_cwd.display().to_string(),
                     duration_ms: start.elapsed().as_millis(),
+                    needs_password: false,
                 };
             }
         } else {
@@ -97,12 +180,50 @@ pub fn execute_command(req: ExecRequest) -> ExecResponse {
                 exit_code: 1,
                 cwd: current_cwd.display().to_string(),
                 duration_ms: start.elapsed().as_millis(),
+                needs_password: false,
             };
         }
     }
 
+    // Gestion de l'élévation de privilèges (sudo & password)
+    let is_sudo_cmd = cmd.starts_with("sudo") || req.run_as_root == Some(true);
+    let pass_opt = req.password.as_deref().map(|p| p.trim()).filter(|p| !p.is_empty());
+
+    if is_sudo_cmd {
+        if let Some(pass) = pass_opt {
+            if let Err(err_msg) = validate_sudo_password(pass) {
+                return ExecResponse {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: format!("[sudo] Authentification refusée : {}\n", err_msg),
+                    exit_code: 1,
+                    cwd: current_cwd.display().to_string(),
+                    duration_ms: start.elapsed().as_millis(),
+                    needs_password: true,
+                };
+            }
+        } else if !is_sudo_cached() {
+            return ExecResponse {
+                success: false,
+                stdout: String::new(),
+                stderr: "[sudo] Mot de passe administrateur requis pour cette commande.\n".to_string(),
+                exit_code: 1,
+                cwd: current_cwd.display().to_string(),
+                duration_ms: start.elapsed().as_millis(),
+                needs_password: true,
+            };
+        }
+    }
+
+    // Commande effective à exécuter
+    let effective_cmd = if req.run_as_root == Some(true) && !cmd.starts_with("sudo") {
+        format!("sudo {}", cmd)
+    } else {
+        cmd.to_string()
+    };
+
     // Exécuter dans Bash avec délimiteur de pwd
-    let wrapped_cmd = format!("{}; echo \"__PWD_DELIM__\"; pwd", cmd);
+    let wrapped_cmd = format!("{}; echo \"__PWD_DELIM__\"; pwd", effective_cmd);
 
     let bash_bin = if Path::new("/run/current-system/sw/bin/bash").exists() {
         "/run/current-system/sw/bin/bash"
@@ -112,48 +233,82 @@ pub fn execute_command(req: ExecRequest) -> ExecResponse {
 
     let mut cmd_obj = crate::updates::create_user_command(bash_bin, &["-c", &wrapped_cmd]);
     cmd_obj.current_dir(&current_cwd);
-    let output = cmd_obj.output();
+    cmd_obj.stdin(std::process::Stdio::piped());
+    cmd_obj.stdout(std::process::Stdio::piped());
+    cmd_obj.stderr(std::process::Stdio::piped());
 
-    match output {
-        Ok(out) => {
-            let raw_stdout = String::from_utf8_lossy(&out.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-            let exit_code = out.status.code().unwrap_or(-1);
-
-            let (clean_stdout, new_pwd) = if let Some(idx) = raw_stdout.rfind("__PWD_DELIM__\n") {
-                let stdout_part = &raw_stdout[..idx];
-                let pwd_part = raw_stdout[idx + "__PWD_DELIM__\n".len()..].trim();
-                (stdout_part.to_string(), pwd_part.to_string())
-            } else if let Some(idx) = raw_stdout.rfind("__PWD_DELIM__") {
-                let stdout_part = &raw_stdout[..idx];
-                let pwd_part = raw_stdout[idx + "__PWD_DELIM__".len()..].trim();
-                (stdout_part.to_string(), pwd_part.to_string())
+    let child_res = cmd_obj.spawn();
+    match child_res {
+        Ok(mut child) => {
+            if let Some(pass) = pass_opt {
+                if let Some(mut stdin) = child.stdin.take() {
+                    use std::io::Write;
+                    let _ = writeln!(stdin, "{}", pass);
+                }
             } else {
-                (raw_stdout, current_cwd.display().to_string())
-            };
+                // Fermer stdin pour éviter tout blocage d'un processus attendant une entrée
+                drop(child.stdin.take());
+            }
 
-            let final_cwd = if !new_pwd.is_empty() && Path::new(&new_pwd).is_dir() {
-                new_pwd
-            } else {
-                current_cwd.display().to_string()
-            };
+            match child.wait_with_output() {
+                Ok(out) => {
+                    let raw_stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                    let exit_code = out.status.code().unwrap_or(-1);
 
-            ExecResponse {
-                success: out.status.success(),
-                stdout: clean_stdout,
-                stderr,
-                exit_code,
-                cwd: final_cwd,
-                duration_ms: start.elapsed().as_millis(),
+                    let (clean_stdout, new_pwd) = if let Some(idx) = raw_stdout.rfind("__PWD_DELIM__\n") {
+                        let stdout_part = &raw_stdout[..idx];
+                        let pwd_part = raw_stdout[idx + "__PWD_DELIM__\n".len()..].trim();
+                        (stdout_part.to_string(), pwd_part.to_string())
+                    } else if let Some(idx) = raw_stdout.rfind("__PWD_DELIM__") {
+                        let stdout_part = &raw_stdout[..idx];
+                        let pwd_part = raw_stdout[idx + "__PWD_DELIM__".len()..].trim();
+                        (stdout_part.to_string(), pwd_part.to_string())
+                    } else {
+                        (raw_stdout, current_cwd.display().to_string())
+                    };
+
+                    let final_cwd = if !new_pwd.is_empty() && Path::new(&new_pwd).is_dir() {
+                        new_pwd
+                    } else {
+                        current_cwd.display().to_string()
+                    };
+
+                    let lower_err = stderr.to_lowercase();
+                    let needs_password = lower_err.contains("a terminal is required")
+                        || lower_err.contains("no tty present")
+                        || lower_err.contains("saisir un mot de passe")
+                        || lower_err.contains("password is required");
+
+                    ExecResponse {
+                        success: out.status.success(),
+                        stdout: clean_stdout,
+                        stderr,
+                        exit_code,
+                        cwd: final_cwd,
+                        duration_ms: start.elapsed().as_millis(),
+                        needs_password,
+                    }
+                }
+                Err(e) => ExecResponse {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: format!("Erreur lors de l'exécution de la commande : {}", e),
+                    exit_code: 127,
+                    cwd: current_cwd.display().to_string(),
+                    duration_ms: start.elapsed().as_millis(),
+                    needs_password: false,
+                },
             }
         }
         Err(e) => ExecResponse {
             success: false,
             stdout: String::new(),
-            stderr: format!("Erreur lors de l'exécution de bash : {}", e),
+            stderr: format!("Erreur lors du lancement de bash : {}", e),
             exit_code: 127,
             cwd: current_cwd.display().to_string(),
             duration_ms: start.elapsed().as_millis(),
+            needs_password: false,
         },
     }
 }
@@ -170,6 +325,15 @@ pub fn autocomplete(req: CompleteRequest) -> CompleteResponse {
         "nh os test",
         "nh os build",
         "nh clean all",
+        "sudo nh os switch",
+        "sudo nh os switch -u",
+        "sudo nh os test",
+        "sudo nh clean all",
+        "sudo systemctl restart ",
+        "sudo systemctl status ",
+        "sudo systemctl stop ",
+        "sudo journalctl -xeu ",
+        "sudo nixos-rebuild switch",
         "git status",
         "git pull",
         "git push",
@@ -178,6 +342,7 @@ pub fn autocomplete(req: CompleteRequest) -> CompleteResponse {
         "systemctl status",
         "systemctl restart",
         "systemctl list-units --type=service",
+        "systemctl --failed",
         "journalctl -u",
         "journalctl -f",
         "docker ps",
