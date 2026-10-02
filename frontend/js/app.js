@@ -11667,8 +11667,9 @@ const DEFAULT_DOCKER_ENVS = {
   ],
   "immich": [
     { key: "TZ", value: "Europe/Paris" },
-    { key: "DB_HOSTNAME", value: "immich-postgres" },
+    { key: "DB_HOSTNAME", value: "immich_postgres" },
     { key: "DB_USERNAME", value: "postgres" },
+    { key: "DB_PASSWORD", value: "postgres" },
     { key: "DB_DATABASE_NAME", value: "immich" }
   ]
 };
@@ -12035,6 +12036,76 @@ function addDockerConfigEnvRow(key = '', val = '') {
     <button type="button" class="env-delete-btn" onclick="this.closest('.docker-env-row').remove()" title="Supprimer la variable">✕</button>
   `;
   container.appendChild(row);
+}
+
+function setOrAddDockerConfigEnvRow(key, val) {
+  const container = document.getElementById("config-env-rows-container");
+  if (!container) return;
+
+  const existingRows = container.querySelectorAll(".docker-env-row");
+  for (const row of existingRows) {
+    const keyInput = row.querySelector(".env-key-input");
+    const valInput = row.querySelector(".env-val-input");
+    if (keyInput && keyInput.value.trim().toUpperCase() === key.toUpperCase()) {
+      if (valInput) valInput.value = val;
+      return;
+    }
+  }
+
+  addDockerConfigEnvRow(key, val);
+}
+
+function onSelectDockerEnvPreset(selectEl) {
+  if (!selectEl || !selectEl.value) return;
+  const val = selectEl.value;
+
+  const PRESETS = {
+    // Profils Complets
+    profile_standard_nas: [
+      { key: "TZ", val: "Europe/Paris" },
+      { key: "PUID", val: "1000" },
+      { key: "PGID", val: "100" },
+      { key: "UMASK", val: "002" }
+    ],
+    profile_immich_default: [
+      { key: "TZ", val: "Europe/Paris" },
+      { key: "DB_HOSTNAME", val: "immich_postgres" },
+      { key: "DB_USERNAME", val: "postgres" },
+      { key: "DB_PASSWORD", val: "postgres" },
+      { key: "DB_DATABASE_NAME", val: "immich" },
+      { key: "REDIS_HOSTNAME", val: "immich_redis" },
+      { key: "UPLOAD_LOCATION", val: "./data/library" }
+    ],
+    profile_gpu_intel: [
+      { key: "LIBVA_DRIVER_NAME", val: "iHD" }
+    ],
+    profile_gpu_nvidia: [
+      { key: "NVIDIA_VISIBLE_DEVICES", val: "all" },
+      { key: "NVIDIA_DRIVER_CAPABILITIES", val: "all" }
+    ],
+    // Variables Clés Individuelles
+    var_tz: [{ key: "TZ", val: "Europe/Paris" }],
+    var_puid: [{ key: "PUID", val: "1000" }],
+    var_pgid: [{ key: "PGID", val: "100" }],
+    var_umask: [{ key: "UMASK", val: "002" }],
+    var_immich_db_pass: [{ key: "DB_PASSWORD", val: "postgres" }],
+    var_immich_db_host: [{ key: "DB_HOSTNAME", val: "immich_postgres" }],
+    var_immich_db_user: [{ key: "DB_USERNAME", val: "postgres" }],
+    var_immich_db_name: [{ key: "DB_DATABASE_NAME", val: "immich" }],
+    var_immich_upload: [{ key: "UPLOAD_LOCATION", val: "./data/library" }],
+    var_log_level: [{ key: "LOG_LEVEL", val: "info" }]
+  };
+
+  const toAdd = PRESETS[val];
+  if (toAdd && Array.isArray(toAdd)) {
+    toAdd.forEach(item => {
+      setOrAddDockerConfigEnvRow(item.key, item.val);
+    });
+    showToast(`Préréglage appliqué (${toAdd.length} variable(s))`, "info");
+  }
+
+  // Réinitialiser la liste déroulante sur l'intitulé
+  selectEl.selectedIndex = 0;
 }
 
 // ============================================================================

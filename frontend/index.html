@@ -5136,16 +5136,39 @@
 
         <!-- Variables d'environnement -->
         <div style="display: flex; flex-direction: column; gap: 8px;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
             <label style="font-size: 0.85rem; font-weight: 700; color: var(--text); margin: 0;">
               ⚙️ Variables d'environnement (Docker ENV)
             </label>
-            <button type="button" class="btn btn-secondary btn-xs" onclick="addDockerConfigEnvRow('', '')">
-              ➕ Ajouter une variable
-            </button>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <select id="config-env-preset-select" class="form-input" style="font-size: 0.78rem; height: 30px; padding: 2px 8px; background: #11111b; color: var(--text); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; max-width: 250px;" onchange="onSelectDockerEnvPreset(this)" title="Choisir une variable ou un préréglage complet">
+                <option value="" disabled selected>⚡ Variables préremplies...</option>
+                <optgroup label="📦 Profils Recommandés">
+                  <option value="profile_standard_nas">👤 Droits NAS (TZ, PUID, PGID, UMASK)</option>
+                  <option value="profile_immich_default">🖼️ Variables Immich (DB_PASS, DB_HOST...)</option>
+                  <option value="profile_gpu_intel">🎮 Transcodage Intel (LIBVA=iHD)</option>
+                  <option value="profile_gpu_nvidia">🎮 Accélération NVIDIA (CUDA/NVENC)</option>
+                </optgroup>
+                <optgroup label="➕ Variables Clés">
+                  <option value="var_tz">TZ = Europe/Paris</option>
+                  <option value="var_puid">PUID = 1000</option>
+                  <option value="var_pgid">PGID = 100</option>
+                  <option value="var_umask">UMASK = 002</option>
+                  <option value="var_immich_db_pass">DB_PASSWORD = postgres</option>
+                  <option value="var_immich_db_host">DB_HOSTNAME = immich_postgres</option>
+                  <option value="var_immich_db_user">DB_USERNAME = postgres</option>
+                  <option value="var_immich_db_name">DB_DATABASE_NAME = immich</option>
+                  <option value="var_immich_upload">UPLOAD_LOCATION = ./data/library</option>
+                  <option value="var_log_level">LOG_LEVEL = info</option>
+                </optgroup>
+              </select>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="addDockerConfigEnvRow('', '')">
+                ➕ Variable vide
+              </button>
+            </div>
           </div>
           <div style="font-size: 0.78rem; color: var(--subtext0);">
-            Variables personnalisées injectées dans le conteneur (ex: TZ, PUID, PGID, etc.).
+            Sélectionnez un préréglage dans le menu déroulant ou ajoutez manuellement vos variables d'environnement.
           </div>
 
           <div id="config-env-rows-container" style="display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto; padding: 4px;">
