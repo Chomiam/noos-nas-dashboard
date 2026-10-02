@@ -396,6 +396,8 @@ pub fn api_routes() -> Router {
         .route("/kdrive/accounts/:id/files/:file_id", delete(handle_kdrive_file_delete))
         .route("/kdrive/accounts/:id/download/:file_id", get(handle_kdrive_download))
         .route("/kdrive/accounts/:id/copy-to-nas", post(handle_kdrive_copy_to_nas))
+        .route("/kdrive/accounts/:id/upload-from-nas", post(handle_kdrive_upload_from_nas))
+        .route("/kdrive/accounts/:id/upload", post(handle_kdrive_upload_file))
 
         // --------------------------------------------------------------------
         // 13. CORBEILLE SYSTÈME
@@ -3568,4 +3570,124 @@ async fn handle_kdrive_copy_to_nas(
             message: Some(format!("Erreur d'exécution : {}", e)),
         }),
     }
+}
+
+/// Téléverse un fichier local présent sur le disque du NAS vers un dossier kDrive.
+async fn handle_kdrive_upload_from_nas(
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(payload): Json<crate::kdrive::KDriveUploadFromNasRequest>,
+) -> Json<ApiResponse<crate::files::FileEntry>> {
+    let source_path = payload.source_path;
+    let target_folder_id = payload.target_folder_id;
+    let id_clone = id.clone();
+
+    let res = tokio::task::spawn_blocking(move || {
+        crate::kdrive::upload_nas_file_to_kdrive(&id_clone, &source_path, target_folder_id)
+    }).await;
+
+    match res {
+        Ok(Ok(entry)) => Json(ApiResponse {
+            success: true,
+            data: Some(entry),
+            message: Some("Fichier téléversé sur kDrive avec succès.".into()),
+        }),
+        Ok(Err(e)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur d'exécution de la tâche : {}", e)),
+        }),
+    }
+}
+
+/// Téléversement direct multipart d'un fichier depuis le navigateur vers un dossier kDrive.
+async fn handle_kdrive_upload_file(
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Query(params): Query<crate::kdrive::KDriveListQuery>,
+    mut multipart: axum::extract::Multipart,
+) -> Json<ApiResponse<crate::files::FileEntry>> {
+    let folder_id = params.folder_id;
+    let id_clone = id.clone();
+
+    let temp_dir = std::path::PathBuf::from("/tmp/noos_kdrive_browser_uploads");
+    let _ = std::fs::create_dir_all(&temp_dir);
+
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let file_name = field.file_name().unwrap_or("upload.bin").to_string();
+        let sanitized = std::path::Path::new(&file_name)
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| "upload.bin".to_string());
+
+        let now_millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let temp_path = temp_dir.join(format!("{}_{}", now_millis, sanitized));
+
+        let mut file = match std::fs::File::create(&temp_path) {
+            Ok(f) => f,
+            Err(e) => return Json(ApiResponse {
+                success: false,
+                data: None,
+                message: Some(format!("Erreur création fichier temporaire : {}", e)),
+            }),
+        };
+
+        let mut stream = field;
+        let mut write_err = None;
+        while let Ok(Some(chunk)) = stream.chunk().await {
+            use std::io::Write;
+            if let Err(e) = file.write_all(&chunk) {
+                write_err = Some(e.to_string());
+                break;
+            }
+        }
+
+        if let Some(e) = write_err {
+            let _ = std::fs::remove_file(&temp_path);
+            return Json(ApiResponse {
+                success: false,
+                data: None,
+                message: Some(format!("Erreur écriture fichier temporaire : {}", e)),
+            });
+        }
+
+        let temp_path_str = temp_path.display().to_string();
+        let id_for_task = id_clone.clone();
+
+        let upload_res = tokio::task::spawn_blocking(move || {
+            let res = crate::kdrive::upload_nas_file_to_kdrive(&id_for_task, &temp_path_str, folder_id);
+            let _ = std::fs::remove_file(&temp_path_str);
+            res
+        }).await;
+
+        match upload_res {
+            Ok(Ok(entry)) => return Json(ApiResponse {
+                success: true,
+                data: Some(entry),
+                message: Some("Fichier téléversé sur kDrive avec succès.".into()),
+            }),
+            Ok(Err(e)) => return Json(ApiResponse {
+                success: false,
+                data: None,
+                message: Some(e),
+            }),
+            Err(e) => return Json(ApiResponse {
+                success: false,
+                data: None,
+                message: Some(format!("Erreur d'exécution de la tâche : {}", e)),
+            }),
+        }
+    }
+
+    Json(ApiResponse {
+        success: false,
+        data: None,
+        message: Some("Aucun fichier reçu dans la requête multipart.".into()),
+    })
 }

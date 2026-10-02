@@ -758,6 +758,15 @@
                     </svg>
                     <span>Téléverser</span>
                   </button>
+                  <button type="button" class="files-btn files-btn-mauve" id="btn-kdrive-import-nas" style="display:none;" onclick="openImportFromNasToKDriveModal()" title="Importer un fichier depuis le disque local du NAS vers ce dossier kDrive">
+                    <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                      <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                      <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                      <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                    </svg>
+                    <span>Importer du NAS</span>
+                  </button>
                 </div>
 
                 <div class="files-toolbar-divider"></div>
@@ -3598,6 +3607,9 @@
     </div>
     <div class="context-menu-item" onclick="triggerFileAction('play-audio')" id="ctx-play-audio" style="display:none;">
       <span>🎵</span> Écouter (Lecteur Audio)
+    </div>
+    <div class="context-menu-item" onclick="triggerFileAction('transfer-kdrive')" id="ctx-transfer-kdrive" style="display:none; color:var(--sapphire); font-weight:600;">
+      <span>☁️</span> Transférer vers kDrive...
     </div>
     <div class="context-menu-divider"></div>
     <div class="context-menu-item" onclick="triggerFileAction('copy')" id="ctx-copy">
@@ -8543,6 +8555,95 @@
             </div>
             <button type="submit" class="btn btn-primary" id="btn-submit-kdrive-copy">
               <span>🚀 Lancer la copie sur le NAS</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODALE : TRANSFERT NAS VERS KDRIVE ================= -->
+  <div class="file-modal-overlay" id="modal-nas-upload-kdrive" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-nas-upload-kdrive')">
+    <div class="file-modal-window" style="max-width: 520px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(137, 180, 250, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-primary" style="font-size:0.75rem; font-weight:800;">☁️ ENVOI VERS CLOUD</span>
+          <span class="file-modal-title">Transférer vers kDrive</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeTransferToKDriveModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:20px;">
+        <div style="font-size:0.85rem; color:var(--subtext0); margin-bottom:14px;">
+          Téléversez ce document présent sur le NAS directement dans votre stockage cloud sécurisé Infomaniak.
+        </div>
+
+        <div style="background:var(--mantle); padding:12px; border-radius:var(--radius-sm); border:1px solid rgba(255,255,255,0.06); margin-bottom:16px;">
+          <div style="font-size:0.75rem; color:var(--subtext0); text-transform:uppercase; font-weight:700;">Document local NAS :</div>
+          <div style="font-size:0.92rem; font-weight:700; color:var(--text); margin-top:2px;" id="nas-kdrive-upload-file-name">--</div>
+          <div style="font-size:0.75rem; color:var(--subtext0); font-family:var(--font-mono); margin-top:4px;" id="nas-kdrive-upload-file-path">--</div>
+        </div>
+
+        <form id="form-nas-upload-kdrive" onsubmit="event.preventDefault(); submitNasUploadToKDrive();">
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="form-label">Compte kDrive de destination</label>
+            <select id="nas-upload-kdrive-account-select" class="form-select"></select>
+          </div>
+
+          <div class="form-group" style="margin-bottom:16px;">
+            <label class="form-label">Dossier cible sur kDrive</label>
+            <input type="text" id="nas-upload-kdrive-dest-folder" class="form-input" placeholder="ID numérique (ex: 5) ou laisser vide pour Private" value="">
+            <div style="font-size:0.75rem; color:var(--subtext0); margin-top:4px;">
+              💡 Laissez vide pour déposer dans votre dossier <strong>Private</strong> (dossier personnel).
+            </div>
+          </div>
+
+          <div class="file-modal-footer" style="padding-top:14px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+            <button type="button" class="btn btn-secondary" onclick="closeTransferToKDriveModal()">Annuler</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-nas-kdrive-upload">
+              <span>🚀 Transférer vers kDrive</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODALE : IMPORTER DU NAS DANS LE KDRIVE ACTUEL ================= -->
+  <div class="file-modal-overlay" id="modal-kdrive-import-nas" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-kdrive-import-nas')">
+    <div class="file-modal-window" style="max-width: 520px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(203, 166, 247, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-mauve" style="font-size:0.75rem; font-weight:800;">📥 IMPORTATION NAS</span>
+          <span class="file-modal-title">Importer un document du NAS</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeImportFromNasToKDriveModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:20px;">
+        <div style="font-size:0.85rem; color:var(--subtext0); margin-bottom:14px;">
+          Transférez un fichier stocké sur votre NAS directement dans le dossier kDrive actuel sans passer par votre PC.
+        </div>
+
+        <form id="form-kdrive-import-nas" onsubmit="event.preventDefault(); submitImportFromNasToKDrive();">
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="form-label">Chemin complet du fichier sur le NAS</label>
+            <input type="text" id="kdrive-import-nas-file-path" class="form-input" placeholder="Ex: /storage/media/rapport.pdf" required>
+          </div>
+
+          <div style="font-size:0.75rem; color:var(--subtext0); margin-bottom:14px;">
+            Raccourcis rapides :
+          </div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px;">
+            <button type="button" class="badge-pill-btn" onclick="setImportNasPathPrefix('/storage/media/')">📁 /storage/media/</button>
+            <button type="button" class="badge-pill-btn" onclick="setImportNasPathPrefix('/storage/documents/')">📁 /storage/documents/</button>
+            <button type="button" class="badge-pill-btn" onclick="setImportNasPathPrefix('/storage/backups/')">📁 /storage/backups/</button>
+          </div>
+
+          <div class="file-modal-footer" style="padding-top:14px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+            <button type="button" class="btn btn-secondary" onclick="closeImportFromNasToKDriveModal()">Annuler</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-kdrive-import-nas">
+              <span>🚀 Transférer vers ce dossier kDrive</span>
             </button>
           </div>
         </form>

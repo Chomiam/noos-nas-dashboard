@@ -4230,6 +4230,8 @@ async function navigateToPath(targetPath) {
   const trashTb = document.getElementById("files-toolbar-trash");
   if (normalTb) normalTb.style.display = "flex";
   if (trashTb) trashTb.style.display = "none";
+  const btnImportNas = document.getElementById("btn-kdrive-import-nas");
+  if (btnImportNas) btnImportNas.style.display = "none";
   if (!targetPath) targetPath = getUserHome();
 
   try {
@@ -4902,6 +4904,11 @@ function handleItemContextMenu(e, path) {
   if (ctxPlay) ctxPlay.style.display = isVideo ? "flex" : "none";
   if (ctxAudio) ctxAudio.style.display = isAudio ? "flex" : "none";
 
+  const ctxTransferKDrive = document.getElementById("ctx-transfer-kdrive");
+  if (ctxTransferKDrive) {
+    ctxTransferKDrive.style.display = (!isKDriveView && selectedFileItem && !selectedFileItem.is_dir && kdriveAccountsList && kdriveAccountsList.length > 0) ? "flex" : "none";
+  }
+
   positionContextMenu(menu, e.clientX, e.clientY);
 }
 
@@ -5041,6 +5048,12 @@ async function triggerFileAction(action) {
     case "play-audio":
       if (selectedFileItem && !selectedFileItem.is_dir) {
         openAudioModal(selectedFileItem.path, selectedFileItem.name, selectedFileItem.size_bytes);
+      }
+      break;
+
+    case "transfer-kdrive":
+      if (selectedFileItem && !selectedFileItem.is_dir) {
+        openTransferToKDriveModal(selectedFileItem);
       }
       break;
 
@@ -5780,8 +5793,13 @@ function uploadFiles(fileList, targetDir) {
   let lastLoaded = 0;
   let lastTime = startTime;
 
+  const isKDrive = isKDriveView || (targetDir && targetDir.startsWith("kdrive://"));
   const xhr = new XMLHttpRequest();
-  xhr.open("POST", `/api/files/upload?dir=${encodeURIComponent(targetDir)}`);
+  if (isKDrive && currentKDriveAccountId) {
+    xhr.open("POST", `/api/kdrive/accounts/${encodeURIComponent(currentKDriveAccountId)}/upload?folder_id=${currentKDriveFolderId}`);
+  } else {
+    xhr.open("POST", `/api/files/upload?dir=${encodeURIComponent(targetDir)}`);
+  }
 
   xhr.upload.onprogress = (e) => {
     if (e.lengthComputable) {
@@ -5806,7 +5824,7 @@ function uploadFiles(fileList, targetDir) {
         const rows = filesListEl.querySelectorAll(".upload-file-row .status-indicator");
         rows.forEach(ind => {
           if (percent === 100) {
-            ind.textContent = "⏳ Écriture disque...";
+            ind.textContent = "⏳ Enregistrement...";
           } else {
             ind.textContent = `⏵ ${percent}%`;
           }
@@ -5830,8 +5848,13 @@ function uploadFiles(fileList, targetDir) {
         });
       }
 
-      showToast(`Téléversement de ${totalFiles} fichier(s) réussi !`, "success");
-      navigateToPath(currentFolderPath);
+      if (isKDrive && currentKDriveAccountId) {
+        showToast(`✓ Téléversement de ${totalFiles} fichier(s) réussi sur kDrive !`, "success");
+        navigateToKDrive(currentKDriveAccountId, currentKDriveFolderId);
+      } else {
+        showToast(`Téléversement de ${totalFiles} fichier(s) réussi !`, "success");
+        navigateToPath(currentFolderPath);
+      }
     } else {
       if (icon) icon.textContent = "❌";
       if (summary) summary.textContent = "Échec du téléversement";
@@ -23044,6 +23067,8 @@ async function navigateToKDrive(accountId, folderId = 0, folderName = null) {
   const trashTb = document.getElementById("files-toolbar-trash");
   if (normalTb) normalTb.style.display = "flex";
   if (trashTb) trashTb.style.display = "none";
+  const btnImportNas = document.getElementById("btn-kdrive-import-nas");
+  if (btnImportNas) btnImportNas.style.display = "inline-flex";
 
   currentKDriveAccountId = accountId;
   currentKDriveFolderId = folderId;
@@ -23178,6 +23203,163 @@ async function submitKDriveCopyToNas() {
     }
   } catch (err) {
     showToast("Erreur lors de la copie sur le NAS : " + err, "error");
+  }
+}
+
+// -------------------------------------------------------------------------
+// TRANSFERT NAS VERS KDRIVE (TÉLÉVERSEMENT FICHIER LOCAL NAS -> CLOUD)
+// -------------------------------------------------------------------------
+
+let currentNasTransferItem = null;
+
+function openTransferToKDriveModal(fileItem) {
+  if (!fileItem) return;
+  if (!kdriveAccountsList || kdriveAccountsList.length === 0) {
+    showToast("Aucun compte kDrive connecté au NAS. Connectez d'abord votre kDrive.", "warning");
+    return;
+  }
+
+  currentNasTransferItem = fileItem;
+
+  const nameEl = document.getElementById("nas-kdrive-upload-file-name");
+  const pathEl = document.getElementById("nas-kdrive-upload-file-path");
+  if (nameEl) nameEl.textContent = `${fileItem.name} (${fileItem.size_human || formatFileSize(fileItem.size_bytes)})`;
+  if (pathEl) pathEl.textContent = fileItem.path;
+
+  const select = document.getElementById("nas-upload-kdrive-account-select");
+  if (select) {
+    select.innerHTML = kdriveAccountsList.map(acc => `
+      <option value="${escapeHtml(acc.id)}" ${currentKDriveAccountId === acc.id ? "selected" : ""}>
+        ☁️ ${escapeHtml(acc.name)} (${escapeHtml(acc.used_size_human)} / ${escapeHtml(acc.total_size_human)})
+      </option>
+    `).join("");
+  }
+
+  const destFolderInp = document.getElementById("nas-upload-kdrive-dest-folder");
+  if (destFolderInp) {
+    destFolderInp.value = (isKDriveView && currentKDriveFolderId > 1) ? currentKDriveFolderId : "";
+  }
+
+  const modal = document.getElementById("modal-nas-upload-kdrive");
+  if (modal) modal.style.display = "flex";
+}
+
+function closeTransferToKDriveModal() {
+  const modal = document.getElementById("modal-nas-upload-kdrive");
+  if (modal) modal.style.display = "none";
+  currentNasTransferItem = null;
+}
+
+async function submitNasUploadToKDrive() {
+  if (!currentNasTransferItem) return;
+  const select = document.getElementById("nas-upload-kdrive-account-select");
+  const destInp = document.getElementById("nas-upload-kdrive-dest-folder");
+  const btn = document.getElementById("btn-submit-nas-kdrive-upload");
+
+  const accountId = select ? select.value : "";
+  const targetFolderIdVal = destInp && destInp.value.trim() ? parseInt(destInp.value.trim(), 10) : undefined;
+
+  if (!accountId) {
+    showToast("Veuillez sélectionner un compte kDrive de destination.", "warning");
+    return;
+  }
+
+  const filePath = currentNasTransferItem.path;
+  const fileName = currentNasTransferItem.name;
+
+  if (btn) btn.disabled = true;
+  showToast(`🚀 Transfert en cours de "${fileName}" vers kDrive en tâche de fond...`, "info");
+  closeTransferToKDriveModal();
+
+  try {
+    const res = await fetch(`/api/kdrive/accounts/${encodeURIComponent(accountId)}/upload-from-nas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source_path: filePath,
+        target_folder_id: targetFolderIdVal
+      })
+    });
+    const json = await res.json();
+    if (json.success && json.data) {
+      showToast(`✓ Document "${fileName}" téléversé avec succès sur kDrive !`, "success");
+      if (isKDriveView && currentKDriveAccountId === accountId) {
+        navigateToKDrive(accountId, currentKDriveFolderId);
+      }
+    } else {
+      showToast(json.message || "Échec du transfert vers kDrive", "error");
+    }
+  } catch (err) {
+    showToast("Erreur lors du transfert : " + err, "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// -------------------------------------------------------------------------
+// IMPORTATION DEPUIS LE NAS DANS LE DOSSIER KDRIVE ACTUEL
+// -------------------------------------------------------------------------
+
+function openImportFromNasToKDriveModal() {
+  if (!isKDriveView || !currentKDriveAccountId) {
+    showToast("Vous devez être dans un dossier kDrive pour importer depuis le NAS.", "warning");
+    return;
+  }
+
+  const pathInp = document.getElementById("kdrive-import-nas-file-path");
+  if (pathInp) pathInp.value = "";
+
+  const modal = document.getElementById("modal-kdrive-import-nas");
+  if (modal) modal.style.display = "flex";
+}
+
+function closeImportFromNasToKDriveModal() {
+  const modal = document.getElementById("modal-kdrive-import-nas");
+  if (modal) modal.style.display = "none";
+}
+
+function setImportNasPathPrefix(prefix) {
+  const inp = document.getElementById("kdrive-import-nas-file-path");
+  if (inp) {
+    inp.value = prefix;
+    inp.focus();
+  }
+}
+
+async function submitImportFromNasToKDrive() {
+  const pathInp = document.getElementById("kdrive-import-nas-file-path");
+  const btn = document.getElementById("btn-submit-kdrive-import-nas");
+  const filePath = pathInp ? pathInp.value.trim() : "";
+
+  if (!filePath) {
+    showToast("Veuillez renseigner le chemin d'un fichier du NAS.", "warning");
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  showToast(`🚀 Importation de "${filePath}" vers kDrive en cours...`, "info");
+  closeImportFromNasToKDriveModal();
+
+  try {
+    const res = await fetch(`/api/kdrive/accounts/${encodeURIComponent(currentKDriveAccountId)}/upload-from-nas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source_path: filePath,
+        target_folder_id: currentKDriveFolderId
+      })
+    });
+    const json = await res.json();
+    if (json.success && json.data) {
+      showToast(`✓ Document importé avec succès sur kDrive !`, "success");
+      navigateToKDrive(currentKDriveAccountId, currentKDriveFolderId);
+    } else {
+      showToast(json.message || "Échec de l'importation sur kDrive", "error");
+    }
+  } catch (err) {
+    showToast("Erreur lors de l'importation : " + err, "error");
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 

@@ -136,6 +136,12 @@ pub struct KDriveCopyToNasRequest {
     pub dest_dir: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct KDriveUploadFromNasRequest {
+    pub source_path: String,
+    pub target_folder_id: Option<u64>,
+}
+
 // =========================================================================
 // STOCKAGE LOCAL DES COMPTES AVEC PERMISSIONS RESTREINTES
 // =========================================================================
@@ -337,6 +343,44 @@ pub fn test_and_fetch_drives(token: &str, drive_id_opt: Option<u64>) -> Result<V
                 Err(e) => {
                     return Err(format!("Le kDrive #{} est inaccessible avec ce jeton : {}", drive_id, e));
                 }
+            }
+        }
+    }
+
+    // 0b. Tenter l'auto-détection via la liste des comptes : GET /1/accounts puis GET /2/drive?account_id={id}
+    let res_accounts = curl_api_get(clean_token, "https://api.infomaniak.com/1/accounts");
+    if let Ok(ref val) = res_accounts {
+        if let Some(acc_arr) = val.get("data").and_then(|d| d.as_array()) {
+            let mut drives = Vec::new();
+            for acc in acc_arr {
+                if let Some(acc_id) = acc.get("id").and_then(|v| v.as_u64()) {
+                    let drive_url = format!("https://api.infomaniak.com/2/drive?account_id={}", acc_id);
+                    if let Ok(ref drive_val) = curl_api_get(clean_token, &drive_url) {
+                        if let Some(data_arr) = drive_val.get("data").and_then(|d| d.as_array()) {
+                            for item in data_arr {
+                                let id = item.get("id").or_else(|| item.get("drive_id")).and_then(|v| v.as_u64()).unwrap_or(0);
+                                if id == 0 {
+                                    continue;
+                                }
+                                let name = item.get("name").or_else(|| item.get("title")).and_then(|v| v.as_str()).unwrap_or("Mon kDrive").to_string();
+                                let size = item.get("size").or_else(|| item.get("total_size")).and_then(|v| v.as_u64()).unwrap_or(0);
+                                let used_size = item.get("used_size").and_then(|v| v.as_u64()).unwrap_or(0);
+
+                                drives.push(KDriveDriveInfo {
+                                    id,
+                                    name,
+                                    size,
+                                    used_size,
+                                    size_human: format_size(size),
+                                    used_size_human: format_size(used_size),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            if !drives.is_empty() {
+                return Ok(drives);
             }
         }
     }
@@ -753,7 +797,146 @@ pub fn copy_kdrive_file_to_nas(account_id: &str, file_id: u64, file_name: &str, 
     Ok(final_path_str)
 }
 
+/// Téléverse un fichier local présent sur le NAS directement dans kDrive.
+pub fn upload_nas_file_to_kdrive(
+    account_id: &str,
+    nas_file_path: &str,
+    target_folder_id_opt: Option<u64>,
+) -> Result<FileEntry, String> {
+    let accounts = load_kdrive_accounts();
+    let account = accounts.iter().find(|a| a.id == account_id)
+        .ok_or_else(|| format!("Compte kDrive '{}' introuvable.", account_id))?;
+
+    let path = Path::new(nas_file_path);
+    if !path.exists() {
+        return Err(format!("Le fichier local '{}' n'existe pas sur le NAS.", nas_file_path));
+    }
+    if !path.is_file() {
+        return Err(format!("'{}' n'est pas un fichier standard (les dossiers ne peuvent pas être téléversés directement).", nas_file_path));
+    }
+
+    let metadata = fs::metadata(path).map_err(|e| format!("Impossible de lire le fichier : {}", e))?;
+    let file_size = metadata.len();
+
+    let file_name = path.file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .ok_or_else(|| "Nom de fichier invalide.".to_string())?;
+
+    // Détermination du dossier cible sur kDrive.
+    // kDrive interdit l'upload direct à la racine globale (ID 1) : il faut cibler un sous-dossier inscriptible.
+    let mut target_dir_id = target_folder_id_opt.unwrap_or(0);
+    if target_dir_id <= 1 {
+        // Interroger les sous-dossiers de la racine pour trouver un dossier inscriptible (comme 'Private')
+        let root_files_url = format!("https://api.infomaniak.com/3/drive/{}/files/1/files", account.drive_id);
+        if let Ok(ref val) = curl_api_get(&account.token, &root_files_url) {
+            if let Some(arr) = val.get("data").and_then(|d| d.as_array()) {
+                for item in arr {
+                    let is_dir = item.get("type").and_then(|v| v.as_str()).map(|t| t == "dir").unwrap_or(false);
+                    let vis = item.get("visibility").and_then(|v| v.as_str()).unwrap_or("");
+                    let id = item.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+                    if is_dir && id > 0 {
+                        if vis == "is_private_space" || target_dir_id == 0 {
+                            target_dir_id = id;
+                            if vis == "is_private_space" {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if target_dir_id <= 1 {
+            // Repli conventionnel kDrive : dossier 5 = Private
+            target_dir_id = 5;
+        }
+    }
+
+    let encoded_name = percent_encode(&file_name);
+    let upload_url = format!(
+        "https://api.infomaniak.com/3/drive/{}/upload?directory_id={}&file_name={}&total_size={}",
+        account.drive_id, target_dir_id, encoded_name, file_size
+    );
+
+    let mut child = Command::new("curl")
+        .args([
+            "-s",
+            "-L",
+            "--max-time", "1800",
+            "-X", "POST",
+            "-H", "Content-Type: application/octet-stream",
+            "-K", "-",
+            "--data-binary", &format!("@{}", path.display()),
+            &upload_url,
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Erreur lancement du processus de téléversement : {}", e))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let config = format!(
+            "header = \"Authorization: Bearer {}\"\nheader = \"Accept: application/json\"\n",
+            account.token.trim()
+        );
+        let _ = stdin.write_all(config.as_bytes());
+    }
+
+    let output = child.wait_with_output()
+        .map_err(|e| format!("Erreur exécution du téléversement : {}", e))?;
+
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Échec du téléversement vers kDrive : {}", err));
+    }
+
+    let resp_text = String::from_utf8_lossy(&output.stdout);
+    let val: serde_json::Value = serde_json::from_str(&resp_text)
+        .map_err(|e| format!("Réponse JSON invalide lors de l'upload : {} (extrait: {})", e, resp_text.chars().take(200).collect::<String>()))?;
+
+    if let Some(res) = val.get("result").and_then(|r| r.as_str()) {
+        if res == "error" {
+            let desc = val.get("error")
+                .and_then(|e| e.get("description").or_else(|| e.get("message")))
+                .and_then(|m| m.as_str())
+                .unwrap_or("Erreur de téléversement kDrive");
+            return Err(desc.to_string());
+        }
+    }
+
+    let data = val.get("data");
+    let file_id = data.and_then(|d| d.get("id")).and_then(|v| v.as_u64()).unwrap_or(0);
+    let res_name = data.and_then(|d| d.get("name")).and_then(|v| v.as_str()).unwrap_or(&file_name).to_string();
+    let res_size = data.and_then(|d| d.get("size")).and_then(|v| v.as_u64()).unwrap_or(file_size);
+
+    Ok(FileEntry {
+        name: res_name,
+        path: format!("kdrive://{}/{}", account.id, file_id),
+        is_dir: false,
+        size_bytes: res_size,
+        size_human: format_size(res_size),
+        modified: "À l'instant".to_string(),
+        permissions: "-rw-r--r--".to_string(),
+        category: categorize_file(&file_name),
+        is_mount_point: false,
+    })
+}
+
 // Helpers
+fn percent_encode(input: &str) -> String {
+    let mut encoded = String::new();
+    for byte in input.bytes() {
+        match byte {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(byte as char);
+            }
+            b' ' => encoded.push_str("%20"),
+            _ => encoded.push_str(&format!("%{:02X}", byte)),
+        }
+    }
+    encoded
+}
+
 fn chrono_or_date() -> String {
     let output = Command::new("date")
         .args(["+%d/%m/%Y %H:%M"])
