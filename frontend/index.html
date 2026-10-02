@@ -6335,63 +6335,8 @@
       <!-- 5. POPUPS FLOTTANTES : DÉPLOIEMENT SERVEURS DE JEUX (MULTI-POPUPS DYNAMIQUES) -->
       <div id="game-deploy-floating-cards-slot" style="display:contents;"></div>
 
-      <!-- 6. POPUP FLOTTANTE : DÉPLOIEMENT APPLICATION DOCKER -->
-      <div class="floating-task-card docker-deploy-floating-toast" id="docker-deploy-floating-toast" style="display:none;">
-        <div class="docker-deploy-toast-card" id="docker-deploy-toast-card">
-          <div class="docker-deploy-header">
-            <div class="docker-deploy-icon-wrap" id="docker-deploy-toast-icon-wrap">
-              <img id="docker-deploy-toast-icon" src="/favicon.ico" alt="App" class="docker-deploy-img-icon" onerror="this.src='/favicon.ico';">
-              <span class="docker-deploy-pulse-dot"></span>
-            </div>
-            <div class="docker-deploy-titles">
-              <div class="docker-deploy-title" id="docker-deploy-toast-title">Déploiement en cours...</div>
-              <div class="docker-deploy-subtitle" id="docker-deploy-toast-subtitle">Docker Compose v2</div>
-            </div>
-            <div class="docker-deploy-header-right">
-              <span class="badge badge-warning" id="docker-deploy-toast-badge" style="font-size:0.7rem;">⏳ En cours</span>
-              <button type="button" class="floating-card-action-btn" onclick="toggleFloatingCardMinimize('docker-deploy-floating-toast')" title="Réduire / Dérouler">_</button>
-              <button type="button" class="docker-deploy-close-btn" onclick="dismissDockerDeployToast()" title="Masquer la notification">&times;</button>
-            </div>
-          </div>
-
-          <div class="floating-card-body docker-deploy-toast-body">
-            <div class="docker-deploy-progress-wrap">
-              <div class="docker-deploy-progress-bar" id="docker-deploy-toast-bar" style="width: 15%;"></div>
-            </div>
-
-            <div class="docker-deploy-steps" id="docker-deploy-toast-steps">
-              <div class="deploy-step-item active" id="deploy-step-1">
-                <span class="step-status-icon">⏳</span>
-                <span class="step-text">Préparation du dossier persistant (~/docker)</span>
-              </div>
-              <div class="deploy-step-item" id="deploy-step-2">
-                <span class="step-status-icon">⚪</span>
-                <span class="step-text">Configuration des variables & ports réseau</span>
-              </div>
-              <div class="deploy-step-item" id="deploy-step-3">
-                <span class="step-status-icon">⚪</span>
-                <span class="step-text">Lancement Docker Compose (docker compose up -d)</span>
-              </div>
-              <div class="deploy-step-item" id="deploy-step-4">
-                <span class="step-status-icon">⚪</span>
-                <span class="step-text">Vérification de l'état actif & mise en ligne</span>
-              </div>
-            </div>
-
-            <div class="docker-deploy-actions" id="docker-deploy-toast-actions" style="display: none;">
-              <a href="#" target="_blank" class="btn btn-success btn-xs" id="docker-deploy-toast-open-btn">
-                <span>🚀</span> Ouvrir l'application ↗
-              </a>
-              <button type="button" class="btn btn-danger btn-xs" id="docker-deploy-toast-view-error-btn" style="display: none;" onclick="openDockerDeployErrorModal()">
-                <span>🔍</span> Voir le rapport d'erreur
-              </button>
-              <button type="button" class="btn btn-secondary btn-xs" onclick="switchTab('tab-containers'); switchDockerSubTab('containers'); dismissDockerDeployToast();">
-                <span>📦</span> Mes Conteneurs
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <!-- 6. POPUPS FLOTTANTES : DÉPLOIEMENT APPLICATIONS DOCKER & FILE D'ATTENTE (MULTI-POPUPS DYNAMIQUES) -->
+      <div id="docker-deploy-floating-cards-slot" style="display:contents;"></div>
     </div>
   </div>
 

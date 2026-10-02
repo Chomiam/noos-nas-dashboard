@@ -291,7 +291,7 @@ fn customize_compose_yaml(
 "
 }
 
-pub async fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
+pub fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
     let clean_id = req.app_id.trim().to_lowercase();
     if clean_id.is_empty() || !clean_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
         return Err("Identifiant d'application invalide".to_string());
@@ -383,7 +383,7 @@ DNSStubListener=no
     }
 }
 
-pub async fn uninstall_store_app(app_id: &str, delete_data: bool) -> Result<String, String> {
+pub fn uninstall_store_app(app_id: &str, delete_data: bool) -> Result<String, String> {
     let clean_id = app_id.trim().to_lowercase();
     let user = get_target_user();
     let app_dir = PathBuf::from(format!("/home/{}/docker/{}", user, clean_id));

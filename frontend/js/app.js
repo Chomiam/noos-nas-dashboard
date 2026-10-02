@@ -9975,9 +9975,64 @@ function filterStoreApps(resetLimit = false) {
   grid.innerHTML = visibleApps.map(app => {
     const isInstalled = app.is_installed;
     const isRunning = app.is_running;
-    const openLink = (isInstalled && isRunning && app.default_port)
+    const cleanId = (app.id || "").toLowerCase();
+    const isDeploying = activeDockerDeployments[cleanId] && activeDockerDeployments[cleanId].status === "active";
+    const isQueued = dockerDeployQueue.some(q => q.appId.toLowerCase() === cleanId);
+
+    const openLink = (isInstalled && isRunning && app.default_port && !isDeploying)
       ? `<a href="http://${host}:${app.default_port}" target="_blank" class="store-open-link"><span>🚀</span> Ouvrir (Port ${app.default_port}) ↗</a>`
       : "";
+
+    let statusPillHtml = "";
+    if (isDeploying) {
+      statusPillHtml = `<div class="store-status-pill status-warning" style="background:rgba(250, 179, 135, 0.2); color:var(--peach); border-color:rgba(250, 179, 135, 0.4);">⏳ Déploiement (${activeDockerDeployments[cleanId].progressPercent || 20}%)</div>`;
+    } else if (isQueued) {
+      statusPillHtml = `<div class="store-status-pill status-secondary" style="background:rgba(180, 190, 254, 0.2); color:var(--blue); border-color:rgba(180, 190, 254, 0.4);">🕒 En file d'attente</div>`;
+    } else {
+      statusPillHtml = `<div class="store-status-pill ${isInstalled ? (isRunning ? 'status-active' : 'status-stopped') : 'status-available'}">${isInstalled ? (isRunning ? '🟢 Active' : '🟡 Arrêtée') : '⚪ Non installée'}</div>`;
+    }
+
+    let actionsRowHtml = "";
+    if (isDeploying) {
+      actionsRowHtml = `
+        <button type="button" class="btn btn-secondary btn-xs store-btn-action" onclick="openStoreAppModal('${escapeHtml(app.id)}')">
+          <span>ℹ️</span> Détails
+        </button>
+        <button type="button" class="btn btn-warning btn-xs store-btn-action" onclick="openDockerConfigModal('${escapeHtml(app.id)}')">
+          <span>⏳</span> En cours
+        </button>
+      `;
+    } else if (isQueued) {
+      actionsRowHtml = `
+        <button type="button" class="btn btn-secondary btn-xs store-btn-action" onclick="openStoreAppModal('${escapeHtml(app.id)}')">
+          <span>ℹ️</span> Détails
+        </button>
+        <button type="button" class="btn btn-secondary btn-xs store-btn-action" onclick="openDockerConfigModal('${escapeHtml(app.id)}')">
+          <span>🕒</span> En attente
+        </button>
+      `;
+    } else if (isInstalled) {
+      actionsRowHtml = `
+        <button type="button" class="btn btn-secondary btn-xs store-btn-action" onclick="openStoreAppModal('${escapeHtml(app.id)}')">
+          <span>ℹ️</span> Détails
+        </button>
+        <button type="button" class="btn btn-secondary btn-xs store-btn-action" onclick="openDockerConfigModal('${escapeHtml(app.id)}')">
+          <span>⚙️</span> Variables
+        </button>
+        <button type="button" class="btn btn-danger btn-xs store-btn-action" onclick="uninstallStoreApp('${escapeHtml(app.id)}', '${escapeHtml(app.name)}')">
+          <span>🗑️</span> Désinstaller
+        </button>
+      `;
+    } else {
+      actionsRowHtml = `
+        <button type="button" class="btn btn-secondary btn-xs store-btn-action" onclick="openStoreAppModal('${escapeHtml(app.id)}')">
+          <span>ℹ️</span> Détails
+        </button>
+        <button type="button" class="btn btn-success btn-xs store-btn-action store-btn-install" onclick="openDockerConfigModal('${escapeHtml(app.id)}')">
+          <span>📥</span> Installer
+        </button>
+      `;
+    }
 
     return `
       <div class="store-app-card">
@@ -10002,31 +10057,12 @@ function filterStoreApps(resetLimit = false) {
 
         <div class="store-app-bottom">
           <div class="store-bottom-status-row">
-            <div class="store-status-pill ${isInstalled ? (isRunning ? 'status-active' : 'status-stopped') : 'status-available'}">
-              ${isInstalled ? (isRunning ? '🟢 Active' : '🟡 Arrêtée') : '⚪ Non installée'}
-            </div>
+            ${statusPillHtml}
             ${openLink}
           </div>
 
           <div class="store-bottom-actions-row">
-            ${isInstalled ? `
-              <button type="button" class="btn btn-secondary btn-xs store-btn-action" onclick="openStoreAppModal('${escapeHtml(app.id)}')">
-                <span>ℹ️</span> Détails
-              </button>
-              <button type="button" class="btn btn-secondary btn-xs store-btn-action" onclick="openDockerConfigModal('${escapeHtml(app.id)}')">
-                <span>⚙️</span> Variables
-              </button>
-              <button type="button" class="btn btn-danger btn-xs store-btn-action" onclick="uninstallStoreApp('${escapeHtml(app.id)}', '${escapeHtml(app.name)}')">
-                <span>🗑️</span> Désinstaller
-              </button>
-            ` : `
-              <button type="button" class="btn btn-secondary btn-xs store-btn-action" onclick="openStoreAppModal('${escapeHtml(app.id)}')">
-                <span>ℹ️</span> Détails
-              </button>
-              <button type="button" class="btn btn-success btn-xs store-btn-action store-btn-install" onclick="openDockerConfigModal('${escapeHtml(app.id)}')">
-                <span>📥</span> Installer
-              </button>
-            `}
+            ${actionsRowHtml}
           </div>
         </div>
       </div>
@@ -10223,18 +10259,38 @@ function openStoreAppModal(appId) {
 
   if (actionsEl) {
     const isInstalled = app.is_installed;
-    actionsEl.innerHTML = isInstalled ? `
-      <button type="button" class="btn btn-secondary btn-sm" onclick="openDockerConfigModal('${app.id}'); closeStoreAppModal();">
-        ⚙️ Modifier les variables
-      </button>
-      <button type="button" class="btn btn-danger btn-sm" onclick="uninstallStoreApp('${app.id}', '${escapeHtml(app.name)}'); closeStoreAppModal();">
-        🗑️ Désinstaller du NAS
-      </button>
-    ` : `
-      <button type="button" class="btn btn-success btn-sm" onclick="openDockerConfigModal('${app.id}'); closeStoreAppModal();">
-        📥 Installer l'application
-      </button>
-    `;
+    const cleanId = (app.id || "").toLowerCase();
+    const isDeploying = activeDockerDeployments[cleanId] && activeDockerDeployments[cleanId].status === "active";
+    const isQueued = dockerDeployQueue.some(q => q.appId.toLowerCase() === cleanId);
+
+    if (isDeploying) {
+      actionsEl.innerHTML = `
+        <button type="button" class="btn btn-warning btn-sm" onclick="openDockerConfigModal('${app.id}'); closeStoreAppModal();">
+          <span>⏳</span> Déploiement en cours (${activeDockerDeployments[cleanId].progressPercent || 20}%)...
+        </button>
+      `;
+    } else if (isQueued) {
+      actionsEl.innerHTML = `
+        <button type="button" class="btn btn-secondary btn-sm" onclick="openDockerConfigModal('${app.id}'); closeStoreAppModal();">
+          <span>🕒</span> En file d'attente...
+        </button>
+      `;
+    } else if (isInstalled) {
+      actionsEl.innerHTML = `
+        <button type="button" class="btn btn-secondary btn-sm" onclick="openDockerConfigModal('${app.id}'); closeStoreAppModal();">
+          ⚙️ Modifier les variables
+        </button>
+        <button type="button" class="btn btn-danger btn-sm" onclick="uninstallStoreApp('${app.id}', '${escapeHtml(app.name)}'); closeStoreAppModal();">
+          🗑️ Désinstaller du NAS
+        </button>
+      `;
+    } else {
+      actionsEl.innerHTML = `
+        <button type="button" class="btn btn-success btn-sm" onclick="openDockerConfigModal('${app.id}'); closeStoreAppModal();">
+          📥 Installer l'application
+        </button>
+      `;
+    }
   }
 
   if (modal) modal.style.display = "flex";
@@ -10373,6 +10429,7 @@ function openDockerConfigModal(appId, customData = null) {
     }
   }
 
+  updateDockerConfigModalDeployButton(appId);
   modal.style.display = "flex";
 }
 
@@ -10644,96 +10701,82 @@ function addDockerConfigEnvRow(key = '', val = '') {
   container.appendChild(row);
 }
 
-let dockerDeployDismissTimeout = null;
+// ============================================================================
+// GESTIONNAIRE D'ORCHESTRATION & FILE D'ATTENTE DOCKER STORE (MULTI-POPUPS)
+// ============================================================================
+const MAX_CONCURRENT_DOCKER_DEPLOYS = 2;
+const activeDockerDeployments = {}; // appId -> { appId, appName, icon, port, payload, status, step, progressPercent, subtitle, badgeText, badgeClass, errorMessage, ... }
+const dockerDeployQueue = [];        // [ { appId, appName, icon, port, payload }, ... ]
 
-function startDockerDeployToast(appId, appName, icon, port) {
-  if (dockerDeployDismissTimeout) {
-    clearTimeout(dockerDeployDismissTimeout);
-    dockerDeployDismissTimeout = null;
-  }
+function updateDockerConfigModalDeployButton(appId) {
+  const btn = document.getElementById("btn-submit-docker-deploy");
+  if (!btn) return;
 
-  const toast = document.getElementById("docker-deploy-floating-toast");
-  const card = document.getElementById("docker-deploy-toast-card");
-  const iconImg = document.getElementById("docker-deploy-toast-icon");
-  const title = document.getElementById("docker-deploy-toast-title");
-  const subtitle = document.getElementById("docker-deploy-toast-subtitle");
-  const badge = document.getElementById("docker-deploy-toast-badge");
-  const bar = document.getElementById("docker-deploy-toast-bar");
-  const actions = document.getElementById("docker-deploy-toast-actions");
-
-  if (!toast) return;
-
-  if (card) {
-    card.className = "docker-deploy-toast-card";
-  }
-  if (iconImg) {
-    iconImg.src = icon || "/favicon.ico";
-  }
-  if (title) {
-    title.textContent = `Déploiement : ${appName || appId}`;
-  }
-  if (subtitle) {
-    subtitle.textContent = "Docker Compose v2 • Initialisation...";
-  }
-  if (badge) {
-    badge.className = "badge badge-warning";
-    badge.textContent = "⏳ En cours (20%)";
-  }
-  if (bar) {
-    bar.style.width = "20%";
-  }
-  if (actions) {
-    actions.style.display = "none";
+  const currentAppId = (appId || (document.getElementById("config-app-id") ? document.getElementById("config-app-id").value.trim() : "")).toLowerCase();
+  if (!currentAppId) {
+    btn.disabled = false;
+    btn.className = "btn btn-primary btn-sm";
+    btn.innerHTML = "🚀 Déployer l'application";
+    return;
   }
 
-  for (let i = 1; i <= 4; i++) {
-    const stepEl = document.getElementById(`deploy-step-${i}`);
-    if (stepEl) {
-      if (i === 1) {
-        stepEl.className = "deploy-step-item active";
-        stepEl.querySelector(".step-status-icon").textContent = "⏳";
-      } else {
-        stepEl.className = "deploy-step-item";
-        stepEl.querySelector(".step-status-icon").textContent = "⚪";
-      }
-    }
+  const activeDep = activeDockerDeployments[currentAppId];
+  const queueIdx = dockerDeployQueue.findIndex(q => q.appId.toLowerCase() === currentAppId);
+
+  if (activeDep && (activeDep.status === "active" || activeDep.status === "running")) {
+    btn.disabled = true;
+    btn.className = "btn btn-warning btn-sm";
+    btn.innerHTML = `<span>⏳</span> Déploiement en cours (${activeDep.progressPercent || 20}%)...`;
+    btn.title = "Cette application est en cours de déploiement.";
+    return;
   }
 
-  toast.style.display = "block";
-  toast.classList.remove("minimized");
-  updateFloatingDockLayout();
+  if (queueIdx !== -1) {
+    btn.disabled = true;
+    btn.className = "btn btn-secondary btn-sm";
+    btn.innerHTML = `<span>🕒</span> En file d'attente (Position #${queueIdx + 1})`;
+    btn.title = "Cette application est déjà en file d'attente.";
+    return;
+  }
 
-  setTimeout(() => {
-    const step1 = document.getElementById("deploy-step-1");
-    const step2 = document.getElementById("deploy-step-2");
-    if (step1) {
-      step1.className = "deploy-step-item completed";
-      step1.querySelector(".step-status-icon").textContent = "✓";
-    }
-    if (step2) {
-      step2.className = "deploy-step-item active";
-      step2.querySelector(".step-status-icon").textContent = "⏳";
-    }
-    if (bar) bar.style.width = "45%";
-    if (badge && badge.textContent.includes("En cours")) badge.textContent = "⏳ En cours (45%)";
-    if (subtitle) subtitle.textContent = "Configuration des volumes persistants...";
-  }, 450);
+  // L'application peut être déployée ou mise en file d'attente
+  btn.disabled = false;
+  const runningCount = Object.values(activeDockerDeployments).filter(d => d.status === "active").length;
 
-  setTimeout(() => {
-    const step2 = document.getElementById("deploy-step-2");
-    const step3 = document.getElementById("deploy-step-3");
-    if (step2) {
-      step2.className = "deploy-step-item completed";
-      step2.querySelector(".step-status-icon").textContent = "✓";
-    }
-    if (step3) {
-      step3.className = "deploy-step-item active";
-      step3.querySelector(".step-status-icon").textContent = "⏳";
-    }
-    if (bar) bar.style.width = "75%";
-    if (badge && badge.textContent.includes("En cours")) badge.textContent = "⏳ Lancement Compose (75%)";
-    if (subtitle) subtitle.textContent = "Démarrage du conteneur (docker compose up -d)...";
-  }, 1000);
+  if (runningCount >= MAX_CONCURRENT_DOCKER_DEPLOYS) {
+    btn.className = "btn btn-primary btn-sm";
+    btn.innerHTML = `<span>📥</span> Ajouter à la file d'attente (${runningCount} en cours)`;
+    btn.title = `${runningCount} applications sont déjà en cours de déploiement. Cette application démarrera automatiquement dès qu'un déploiement se libère.`;
+  } else if (runningCount === 1) {
+    btn.className = "btn btn-primary btn-sm";
+    btn.innerHTML = `<span>🚀</span> Déployer l'application (Simultané 2/2)`;
+    btn.title = "Déploiement simultané avec l'autre application en cours d'installation.";
+  } else {
+    btn.className = "btn btn-primary btn-sm";
+    btn.innerHTML = `<span>🚀</span> Déployer l'application`;
+    btn.title = "Déployer immédiatement cette application.";
+  }
+}
+
+function processNextInDockerDeployQueue() {
+  const runningCount = Object.values(activeDockerDeployments).filter(d => d.status === "active").length;
+  if (runningCount < MAX_CONCURRENT_DOCKER_DEPLOYS && dockerDeployQueue.length > 0) {
+    const nextItem = dockerDeployQueue.shift();
+    renderAllDockerDeployToasts();
+    startDockerAppDeploy(nextItem);
+  }
+}
+
+function removeDockerFromDeployQueue(appId) {
+  const cleanId = (appId || "").toLowerCase();
+  const qIdx = dockerDeployQueue.findIndex(q => q.appId.toLowerCase() === cleanId);
+  if (qIdx !== -1) {
+    const removed = dockerDeployQueue.splice(qIdx, 1)[0];
+    showToast(`Application ${removed.appName || cleanId} retirée de la file d'attente.`, "info");
+    dismissDockerDeployToast(cleanId);
+    renderAllDockerDeployToasts();
+    updateDockerConfigModalDeployButton(cleanId);
+  }
 }
 
 let currentDockerDeployError = {
@@ -10824,138 +10867,352 @@ function fallbackCopyDeployError(textarea, feedback) {
   }
 }
 
-function completeDockerDeployToast(success, message, port, appId, appName) {
-  const card = document.getElementById("docker-deploy-toast-card");
-  const title = document.getElementById("docker-deploy-toast-title");
-  const subtitle = document.getElementById("docker-deploy-toast-subtitle");
-  const badge = document.getElementById("docker-deploy-toast-badge");
-  const bar = document.getElementById("docker-deploy-toast-bar");
-  const actions = document.getElementById("docker-deploy-toast-actions");
-  const openBtn = document.getElementById("docker-deploy-toast-open-btn");
-  const viewErrorBtn = document.getElementById("docker-deploy-toast-view-error-btn");
+function dismissDockerDeployToast(appId) {
+  if (!appId) {
+    const cards = document.querySelectorAll(".docker-deploy-floating-toast");
+    cards.forEach(c => {
+      const aId = c.getAttribute("data-app-id");
+      if (aId) dismissDockerDeployToast(aId);
+    });
+    return;
+  }
 
-  const step1 = document.getElementById("deploy-step-1");
-  const step2 = document.getElementById("deploy-step-2");
-  const step3 = document.getElementById("deploy-step-3");
-  const step4 = document.getElementById("deploy-step-4");
-
-  if (success) {
-    if (step1) { step1.className = "deploy-step-item completed"; step1.querySelector(".step-status-icon").textContent = "✓"; }
-    if (step2) { step2.className = "deploy-step-item completed"; step2.querySelector(".step-status-icon").textContent = "✓"; }
-    if (step3) { step3.className = "deploy-step-item completed"; step3.querySelector(".step-status-icon").textContent = "✓"; }
-    if (step4) { step4.className = "deploy-step-item completed"; step4.querySelector(".step-status-icon").textContent = "✓"; }
-
-    if (bar) bar.style.width = "100%";
-    if (card) {
-      card.classList.remove("status-error");
-      card.classList.add("status-success");
-    }
-    if (title) title.textContent = `✨ ${appName || appId} déployé avec succès !`;
-    if (subtitle) subtitle.textContent = "Conteneur actif sur votre NAS STEvE_OS";
-    if (badge) {
-      badge.className = "badge badge-success";
-      badge.textContent = "🟢 Prêt (100%)";
-    }
-
-    if (actions) {
-      actions.style.display = "flex";
-      if (viewErrorBtn) viewErrorBtn.style.display = "none";
-      if (openBtn) {
-        if (port) {
-          openBtn.href = `http://${window.location.hostname}:${port}`;
-          openBtn.innerHTML = `<span>🚀</span> Ouvrir (Port ${port}) ↗`;
-          openBtn.style.display = "inline-flex";
-        } else {
-          openBtn.style.display = "none";
-        }
+  const cleanId = String(appId).toLowerCase();
+  const card = document.getElementById(`docker-deploy-floating-toast-${cleanId}`);
+  if (card) {
+    card.style.animation = "slideOutBottomRight 0.3s cubic-bezier(0.16, 1, 0.3, 1)";
+    setTimeout(() => {
+      card.remove();
+      if (activeDockerDeployments[cleanId]) {
+        delete activeDockerDeployments[cleanId];
       }
-    }
-
-    dockerDeployDismissTimeout = setTimeout(() => {
-      dismissDockerDeployToast();
-    }, 12000);
-
+      const qIdx = dockerDeployQueue.findIndex(q => q.appId.toLowerCase() === cleanId);
+      if (qIdx !== -1) {
+        dockerDeployQueue.splice(qIdx, 1);
+      }
+      updateDockerConfigModalDeployButton(cleanId);
+      updateFloatingDockLayout();
+    }, 280);
   } else {
-    currentDockerDeployError = {
-      appName: appName || appId || "Application Docker",
-      appId: appId || "",
-      message: message || "Erreur inconnue lors du déploiement Docker Compose"
-    };
-
-    if (step3) {
-      step3.className = "deploy-step-item error is-clickable";
-      step3.querySelector(".step-status-icon").textContent = "❌";
-      step3.title = "Cliquer pour voir le rapport d'erreur complet";
-      step3.onclick = () => openDockerDeployErrorModal();
+    if (activeDockerDeployments[cleanId]) {
+      delete activeDockerDeployments[cleanId];
     }
-    if (step4) {
-      step4.className = "deploy-step-item error is-clickable";
-      step4.querySelector(".step-status-icon").textContent = "❌";
-      const txt = step4.querySelector(".step-text");
-      if (txt) {
-        const isPort53 = message && (message.includes("0.0.0.0:53") || message.includes(":53/tcp") || message.includes(":53/udp"));
-        const isPort = message && message.includes("address already in use");
-        if (isPort53) {
-          txt.textContent = "Conflit Port 53 (DNS déjà utilisé par l'hôte)";
-        } else if (isPort) {
-          txt.textContent = "Conflit de port réseau (déjà utilisé)";
-        } else {
-          txt.textContent = "Échec d'exécution Docker Compose (cliquez pour inspecter)";
-        }
-      }
-      step4.title = "Cliquer pour voir le rapport d'erreur complet";
-      step4.onclick = () => openDockerDeployErrorModal();
+    const qIdx = dockerDeployQueue.findIndex(q => q.appId.toLowerCase() === cleanId);
+    if (qIdx !== -1) {
+      dockerDeployQueue.splice(qIdx, 1);
     }
-    if (card) {
-      card.classList.remove("status-success");
-      card.classList.add("status-error");
-    }
-    if (title) title.textContent = `❌ Échec du déploiement (${appName || appId})`;
-    if (subtitle) {
-      const isPort53 = message && (message.includes("0.0.0.0:53") || message.includes(":53/tcp") || message.includes(":53/udp"));
-      subtitle.textContent = isPort53 ? "Conflit détecté sur le port 53" : "Erreur de démarrage Docker Compose";
-    }
-    if (badge) {
-      badge.className = "badge badge-danger";
-      badge.textContent = "🔴 Erreur";
-    }
-    if (actions) {
-      actions.style.display = "flex";
-      if (openBtn) openBtn.style.display = "none";
-      if (viewErrorBtn) viewErrorBtn.style.display = "inline-flex";
-    }
-
-    // Ouvrir immédiatement la modale détaillée au milieu de l'écran avec le rapport d'erreur complet
-    openDockerDeployErrorModal(appName || appId, message);
+    updateDockerConfigModalDeployButton(cleanId);
+    updateFloatingDockLayout();
   }
 }
 
-function dismissDockerDeployToast() {
-  const toast = document.getElementById("docker-deploy-floating-toast");
-  if (toast) {
-    toast.style.animation = "slideOutBottomRight 0.3s cubic-bezier(0.16, 1, 0.3, 1)";
-    setTimeout(() => {
-      toast.style.display = "none";
-      toast.style.animation = "";
-      updateFloatingDockLayout();
-    }, 280);
+function renderAllDockerDeployToasts() {
+  const stack = document.getElementById("floating-dock-stack");
+  if (!stack) return;
+
+  const activeList = Object.values(activeDockerDeployments);
+  const queueList = dockerDeployQueue.map((item, idx) => ({
+    ...item,
+    status: "queued",
+    queuePos: idx + 1,
+    step: 0,
+    progressPercent: 0,
+    subtitle: `🕒 En file d'attente (Position #${idx + 1})`,
+    badgeText: `🕒 File d'attente (#${idx + 1})`,
+    badgeClass: "badge-secondary"
+  }));
+
+  const allToasts = [...activeList, ...queueList];
+
+  // Nettoyer les cartes du DOM qui n'existent plus
+  const currentCardElements = document.querySelectorAll(".docker-deploy-floating-toast");
+  currentCardElements.forEach(el => {
+    const aId = el.getAttribute("data-app-id");
+    if (!allToasts.some(t => t.appId.toLowerCase() === (aId || "").toLowerCase())) {
+      el.remove();
+    }
+  });
+
+  allToasts.forEach(t => {
+    const cleanId = t.appId.toLowerCase();
+    let card = document.getElementById(`docker-deploy-floating-toast-${cleanId}`);
+    if (!card) {
+      card = document.createElement("div");
+      card.className = "floating-task-card docker-deploy-floating-toast";
+      card.id = `docker-deploy-floating-toast-${cleanId}`;
+      card.setAttribute("data-app-id", cleanId);
+      stack.appendChild(card);
+    }
+
+    card.style.display = "block";
+
+    const isSuccess = t.status === "success";
+    const isError = t.status === "error";
+    const isQueued = t.status === "queued";
+    const isActive = t.status === "active";
+
+    let cardStatusClass = "";
+    if (isSuccess) cardStatusClass = "status-success";
+    else if (isError) cardStatusClass = "status-error";
+    else if (isQueued) cardStatusClass = "status-queued";
+
+    const step1Class = (t.step > 1 || isSuccess) ? "completed" : (t.step === 1 ? "active" : "");
+    const step1Icon = (t.step > 1 || isSuccess) ? "✓" : (t.step === 1 ? "⏳" : "⚪");
+
+    const step2Class = (t.step > 2 || isSuccess) ? "completed" : (t.step === 2 ? "active" : "");
+    const step2Icon = (t.step > 2 || isSuccess) ? "✓" : (t.step === 2 ? "⏳" : "⚪");
+
+    const step3Class = isSuccess ? "completed" : (isError ? "error is-clickable" : (t.step === 3 ? "active" : ""));
+    const step3Icon = isSuccess ? "✓" : (isError ? "❌" : (t.step === 3 ? "⏳" : "⚪"));
+
+    const step4Class = isSuccess ? "completed" : (isError ? "error is-clickable" : (t.step === 4 ? "active" : ""));
+    const step4Icon = isSuccess ? "✓" : (isError ? "❌" : (t.step === 4 ? "⏳" : "⚪"));
+
+    const barBg = isError
+      ? "background: var(--red); width: 80%;"
+      : (isSuccess
+        ? "background: linear-gradient(90deg, var(--green), #a6e3a1); width: 100%;"
+        : (isQueued
+          ? "background: var(--surface2); width: 100%; opacity: 0.6;"
+          : "background: linear-gradient(90deg, var(--mauve), var(--blue)); width: " + (t.progressPercent || 20) + "%;"));
+
+    const actionsDisplay = (isSuccess || isError || isQueued) ? "flex" : "none";
+
+    let openBtnHtml = "";
+    if (isSuccess && t.port) {
+      openBtnHtml = `
+        <a href="http://${window.location.hostname}:${t.port}" target="_blank" class="btn btn-success btn-xs" style="text-decoration:none;">
+          <span>🚀</span> Ouvrir (Port ${t.port}) ↗
+        </a>
+      `;
+    }
+
+    let errorBtnHtml = "";
+    if (isError) {
+      errorBtnHtml = `
+        <button type="button" class="btn btn-danger btn-xs" onclick="openDockerDeployErrorModal('${escapeHtml(t.appName)}', '${escapeHtml(t.errorMessage || '')}')">
+          <span>🔍</span> Voir le rapport d'erreur
+        </button>
+      `;
+    }
+
+    let queueCancelBtnHtml = "";
+    if (isQueued) {
+      queueCancelBtnHtml = `
+        <button type="button" class="btn btn-secondary btn-xs" onclick="removeDockerFromDeployQueue('${escapeHtml(cleanId)}')">
+          <span>✕</span> Retirer de la file
+        </button>
+      `;
+    }
+
+    card.innerHTML = `
+      <div class="docker-deploy-toast-card ${cardStatusClass}" id="docker-deploy-toast-card-${cleanId}">
+        <div class="docker-deploy-header">
+          <div class="docker-deploy-icon-wrap">
+            <img src="${t.icon || '/favicon.ico'}" alt="${escapeHtml(t.appName)}" class="docker-deploy-img-icon" onerror="this.src='/favicon.ico';">
+            <span class="docker-deploy-pulse-dot" style="${isQueued ? 'background:var(--blue); animation:none;' : (isSuccess ? 'background:var(--green); animation:none;' : (isError ? 'background:var(--red); animation:none;' : ''))}"></span>
+          </div>
+          <div class="docker-deploy-titles">
+            <div class="docker-deploy-title">${escapeHtml(t.appName)}</div>
+            <div class="docker-deploy-subtitle">${escapeHtml(t.subtitle)}</div>
+          </div>
+          <div class="docker-deploy-header-right">
+            <span class="badge ${t.badgeClass || 'badge-warning'}" style="font-size:0.7rem;">${t.badgeText}</span>
+            <button type="button" class="floating-card-action-btn" onclick="toggleFloatingCardMinimize('docker-deploy-floating-toast-${cleanId}')" title="Réduire / Dérouler">_</button>
+            <button type="button" class="docker-deploy-close-btn" onclick="dismissDockerDeployToast('${cleanId}')" title="Masquer la notification">&times;</button>
+          </div>
+        </div>
+
+        <div class="floating-card-body docker-deploy-toast-body">
+          <div class="docker-deploy-progress-wrap">
+            <div class="docker-deploy-progress-bar ${isQueued ? 'progress-animated' : ''}" style="${barBg}"></div>
+          </div>
+
+          <div class="docker-deploy-steps">
+            <div class="deploy-step-item ${step1Class}">
+              <span class="step-status-icon">${step1Icon}</span>
+              <span class="step-text">Préparation du dossier persistant (~/docker/${escapeHtml(cleanId)})</span>
+            </div>
+            <div class="deploy-step-item ${step2Class}">
+              <span class="step-status-icon">${step2Icon}</span>
+              <span class="step-text">Configuration des variables & ports réseau</span>
+            </div>
+            <div class="deploy-step-item ${step3Class}" ${isError ? `onclick="openDockerDeployErrorModal('${escapeHtml(t.appName)}', '${escapeHtml(t.errorMessage || '')}')" style="cursor:pointer;" title="Cliquer pour voir l'erreur"` : ''}>
+              <span class="step-status-icon">${step3Icon}</span>
+              <span class="step-text">Lancement Docker Compose (docker compose up -d)</span>
+            </div>
+            <div class="deploy-step-item ${step4Class}" ${isError ? `onclick="openDockerDeployErrorModal('${escapeHtml(t.appName)}', '${escapeHtml(t.errorMessage || '')}')" style="cursor:pointer;" title="Cliquer pour voir l'erreur"` : ''}>
+              <span class="step-status-icon">${step4Icon}</span>
+              <span class="step-text">${isError ? 'Échec d\'exécution Docker Compose (cliquez pour inspecter)' : 'Vérification de l\'état actif & mise en ligne'}</span>
+            </div>
+          </div>
+
+          <div class="docker-deploy-actions" style="display: ${actionsDisplay};">
+            ${openBtnHtml}
+            ${errorBtnHtml}
+            ${queueCancelBtnHtml}
+            <button type="button" class="btn btn-secondary btn-xs" onclick="switchTab('tab-containers'); switchDockerSubTab('containers');">
+              <span>📦</span> Mes Conteneurs
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+
+  updateFloatingDockLayout();
+}
+
+async function startDockerAppDeploy(item) {
+  const cleanId = (item.appId || "").toLowerCase();
+  const { appName, icon, port, payload } = item;
+
+  const dep = {
+    appId: cleanId,
+    appName: appName,
+    icon: icon,
+    port: port,
+    payload: payload,
+    status: "active",
+    step: 1,
+    progressPercent: 20,
+    subtitle: "Docker Compose v2 • Initialisation...",
+    badgeText: "⏳ En cours (20%)",
+    badgeClass: "badge-warning",
+    errorMessage: null,
+    startedAt: Date.now()
+  };
+  activeDockerDeployments[cleanId] = dep;
+
+  renderAllDockerDeployToasts();
+  updateDockerConfigModalDeployButton(cleanId);
+
+  // Étape 2 à 450ms
+  dep.stepTimer1 = setTimeout(() => {
+    if (activeDockerDeployments[cleanId] && activeDockerDeployments[cleanId].status === "active") {
+      activeDockerDeployments[cleanId].step = 2;
+      activeDockerDeployments[cleanId].progressPercent = 45;
+      activeDockerDeployments[cleanId].subtitle = "Configuration des volumes persistants...";
+      activeDockerDeployments[cleanId].badgeText = "⏳ En cours (45%)";
+      renderAllDockerDeployToasts();
+    }
+  }, 450);
+
+  // Étape 3 à 1000ms
+  dep.stepTimer2 = setTimeout(() => {
+    if (activeDockerDeployments[cleanId] && activeDockerDeployments[cleanId].status === "active") {
+      activeDockerDeployments[cleanId].step = 3;
+      activeDockerDeployments[cleanId].progressPercent = 75;
+      activeDockerDeployments[cleanId].subtitle = "Lancement conteneur (docker compose up -d)...";
+      activeDockerDeployments[cleanId].badgeText = "⏳ Compose up (75%)";
+      renderAllDockerDeployToasts();
+    }
+  }, 1000);
+
+  try {
+    const res = await fetch("/api/docker/store/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const json = await res.json();
+
+    if (json.success) {
+      if (activeDockerDeployments[cleanId]) {
+        activeDockerDeployments[cleanId].status = "success";
+        activeDockerDeployments[cleanId].step = 4;
+        activeDockerDeployments[cleanId].progressPercent = 100;
+        activeDockerDeployments[cleanId].subtitle = port ? `Conteneur actif sur le port ${port}` : "Conteneur actif sur votre NAS STEvE_OS";
+        activeDockerDeployments[cleanId].badgeText = "🟢 Prêt (100%)";
+        activeDockerDeployments[cleanId].badgeClass = "badge-success";
+      }
+      showToast(json.data || `Application ${appName} configurée et démarrée avec succès !`, "success");
+      setTimeout(() => refreshContainersAndStore(), 2000);
+
+      // Auto-fermeture après 12 secondes
+      setTimeout(() => {
+        if (activeDockerDeployments[cleanId] && activeDockerDeployments[cleanId].status === "success") {
+          dismissDockerDeployToast(cleanId);
+        }
+      }, 12000);
+
+    } else {
+      if (activeDockerDeployments[cleanId]) {
+        activeDockerDeployments[cleanId].status = "error";
+        activeDockerDeployments[cleanId].step = 3;
+        activeDockerDeployments[cleanId].errorMessage = json.message || "Erreur de démarrage Docker Compose";
+        activeDockerDeployments[cleanId].subtitle = "Erreur de démarrage Docker Compose";
+        activeDockerDeployments[cleanId].badgeText = "🔴 Erreur";
+        activeDockerDeployments[cleanId].badgeClass = "badge-danger";
+      }
+      showToast(`Erreur déploiement ${appName} : ${json.message}`, "error");
+      openDockerDeployErrorModal(appName, json.message);
+    }
+  } catch (err) {
+    if (activeDockerDeployments[cleanId]) {
+      activeDockerDeployments[cleanId].status = "error";
+      activeDockerDeployments[cleanId].step = 3;
+      activeDockerDeployments[cleanId].errorMessage = String(err);
+      activeDockerDeployments[cleanId].subtitle = "Erreur de communication avec le NAS";
+      activeDockerDeployments[cleanId].badgeText = "🔴 Erreur";
+      activeDockerDeployments[cleanId].badgeClass = "badge-danger";
+    }
+    showToast(`Erreur requête ${appName} : ${err}`, "error");
+    openDockerDeployErrorModal(appName, String(err));
+  } finally {
+    renderAllDockerDeployToasts();
+    updateDockerConfigModalDeployButton(cleanId);
+    processNextInDockerDeployQueue();
+  }
+}
+
+// Rétrocompatibilité si appelée de l'extérieur
+function startDockerDeployToast(appId, appName, icon, port) {
+  startDockerAppDeploy({
+    appId,
+    appName: appName || appId,
+    icon,
+    port,
+    payload: { app_id: appId, port }
+  });
+}
+
+function completeDockerDeployToast(success, message, port, appId, appName) {
+  const cleanId = (appId || "").toLowerCase();
+  if (activeDockerDeployments[cleanId]) {
+    activeDockerDeployments[cleanId].status = success ? "success" : "error";
+    renderAllDockerDeployToasts();
   }
 }
 
 async function submitDockerDeploy() {
-  const appId = document.getElementById("config-app-id").value.trim();
-  if (!appId) {
+  const appIdInput = document.getElementById("config-app-id");
+  const rawId = appIdInput ? appIdInput.value.trim() : "";
+  const cleanId = rawId.toLowerCase();
+
+  if (!cleanId) {
     showToast("Identifiant d'application manquant", "error");
+    return;
+  }
+
+  const titleEl = document.getElementById("config-app-title");
+  const appTitle = titleEl ? titleEl.textContent.replace("Configuration : ", "").trim() : cleanId;
+  const iconEl = document.getElementById("config-app-icon");
+  const appIcon = iconEl ? iconEl.src : "/favicon.ico";
+
+  // Contrôle anti-doublon si déjà actif ou en attente
+  if (activeDockerDeployments[cleanId] && activeDockerDeployments[cleanId].status === "active") {
+    showToast(`L'application ${appTitle} est déjà en cours de déploiement.`, "warning");
+    return;
+  }
+  if (dockerDeployQueue.some(q => q.appId.toLowerCase() === cleanId)) {
+    showToast(`L'application ${appTitle} est déjà dans la file d'attente.`, "warning");
     return;
   }
 
   const portVal = document.getElementById("config-app-port").value.trim();
   const dataDir = document.getElementById("config-app-data-dir").value.trim();
-
-  const titleEl = document.getElementById("config-app-title");
-  const appTitle = titleEl ? titleEl.textContent.replace("Configuration : ", "").trim() : appId;
-  const iconEl = document.getElementById("config-app-icon");
-  const appIcon = iconEl ? iconEl.src : "/favicon.ico";
 
   const envVars = {};
   const rows = document.querySelectorAll("#config-env-rows-container .docker-env-row");
@@ -10967,67 +11224,54 @@ async function submitDockerDeploy() {
     }
   });
 
-  const btn = document.getElementById("btn-submit-docker-deploy");
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "⏳ Déploiement en cours...";
+  const mediaSection = document.getElementById("config-media-section");
+  let mediaDirVal = null;
+  if (mediaSection && mediaSection.style.display !== "none") {
+    const mInput = document.getElementById("config-app-media-dir");
+    if (mInput && mInput.value.trim()) {
+      mediaDirVal = mInput.value.trim();
+    }
   }
 
-  // Fermer la fenêtre de configuration et afficher la popup de progression flottante
+  const gpuSection = document.getElementById("config-gpu-section");
+  let gpuDeviceVal = null;
+  if (gpuSection && gpuSection.style.display !== "none") {
+    const gInput = document.getElementById("config-app-gpu-device");
+    if (gInput && gInput.value.trim()) {
+      gpuDeviceVal = gInput.value.trim();
+    }
+  }
+
+  const payload = {
+    app_id: cleanId,
+    port: portVal ? parseInt(portVal, 10) : null,
+    data_dir: dataDir || null,
+    media_dir: mediaDirVal || null,
+    gpu_device: gpuDeviceVal || null,
+    env_vars: envVars
+  };
+
+  const item = {
+    appId: cleanId,
+    appName: appTitle,
+    icon: appIcon,
+    port: portVal ? parseInt(portVal, 10) : null,
+    payload: payload
+  };
+
+  // Fermer la fenêtre de configuration
   closeDockerConfigModal();
-  startDockerDeployToast(appId, appTitle, appIcon, portVal);
 
-  try {
-    const mediaSection = document.getElementById("config-media-section");
-    let mediaDirVal = null;
-    if (mediaSection && mediaSection.style.display !== "none") {
-      const mInput = document.getElementById("config-app-media-dir");
-      if (mInput && mInput.value.trim()) {
-        mediaDirVal = mInput.value.trim();
-      }
-    }
-
-    const gpuSection = document.getElementById("config-gpu-section");
-    let gpuDeviceVal = null;
-    if (gpuSection && gpuSection.style.display !== "none") {
-      const gInput = document.getElementById("config-app-gpu-device");
-      if (gInput && gInput.value.trim()) {
-        gpuDeviceVal = gInput.value.trim();
-      }
-    }
-
-    const payload = {
-      app_id: appId,
-      port: portVal ? parseInt(portVal, 10) : null,
-      data_dir: dataDir || null,
-      media_dir: mediaDirVal || null,
-      gpu_device: gpuDeviceVal || null,
-      env_vars: envVars
-    };
-
-    const res = await fetch("/api/docker/store/install", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    const json = await res.json();
-    if (json.success) {
-      completeDockerDeployToast(true, json.data, portVal, appId, appTitle);
-      showToast(json.data || `Application ${appTitle} configurée et démarrée avec succès !`, "success");
-      setTimeout(() => refreshContainersAndStore(), 2000);
-    } else {
-      completeDockerDeployToast(false, json.message || "Erreur de démarrage Docker Compose", portVal, appId, appTitle);
-      showToast(`Erreur de déploiement : ${json.message}`, "error");
-    }
-  } catch (err) {
-    completeDockerDeployToast(false, String(err), portVal, appId, appTitle);
-    showToast(`Erreur requête : ${err}`, "error");
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = "🚀 Déployer l'application";
-    }
+  const runningCount = Object.values(activeDockerDeployments).filter(d => d.status === "active").length;
+  if (runningCount < MAX_CONCURRENT_DOCKER_DEPLOYS) {
+    // Démarrage immédiat en parallèle
+    startDockerAppDeploy(item);
+  } else {
+    // Ajout dans la file d'attente FIFO
+    dockerDeployQueue.push(item);
+    showToast(`Application ${appTitle} ajoutée à la file d'attente (Position #${dockerDeployQueue.length})`, "info");
+    renderAllDockerDeployToasts();
+    updateDockerConfigModalDeployButton(cleanId);
   }
 }
 
@@ -15823,10 +16067,10 @@ function renderAllGameDeployToasts() {
       card.id = `game-deploy-floating-toast-${sId}`;
       card.setAttribute("data-server-id", sId);
 
-      // Insérer avant docker-deploy-floating-toast si présent, sinon ajouter à la pile
-      const dockerToast = document.getElementById("docker-deploy-floating-toast");
-      if (dockerToast && dockerToast.parentNode === stack) {
-        stack.insertBefore(card, dockerToast);
+      // Insérer avant le premier toast docker si présent, sinon ajouter à la pile
+      const firstDockerToast = stack.querySelector(".docker-deploy-floating-toast");
+      if (firstDockerToast && firstDockerToast.parentNode === stack) {
+        stack.insertBefore(card, firstDockerToast);
       } else {
         stack.appendChild(card);
       }

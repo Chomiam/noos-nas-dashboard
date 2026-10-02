@@ -1694,16 +1694,22 @@ async fn handle_docker_store() -> Json<ApiResponse<StoreCatalog>> {
 async fn handle_docker_store_install(
     Json(payload): Json<InstallAppRequest>,
 ) -> Json<ApiResponse<String>> {
-    match install_store_app(payload).await {
-        Ok(msg) => Json(ApiResponse {
+    let res = tokio::task::spawn_blocking(move || install_store_app(payload)).await;
+    match res {
+        Ok(Ok(msg)) => Json(ApiResponse {
             success: true,
             data: Some(msg),
             message: None,
         }),
-        Err(err) => Json(ApiResponse {
+        Ok(Err(err)) => Json(ApiResponse {
             success: false,
             data: None,
             message: Some(err),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur d'exécution de la tâche : {}", err)),
         }),
     }
 }
@@ -1712,16 +1718,22 @@ async fn handle_docker_store_install(
 async fn handle_docker_store_uninstall(
     Json(payload): Json<UninstallAppRequest>,
 ) -> Json<ApiResponse<String>> {
-    match uninstall_store_app(&payload.app_id, payload.delete_data).await {
-        Ok(msg) => Json(ApiResponse {
+    let res = tokio::task::spawn_blocking(move || uninstall_store_app(&payload.app_id, payload.delete_data)).await;
+    match res {
+        Ok(Ok(msg)) => Json(ApiResponse {
             success: true,
             data: Some(msg),
             message: None,
         }),
-        Err(err) => Json(ApiResponse {
+        Ok(Err(err)) => Json(ApiResponse {
             success: false,
             data: None,
             message: Some(err),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur d'exécution de la tâche : {}", err)),
         }),
     }
 }
