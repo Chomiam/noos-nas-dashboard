@@ -5676,8 +5676,8 @@ function updateFloatingDockLayout() {
 
   if (!stack) return;
 
-  // Récupérer toutes les cartes visibles dans la pile
-  const visibleCards = Array.from(stack.children).filter(child => {
+  // Récupérer uniquement les vraies cartes de tâches ayant la classe .floating-task-card et visibles
+  const visibleCards = Array.from(stack.querySelectorAll(".floating-task-card")).filter(child => {
     return child.style.display !== "none" && window.getComputedStyle(child).display !== "none";
   });
 
@@ -5712,7 +5712,7 @@ function toggleFloatingDockUnfold() {
   const stack = document.getElementById("floating-dock-stack");
   if (!stack) return;
 
-  const cards = Array.from(stack.children);
+  const cards = Array.from(stack.querySelectorAll(".floating-task-card"));
   cards.forEach(card => {
     if (floatingDockFolded) {
       card.classList.add("minimized");
