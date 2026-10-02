@@ -8386,6 +8386,26 @@
                 <span id="btn-detect-kdrives-icon">🔍</span> Détecter
               </button>
             </div>
+            <div style="display:flex; justify-content:flex-end; margin-top:6px;">
+              <button type="button" style="background:none; border:none; color:var(--blue); font-size:0.75rem; cursor:pointer; text-decoration:underline; padding:0;" onclick="toggleKDriveManualMode()">
+                <span id="kdrive-manual-toggle-text">Ou configurer manuellement avec l'ID du Drive</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Section manuelle optionnelle -->
+          <div id="kdrive-manual-section" style="display:none; margin-top:14px; background:var(--mantle); padding:16px; border-radius:var(--radius-md); border:1px solid rgba(255,255,255,0.08);">
+            <div style="font-size:0.82rem; font-weight:700; color:var(--text); margin-bottom:10px;">
+              Configuration manuelle de votre kDrive
+            </div>
+            <div class="form-group" style="margin-bottom:12px;">
+              <label class="form-label">ID numérique du kDrive (visible dans l'URL de votre manager Infomaniak)</label>
+              <input type="number" id="kdrive-input-manual-id" class="form-input" placeholder="Ex: 123456" oninput="onKDriveManualInput()">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label">Nom d'affichage</label>
+              <input type="text" id="kdrive-input-manual-name" class="form-input" placeholder="Ex: Mon kDrive Perso" oninput="onKDriveManualInput()">
+            </div>
           </div>
 
           <!-- Section dynamique des Drives détectés -->
@@ -8401,7 +8421,7 @@
 
             <div class="form-group" style="margin-bottom:0;">
               <label class="form-label">Nom d'affichage dans le Dashboard</label>
-              <input type="text" id="kdrive-input-name" class="form-input" placeholder="Ex: Mon kDrive Pro" required>
+              <input type="text" id="kdrive-input-name" class="form-input" placeholder="Ex: Mon kDrive Pro">
             </div>
           </div>
 

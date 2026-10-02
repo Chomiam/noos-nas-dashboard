@@ -22699,6 +22699,34 @@ async function testAndDetectKDrives() {
   }
 }
 
+function toggleKDriveManualMode() {
+  const manualSec = document.getElementById("kdrive-manual-section");
+  const detectedSec = document.getElementById("kdrive-detected-section");
+  const toggleText = document.getElementById("kdrive-manual-toggle-text");
+  const btnSubmit = document.getElementById("btn-submit-kdrive");
+  if (!manualSec) return;
+
+  if (manualSec.style.display === "none") {
+    manualSec.style.display = "block";
+    if (detectedSec) detectedSec.style.display = "none";
+    if (toggleText) toggleText.textContent = "Revenir à la détection automatique";
+    onKDriveManualInput();
+  } else {
+    manualSec.style.display = "none";
+    if (toggleText) toggleText.textContent = "Ou configurer manuellement avec l'ID du Drive";
+    if (btnSubmit) btnSubmit.disabled = !detectedSec || detectedSec.style.display === "none";
+  }
+}
+
+function onKDriveManualInput() {
+  const idInp = document.getElementById("kdrive-input-manual-id");
+  const btnSubmit = document.getElementById("btn-submit-kdrive");
+  const val = idInp ? parseInt(idInp.value.trim(), 10) : 0;
+  if (btnSubmit) {
+    btnSubmit.disabled = !val || isNaN(val) || val <= 0;
+  }
+}
+
 function onKDriveSelectChange() {
   const select = document.getElementById("kdrive-select-drive");
   const nameInp = document.getElementById("kdrive-input-name");
@@ -22711,12 +22739,32 @@ async function submitConnectKDrive() {
   const tokenInp = document.getElementById("kdrive-input-token");
   const nameInp = document.getElementById("kdrive-input-name");
   const select = document.getElementById("kdrive-select-drive");
-  const token = tokenInp ? tokenInp.value.trim() : "";
-  const name = nameInp ? nameInp.value.trim() : "";
-  const drive_id = select ? parseInt(select.value, 10) : 0;
+  const manualSec = document.getElementById("kdrive-manual-section");
+  const manualIdInp = document.getElementById("kdrive-input-manual-id");
+  const manualNameInp = document.getElementById("kdrive-input-manual-name");
 
-  if (!token || !drive_id) {
-    showToast("Veuillez d'abord détecter et sélectionner un kDrive.", "warning");
+  const token = tokenInp ? tokenInp.value.trim() : "";
+  let drive_id = select ? parseInt(select.value, 10) : 0;
+  let name = nameInp ? nameInp.value.trim() : "";
+
+  // Si le mode manuel est ouvert et renseigné, prendre les valeurs manuelles
+  if (manualSec && manualSec.style.display !== "none") {
+    const manId = manualIdInp ? parseInt(manualIdInp.value.trim(), 10) : 0;
+    if (manId && !isNaN(manId) && manId > 0) {
+      drive_id = manId;
+    }
+    if (manualNameInp && manualNameInp.value.trim()) {
+      name = manualNameInp.value.trim();
+    }
+  }
+
+  if (!token) {
+    showToast("Veuillez renseigner votre jeton d'accès API Infomaniak.", "warning");
+    return;
+  }
+
+  if (!drive_id || isNaN(drive_id) || drive_id <= 0) {
+    showToast("Veuillez détecter ou renseigner un ID de kDrive valide.", "warning");
     return;
   }
 
