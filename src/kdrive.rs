@@ -777,12 +777,24 @@ pub fn copy_kdrive_file_to_nas(account_id: &str, file_id: u64, file_name: &str, 
     let account = accounts.iter().find(|a| a.id == account_id)
         .ok_or_else(|| "Compte kDrive introuvable.".to_string())?;
 
-    let target_dest_dir = PathBuf::from(dest_dir);
+    let target_dest_dir = crate::files::normalize_user_path(PathBuf::from(dest_dir));
     if !target_dest_dir.is_dir() {
         return Err(format!("Le dossier de destination '{}' n'existe pas sur le NAS.", dest_dir));
     }
 
-    let sanitized_name = Path::new(file_name).file_name()
+    let mut resolved_name = file_name.trim().to_string();
+    if resolved_name.is_empty() {
+        let meta_url = format!("https://api.infomaniak.com/3/drive/{}/files/{}", account.drive_id, file_id);
+        if let Ok(bytes) = curl_secure_request(&account.token, "GET", &meta_url, None, 15, None) {
+            if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                if let Some(n) = val.get("data").and_then(|d| d.get("name")).and_then(|n| n.as_str()) {
+                    resolved_name = n.to_string();
+                }
+            }
+        }
+    }
+
+    let sanitized_name = Path::new(&resolved_name).file_name()
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_else(|| format!("kdrive_file_{}", file_id));
 
@@ -813,7 +825,8 @@ pub fn upload_nas_file_to_kdrive(
     let account = accounts.iter().find(|a| a.id == account_id)
         .ok_or_else(|| format!("Compte kDrive '{}' introuvable.", account_id))?;
 
-    let path = Path::new(nas_file_path);
+    let raw_path = PathBuf::from(nas_file_path);
+    let path = crate::files::normalize_user_path(raw_path);
     if !path.exists() {
         return Err(format!("Le fichier local '{}' n'existe pas sur le NAS.", nas_file_path));
     }
@@ -821,7 +834,7 @@ pub fn upload_nas_file_to_kdrive(
         return Err(format!("'{}' n'est pas un fichier standard (les dossiers ne peuvent pas être téléversés directement).", nas_file_path));
     }
 
-    let metadata = fs::metadata(path).map_err(|e| format!("Impossible de lire le fichier : {}", e))?;
+    let metadata = fs::metadata(&path).map_err(|e| format!("Impossible de lire le fichier : {}", e))?;
     let file_size = metadata.len();
 
     // Limitation de l'API Infomaniak : l'upload direct simple est limité à 1 Go par fichier.

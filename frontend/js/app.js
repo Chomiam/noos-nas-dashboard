@@ -5307,7 +5307,10 @@ async function pasteClipboardItem(targetDir) {
 
   for (let i = 0; i < paths.length; i++) {
     const src = paths[i];
-    const fileName = src.split("/").pop() || src;
+    let fileName = src.split("/").pop() || src;
+    if (src.startsWith("kdrive://") && fileClipboard && fileClipboard.name && !fileClipboard.name.includes("élément")) {
+      fileName = fileClipboard.name;
+    }
     updateFileTransferTrayItem(i, paths.length, fileName, actionFr, false, false);
     // Petit délai pour assurer la fluidité de rendu visuel dans le DOM
     await new Promise(r => setTimeout(r, 25));

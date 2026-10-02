@@ -1143,9 +1143,44 @@ async fn handle_files_rename(Json(req): Json<RenameRequest>) -> Json<ApiResponse
     }
 }
 
-/// Copie un fichier ou dossier vers un nouveau répertoire de destination.
+/// Copie un fichier ou dossier vers un nouveau répertoire de destination (avec support universel NAS <-> kDrive).
 async fn handle_files_copy(Json(req): Json<ActionRequest>) -> Json<ApiResponse<String>> {
     let res = tokio::task::spawn_blocking(move || {
+        let src_is_kdrive = req.src_path.starts_with("kdrive://");
+        let dest_is_kdrive = req.dest_dir.starts_with("kdrive://");
+
+        if src_is_kdrive && dest_is_kdrive {
+            return Err("La copie directe entre deux dossiers distants kDrive n'est pas supportée. Veuillez transiter par un dossier du NAS.".to_string());
+        }
+
+        // Cas A : La source provient de kDrive vers le NAS -> kdrive://{account_id}/{file_id}
+        if src_is_kdrive {
+            let clean = req.src_path.replace("kdrive://", "");
+            let parts: Vec<&str> = clean.split('/').collect();
+            if parts.len() >= 2 {
+                let account_id = parts[0];
+                let file_id: u64 = parts[1].parse().unwrap_or(0);
+                if file_id > 0 {
+                    return crate::kdrive::copy_kdrive_file_to_nas(account_id, file_id, "", &req.dest_dir)
+                        .map(|dest| format!("Fichier kDrive copié avec succès vers '{}'.", dest));
+                }
+            }
+            return Err("Identifiant de fichier kDrive source invalide.".to_string());
+        }
+
+        // Cas B : La destination est sur kDrive depuis le NAS -> kdrive://{account_id}/{folder_id}
+        if dest_is_kdrive {
+            let clean = req.dest_dir.replace("kdrive://", "");
+            let parts: Vec<&str> = clean.split('/').collect();
+            if !parts.is_empty() {
+                let account_id = parts[0];
+                let folder_id: Option<u64> = parts.get(1).and_then(|p| p.parse().ok());
+                return crate::kdrive::upload_nas_file_to_kdrive(account_id, &req.src_path, folder_id)
+                    .map(|f| format!("Document '{}' transféré sur kDrive avec succès.", f.name));
+            }
+            return Err("Dossier kDrive de destination invalide.".to_string());
+        }
+
         copy_item(&req.src_path, &req.dest_dir)
     }).await;
 
@@ -1168,9 +1203,46 @@ async fn handle_files_copy(Json(req): Json<ActionRequest>) -> Json<ApiResponse<S
     }
 }
 
-/// Déplace un fichier ou dossier vers un autre répertoire du système de fichiers.
+/// Déplace un fichier ou dossier vers un autre répertoire du système de fichiers (avec support universel NAS <-> kDrive).
 async fn handle_files_move(Json(req): Json<ActionRequest>) -> Json<ApiResponse<String>> {
     let res = tokio::task::spawn_blocking(move || {
+        let src_is_kdrive = req.src_path.starts_with("kdrive://");
+        let dest_is_kdrive = req.dest_dir.starts_with("kdrive://");
+
+        if src_is_kdrive && dest_is_kdrive {
+            return Err("Le déplacement direct entre deux dossiers distants kDrive n'est pas supporté.".to_string());
+        }
+
+        // Cas A : La source provient de kDrive vers le NAS -> kdrive://{account_id}/{file_id}
+        if src_is_kdrive {
+            let clean = req.src_path.replace("kdrive://", "");
+            let parts: Vec<&str> = clean.split('/').collect();
+            if parts.len() >= 2 {
+                let account_id = parts[0];
+                let file_id: u64 = parts[1].parse().unwrap_or(0);
+                if file_id > 0 {
+                    let copy_res = crate::kdrive::copy_kdrive_file_to_nas(account_id, file_id, "", &req.dest_dir)?;
+                    let _ = crate::kdrive::delete_kdrive_item(account_id, file_id);
+                    return Ok(format!("Fichier kDrive déplacé avec succès vers '{}'.", copy_res));
+                }
+            }
+            return Err("Identifiant de fichier kDrive source invalide.".to_string());
+        }
+
+        // Cas B : La destination est sur kDrive depuis le NAS -> kdrive://{account_id}/{folder_id}
+        if dest_is_kdrive {
+            let clean = req.dest_dir.replace("kdrive://", "");
+            let parts: Vec<&str> = clean.split('/').collect();
+            if !parts.is_empty() {
+                let account_id = parts[0];
+                let folder_id: Option<u64> = parts.get(1).and_then(|p| p.parse().ok());
+                let upload_res = crate::kdrive::upload_nas_file_to_kdrive(account_id, &req.src_path, folder_id)?;
+                let _ = std::fs::remove_file(&req.src_path);
+                return Ok(format!("Document '{}' déplacé vers kDrive avec succès.", upload_res.name));
+            }
+            return Err("Dossier kDrive de destination invalide.".to_string());
+        }
+
         move_item(&req.src_path, &req.dest_dir)
     }).await;
 
