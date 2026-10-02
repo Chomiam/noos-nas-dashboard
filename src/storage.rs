@@ -2675,7 +2675,7 @@ pub fn create_partition(req: &CreatePartitionRequest) -> Result<String, String> 
 
     if !has_table {
         let init_cmd = Command::new("parted").args(["-s", disk, "mklabel", "gpt"]).output();
-        if init_cmd.is_err() || !init_cmd.as_ref().unwrap().status.success() {
+        if !matches!(init_cmd, Ok(ref out) if out.status.success()) {
             let _ = Command::new("sfdisk").arg(disk)
                 .stdin(std::process::Stdio::piped())
                 .spawn()
@@ -2750,7 +2750,7 @@ pub fn create_partition(req: &CreatePartitionRequest) -> Result<String, String> 
     if let Ok(out) = Command::new("lsblk").args(["-no", "PATH", disk]).output() {
         let lines: Vec<String> = String::from_utf8_lossy(&out.stdout).lines().map(|s| s.trim().to_string()).collect();
         if lines.len() > 1 {
-            new_part_path = lines.last().unwrap().clone();
+            new_part_path = lines.last().cloned().unwrap_or_default();
         }
     }
 
@@ -2904,7 +2904,7 @@ pub fn eject_removable(req: &EjectRemovableRequest) -> Result<String, String> {
         let _ = Command::new("eject").arg(dev).output();
     } else {
         let udisks_res = Command::new("udisksctl").args(["power-off", "-b", dev]).output();
-        if udisks_res.is_err() || !udisks_res.as_ref().unwrap().status.success() {
+        if !matches!(udisks_res, Ok(ref out) if out.status.success()) {
             let _ = Command::new("eject").arg(dev).output();
         }
     }

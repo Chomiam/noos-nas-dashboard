@@ -3193,13 +3193,6 @@ function copyText(text) {
   });
 }
 
-function copyLogs() {
-  const content = document.getElementById("terminal-content");
-  if (content) {
-    copyText(content.textContent);
-  }
-}
-
 // ==========================================================================
 // BANNIÈRE / POPUP D'ERREUR SYSTÈME DÉTAILLÉE FLOTTANTE (DURÉE >= 10s)
 // ==========================================================================
@@ -3388,7 +3381,7 @@ function showToast(message, type = "info") {
 }
 
 function escapeHtml(str) {
-  if (!str) return "";
+  if (str === null || str === undefined) return "";
   return String(str)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -6169,15 +6162,6 @@ function getNvimCombinedRegex(lang) {
   const regex = new RegExp(source, "gm");
   nvimCombinedRegexCache[lang] = regex;
   return regex;
-}
-
-function escapeHtml(str) {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
 }
 
 function highlightNvimCode(code, lang) {
@@ -12985,7 +12969,7 @@ async function logoutUser() {
   window.location.replace("/");
 }
 
-function togglePasswordVisibility() {
+function toggleLoginPasswordVisibility() {
   const pwdInput = document.getElementById("login-password");
   const toggleBtn = document.getElementById("login-pwd-toggle");
   if (!pwdInput) return;
@@ -15550,8 +15534,8 @@ let currentGamesViewMode = localStorage.getItem('noos_games_view_mode') || 'grid
 function setGamesViewMode(mode) {
   currentGamesViewMode = mode;
   try { localStorage.setItem('noos_games_view_mode', mode); } catch (_) {}
-  const btnGrid = document.getElementById("btn-view-grid");
-  const btnList = document.getElementById("btn-view-list");
+  const btnGrid = document.getElementById("btn-games-view-grid") || document.getElementById("btn-view-grid");
+  const btnList = document.getElementById("btn-games-view-list") || document.getElementById("btn-view-list");
   if (btnGrid) btnGrid.classList.toggle("active", mode === "grid");
   if (btnList) btnList.classList.toggle("active", mode === "list");
   renderGameServers();
@@ -15564,8 +15548,8 @@ function renderGameServers() {
   const grid = document.getElementById("game-servers-grid") || document.getElementById("games-servers-grid");
   if (!grid) return;
 
-  const btnGrid = document.getElementById("btn-view-grid");
-  const btnList = document.getElementById("btn-view-list");
+  const btnGrid = document.getElementById("btn-games-view-grid") || document.getElementById("btn-view-grid");
+  const btnList = document.getElementById("btn-games-view-list") || document.getElementById("btn-view-list");
   if (btnGrid) btnGrid.classList.toggle("active", currentGamesViewMode === "grid");
   if (btnList) btnList.classList.toggle("active", currentGamesViewMode === "list");
 
@@ -17694,7 +17678,7 @@ function renderDockerImagesOverview() {
 function setImagesFilter(filter) {
   currentDockerImageFilter = filter;
   ["all", "unused", "used"].forEach(f => {
-    const el = document.getElementById(`pill-filter-${f}`);
+    const el = document.getElementById(`pill-images-filter-${f}`) || document.getElementById(`pill-filter-${f}`);
     if (el) el.classList.toggle("active", f === filter);
   });
   renderDockerImagesTable();

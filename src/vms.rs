@@ -632,7 +632,7 @@ pub async fn start_iso_download(req: IsoDownloadRequest) -> Result<String, Strin
         }
 
         let mut child = match tokio::process::Command::new("curl")
-            .args(&["-sSL", "--fail", "-C", "-", "-o", part_path.to_str().unwrap(), &url])
+            .args(&["-sSL", "--fail", "-C", "-", "-o", part_path.to_str().unwrap(), "--", &url])
             .spawn()
         {
             Ok(c) => c,
@@ -708,7 +708,7 @@ pub async fn start_iso_download(req: IsoDownloadRequest) -> Result<String, Strin
 
 async fn get_remote_file_size(url: &str) -> Option<u64> {
     let out = tokio::process::Command::new("curl")
-        .args(&["-sIL", url])
+        .args(&["-sIL", "--", url])
         .output()
         .await
         .ok()?;

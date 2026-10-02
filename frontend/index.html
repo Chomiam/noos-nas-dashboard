@@ -56,7 +56,7 @@
           <div class="login-input-wrap">
             <span class="login-input-icon">🔒</span>
             <input type="password" id="login-password" class="login-input" placeholder="Mot de passe système" autocomplete="current-password" required>
-            <button type="button" class="login-pwd-toggle" id="login-pwd-toggle" onclick="togglePasswordVisibility()" title="Afficher/masquer le mot de passe">👁️</button>
+            <button type="button" class="login-pwd-toggle" id="login-pwd-toggle" onclick="toggleLoginPasswordVisibility()" title="Afficher/masquer le mot de passe">👁️</button>
           </div>
         </div>
 
@@ -1483,7 +1483,7 @@
             </div>
           </div>
           <div class="section-actions">
-            <button type="button" class="btn btn-secondary btn-sm" onclick="loadStorageOverview()">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="loadStorage()">
               <span>🔄</span> Actualiser les Médias
             </button>
           </div>
@@ -2712,9 +2712,9 @@
               <input type="text" id="docker-images-search" class="form-control" placeholder="Filtrer les images par dépôt, tag ou ID..." oninput="filterDockerImagesList()">
             </div>
             <div class="images-filter-pills">
-              <button type="button" class="btn-filter-pill active" id="pill-filter-all" onclick="setImagesFilter('all')">Toutes (<span id="count-pill-all">0</span>)</button>
-              <button type="button" class="btn-filter-pill" id="pill-filter-unused" onclick="setImagesFilter('unused')">Inutilisées (<span id="count-pill-unused">0</span>)</button>
-              <button type="button" class="btn-filter-pill" id="pill-filter-used" onclick="setImagesFilter('used')">En cours d'utilisation (<span id="count-pill-used">0</span>)</button>
+              <button type="button" class="btn-filter-pill active" id="pill-images-filter-all" onclick="setImagesFilter('all')">Toutes (<span id="count-pill-all">0</span>)</button>
+              <button type="button" class="btn-filter-pill" id="pill-images-filter-unused" onclick="setImagesFilter('unused')">Inutilisées (<span id="count-pill-unused">0</span>)</button>
+              <button type="button" class="btn-filter-pill" id="pill-images-filter-used" onclick="setImagesFilter('used')">En cours d'utilisation (<span id="count-pill-used">0</span>)</button>
             </div>
           </div>
 
@@ -2791,10 +2791,10 @@
           </div>
           <div class="toolbar-actions">
             <div class="games-view-toggle" id="games-view-toggle" role="group" aria-label="Mode d'affichage">
-              <button type="button" class="btn-view-toggle active" id="btn-view-grid" onclick="setGamesViewMode('grid')" title="Affichage en grille de cartes">
+              <button type="button" class="btn-view-toggle active" id="btn-games-view-grid" onclick="setGamesViewMode('grid')" title="Affichage en grille de cartes">
                 <span>⊞</span> Grille
               </button>
-              <button type="button" class="btn-view-toggle" id="btn-view-list" onclick="setGamesViewMode('list')" title="Affichage en ligne (liste compacte)">
+              <button type="button" class="btn-view-toggle" id="btn-games-view-list" onclick="setGamesViewMode('list')" title="Affichage en ligne (liste compacte)">
                 <span>☰</span> Ligne
               </button>
             </div>

@@ -587,7 +587,7 @@ pub async fn auth_middleware(req: Request, next: Next) -> Response {
     let path = req.uri().path();
 
     // Endpoints publics exemptés d'authentification
-    if path.ends_with("/auth/login") || path.ends_with("/auth/status") || path.ends_with("/auth/me") || path.ends_with("/vnc") {
+    if path.ends_with("/auth/login") || path.ends_with("/auth/status") || path.ends_with("/auth/me") {
         return next.run(req).await;
     }
 

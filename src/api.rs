@@ -21,11 +21,27 @@
 
 use axum::{
     extract::{Path, Query},
+    http::HeaderMap,
     response::{IntoResponse, Json},
     routing::{delete, get, post, put},
     Router,
 };
 use serde::{Deserialize, Serialize};
+
+macro_rules! require_admin_or_err {
+    ($headers:expr) => {
+        match crate::auth::get_session_from_headers(&$headers).await {
+            Some(s) if s.is_admin => s,
+            _ => {
+                return Json(ApiResponse {
+                    success: false,
+                    data: None,
+                    message: Some("Accès refusé. Privilèges administrateur requis.".to_string()),
+                });
+            }
+        }
+    };
+}
 
 // ----------------------------------------------------------------------------
 // Imports des Contrôleurs & Modules Métier
@@ -435,8 +451,10 @@ async fn handle_power_status() -> Json<ApiResponse<PowerStatusResponse>> {
 
 /// Déclenche un redémarrage ou une extinction immédiate du NAS après un léger délai de grâce.
 async fn handle_power_immediate(
+    headers: HeaderMap,
     Json(req): Json<ImmediatePowerRequest>,
 ) -> Json<ApiResponse<()>> {
+    require_admin_or_err!(headers);
     let action = req.action.clone();
     tokio::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
@@ -457,8 +475,10 @@ async fn handle_power_immediate(
 
 /// Programme une extinction ou un redémarrage différé via le démon de puissance.
 async fn handle_power_schedule(
+    headers: HeaderMap,
     Json(req): Json<SchedulePowerRequest>,
 ) -> Json<ApiResponse<()>> {
+    require_admin_or_err!(headers);
     match schedule_power(req) {
         Ok(msg) => Json(ApiResponse {
             success: true,
@@ -474,7 +494,8 @@ async fn handle_power_schedule(
 }
 
 /// Annule toute programmation d'extinction ou de redémarrage en attente.
-async fn handle_power_cancel() -> Json<ApiResponse<()>> {
+async fn handle_power_cancel(headers: HeaderMap) -> Json<ApiResponse<()>> {
+    require_admin_or_err!(headers);
     match cancel_power() {
         Ok(msg) => Json(ApiResponse {
             success: true,
@@ -526,7 +547,11 @@ async fn handle_services() -> Json<ApiResponse<ServicesOverview>> {
 }
 
 /// Exécute une action de contrôle (start, stop, restart, enable, disable) sur une unité systemd.
-async fn handle_service_action(Path((unit, action)): Path<(String, String)>) -> Json<ApiResponse<String>> {
+async fn handle_service_action(
+    headers: HeaderMap,
+    Path((unit, action)): Path<(String, String)>,
+) -> Json<ApiResponse<String>> {
+    require_admin_or_err!(headers);
     match control_service(&unit, &action) {
         Ok(msg) => Json(ApiResponse {
             success: true,
@@ -624,7 +649,11 @@ struct StartUpdateQuery {
 }
 
 /// Lance le processus de mise à jour en tâche de fond détachée.
-async fn handle_updates_start(Query(params): Query<StartUpdateQuery>) -> Json<ApiResponse<bool>> {
+async fn handle_updates_start(
+    headers: HeaderMap,
+    Query(params): Query<StartUpdateQuery>,
+) -> Json<ApiResponse<bool>> {
+    require_admin_or_err!(headers);
     let force_pkgs = params.force_packages.unwrap_or(false);
     match start_detached_update(force_pkgs) {
         Ok(_) => Json(ApiResponse {
@@ -694,7 +723,11 @@ async fn handle_updates_logs() -> Json<ApiResponse<LiveLogsResponse>> {
 // ============================================================================
 
 /// Exécute une commande shell de manière sécurisée et chronométrée dans le répertoire utilisateur.
-async fn handle_terminal_exec(Json(req): Json<ExecRequest>) -> Json<ApiResponse<ExecResponse>> {
+async fn handle_terminal_exec(
+    headers: HeaderMap,
+    Json(req): Json<ExecRequest>,
+) -> Json<ApiResponse<ExecResponse>> {
+    require_admin_or_err!(headers);
     let res = tokio::task::spawn_blocking(move || {
         execute_command(req)
     }).await.unwrap_or_else(|e| ExecResponse {
@@ -1118,7 +1151,11 @@ async fn handle_raid_progress() -> Json<ApiResponse<Option<RaidSyncProgress>>> {
 }
 
 /// Répare les droits et permissions d'accès POSIX (chown/chmod) sur un répertoire ou point de montage.
-async fn handle_repair_permissions(Json(payload): Json<RepairPermissionsRequest>) -> Json<ApiResponse<String>> {
+async fn handle_repair_permissions(
+    headers: HeaderMap,
+    Json(payload): Json<RepairPermissionsRequest>,
+) -> Json<ApiResponse<String>> {
+    require_admin_or_err!(headers);
     match repair_path_permissions(&payload) {
         Ok(msg) => Json(ApiResponse {
             success: true,
@@ -1134,7 +1171,11 @@ async fn handle_repair_permissions(Json(payload): Json<RepairPermissionsRequest>
 }
 
 /// Crée une nouvelle partition sur un disque physique.
-async fn handle_create_partition(Json(payload): Json<CreatePartitionRequest>) -> Json<ApiResponse<String>> {
+async fn handle_create_partition(
+    headers: HeaderMap,
+    Json(payload): Json<CreatePartitionRequest>,
+) -> Json<ApiResponse<String>> {
+    require_admin_or_err!(headers);
     match create_partition(&payload) {
         Ok(msg) => Json(ApiResponse {
             success: true,
@@ -1150,7 +1191,11 @@ async fn handle_create_partition(Json(payload): Json<CreatePartitionRequest>) ->
 }
 
 /// Supprime une partition existante d'un disque de stockage.
-async fn handle_delete_partition(Json(payload): Json<DeletePartitionRequest>) -> Json<ApiResponse<String>> {
+async fn handle_delete_partition(
+    headers: HeaderMap,
+    Json(payload): Json<DeletePartitionRequest>,
+) -> Json<ApiResponse<String>> {
+    require_admin_or_err!(headers);
     match delete_partition(&payload) {
         Ok(msg) => Json(ApiResponse {
             success: true,
@@ -1182,7 +1227,11 @@ async fn handle_eject_removable(Json(payload): Json<EjectRemovableRequest>) -> J
 }
 
 /// Monte une partition ou volume de stockage vers un point de montage local.
-async fn handle_mount_volume(Json(payload): Json<MountVolumeRequest>) -> Json<ApiResponse<String>> {
+async fn handle_mount_volume(
+    headers: HeaderMap,
+    Json(payload): Json<MountVolumeRequest>,
+) -> Json<ApiResponse<String>> {
+    require_admin_or_err!(headers);
     match mount_volume(&payload) {
         Ok(msg) => Json(ApiResponse {
             success: true,
@@ -1198,7 +1247,11 @@ async fn handle_mount_volume(Json(payload): Json<MountVolumeRequest>) -> Json<Ap
 }
 
 /// Démonte un volume de stockage préalablement monté.
-async fn handle_umount_volume(Json(payload): Json<UmountVolumeRequest>) -> Json<ApiResponse<String>> {
+async fn handle_umount_volume(
+    headers: HeaderMap,
+    Json(payload): Json<UmountVolumeRequest>,
+) -> Json<ApiResponse<String>> {
+    require_admin_or_err!(headers);
     match umount_volume(&payload) {
         Ok(msg) => Json(ApiResponse {
             success: true,
@@ -1214,7 +1267,11 @@ async fn handle_umount_volume(Json(payload): Json<UmountVolumeRequest>) -> Json<
 }
 
 /// Formate un disque ou une partition avec le système de fichiers choisi (ext4, btrfs, exfat, ntfs).
-async fn handle_format_disk(Json(payload): Json<FormatDiskRequest>) -> Json<ApiResponse<String>> {
+async fn handle_format_disk(
+    headers: HeaderMap,
+    Json(payload): Json<FormatDiskRequest>,
+) -> Json<ApiResponse<String>> {
+    require_admin_or_err!(headers);
     match format_disk(&payload) {
         Ok(msg) => Json(ApiResponse {
             success: true,
@@ -1249,7 +1306,11 @@ async fn handle_dismiss_storage_job() -> Json<ApiResponse<String>> {
 }
 
 /// Déclenche la création asynchrone d'une grappe RAID logicielle via `mdadm`.
-async fn handle_create_raid(Json(payload): Json<CreateRaidRequest>) -> Json<ApiResponse<StorageJob>> {
+async fn handle_create_raid(
+    headers: HeaderMap,
+    Json(payload): Json<CreateRaidRequest>,
+) -> Json<ApiResponse<StorageJob>> {
+    require_admin_or_err!(headers);
     match start_create_raid_job(payload) {
         Ok(job) => Json(ApiResponse {
             success: true,
@@ -1265,7 +1326,11 @@ async fn handle_create_raid(Json(payload): Json<CreateRaidRequest>) -> Json<ApiR
 }
 
 /// Supprime et désassemble une grappe RAID logicielle de manière contrôlée.
-async fn handle_destroy_raid(Json(payload): Json<DestroyRaidRequest>) -> Json<ApiResponse<StorageJob>> {
+async fn handle_destroy_raid(
+    headers: HeaderMap,
+    Json(payload): Json<DestroyRaidRequest>,
+) -> Json<ApiResponse<StorageJob>> {
+    require_admin_or_err!(headers);
     match start_destroy_raid_job(payload) {
         Ok(job) => Json(ApiResponse {
             success: true,
@@ -1874,7 +1939,11 @@ async fn handle_get_dns() -> Json<ApiResponse<DnsOverview>> {
 }
 
 /// Met à jour les adresses des serveurs DNS utilisés par le NAS.
-async fn handle_update_dns(Json(payload): Json<UpdateDnsRequest>) -> Json<ApiResponse<String>> {
+async fn handle_update_dns(
+    headers: HeaderMap,
+    Json(payload): Json<UpdateDnsRequest>,
+) -> Json<ApiResponse<String>> {
+    require_admin_or_err!(headers);
     match update_dns(&payload) {
         Ok(msg) => Json(ApiResponse {
             success: true,
@@ -1927,7 +1996,11 @@ pub struct UnbanRequest {
 }
 
 /// Active ou désactive globalement le filtrage du pare-feu nftables.
-async fn handle_firewall_toggle(Json(payload): Json<ToggleFirewallRequest>) -> Json<ApiResponse<String>> {
+async fn handle_firewall_toggle(
+    headers: HeaderMap,
+    Json(payload): Json<ToggleFirewallRequest>,
+) -> Json<ApiResponse<String>> {
+    require_admin_or_err!(headers);
     match toggle_firewall(payload.enable) {
         Ok(msg) => Json(ApiResponse {
             success: true,
@@ -1943,7 +2016,11 @@ async fn handle_firewall_toggle(Json(payload): Json<ToggleFirewallRequest>) -> J
 }
 
 /// Crée une nouvelle règle de filtrage ou d'ouverture de port personnalisée.
-async fn handle_firewall_create_rule(Json(payload): Json<CreatePortRuleRequest>) -> Json<ApiResponse<CustomPortRule>> {
+async fn handle_firewall_create_rule(
+    headers: HeaderMap,
+    Json(payload): Json<CreatePortRuleRequest>,
+) -> Json<ApiResponse<CustomPortRule>> {
+    require_admin_or_err!(headers);
     match create_custom_rule(payload) {
         Ok(rule) => Json(ApiResponse {
             success: true,
@@ -1960,9 +2037,11 @@ async fn handle_firewall_create_rule(Json(payload): Json<CreatePortRuleRequest>)
 
 /// Modifie les propriétés d'une règle de pare-feu existante.
 async fn handle_firewall_update_rule(
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(payload): Json<UpdatePortRuleRequest>,
 ) -> Json<ApiResponse<CustomPortRule>> {
+    require_admin_or_err!(headers);
     match update_custom_rule(&id, payload) {
         Ok(rule) => Json(ApiResponse {
             success: true,
@@ -1978,7 +2057,11 @@ async fn handle_firewall_update_rule(
 }
 
 /// Supprime une règle de pare-feu personnalisée.
-async fn handle_firewall_delete_rule(Path(id): Path<String>) -> Json<ApiResponse<String>> {
+async fn handle_firewall_delete_rule(
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Json<ApiResponse<String>> {
+    require_admin_or_err!(headers);
     match delete_custom_rule(&id) {
         Ok(msg) => Json(ApiResponse {
             success: true,
@@ -1994,7 +2077,11 @@ async fn handle_firewall_delete_rule(Path(id): Path<String>) -> Json<ApiResponse
 }
 
 /// Débloque immédiatement une adresse IP de la liste noire du pare-feu.
-async fn handle_firewall_unban(Json(payload): Json<UnbanRequest>) -> Json<ApiResponse<String>> {
+async fn handle_firewall_unban(
+    headers: HeaderMap,
+    Json(payload): Json<UnbanRequest>,
+) -> Json<ApiResponse<String>> {
+    require_admin_or_err!(headers);
     match unban_ip(&payload.ip) {
         Ok(msg) => Json(ApiResponse {
             success: true,
@@ -2015,7 +2102,8 @@ async fn handle_firewall_unban(Json(payload): Json<UnbanRequest>) -> Json<ApiRes
 // ============================================================================
 
 /// Retourne l'état et les paramètres de configuration du serveur WireGuard (port, clé publique, interface wg0).
-async fn handle_wireguard_server() -> Json<ApiResponse<WireguardServerInfo>> {
+async fn handle_wireguard_server(headers: HeaderMap) -> Json<ApiResponse<WireguardServerInfo>> {
+    require_admin_or_err!(headers);
     Json(ApiResponse {
         success: true,
         data: Some(get_wireguard_server_info()),
@@ -2024,7 +2112,8 @@ async fn handle_wireguard_server() -> Json<ApiResponse<WireguardServerInfo>> {
 }
 
 /// Liste l'ensemble des profils clients (pairs / peers) WireGuard configurés.
-async fn handle_wireguard_clients() -> Json<ApiResponse<Vec<WireguardClient>>> {
+async fn handle_wireguard_clients(headers: HeaderMap) -> Json<ApiResponse<Vec<WireguardClient>>> {
+    require_admin_or_err!(headers);
     Json(ApiResponse {
         success: true,
         data: Some(load_wireguard_clients()),
@@ -2034,8 +2123,10 @@ async fn handle_wireguard_clients() -> Json<ApiResponse<Vec<WireguardClient>>> {
 
 /// Génère une nouvelle paire de clés cryptographiques et provisionne un profil client WireGuard.
 async fn handle_create_wireguard_client(
+    headers: HeaderMap,
     Json(req): Json<CreateClientRequest>,
 ) -> Json<ApiResponse<WireguardClient>> {
+    require_admin_or_err!(headers);
     match create_client(req) {
         Ok(client) => Json(ApiResponse {
             success: true,
@@ -2052,8 +2143,10 @@ async fn handle_create_wireguard_client(
 
 /// Révoque et supprime définitivement un profil client WireGuard de la configuration serveur.
 async fn handle_delete_wireguard_client(
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Json<ApiResponse<()>> {
+    require_admin_or_err!(headers);
     match delete_client(&id) {
         Ok(()) => Json(ApiResponse {
             success: true,

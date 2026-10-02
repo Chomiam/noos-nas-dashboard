@@ -383,6 +383,36 @@ fn customize_compose_yaml(
     lines.join("\n") + "\n"
 }
 
+fn validate_safe_data_dir(d: &str, user: &str) -> Result<PathBuf, String> {
+    let p = PathBuf::from(d);
+    for comp in p.components() {
+        if comp.as_os_str() == ".." {
+            return Err("Le chemin spécifié ne peut pas contenir de composant relatif ('..').".into());
+        }
+    }
+    let s = p.to_string_lossy();
+    if !p.is_absolute() {
+        return Err("Le chemin doit être absolu (commencer par /).".into());
+    }
+    let allowed_prefixes = ["/home/", "/mnt/"];
+    let is_allowed = allowed_prefixes.iter().any(|prefix| s.starts_with(prefix));
+    if !is_allowed {
+        return Err(format!(
+            "Le dossier '{}' n'est pas autorisé. Les applications Docker doivent être stockées dans /home/ ou /mnt/.",
+            s
+        ));
+    }
+    let forbidden_exact = [
+        "/", "/etc", "/var", "/usr", "/nix", "/boot", "/root", "/sys", "/proc", "/dev", "/run", "/tmp",
+        "/home", "/mnt", &format!("/home/{}", user),
+    ];
+    let trimmed = s.trim_end_matches('/');
+    if forbidden_exact.iter().any(|&f| trimmed == f) {
+        return Err("Le dossier de données ne peut pas être un répertoire système ou la racine du compte utilisateur.".into());
+    }
+    Ok(p)
+}
+
 pub fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
     let clean_id = req.app_id.trim().to_lowercase();
     if clean_id.is_empty() || !clean_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
@@ -413,7 +443,18 @@ pub fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
 
     let user = get_target_user();
     let app_dir = if let Some(ref d) = req.data_dir {
-        PathBuf::from(d)
+        match validate_safe_data_dir(d, &user) {
+            Ok(p) => p,
+            Err(e) => {
+                if let Ok(mut tracker) = STORE_DEPLOY_TRACKER.lock() {
+                    if let Some(entry) = tracker.get_mut(&clean_id) {
+                        entry.status = "failed".into();
+                        entry.error = Some(e.clone());
+                    }
+                }
+                return Err(e);
+            }
+        }
     } else {
         PathBuf::from(format!("/home/{}/docker/{}", user, clean_id))
     };

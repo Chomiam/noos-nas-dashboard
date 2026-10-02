@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -308,11 +308,17 @@ pub fn update_dns(req: &UpdateDnsRequest) -> Result<String, String> {
         "mullvad" => vec!["194.242.2.2".to_string()],
         "custom" => {
             let custom = req.custom_servers.clone().unwrap_or_default();
-            let clean: Vec<String> = custom
-                .into_iter()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
+            let mut clean = Vec::new();
+            for s in custom {
+                let trimmed = s.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if trimmed.parse::<IpAddr>().is_err() {
+                    return Err(format!("L'adresse IP '{}' n'est pas une adresse IP valide (IPv4 ou IPv6).", trimmed));
+                }
+                clean.push(trimmed.to_string());
+            }
             if clean.is_empty() {
                 return Err("Veuillez saisir au moins une adresse IP DNS personnalisée valide (ex: 127.0.0.1 ou 192.168.1.100).".into());
             }
@@ -323,7 +329,18 @@ pub fn update_dns(req: &UpdateDnsRequest) -> Result<String, String> {
         }
     };
 
-    let fallback_servers = req.fallback_servers.clone().unwrap_or_else(default_fallbacks);
+    let raw_fallbacks = req.fallback_servers.clone().unwrap_or_else(default_fallbacks);
+    let mut fallback_servers = Vec::new();
+    for fb in raw_fallbacks {
+        let trimmed = fb.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.parse::<IpAddr>().is_err() {
+            return Err(format!("L'adresse IP de secours '{}' n'est pas une adresse IP valide.", trimmed));
+        }
+        fallback_servers.push(trimmed.to_string());
+    }
     let free_port_53 = req.free_port_53.unwrap_or(true);
 
     let new_cfg = DnsConfig {
@@ -376,7 +393,7 @@ fn apply_dns_runtime(cfg: &DnsConfig) -> Result<(), String> {
         let _ = Command::new("sudo").args(["virsh", "-c", "qemu:///system", "net-update", "default", "modify", "dns", "<dns enable='no'/>", "--live", "--config"]).output();
     }
 
-    // 2. Écriture immédiate dans /etc/resolv.conf
+    // 2. Écriture immédiate dans /etc/resolv.conf de manière sûre et sans injection shell
     let mut resolv_lines = vec![
         "# Generated dynamically by Noos Dashboard (Runtime DNS)".to_string(),
     ];
@@ -387,12 +404,13 @@ fn apply_dns_runtime(cfg: &DnsConfig) -> Result<(), String> {
     let resolv_content = resolv_lines.join("\n") + "\n";
 
     let _ = std::fs::write("/run/systemd/resolve/resolv.conf", &resolv_content);
-    let tmp_resolv = "/tmp/noos-resolv.conf";
-    if std::fs::write(tmp_resolv, &resolv_content).is_ok() {
-        let _ = Command::new("sudo").args(["cp", tmp_resolv, "/etc/resolv.conf"]).output();
-        let _ = std::fs::remove_file(tmp_resolv);
-    } else {
-        let _ = Command::new("sudo").args(["bash", "-c", &format!("echo '{}' > /etc/resolv.conf", resolv_content)]).output();
+    // Tentative d'écriture directe (si le service s'exécute en root)
+    if std::fs::write("/etc/resolv.conf", &resolv_content).is_err() {
+        let tmp_resolv = "/tmp/noos-resolv.conf";
+        if std::fs::write(tmp_resolv, &resolv_content).is_ok() {
+            let _ = Command::new("sudo").args(["cp", tmp_resolv, "/etc/resolv.conf"]).output();
+            let _ = std::fs::remove_file(tmp_resolv);
+        }
     }
 
     // 3. Mise à jour via resolvectl si disponible

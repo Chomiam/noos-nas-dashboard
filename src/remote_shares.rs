@@ -846,19 +846,32 @@ pub fn execute_mount(cfg: &RemoteMountConfig) -> Result<(), String> {
             }
         }
     } else if cfg.protocol == "smb" {
-        // Montage SMB via mount -t cifs
+        // Montage SMB via mount -t cifs avec fichier de credentials temporaire (évite fuite dans /proc/cmdline)
         let target = format!("//{}/{}", cfg.host, cfg.remote_path.trim_start_matches('/'));
-        let mut opts = format!("vers=3.0,iocharset=utf8,username={}", cfg.username);
-        if let Some(pwd) = &cfg.password {
-            opts.push_str(&format!(",password={}", pwd));
+
+        let (opts, temp_cred_path) = if let Some(pwd) = &cfg.password {
+            use std::os::unix::fs::PermissionsExt;
+            let cred_filename = format!("/run/noos-cifs-{}-{}.cred", cfg.id, std::process::id());
+            let cred_content = format!("username={}\npassword={}\n", cfg.username, pwd);
+            let _ = fs::write(&cred_filename, &cred_content);
+            let _ = fs::set_permissions(&cred_filename, fs::Permissions::from_mode(0o600));
+            (format!("vers=3.0,iocharset=utf8,credentials={}", cred_filename), Some(cred_filename))
+        } else if !cfg.username.is_empty() {
+            (format!("vers=3.0,iocharset=utf8,username={}", cfg.username), None)
         } else {
-            opts.push_str(",guest");
-        }
+            ("vers=3.0,iocharset=utf8,guest".to_string(), None)
+        };
 
         let output = Command::new("mount")
             .args(["-t", "cifs", &target, &cfg.mount_point, "-o", &opts])
-            .output()
-            .map_err(|e| format!("Erreur exécution mount.cifs : {}", e))?;
+            .output();
+
+        // Supprimer immédiatement le fichier temporaire de credentials
+        if let Some(cred_path) = temp_cred_path {
+            let _ = fs::remove_file(cred_path);
+        }
+
+        let output = output.map_err(|e| format!("Erreur exécution mount.cifs : {}", e))?;
 
         if !output.status.success() {
             let err_str = String::from_utf8_lossy(&output.stderr);

@@ -112,8 +112,9 @@ fn sanitize_filename(name: &str) -> String {
 
 pub async fn get_youtube_info(url: &str) -> Result<YoutubeVideoInfo, String> {
     let url = url.trim();
-    if url.is_empty() {
-        return Err("Veuillez fournir un lien YouTube valide.".into());
+    let clean_url = url.trim();
+    if !clean_url.starts_with("http://") && !clean_url.starts_with("https://") {
+        return Err("Le lien YouTube doit obligatoirement commencer par http:// ou https://".into());
     }
 
     let mut cmd = Command::new("yt-dlp");
@@ -122,8 +123,9 @@ pub async fn get_youtube_info(url: &str) -> Result<YoutubeVideoInfo, String> {
         "--no-playlist",
         "--skip-download",
         "--no-warnings",
+        "--",
     ])
-    .arg(url);
+    .arg(clean_url);
 
     let output = cmd.output().await.map_err(|e| format!("Impossible d'exécuter yt-dlp : {}", e))?;
 
@@ -199,8 +201,8 @@ pub async fn get_youtube_info(url: &str) -> Result<YoutubeVideoInfo, String> {
 
 pub fn start_youtube_download(req: YoutubeDownloadRequest) -> Result<String, String> {
     let url = req.url.trim().to_string();
-    if url.is_empty() {
-        return Err("URL manquante.".into());
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("L'URL YouTube doit obligatoirement commencer par http:// ou https://".into());
     }
 
     let format_str = req.format.unwrap_or_else(|| "mp4".into()).to_lowercase();
@@ -282,7 +284,7 @@ pub fn start_youtube_download(req: YoutubeDownloadRequest) -> Result<String, Str
             ]);
         }
 
-        cmd.arg(&url);
+        cmd.arg("--").arg(&url);
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 

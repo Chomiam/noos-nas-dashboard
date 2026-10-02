@@ -307,13 +307,13 @@ fn run_server_deployment_pipeline(
 
     while start_time.elapsed() < max_duration {
         if !is_deployment_active(&server_id) {
-            let _ = Command::new("docker").args(["stop", "-t", "2", &container_name]).status();
+            let _ = Command::new("docker").args(["stop", "-t", "10", &container_name]).status();
             let _ = Command::new("docker").args(["rm", "-f", &container_name]).status();
             return;
         }
         std::thread::sleep(Duration::from_millis(1500));
         if !is_deployment_active(&server_id) {
-            let _ = Command::new("docker").args(["stop", "-t", "2", &container_name]).status();
+            let _ = Command::new("docker").args(["stop", "-t", "10", &container_name]).status();
             let _ = Command::new("docker").args(["rm", "-f", &container_name]).status();
             return;
         }
@@ -2426,7 +2426,7 @@ pub fn delete_game_server(id: &str, delete_data: bool) -> Result<String, String>
         tracker.remove(id);
     }
 
-    let _ = Command::new("docker").args(["stop", "-t", "2", &container_name]).status();
+    let _ = Command::new("docker").args(["stop", "-t", "30", &container_name]).status();
     let _ = Command::new("docker").args(["rm", "-f", &container_name]).status();
 
     if let Some(pos) = servers.iter().position(|s| s.id == id) {
@@ -2468,10 +2468,32 @@ pub fn send_game_server_command(id: &str, cmd: &str) -> Result<String, String> {
         return Err("La commande ne peut pas être vide.".into());
     }
 
-    // Essayer docker exec en tâche de fond pour envoyer au shell/processus
-    let output = Command::new("docker")
-        .args(["exec", "-i", &container_name, "sh", "-c", &format!("echo '{}'", clean_cmd)])
+    // 1. Essayer rcon-cli sans shell si supporté (ex: serveurs Minecraft)
+    if let Ok(out) = Command::new("docker")
+        .args(["exec", "-i", &container_name, "rcon-cli", "--", clean_cmd])
         .output()
+    {
+        if out.status.success() {
+            return Ok(String::from_utf8_lossy(&out.stdout).to_string());
+        }
+    }
+
+    // 2. Sinon, acheminer la commande directement via stdin vers le descripteur d'entrée sans passer par sh -c
+    let mut child = Command::new("docker")
+        .args(["exec", "-i", &container_name, "tee", "/proc/1/fd/0"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Échec d'envoi de commande : {}", e))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        let _ = writeln!(stdin, "{}", clean_cmd);
+    }
+
+    let output = child
+        .wait_with_output()
         .map_err(|e| format!("Échec d'envoi de commande : {}", e))?;
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
