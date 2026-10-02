@@ -1096,6 +1096,19 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
         return Err(format!("Erreur lors de la récupération distante : {}", err));
     }
 
+    // Vérifier si la branche locale a divergé d'origin/main uniquement sur flake.lock
+    let diff_ahead_out = git_cmd(&dir_str)
+        .args(["diff", "--name-only", "origin/main...HEAD"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+
+    if !diff_ahead_out.is_empty() && diff_ahead_out.lines().all(|l| l.trim() == "flake.lock") {
+        log.push_str("Divergence locale détectée uniquement sur flake.lock. Alignement automatique sur origin/main...\n");
+        let _ = git_cmd(&dir_str).args(["reset", "--mixed", "origin/main"]).output();
+        let _ = git_cmd(&dir_str).args(["checkout", "--", "flake.lock"]).output();
+    }
+
     let merge_out = git_cmd(&dir_str)
         .args(["merge", "--ff-only", "origin/main"])
         .output()
@@ -1112,11 +1125,39 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
                 log.push_str("Rebase réussi avec succès.\n");
             }
             _ => {
-                let _ = git_cmd(&dir_str).args(["rebase", "--abort"]).output();
-                if has_uncommitted {
-                    let _ = git_cmd(&dir_str).args(["stash", "pop"]).output();
+                let status_conflict = git_cmd(&dir_str)
+                    .args(["diff", "--name-only", "--diff-filter=U"])
+                    .output()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    .unwrap_or_default();
+
+                if !status_conflict.is_empty() && status_conflict.lines().all(|f| f.trim() == "flake.lock") {
+                    log.push_str("Conflit détecté uniquement sur flake.lock. Résolution automatique en faveur de la version officielle distante...\n");
+                    let _ = git_cmd(&dir_str).args(["checkout", "--theirs", "flake.lock"]).output();
+                    let _ = git_cmd(&dir_str).args(["add", "flake.lock"]).output();
+                    let rebase_cont = git_cmd(&dir_str)
+                        .args(["-c", "core.editor=true", "rebase", "--continue"])
+                        .output();
+
+                    match rebase_cont {
+                        Ok(cont_res) if cont_res.status.success() => {
+                            log.push_str("Rebase finalisé avec succès après résolution de flake.lock.\n");
+                        }
+                        _ => {
+                            let _ = git_cmd(&dir_str).args(["rebase", "--abort"]).output();
+                            if has_uncommitted {
+                                let _ = git_cmd(&dir_str).args(["stash", "pop"]).output();
+                            }
+                            return Err("Conflit Git non résolu. Opération annulée pour préserver vos fichiers.".into());
+                        }
+                    }
+                } else {
+                    let _ = git_cmd(&dir_str).args(["rebase", "--abort"]).output();
+                    if has_uncommitted {
+                        let _ = git_cmd(&dir_str).args(["stash", "pop"]).output();
+                    }
+                    return Err("Conflit Git détecté avec la branche distante. Opération annulée pour préserver vos fichiers.".into());
                 }
-                return Err("Conflit Git détecté avec la branche distante. Opération annulée pour préserver vos fichiers.".into());
             }
         }
     } else {
