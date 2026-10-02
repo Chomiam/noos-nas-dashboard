@@ -3497,12 +3497,6 @@ let terminalCwd = "/etc/nixos";
 let termHistory = [];
 let termHistoryIdx = -1;
 let currentInputDraft = "";
-
-let activeConsoleSubTab = "logs";
-let terminalCwd = "/etc/nixos";
-let termHistory = [];
-let termHistoryIdx = -1;
-let currentInputDraft = "";
 let sessionSudoPassword = null;
 let terminalSudoMode = false;
 let termFontSize = 13.5;

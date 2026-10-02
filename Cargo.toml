@@ -1,6 +1,6 @@
 [package]
 name = "noos-nas-dashboard"
-version = "0.3.7"
+version = "0.3.8"
 edition = "2021"
 description = "Tableau de bord web en Rust & JS pour Noos NAS Edition (Catppuccin Mocha)"
 
