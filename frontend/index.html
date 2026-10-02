@@ -5100,37 +5100,58 @@
           </div>
         </div>
 
-        <!-- Section Accélération Matérielle GPU (Jellyfin / Transcodage) -->
-        <div id="config-gpu-section" style="display: none; flex-direction: column; gap: 10px; background: rgba(137, 180, 250, 0.05); border: 1px solid rgba(137, 180, 250, 0.25); border-radius: 12px; padding: 14px;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
+        <!-- Section Accélération Matérielle GPU (Simple & Universelle) -->
+        <div id="config-gpu-section" style="display: flex; flex-direction: column; gap: 10px; background: rgba(137, 180, 250, 0.05); border: 1px solid rgba(137, 180, 250, 0.25); border-radius: 12px; padding: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
             <label style="font-size: 0.88rem; font-weight: 700; color: var(--blue); display: flex; align-items: center; gap: 8px; margin: 0;">
-              <span>🎮 Accélération Matérielle GPU (Transcodage Vidéo)</span>
+              <span>🎮 Accélération Matérielle GPU</span>
             </label>
-            <span id="config-gpu-status-badge" style="font-size: 0.74rem; background: rgba(137, 180, 250, 0.15); color: var(--blue); padding: 3px 8px; border-radius: 6px; font-weight: 600;">Détecté : Intel QuickSync (iHD)</span>
+            <span id="config-gpu-status-badge" style="font-size: 0.74rem; background: rgba(137, 180, 250, 0.15); color: var(--blue); padding: 3px 8px; border-radius: 6px; font-weight: 600;">Détection matériel hôte...</span>
           </div>
           <div style="font-size: 0.78rem; color: var(--subtext0);">
-            Exposition directe du GPU au conteneur pour le transcodage matériel 4K / AV1 / HEVC sans impacter les performances CPU.
+            Exposez directement votre GPU pour le transcodage vidéo 4K/AV1 ou les modèles d'IA.
           </div>
 
-          <div style="display: flex; align-items: center; gap: 10px; margin-top: 4px;">
+          <div style="display: flex; align-items: center; gap: 10px; margin-top: 2px;">
             <div style="flex: 1;">
-              <label style="font-size: 0.76rem; color: var(--subtext1); margin-bottom: 4px; display: block;">Chemin du GPU exposé (devices) :</label>
-              <input type="text" id="config-app-gpu-device" class="form-input docker-path-input" value="/dev/dri:/dev/dri" style="width: 100%; font-family: monospace;">
-            </div>
-            <div style="width: 210px;">
-              <label style="font-size: 0.76rem; color: var(--subtext1); margin-bottom: 4px; display: block;">Profil matériel :</label>
-              <select id="config-app-gpu-profile" class="form-input" style="width: 100%; font-size: 0.82rem; height: 38px; background: #11111b; color: var(--text); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;" onchange="onGpuProfileChange(this.value)">
-                <option value="intel">Intel (QuickSync / iHD)</option>
-                <option value="amd">AMD (VA-API / ROCm)</option>
-                <option value="nvidia">Nvidia (NVENC / CUDA)</option>
-                <option value="custom">Personnalisé</option>
-                <option value="none">Désactivé (CPU)</option>
+              <select id="config-app-gpu-profile" class="form-input" style="width: 100%; font-size: 0.82rem; height: 38px; background: #11111b; color: var(--text); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px;" onchange="onGpuProfileChange(this.value)">
+                <option value="none">🚫 Désactivé (CPU uniquement)</option>
+                <option value="intel">🔵 Intel QuickSync / VA-API (/dev/dri)</option>
+                <option value="amd">🔴 AMD Radeon / VA-API (/dev/dri)</option>
+                <option value="nvidia">🟢 NVIDIA NVENC / CUDA (GPU dédié)</option>
               </select>
             </div>
+            <input type="hidden" id="config-app-gpu-device" value="none">
+          </div>
+        </div>
+
+        <!-- Section Volumes & Dossiers partagés -->
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+            <label style="font-size: 0.85rem; font-weight: 700; color: var(--text); margin: 0;">
+              📂 Volumes & Dossiers partagés (Hôte ➔ Conteneur)
+            </label>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <select id="config-volume-preset-select" class="form-input" style="font-size: 0.78rem; height: 30px; padding: 2px 8px; background: #11111b; color: var(--text); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; max-width: 250px;" onchange="onSelectDockerVolumePreset(this)" title="Ajouter un dossier type en 1 clic">
+                <option value="" disabled selected>⚡ Volumes rapides...</option>
+                <option value="data">📁 Données (~/docker/app/data ➔ /data)</option>
+                <option value="videos">🎬 Vidéos (~/videos ➔ /media)</option>
+                <option value="photos">📸 Photos (~/pictures ➔ /photos)</option>
+                <option value="downloads">📥 Téléchargements (~/downloads ➔ /downloads)</option>
+                <option value="storage">💾 Pool Stockage (/storage ➔ /storage)</option>
+                <option value="localtime">🕒 Horloge hôte (/etc/localtime ➔ /etc/localtime:ro)</option>
+              </select>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="addDockerConfigVolumeRow('', '', 'rw')">
+                ➕ Ajouter un volume
+              </button>
+            </div>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--subtext0);">
+            Mappez vos dossiers du NAS vers le conteneur. Utilisez le bouton <strong>📁 Parcourir</strong> pour explorer le disque du NAS.
           </div>
 
-          <div style="font-size: 0.76rem; color: var(--subtext0); display: flex; align-items: center; gap: 8px;">
-            <span>🔍 Nœud de rendu détecté sur l'hôte :</span> <code id="config-gpu-rendernode-preview" style="color:var(--mauve); font-weight:700;">/dev/dri/renderD128</code>
+          <div id="config-volume-rows-container" style="display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto; padding: 4px;">
+            <!-- Lignes dynamiques de volumes -->
           </div>
         </div>
 
@@ -5222,6 +5243,60 @@
     </div>
   </div>
 
+  <!-- MODAL PARCOUREUR DE DOSSIERS DU NAS -->
+  <div class="file-modal-overlay modal-backdrop" id="modal-nas-folder-picker" style="display:none;" onclick="if(event.target===this) closeNasFolderPickerModal()">
+    <div class="file-modal-window modal-box" style="width: 100%; max-width: 680px; max-height: 85vh; display: flex; flex-direction: column;">
+      <div class="file-modal-header modal-header">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:1.4rem;">📂</span>
+          <div>
+            <div class="file-modal-title modal-title">Sélectionner un dossier sur le NAS</div>
+            <div style="font-size:0.78rem; color:var(--subtext0);">Naviguez dans l'arborescence du NAS et validez votre choix</div>
+          </div>
+        </div>
+        <button type="button" class="btn-icon" onclick="closeNasFolderPickerModal()">✕</button>
+      </div>
+
+      <div class="modal-body" style="padding: 16px; overflow: hidden; display: flex; flex-direction: column; gap: 12px; flex: 1;">
+        <!-- Barre de navigation rapide -->
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+          <button type="button" class="btn btn-secondary btn-xs" onclick="navigateNasFolderPicker('home')">🏠 Mon dossier (~/)</button>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="navigateNasFolderPicker('/mnt/storage')">💾 /mnt/storage</button>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="navigateNasFolderPicker('/storage')">💾 /storage</button>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="navigateNasFolderPicker('/')">📂 Racine (/)</button>
+          <button type="button" class="btn btn-secondary btn-xs" id="btn-folder-picker-up" onclick="navigateNasFolderPickerUp()" title="Dossier parent">⬆️ Dossier parent</button>
+          <button type="button" class="btn btn-secondary btn-xs" style="margin-left: auto;" onclick="promptCreateFolderInPicker()">➕ Nouveau dossier</button>
+        </div>
+
+        <!-- Chemin actuel -->
+        <div style="display: flex; align-items: center; gap: 8px; background: #11111b; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 6px 10px;">
+          <span style="font-size: 0.9rem; color: var(--mauve);">📍</span>
+          <input type="text" id="folder-picker-current-path" class="form-input" style="flex:1; border:none; background:transparent; font-family:monospace; font-size:0.82rem; padding:0; color:var(--text);" spellcheck="false" onkeydown="if(event.key==='Enter') navigateNasFolderPicker(this.value)">
+          <button type="button" class="btn btn-secondary btn-xs" onclick="navigateNasFolderPicker(document.getElementById('folder-picker-current-path').value)">Aller</button>
+        </div>
+
+        <!-- Liste des dossiers -->
+        <div id="folder-picker-list" style="flex: 1; min-height: 240px; max-height: 340px; overflow-y: auto; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 6px; display: flex; flex-direction: column; gap: 4px;">
+          <!-- Éléments dossiers dynamiques -->
+        </div>
+
+        <!-- Statut / Dossier sélectionné -->
+        <div style="font-size: 0.8rem; color: var(--subtext1); display: flex; align-items: center; gap: 6px;">
+          <span>Sélection :</span>
+          <code id="folder-picker-selected-label" style="color:var(--green); font-weight:700;">/home/chomiam</code>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; background: var(--mantle); border-top: 1px solid rgba(255, 255, 255, 0.08);">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeNasFolderPickerModal()">
+          Annuler
+        </button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="confirmNasFolderPickerSelection()">
+          ✅ Sélectionner ce dossier
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- MODAL SUPPRESSION DOCKER CONTENEUR -->
   <div class="file-modal-overlay modal-backdrop" id="modal-delete-docker" style="display:none;" onclick="if(event.target===this) closeDeleteDockerModal()">

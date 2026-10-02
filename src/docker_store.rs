@@ -83,6 +83,8 @@ pub struct InstallAppRequest {
     pub media_dir: Option<String>,
     pub gpu_device: Option<String>,
     pub env_vars: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub extra_volumes: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -301,6 +303,7 @@ fn customize_compose_yaml(
     new_port: Option<u32>,
     env_vars: Option<&HashMap<String, String>>,
     gpu_device: Option<&str>,
+    extra_volumes: Option<&[String]>,
 ) -> String {
     let mut lines: Vec<String> = base_compose.lines().map(|s| s.to_string()).collect();
 
@@ -466,6 +469,67 @@ fn customize_compose_yaml(
         }
     }
 
+    // 5. Injection des volumes supplémentaires choisis par l'utilisateur
+    if let Some(vols) = extra_volumes {
+        if !vols.is_empty() {
+            let mut target_service_idx = None;
+            let mut in_services = false;
+            let mut current_service_idx = None;
+
+            for (idx, line) in lines.iter().enumerate() {
+                let trimmed = line.trim();
+                if trimmed == "services:" {
+                    in_services = true;
+                    continue;
+                }
+                if in_services && line.starts_with("  ") && !line.starts_with("    ") && trimmed.ends_with(':') {
+                    let s_name = trimmed.trim_end_matches(':').trim();
+                    current_service_idx = Some(idx);
+                    if s_name == "immich-server" || s_name == "jellyfin" || s_name == "plex" || s_name == "emby" || s_name == "nextcloud" {
+                        target_service_idx = Some(idx);
+                        break;
+                    }
+                    if target_service_idx.is_none() {
+                        target_service_idx = Some(idx);
+                    }
+                }
+            }
+
+            if let Some(s_idx) = target_service_idx.or(current_service_idx) {
+                let mut vol_header_idx = None;
+                let mut service_end_idx = lines.len();
+
+                for i in (s_idx + 1)..lines.len() {
+                    let l = &lines[i];
+                    if l.starts_with("  ") && !l.starts_with("    ") && l.trim().ends_with(':') {
+                        service_end_idx = i;
+                        break;
+                    }
+                    if l.trim() == "volumes:" {
+                        vol_header_idx = Some(i);
+                    }
+                }
+
+                if let Some(v_idx) = vol_header_idx {
+                    for vol in vols {
+                        let clean_v = vol.trim();
+                        if !clean_v.is_empty() && !lines[s_idx..service_end_idx].iter().any(|l| l.contains(clean_v)) {
+                            lines.insert(v_idx + 1, format!("      - {}", clean_v));
+                        }
+                    }
+                } else {
+                    lines.insert(service_end_idx, "    volumes:".to_string());
+                    for (offset, vol) in vols.iter().enumerate() {
+                        let clean_v = vol.trim();
+                        if !clean_v.is_empty() {
+                            lines.insert(service_end_idx + 1 + offset, format!("      - {}", clean_v));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     lines.join("\n") + "\n"
 }
 
@@ -598,8 +662,14 @@ pub fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
 
     let base_compose = fetched_compose.unwrap_or_else(|| generate_default_compose(&clean_id, req.port.unwrap_or(8080)));
 
-    // 3. Personnaliser le compose.yaml (port, variables d'environnement et GPU)
-    let customized = customize_compose_yaml(&base_compose, req.port, req.env_vars.as_ref(), req.gpu_device.as_deref());
+    // 3. Personnaliser le compose.yaml (port, variables d'environnement, GPU et volumes)
+    let customized = customize_compose_yaml(
+        &base_compose,
+        req.port,
+        req.env_vars.as_ref(),
+        req.gpu_device.as_deref(),
+        req.extra_volumes.as_deref(),
+    );
 
     // 4. Écrire le fichier compose.yaml
     if let Err(e) = std::fs::write(&compose_file, &customized) {
