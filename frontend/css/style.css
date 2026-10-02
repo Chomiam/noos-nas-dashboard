@@ -9270,6 +9270,14 @@ body.app-updating-reload #app-shell {
   border-radius: 12px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(12px);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.game-deploy-toast-card:hover {
+  background: #1e1e2e;
+  border-color: rgba(203, 166, 247, 0.7);
+  transform: translateY(-2px);
+  box-shadow: 0 14px 35px rgba(0, 0, 0, 0.75), 0 0 15px rgba(203, 166, 247, 0.15);
 }
 
 /* ================= DEPLOY TERMINAL PREMIUM HIGH-FIDELITY ================= */
@@ -9441,26 +9449,31 @@ body.app-updating-reload #app-shell {
 }
 
 /* ================= DEPLOY MODAL EXPANDED / LARGE VIEW ================= */
+#game-deploy-modal-window,
 .file-modal-window.deploy-expanded {
   max-width: min(1180px, 94vw) !important;
   width: 94vw !important;
   transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+#game-deploy-modal-window .deploy-terminal-body,
 .file-modal-window.deploy-expanded .deploy-terminal-body {
   height: 460px !important;
   transition: height 0.35s ease;
 }
 
+#game-deploy-modal-window .game-deploy-steps,
 .file-modal-window.deploy-expanded .game-deploy-steps {
   gap: 14px !important;
 }
 
+#game-deploy-modal-window .game-deploy-step-card,
 .file-modal-window.deploy-expanded .game-deploy-step-card {
   padding: 14px 10px !important;
   font-size: 0.82rem !important;
 }
 
+#game-deploy-modal-window .game-deploy-step-card .step-icon,
 .file-modal-window.deploy-expanded .game-deploy-step-card .step-icon {
   font-size: 1.55rem !important;
 }
@@ -16427,6 +16440,7 @@ body.app-updating-reload #app-shell {
 .floating-task-card.minimized .gen-cleanup-toast-body,
 .floating-task-card.minimized .docker-deploy-toast-body,
 .floating-task-card.minimized #game-deploy-toast-desc,
+.floating-task-card.minimized .game-deploy-toast-desc,
 .floating-task-card.minimized .game-deploy-bar-wrap {
   display: none !important;
 }

@@ -6990,6 +6990,11 @@ function initMediaPipDrag(modalId) {
 
 function handleModalOverlayClick(e, modalId) {
   if (e.target.id === modalId) {
+    // Si clic dans le vide autour de la fenêtre de suivi de déploiement de jeu, on la réduit en popup flottante
+    if (modalId === "modal-game-deploy-progress") {
+      minimizeGameDeployModal();
+      return;
+    }
     // Si clic dans le vide autour du lecteur vidéo ou audio en mode centré, on le réduit en vignette flottante
     if (modalId === "mpv-modal" || modalId === "audio-modal") {
       const modal = document.getElementById(modalId);
@@ -13855,6 +13860,7 @@ async function loadGameServers(forceToast = false) {
     hasFetchedGameServersOnce = true;
     if (json.success && json.data) {
       gameServersData = json.data;
+      syncDeployingServersFromList(gameServersData);
       try {
         localStorage.setItem("steveos_cached_game_servers", JSON.stringify(gameServersData));
       } catch (_) {}
@@ -15499,20 +15505,101 @@ function formatDeployLogLine(line) {
   return { text: clean, cls };
 }
 
-let activeGameDeployServerId = null;
-let gameDeployPollInterval = null;
-let isGameDeployModalMinimized = false;
+// ==========================================================================
+// REGISTRE MULTI-DÉPLOIEMENTS DE SERVEURS DE JEUX & POPUPS FLOTTANTES EN PARALLÈLE
+// ==========================================================================
+let activeGameDeployments = {}; // Key: serverId -> Object de déploiement
+let activeGameDeployModalServerId = null; // serverId affiché en plein écran dans la modale (ou null si réduite)
+let gameDeployTickerInterval = null;
 
+// Démarre la boucle de rafraîchissement temps réel si nécessaire
+function ensureGameDeployTicker() {
+  if (gameDeployTickerInterval) return;
+  gameDeployTickerInterval = setInterval(pollAllActiveGameDeployments, 1500);
+}
+
+// Arrête la boucle si plus aucun déploiement actif
+function checkStopGameDeployTicker() {
+  const activeKeys = Object.keys(activeGameDeployments);
+  if (activeKeys.length === 0 && gameDeployTickerInterval) {
+    clearInterval(gameDeployTickerInterval);
+    gameDeployTickerInterval = null;
+  }
+}
+
+// Synchronise les serveurs en cours de déploiement lors du rechargement de la liste
+function syncDeployingServersFromList(servers) {
+  if (!Array.isArray(servers)) return;
+  let hasNew = false;
+  for (const s of servers) {
+    if (s.status === "deploying") {
+      if (!activeGameDeployments[s.id]) {
+        activeGameDeployments[s.id] = {
+          id: s.id,
+          name: s.name || "Serveur de jeu",
+          eggName: s.game_name || "SERVEUR",
+          icon: s.icon || "🎮",
+          iconUrl: s.icon_url || "",
+          progressPercent: 15,
+          stepIndex: 2,
+          statusMessage: s.status_detail || "Déploiement en cours...",
+          detail: "Initialisation du conteneur...",
+          logs: [],
+          isComplete: false,
+          isError: false,
+          minimized: false
+        };
+        hasNew = true;
+      }
+    }
+  }
+  if (hasNew) {
+    renderAllGameDeployToasts();
+    ensureGameDeployTicker();
+    pollAllActiveGameDeployments();
+  }
+}
+
+// Ouvre la grande fenêtre de suivi pour un serveur précis en mode plein écran
 function openGameDeployProgressModal(serverId, serverName, eggName, eggIcon, eggIconUrl) {
-  activeGameDeployServerId = serverId;
-  isGameDeployModalMinimized = false;
+  if (!serverId) return;
+
+  if (!activeGameDeployments[serverId]) {
+    activeGameDeployments[serverId] = {
+      id: serverId,
+      name: serverName || "Serveur de jeu",
+      eggName: eggName || "SERVEUR",
+      icon: eggIcon || "🎮",
+      iconUrl: eggIconUrl || "",
+      progressPercent: 15,
+      stepIndex: 2,
+      statusMessage: "Initialisation du serveur...",
+      detail: "Préparation des volumes et configurations...",
+      logs: [],
+      isComplete: false,
+      isError: false,
+      minimized: false
+    };
+  } else {
+    if (serverName) activeGameDeployments[serverId].name = serverName;
+    if (eggName) activeGameDeployments[serverId].eggName = eggName;
+    if (eggIcon) activeGameDeployments[serverId].icon = eggIcon;
+    if (eggIconUrl) activeGameDeployments[serverId].iconUrl = eggIconUrl;
+  }
+
+  activeGameDeployModalServerId = serverId;
+  const dep = activeGameDeployments[serverId];
 
   const modal = document.getElementById("modal-game-deploy-progress");
-  const toast = document.getElementById("game-deploy-floating-toast");
-  if (toast) toast.style.display = "none";
+  const win = document.getElementById("game-deploy-modal-window");
+  if (win) {
+    win.classList.add("deploy-expanded");
+  }
 
+  // Hydratation de la vue modale
   const badge = document.getElementById("game-deploy-modal-badge");
   const title = document.getElementById("game-deploy-modal-title");
+  const termTitle = document.getElementById("game-deploy-terminal-title");
   const heroIcon = document.getElementById("game-deploy-hero-icon");
   const heroName = document.getElementById("game-deploy-hero-name");
   const heroStatus = document.getElementById("game-deploy-hero-status");
@@ -15523,49 +15610,70 @@ function openGameDeployProgressModal(serverId, serverName, eggName, eggIcon, egg
   const logsBox = document.getElementById("game-deploy-logs-box");
   const finishBtn = document.getElementById("btn-game-deploy-finish");
   const toConsoleBtn = document.getElementById("btn-game-deploy-to-console");
+  const cancelBtn = document.getElementById("btn-cancel-game-deploy");
 
-  if (badge) badge.textContent = (eggName || "SERVEUR").toUpperCase();
-  if (title) title.textContent = `Déploiement : ${serverName}`;
-  const termTitle = document.getElementById("game-deploy-terminal-title");
+  if (badge) badge.textContent = (dep.eggName || "SERVEUR").toUpperCase();
+  if (title) title.textContent = `Déploiement : ${dep.name}`;
   if (termTitle) termTitle.innerHTML = `<span>⚡</span> container@steveos-nas:~/games/${escapeHtml(serverId)}`;
   if (heroIcon) {
-    if (eggIconUrl) {
-      heroIcon.innerHTML = `<img src="${eggIconUrl}" style="width:48px;height:48px;object-fit:contain;filter:drop-shadow(0 4px 10px rgba(0,0,0,0.6));">`;
+    if (dep.iconUrl) {
+      heroIcon.innerHTML = `<img src="${dep.iconUrl}" style="width:48px;height:48px;object-fit:contain;filter:drop-shadow(0 4px 10px rgba(0,0,0,0.6));">`;
     } else {
-      heroIcon.textContent = eggIcon || "🎮";
+      heroIcon.textContent = dep.icon || "🎮";
     }
   }
-  if (heroName) heroName.textContent = serverName;
+  if (heroName) heroName.textContent = dep.name;
   if (heroStatus) {
-    heroStatus.textContent = "Initialisation du serveur...";
-    heroStatus.style.color = "var(--mauve)";
+    heroStatus.textContent = dep.statusMessage;
+    heroStatus.style.color = dep.isError ? "var(--red)" : (dep.isComplete ? "var(--green)" : "var(--mauve)");
   }
-  if (heroPercent) heroPercent.textContent = "15%";
-  if (percentLabel) percentLabel.textContent = "15%";
+  if (heroPercent) heroPercent.textContent = `${dep.progressPercent}%`;
+  if (percentLabel) percentLabel.textContent = `${dep.progressPercent}%`;
   if (barFill) {
-    barFill.style.width = "15%";
-    barFill.style.background = "linear-gradient(90deg, var(--mauve), var(--blue))";
+    barFill.style.width = `${dep.progressPercent}%`;
+    barFill.style.background = dep.isError ? "var(--red)" : (dep.isComplete ? "linear-gradient(90deg, var(--green), #a6e3a1)" : "linear-gradient(90deg, var(--mauve), var(--blue))");
   }
-  if (detailSubtext) detailSubtext.textContent = "Préparation des volumes et configurations...";
-  if (logsBox) logsBox.innerHTML = `<div style="color:var(--subtext0);">⚡ Connexion aux logs de déploiement en direct...</div>`;
-  if (finishBtn) finishBtn.innerHTML = `<span>Fermer</span>`;
-  if (toConsoleBtn) toConsoleBtn.style.display = "none";
-  const cancelBtn = document.getElementById("btn-cancel-game-deploy");
-  if (cancelBtn) {
-    cancelBtn.style.display = "inline-flex";
-    cancelBtn.disabled = false;
-    cancelBtn.innerHTML = `<span>🗑️</span> Annuler et supprimer`;
+  if (detailSubtext) detailSubtext.textContent = dep.detail || dep.statusMessage;
+  if (logsBox) {
+    if (dep.logs && dep.logs.length > 0) {
+      let html = "";
+      let lineIdx = 1;
+      for (const rawLine of dep.logs) {
+        const parsed = formatDeployLogLine(rawLine);
+        if (parsed) {
+          html += `<div class="deploy-log-line">` +
+            `<span class="deploy-log-num">${lineIdx}</span>` +
+            `<span class="deploy-log-text ${parsed.cls}">${escapeHtml(parsed.text)}</span>` +
+          `</div>`;
+          lineIdx++;
+        }
+      }
+      html += `<div class="deploy-log-line"><span class="deploy-log-num"></span><span class="deploy-log-text"><span class="terminal-cursor"></span></span></div>`;
+      logsBox.innerHTML = html;
+      if (deployAutoScrollEnabled) logsBox.scrollTop = logsBox.scrollHeight;
+    } else {
+      logsBox.innerHTML = `<div class="deploy-log-empty">⚡ Connexion aux logs de déploiement en direct...</div>`;
+    }
   }
 
-  updateGameDeployStepUI(2);
+  if (finishBtn) finishBtn.innerHTML = dep.isComplete ? `<span>🎉 Serveur Prêt !</span>` : `<span>Fermer</span>`;
+  if (toConsoleBtn) toConsoleBtn.style.display = (dep.isComplete && !dep.isError) ? "inline-flex" : "none";
+  if (cancelBtn) {
+    cancelBtn.style.display = dep.isComplete && !dep.isError ? "none" : "inline-flex";
+    cancelBtn.disabled = false;
+    cancelBtn.innerHTML = dep.isError ? `<span>🗑️</span> Supprimer le serveur en erreur` : `<span>🗑️</span> Annuler et supprimer`;
+  }
+
+  updateGameDeployStepUI(dep.stepIndex, dep.isComplete && !dep.isError, dep.isError);
 
   if (modal) modal.style.display = "flex";
 
-  if (gameDeployPollInterval) clearInterval(gameDeployPollInterval);
-  pollGameDeployStatus();
-  gameDeployPollInterval = setInterval(pollGameDeployStatus, 1500);
+  renderAllGameDeployToasts();
+  ensureGameDeployTicker();
+  pollAllActiveGameDeployments();
 }
 
+// Mise à jour de l'UI des 4 étapes du déploiement
 function updateGameDeployStepUI(activeIndex, isComplete = false, isError = false) {
   for (let i = 1; i <= 4; i++) {
     const el = document.getElementById(`game-deploy-step-${i}`);
@@ -15581,193 +15689,250 @@ function updateGameDeployStepUI(activeIndex, isComplete = false, isError = false
   }
 }
 
-async function pollGameDeployStatus() {
-  if (!activeGameDeployServerId) return;
+// Polling centralisé de TOUS les déploiements actifs en parallèle
+async function pollAllActiveGameDeployments() {
+  const serverIds = Object.keys(activeGameDeployments);
+  if (serverIds.length === 0) return;
 
-  try {
-    const res = await fetch(`/api/games/${activeGameDeployServerId}/deploy-status`);
-    const json = await res.json();
-    if (!json.success || !json.data) return;
+  for (const sId of serverIds) {
+    const dep = activeGameDeployments[sId];
+    if (!dep) continue;
+    if (dep.isComplete || dep.isError) continue; // Déjà achevé
 
-    const d = json.data;
-    const pct = d.progress_percent || 15;
-    const stepIdx = d.step_index || 2;
+    try {
+      const res = await fetch(`/api/games/${encodeURIComponent(sId)}/deploy-status`);
+      const json = await res.json();
+      if (!json.success || !json.data) continue;
 
-    const heroStatus = document.getElementById("game-deploy-hero-status");
-    const heroPercent = document.getElementById("game-deploy-hero-percent-badge");
-    const barFill = document.getElementById("game-deploy-bar-fill");
-    const percentLabel = document.getElementById("game-deploy-percent-label");
-    const detailSubtext = document.getElementById("game-deploy-detail-subtext");
-    const logsBox = document.getElementById("game-deploy-logs-box");
-    const finishBtn = document.getElementById("btn-game-deploy-finish");
-    const toConsoleBtn = document.getElementById("btn-game-deploy-to-console");
+      const d = json.data;
+      dep.progressPercent = d.progress_percent || 15;
+      dep.stepIndex = d.step_index || 2;
+      dep.statusMessage = d.status_message || "En cours...";
+      dep.detail = d.detail || d.status_message || "";
+      if (Array.isArray(d.logs)) dep.logs = d.logs;
+      dep.isComplete = Boolean(d.is_complete);
+      dep.isError = Boolean(d.is_error);
+      if (d.server_name) dep.name = d.server_name;
+      if (d.icon) dep.icon = d.icon;
 
-    const toastTitle = document.getElementById("game-deploy-toast-title");
-    const toastDesc = document.getElementById("game-deploy-toast-desc");
-    const toastBar = document.getElementById("game-deploy-toast-bar");
-    const toastIcon = document.getElementById("game-deploy-toast-icon");
+      // Si ce serveur est actuellement ouvert dans la grande modale, on met à jour son UI
+      if (activeGameDeployModalServerId === sId) {
+        const heroStatus = document.getElementById("game-deploy-hero-status");
+        const heroPercent = document.getElementById("game-deploy-hero-percent-badge");
+        const barFill = document.getElementById("game-deploy-bar-fill");
+        const percentLabel = document.getElementById("game-deploy-percent-label");
+        const detailSubtext = document.getElementById("game-deploy-detail-subtext");
+        const logsBox = document.getElementById("game-deploy-logs-box");
+        const finishBtn = document.getElementById("btn-game-deploy-finish");
+        const toConsoleBtn = document.getElementById("btn-game-deploy-to-console");
+        const cancelBtn = document.getElementById("btn-cancel-game-deploy");
 
-    if (toastTitle) toastTitle.textContent = d.server_name || "Serveur";
-    if (toastDesc) toastDesc.textContent = `${pct}% - ${d.status_message}`;
-    if (toastBar) toastBar.style.width = `${pct}%`;
-    if (toastIcon) toastIcon.textContent = d.icon || "🎮";
-
-    if (heroPercent) heroPercent.textContent = `${pct}%`;
-    if (percentLabel) percentLabel.textContent = `${pct}%`;
-    if (barFill) barFill.style.width = `${pct}%`;
-    if (heroStatus) {
-      const cleanSt = formatDeployLogLine(d.status_message);
-      heroStatus.textContent = cleanSt ? cleanSt.text : d.status_message;
-    }
-    if (detailSubtext) {
-      const cleanDet = formatDeployLogLine(d.detail || d.status_message);
-      detailSubtext.textContent = cleanDet ? cleanDet.text : (d.status_message || "");
-    }
-
-    if (logsBox && d.logs && d.logs.length > 0) {
-      let html = "";
-      let lineIdx = 1;
-      for (const rawLine of d.logs) {
-        const parsed = formatDeployLogLine(rawLine);
-        if (parsed) {
-          html += `<div class="deploy-log-line">` +
-            `<span class="deploy-log-num">${lineIdx}</span>` +
-            `<span class="deploy-log-text ${parsed.cls}">${escapeHtml(parsed.text)}</span>` +
-          `</div>`;
-          lineIdx++;
+        if (heroPercent) heroPercent.textContent = `${dep.progressPercent}%`;
+        if (percentLabel) percentLabel.textContent = `${dep.progressPercent}%`;
+        if (barFill) {
+          barFill.style.width = `${dep.progressPercent}%`;
+          if (dep.isError) barFill.style.background = "var(--red)";
+          else if (dep.isComplete) barFill.style.background = "linear-gradient(90deg, var(--green), #a6e3a1)";
         }
-      }
-      html += `<div class="deploy-log-line"><span class="deploy-log-num"></span><span class="deploy-log-text"><span class="terminal-cursor"></span></span></div>`;
-      logsBox.innerHTML = html;
-
-      if (deployAutoScrollEnabled) {
-        logsBox.scrollTop = logsBox.scrollHeight;
-      }
-    }
-
-    updateGameDeployStepUI(stepIdx, d.is_complete && !d.is_error, d.is_error);
-
-    if (d.is_complete || d.is_error) {
-      if (gameDeployPollInterval) {
-        clearInterval(gameDeployPollInterval);
-        gameDeployPollInterval = null;
-      }
-
-      const cancelBtn = document.getElementById("btn-cancel-game-deploy");
-      if (d.is_error) {
         if (heroStatus) {
-          heroStatus.textContent = `❌ ${d.status_message}`;
-          heroStatus.style.color = "var(--red)";
+          const cleanSt = formatDeployLogLine(dep.statusMessage);
+          heroStatus.textContent = dep.isError ? `❌ ${dep.statusMessage}` : (dep.isComplete ? `🎉 ${dep.statusMessage}` : (cleanSt ? cleanSt.text : dep.statusMessage));
+          heroStatus.style.color = dep.isError ? "var(--red)" : (dep.isComplete ? "var(--green)" : "var(--mauve)");
         }
-        if (barFill) barFill.style.background = "var(--red)";
-        if (cancelBtn) {
-          cancelBtn.style.display = "inline-flex";
-          cancelBtn.innerHTML = `<span>🗑️</span> Supprimer le serveur en erreur`;
+        if (detailSubtext) {
+          const cleanDet = formatDeployLogLine(dep.detail);
+          detailSubtext.textContent = cleanDet ? cleanDet.text : dep.detail;
         }
-      } else {
-        if (heroStatus) {
-          heroStatus.textContent = `🎉 ${d.status_message || "Serveur prêt et opérationnel !"}`;
-          heroStatus.style.color = "var(--green)";
+
+        if (logsBox && dep.logs && dep.logs.length > 0) {
+          let html = "";
+          let lineIdx = 1;
+          for (const rawLine of dep.logs) {
+            const parsed = formatDeployLogLine(rawLine);
+            if (parsed) {
+              html += `<div class="deploy-log-line">` +
+                `<span class="deploy-log-num">${lineIdx}</span>` +
+                `<span class="deploy-log-text ${parsed.cls}">${escapeHtml(parsed.text)}</span>` +
+              `</div>`;
+              lineIdx++;
+            }
+          }
+          html += `<div class="deploy-log-line"><span class="deploy-log-num"></span><span class="deploy-log-text"><span class="terminal-cursor"></span></span></div>`;
+          logsBox.innerHTML = html;
+          if (deployAutoScrollEnabled) logsBox.scrollTop = logsBox.scrollHeight;
         }
-        if (barFill) barFill.style.background = "linear-gradient(90deg, var(--green), #a6e3a1)";
-        if (finishBtn) finishBtn.innerHTML = `<span>🎉 Serveur Prêt !</span>`;
-        if (toConsoleBtn) toConsoleBtn.style.display = "inline-flex";
-        if (cancelBtn) cancelBtn.style.display = "none";
+
+        updateGameDeployStepUI(dep.stepIndex, dep.isComplete && !dep.isError, dep.isError);
+
+        if (dep.isComplete || dep.isError) {
+          if (dep.isError) {
+            if (cancelBtn) {
+              cancelBtn.style.display = "inline-flex";
+              cancelBtn.innerHTML = `<span>🗑️</span> Supprimer le serveur en erreur`;
+            }
+          } else {
+            if (finishBtn) finishBtn.innerHTML = `<span>🎉 Serveur Prêt !</span>`;
+            if (toConsoleBtn) toConsoleBtn.style.display = "inline-flex";
+            if (cancelBtn) cancelBtn.style.display = "none";
+          }
+          loadGameServers();
+        }
       }
 
-      loadGameServers();
+      if (dep.isComplete || dep.isError) {
+        loadGameServers();
+      }
+    } catch (e) {
+      console.warn(`Échec polling déploiement ${sId} :`, e);
     }
-  } catch (e) {
-    console.warn("Échec du polling deploy-status :", e);
   }
+
+  // Mettre à jour toutes les cartes popups dans le dock
+  renderAllGameDeployToasts();
 }
 
+// Rendu et synchronisation de TOUTES les popups flottantes dans le dock
+function renderAllGameDeployToasts() {
+  const stack = document.getElementById("floating-dock-stack");
+  if (!stack) return;
+
+  const serverIds = Object.keys(activeGameDeployments);
+
+  // Supprimer les cartes orphelines qui ne sont plus dans le registre
+  const existingCards = Array.from(stack.querySelectorAll(".game-deploy-floating-toast"));
+  for (const card of existingCards) {
+    const sId = card.getAttribute("data-server-id");
+    if (!sId || !activeGameDeployments[sId]) {
+      card.remove();
+    }
+  }
+
+  // Mettre à jour ou injecter la popup de chaque déploiement
+  for (const sId of serverIds) {
+    const dep = activeGameDeployments[sId];
+    if (!dep) continue;
+
+    // Si la grande modale plein écran est actuellement ouverte pour ce serveur précis,
+    // on masque sa carte miniature pour éviter le doublon visuel
+    const isModalOpenForThisServer = (activeGameDeployModalServerId === sId);
+
+    let card = document.getElementById(`game-deploy-floating-toast-${sId}`);
+    if (!card) {
+      card = document.createElement("div");
+      card.className = "floating-task-card game-deploy-floating-toast";
+      card.id = `game-deploy-floating-toast-${sId}`;
+      card.setAttribute("data-server-id", sId);
+
+      // Insérer avant docker-deploy-floating-toast si présent, sinon ajouter à la pile
+      const dockerToast = document.getElementById("docker-deploy-floating-toast");
+      if (dockerToast && dockerToast.parentNode === stack) {
+        stack.insertBefore(card, dockerToast);
+      } else {
+        stack.appendChild(card);
+      }
+    }
+
+    if (isModalOpenForThisServer) {
+      card.style.display = "none";
+      continue;
+    } else {
+      card.style.display = "block";
+    }
+
+    const iconHtml = dep.iconUrl
+      ? `<img src="${dep.iconUrl}" style="width:28px;height:28px;object-fit:contain;filter:drop-shadow(0 2px 5px rgba(0,0,0,0.5));">`
+      : (dep.icon || "🎮");
+
+    const cleanSt = formatDeployLogLine(dep.statusMessage);
+    const statusText = dep.isError
+      ? `❌ Erreur : ${dep.statusMessage}`
+      : (dep.isComplete ? `🎉 100% - Prêt et opérationnel !` : `${dep.progressPercent}% - ${cleanSt ? cleanSt.text : dep.statusMessage}`);
+
+    const barBg = dep.isError
+      ? "var(--red)"
+      : (dep.isComplete ? "linear-gradient(90deg, var(--green), #a6e3a1)" : "var(--mauve)");
+
+    let actionBtnsHtml = "";
+    if (dep.isComplete && !dep.isError) {
+      actionBtnsHtml = `<button type="button" class="btn btn-success btn-xs" onclick="event.stopPropagation(); openServerConsoleView('${sId}')" title="Accéder à la console">💻</button>`;
+    } else if (dep.isError) {
+      actionBtnsHtml = `<button type="button" class="btn btn-danger btn-xs" onclick="event.stopPropagation(); cancelAndRemoveGameDeployment('${sId}')" title="Supprimer ce serveur en erreur">🗑️</button>`;
+    } else {
+      actionBtnsHtml = `<button type="button" class="btn btn-danger btn-xs" onclick="event.stopPropagation(); cancelAndRemoveGameDeployment('${sId}')" title="Annuler le déploiement et supprimer ce serveur" style="padding:3px 7px; background:rgba(243,139,168,0.2); border:1px solid rgba(243,139,168,0.35); color:var(--red); border-radius:6px; cursor:pointer;">🗑️</button>`;
+    }
+
+    const closeBtnHtml = (dep.isComplete || dep.isError)
+      ? `<button type="button" class="btn-toast-close" onclick="event.stopPropagation(); dismissGameDeployToast('${sId}')" title="Masquer la notification">&times;</button>`
+      : "";
+
+    card.innerHTML = `
+      <div class="game-deploy-toast-card" onclick="openGameDeployProgressModal('${sId}')" title="Cliquer pour afficher le terminal et les détails en plein écran">
+        <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:0;">
+          <span style="font-size:1.35rem; display:flex; align-items:center; justify-content:center; flex-shrink:0;">${iconHtml}</span>
+          <div style="flex:1; min-width:0;">
+            <div class="game-deploy-toast-title" style="font-weight:700; font-size:0.85rem; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(dep.name)}</div>
+            <div class="game-deploy-toast-desc" style="font-size:0.75rem; color:${dep.isError ? "var(--red)" : (dep.isComplete ? "var(--green)" : "var(--subtext0)")}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(statusText)}</div>
+            <div class="game-deploy-bar-wrap" style="height:4px; border-radius:999px; background:rgba(255,255,255,0.08); margin-top:5px; overflow:hidden;">
+              <div style="width:${dep.progressPercent}%; height:100%; background:${barBg}; transition:width 0.4s ease;"></div>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px; margin-left:10px;" onclick="event.stopPropagation()">
+          <button type="button" class="floating-card-action-btn" onclick="toggleFloatingCardMinimize('game-deploy-floating-toast-${sId}')" title="Réduire / Dérouler">_</button>
+          ${actionBtnsHtml}
+          <button type="button" class="btn btn-secondary btn-xs" onclick="openGameDeployProgressModal('${sId}')" title="Agrandir la fenêtre de déploiement en plein écran">⛶</button>
+          ${closeBtnHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  updateFloatingDockLayout();
+}
+
+// Réduit la modale plein écran en popup flottante dans le dock
+function minimizeGameDeployModal() {
+  const modal = document.getElementById("modal-game-deploy-progress");
+  if (modal) modal.style.display = "none";
+  activeGameDeployModalServerId = null;
+  renderAllGameDeployToasts();
+  updateFloatingDockLayout();
+}
+
+// Ferme la modale (réduit également en popup si toujours en cours)
 function closeGameDeployProgressModal() {
   const modal = document.getElementById("modal-game-deploy-progress");
   if (modal) modal.style.display = "none";
-  if (gameDeployPollInterval) {
-    clearInterval(gameDeployPollInterval);
-    gameDeployPollInterval = null;
-  }
-  activeGameDeployServerId = null;
+  activeGameDeployModalServerId = null;
+  renderAllGameDeployToasts();
+  updateFloatingDockLayout();
   loadGameServers();
 }
 
-let isGameDeployModalExpanded = false;
-
-function toggleExpandGameDeployModal() {
-  const win = document.getElementById("game-deploy-modal-window");
-  const icon = document.getElementById("expand-deploy-icon");
-  const text = document.getElementById("expand-deploy-text");
-  const btn = document.getElementById("btn-toggle-expand-deploy");
-
-  isGameDeployModalExpanded = !isGameDeployModalExpanded;
-
-  if (win) {
-    if (isGameDeployModalExpanded) {
-      win.classList.add("deploy-expanded");
-    } else {
-      win.classList.remove("deploy-expanded");
-    }
+// Masque définitivement une popup de déploiement achevé
+function dismissGameDeployToast(serverId) {
+  if (serverId && activeGameDeployments[serverId]) {
+    delete activeGameDeployments[serverId];
   }
-
-  if (icon) icon.textContent = isGameDeployModalExpanded ? "🗗" : "⛶";
-  if (text) text.textContent = isGameDeployModalExpanded ? "Réduire" : "Agrandir";
-  if (btn) btn.title = isGameDeployModalExpanded ? "Rétablir la taille normale" : "Agrandir la fenêtre";
-
-  const box = document.getElementById("game-deploy-logs-box");
-  if (box && deployAutoScrollEnabled) {
-    setTimeout(() => {
-      box.scrollTop = box.scrollHeight;
-    }, 120);
-  }
+  const card = document.getElementById(`game-deploy-floating-toast-${serverId}`);
+  if (card) card.remove();
+  updateFloatingDockLayout();
+  checkStopGameDeployTicker();
 }
 
-function minimizeGameDeployModal() {
-  const modal = document.getElementById("modal-game-deploy-progress");
-  const toast = document.getElementById("game-deploy-floating-toast");
-  if (modal) modal.style.display = "none";
-  if (toast) {
-    toast.style.display = "block";
-    toast.classList.remove("minimized");
-    updateFloatingDockLayout();
-  }
-  isGameDeployModalMinimized = true;
-}
+// Annule un déploiement et supprime le conteneur et les fichiers
+async function cancelAndRemoveGameDeployment(targetServerId) {
+  const serverId = targetServerId || activeGameDeployModalServerId;
+  if (!serverId) return;
 
-function expandGameDeployModal() {
-  const modal = document.getElementById("modal-game-deploy-progress");
-  const toast = document.getElementById("game-deploy-floating-toast");
-  if (toast) {
-    toast.style.display = "none";
-    updateFloatingDockLayout();
-  }
-  if (modal) modal.style.display = "flex";
-  isGameDeployModalMinimized = false;
-}
+  const dep = activeGameDeployments[serverId];
+  const sName = dep ? dep.name : serverId;
 
-function dismissGameDeployToast() {
-  const toast = document.getElementById("game-deploy-floating-toast");
-  if (toast) {
-    toast.style.display = "none";
-    updateFloatingDockLayout();
-  }
-  if (gameDeployPollInterval) {
-    clearInterval(gameDeployPollInterval);
-    gameDeployPollInterval = null;
-  }
-  activeGameDeployServerId = null;
-}
-
-async function cancelAndRemoveGameDeployment() {
-  if (!activeGameDeployServerId) return;
-
-  const serverId = activeGameDeployServerId;
-  const ok = confirm("Voulez-vous vraiment annuler le déploiement et supprimer ce serveur de jeu ainsi que toutes ses données ?");
+  const ok = confirm(`Voulez-vous vraiment annuler le déploiement et supprimer le serveur "${sName}" ainsi que toutes ses données ?`);
   if (!ok) return;
 
   const cancelBtn = document.getElementById("btn-cancel-game-deploy");
-  if (cancelBtn) {
+  if (cancelBtn && activeGameDeployModalServerId === serverId) {
     cancelBtn.disabled = true;
     cancelBtn.innerHTML = `<span>⏳</span> Annulation en cours...`;
   }
@@ -15786,19 +15951,21 @@ async function cancelAndRemoveGameDeployment() {
     console.error("Erreur annulation déploiement :", err);
     showToast("Erreur lors de l'annulation du déploiement.", "error");
   } finally {
-    closeGameDeployProgressModal();
-    const toast = document.getElementById("game-deploy-floating-toast");
-    if (toast) toast.style.display = "none";
-    if (cancelBtn) {
-      cancelBtn.disabled = false;
-      cancelBtn.innerHTML = `<span>🗑️</span> Annuler et supprimer`;
+    if (activeGameDeployModalServerId === serverId) {
+      closeGameDeployProgressModal();
     }
+    delete activeGameDeployments[serverId];
+    const card = document.getElementById(`game-deploy-floating-toast-${serverId}`);
+    if (card) card.remove();
+    updateFloatingDockLayout();
+    checkStopGameDeployTicker();
     loadGameServers();
   }
 }
 
+// Bascule directement sur l'onglet console pour le serveur actuellement sélectionné
 function jumpToGameConsole() {
-  const serverId = activeGameDeployServerId;
+  const serverId = activeGameDeployModalServerId;
   closeGameDeployProgressModal();
   if (serverId) {
     switchGamesSubtab("console");

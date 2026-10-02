@@ -6100,17 +6100,13 @@
 
   <!-- MODAL : PROGRESSION DU DÉPLOIEMENT DU SERVEUR DE JEU -->
   <div class="file-modal-overlay" id="modal-game-deploy-progress" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-game-deploy-progress')">
-    <div class="file-modal-window" id="game-deploy-modal-window" style="max-width: 680px; border-color: rgba(203, 166, 247, 0.4); box-shadow: 0 16px 40px rgba(0,0,0,0.6); transition: max-width 0.3s cubic-bezier(0.16, 1, 0.3, 1), width 0.3s ease;">
+    <div class="file-modal-window deploy-expanded" id="game-deploy-modal-window" style="border-color: rgba(203, 166, 247, 0.4); box-shadow: 0 16px 40px rgba(0,0,0,0.6); max-width: min(1180px, 94vw); width: 94vw;">
       <div class="file-modal-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: space-between; align-items: center;">
         <div style="display:flex; align-items:center; gap:10px;">
           <span class="badge badge-primary" id="game-deploy-modal-badge" style="font-weight:800; font-size:0.75rem;">SERVEUR DE JEU</span>
           <span class="file-modal-title" id="game-deploy-modal-title">Déploiement en cours...</span>
         </div>
         <div style="display:flex; align-items:center; gap:6px;">
-          <button type="button" class="btn-minimize-modal" onclick="minimizeGameDeployModal()" title="Minimiser en popup flottante d'arrière-plan" style="background:rgba(255,255,255,0.06); border:none; color:var(--text); border-radius:6px; cursor:pointer; font-size:0.85rem; padding:4px 9px;">🗕 Minimiser</button>
-          <button type="button" class="btn-expand-modal" id="btn-toggle-expand-deploy" onclick="toggleExpandGameDeployModal()" title="Agrandir / Réduire la taille de la fenêtre" style="background:rgba(255,255,255,0.06); border:none; color:var(--text); border-radius:6px; cursor:pointer; font-size:0.85rem; padding:4px 9px; display:inline-flex; align-items:center; gap:5px;">
-            <span id="expand-deploy-icon">⛶</span> <span id="expand-deploy-text">Agrandir</span>
-          </button>
           <button type="button" class="btn-close-modal" onclick="closeGameDeployProgressModal()">&times;</button>
         </div>
       </div>
@@ -6127,7 +6123,7 @@
         </div>
 
         <!-- Timeline 4 étapes -->
-        <div class="game-deploy-steps" style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 18px;">
+        <div class="game-deploy-steps" style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px;">
           <div class="game-deploy-step-card step-done" id="game-deploy-step-1">
             <div class="step-icon">📁</div>
             <div class="step-label">Stockage</div>
@@ -6163,8 +6159,8 @@
           <div class="deploy-terminal-header">
             <div class="deploy-terminal-dots">
               <span class="terminal-dot dot-red" onclick="closeGameDeployProgressModal()" title="Fermer la fenêtre" style="cursor:pointer;"></span>
-              <span class="terminal-dot dot-yellow" onclick="minimizeGameDeployModal()" title="Minimiser en popup flottante d'arrière-plan" style="cursor:pointer;"></span>
-              <span class="terminal-dot dot-green" onclick="toggleExpandGameDeployModal()" title="Agrandir / Rétablir la taille" style="cursor:pointer;"></span>
+              <span class="terminal-dot dot-yellow"></span>
+              <span class="terminal-dot dot-green"></span>
             </div>
             <div class="deploy-terminal-title" id="game-deploy-terminal-title">
               <span>⚡</span> steamcmd@container:~/games
@@ -6186,9 +6182,9 @@
       </div>
 
       <div class="file-modal-footer" style="padding:14px 22px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
-        <button type="button" class="btn btn-secondary btn-sm" onclick="minimizeGameDeployModal()" title="Minimiser en popup flottante d'arrière-plan">
-          <span>🗕</span> Minimiser en arrière-plan
-        </button>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:0.8rem; color:var(--subtext0);">💡 Astuce : Cliquez en dehors de cette fenêtre pour la réduire en popup flottante</span>
+        </div>
         <div style="display:flex; gap:10px; align-items:center;">
           <button type="button" class="btn btn-danger btn-sm" id="btn-cancel-game-deploy" onclick="cancelAndRemoveGameDeployment()" title="Annuler le déploiement et supprimer ce serveur" style="background: rgba(243, 139, 168, 0.15); color: var(--red); border: 1px solid rgba(243, 139, 168, 0.35); font-weight:600; display:inline-flex; align-items:center; gap:6px; cursor:pointer; padding:6px 12px; border-radius:8px;">
             <span>🗑️</span> Annuler et supprimer
@@ -6336,27 +6332,8 @@
         </div>
       </div>
 
-      <!-- 5. POPUP FLOTTANTE : DÉPLOIEMENT SERVEUR DE JEU -->
-      <div class="floating-task-card game-deploy-floating-toast" id="game-deploy-floating-toast" style="display:none;">
-        <div class="game-deploy-toast-card">
-          <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:0;">
-            <span id="game-deploy-toast-icon" style="font-size:1.4rem;">🎮</span>
-            <div style="flex:1; min-width:0;">
-              <div id="game-deploy-toast-title" style="font-weight:700; font-size:0.85rem; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Déploiement</div>
-              <div id="game-deploy-toast-desc" style="font-size:0.75rem; color:var(--subtext0); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">En cours...</div>
-              <div class="game-deploy-bar-wrap" style="height:4px; border-radius:999px; background:rgba(255,255,255,0.08); margin-top:5px; overflow:hidden;">
-                <div id="game-deploy-toast-bar" style="width:15%; height:100%; background:var(--mauve); transition:width 0.4s ease;"></div>
-              </div>
-            </div>
-          </div>
-          <div style="display:flex; align-items:center; gap:6px; margin-left:10px;">
-            <button type="button" class="floating-card-action-btn" onclick="toggleFloatingCardMinimize('game-deploy-floating-toast')" title="Réduire / Dérouler">_</button>
-            <button type="button" class="btn btn-danger btn-xs" onclick="cancelAndRemoveGameDeployment()" title="Annuler le déploiement et supprimer le serveur" style="padding:3px 7px; background:rgba(243,139,168,0.2); border:1px solid rgba(243,139,168,0.35); color:var(--red); border-radius:6px; cursor:pointer;">🗑️</button>
-            <button type="button" class="btn btn-secondary btn-xs" onclick="expandGameDeployModal()" title="Agrandir la fenêtre de déploiement">⛶</button>
-            <button type="button" class="btn-toast-close" onclick="dismissGameDeployToast()" title="Masquer la notification">&times;</button>
-          </div>
-        </div>
-      </div>
+      <!-- 5. POPUPS FLOTTANTES : DÉPLOIEMENT SERVEURS DE JEUX (MULTI-POPUPS DYNAMIQUES) -->
+      <div id="game-deploy-floating-cards-slot" style="display:contents;"></div>
 
       <!-- 6. POPUP FLOTTANTE : DÉPLOIEMENT APPLICATION DOCKER -->
       <div class="floating-task-card docker-deploy-floating-toast" id="docker-deploy-floating-toast" style="display:none;">
