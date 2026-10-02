@@ -4585,12 +4585,22 @@ async function pasteClipboardItem(targetDir) {
   if (paths.length === 0) return;
 
   const destName = dest.split("/").pop() || dest;
-  showToast(`${fileClipboard.action === 'cut' ? 'Déplacement' : 'Copie'} de ${fileClipboard.name} vers ${destName}...`, "info");
+  const opAction = fileClipboard.action === "cut" ? "move" : "copy";
+  const actionFr = opAction === "move" ? "Déplacement" : "Copie";
+
+  startFileTransferTray(opAction, paths.length, dest);
+  showToast(`${actionFr} de ${paths.length} élément(s) vers ${destName}...`, "info");
 
   let successCount = 0;
   let lastError = null;
 
-  for (const src of paths) {
+  for (let i = 0; i < paths.length; i++) {
+    const src = paths[i];
+    const fileName = src.split("/").pop() || src;
+    updateFileTransferTrayItem(i, paths.length, fileName, actionFr, false, false);
+    // Petit délai pour assurer la fluidité de rendu visuel dans le DOM
+    await new Promise(r => setTimeout(r, 25));
+
     try {
       const res = await fetch(endpoint, {
         method: "POST",
@@ -4603,24 +4613,29 @@ async function pasteClipboardItem(targetDir) {
       const json = await res.json();
       if (json.success) {
         successCount++;
+        updateFileTransferTrayItem(i + 1, paths.length, fileName, "Terminé", true, false);
       } else {
         lastError = json.message || "Échec du serveur";
+        updateFileTransferTrayItem(i + 1, paths.length, fileName, "Erreur", false, true, lastError);
       }
     } catch (err) {
       console.error(err);
       lastError = err.message || String(err);
+      updateFileTransferTrayItem(i + 1, paths.length, fileName, "Erreur", false, true, lastError);
     }
   }
 
+  finishFileTransferTray(successCount, paths.length, lastError);
+
   if (successCount > 0) {
-    showToast(`${successCount}/${paths.length} élément(s) collé(s) avec succès !`, "success");
+    showToast(`${successCount}/${paths.length} élément(s) ${opAction === 'move' ? 'déplacé(s)' : 'collé(s)'} avec succès !`, "success");
     if (fileClipboard.action === "cut") {
       fileClipboard = null;
       updateFilesStatusBar(currentEntries.length, 0);
     }
     refreshCurrentFolder();
   } else {
-    showToast(`Erreur lors du collage : ${lastError || "Impossible de coller les éléments"}`, "error");
+    showToast(`Erreur lors du transfert : ${lastError || "Impossible de transférer les éléments"}`, "error");
   }
 }
 
@@ -5034,6 +5049,7 @@ function uploadFiles(fileList, targetDir) {
 
   tray.style.display = "block";
   tray.classList.remove("minimized");
+  updateFloatingDockLayout();
   if (icon) icon.textContent = "⏳";
   if (progressBar) progressBar.style.width = "0%";
   if (speedBadge) speedBadge.textContent = "Calcul...";
@@ -5162,17 +5178,352 @@ function formatSpeed(bytesPerSec) {
   return `${formatFileSize(bytesPerSec)}/s`;
 }
 
+// ==========================================================================
+// DOCK FLOTTANT UNIFIÉ EN BAS À DROITE : SUPERPOSITION & DÉROULEMENT
+// ==========================================================================
+let floatingDockFolded = false;
+
+function updateFloatingDockLayout() {
+  const stack = document.getElementById("floating-dock-stack");
+  const summary = document.getElementById("floating-dock-summary");
+  const countBadge = document.getElementById("floating-dock-count");
+  const toggleIcon = document.getElementById("floating-dock-toggle-icon");
+  const toggleText = document.getElementById("floating-dock-toggle-text");
+  const toastContainer = document.querySelector(".toast-container");
+  const dock = document.getElementById("floating-task-dock");
+
+  if (!stack) return;
+
+  // Récupérer toutes les cartes visibles dans la pile
+  const visibleCards = Array.from(stack.children).filter(child => {
+    return child.style.display !== "none" && window.getComputedStyle(child).display !== "none";
+  });
+
+  const count = visibleCards.length;
+
+  if (summary) {
+    if (count >= 2) {
+      summary.style.display = "flex";
+      if (countBadge) countBadge.textContent = `${count}`;
+      if (toggleIcon) toggleIcon.textContent = floatingDockFolded ? "▼" : "▲";
+      if (toggleText) toggleText.textContent = floatingDockFolded ? "Dérouler" : "Tout replier";
+    } else {
+      summary.style.display = "none";
+    }
+  }
+
+  // Ajustement dynamique de l'élévation des notifications (.toast-container)
+  if (toastContainer && dock) {
+    setTimeout(() => {
+      const dockHeight = dock.offsetHeight;
+      if (count > 0 && dockHeight > 0) {
+        toastContainer.style.bottom = `${dockHeight + 36}px`;
+      } else {
+        toastContainer.style.bottom = "24px";
+      }
+    }, 50);
+  }
+}
+
+function toggleFloatingDockUnfold() {
+  floatingDockFolded = !floatingDockFolded;
+  const stack = document.getElementById("floating-dock-stack");
+  if (!stack) return;
+
+  const cards = Array.from(stack.children);
+  cards.forEach(card => {
+    if (floatingDockFolded) {
+      card.classList.add("minimized");
+    } else {
+      card.classList.remove("minimized");
+    }
+  });
+
+  updateFloatingDockLayout();
+}
+
+function toggleFloatingCardMinimize(cardId) {
+  const card = document.getElementById(cardId);
+  if (!card) return;
+  card.classList.toggle("minimized");
+  updateFloatingDockLayout();
+}
+
 function toggleUploadTrayMinimize() {
+  toggleFloatingCardMinimize("upload-tray");
   const tray = document.getElementById("upload-tray");
   const btn = document.getElementById("upload-tray-min-btn");
-  if (!tray) return;
-  tray.classList.toggle("minimized");
-  if (btn) btn.textContent = tray.classList.contains("minimized") ? "□" : "_";
+  if (btn && tray) {
+    btn.textContent = tray.classList.contains("minimized") ? "□" : "_";
+  }
 }
 
 function closeUploadTray() {
   const tray = document.getElementById("upload-tray");
-  if (tray) tray.style.display = "none";
+  if (tray) {
+    tray.style.display = "none";
+    updateFloatingDockLayout();
+  }
+}
+
+// ==========================================================================
+// POPUP FLOTTANTE : SUIVI DE TRANSFERT DE FICHIERS (COPIE / DÉPLACEMENT)
+// ==========================================================================
+let fileTransferAutoCloseTimer = null;
+
+function startFileTransferTray(opType, totalItems, destPath) {
+  if (fileTransferAutoCloseTimer) {
+    clearTimeout(fileTransferAutoCloseTimer);
+    fileTransferAutoCloseTimer = null;
+  }
+
+  const tray = document.getElementById("file-transfer-floating-tray");
+  if (!tray) return;
+
+  const isCut = opType === "cut" || opType === "move";
+  const icon = document.getElementById("file-transfer-icon");
+  const title = document.getElementById("file-transfer-title");
+  const subtitle = document.getElementById("file-transfer-subtitle");
+  const badge = document.getElementById("file-transfer-badge");
+  const destEl = document.getElementById("file-transfer-dest");
+  const countEl = document.getElementById("file-transfer-count");
+  const bar = document.getElementById("file-transfer-progress-bar");
+  const currentFile = document.getElementById("file-transfer-current-file");
+  const listEl = document.getElementById("file-transfer-items-list");
+
+  if (icon) icon.textContent = isCut ? "✂️" : "📋";
+  if (title) title.textContent = isCut ? "Déplacement de fichiers" : "Copie de fichiers";
+  if (subtitle) subtitle.textContent = `Préparation du transfert...`;
+  if (badge) {
+    badge.className = "badge badge-accent";
+    badge.textContent = "0%";
+  }
+  if (destEl) {
+    destEl.textContent = `📁 ${destPath}`;
+    destEl.title = destPath;
+  }
+  if (countEl) countEl.textContent = `0/${totalItems}`;
+  if (bar) {
+    bar.style.width = "0%";
+    bar.style.background = "linear-gradient(90deg, var(--mauve), var(--blue))";
+  }
+  if (currentFile) currentFile.textContent = "Démarrage...";
+  if (listEl) listEl.innerHTML = "";
+
+  tray.style.display = "block";
+  tray.classList.remove("minimized");
+  updateFloatingDockLayout();
+}
+
+function updateFileTransferTrayItem(currentIndex, totalItems, itemName, actionLabel, isDone, isError, errorMsg) {
+  const percent = totalItems > 0 ? Math.round((currentIndex / totalItems) * 100) : 0;
+  const bar = document.getElementById("file-transfer-progress-bar");
+  const badge = document.getElementById("file-transfer-badge");
+  const subtitle = document.getElementById("file-transfer-subtitle");
+  const countEl = document.getElementById("file-transfer-count");
+  const currentFile = document.getElementById("file-transfer-current-file");
+  const listEl = document.getElementById("file-transfer-items-list");
+
+  if (bar) bar.style.width = `${percent}%`;
+  if (badge) badge.textContent = `${percent}%`;
+  if (countEl) countEl.textContent = `${currentIndex}/${totalItems}`;
+  if (subtitle) subtitle.textContent = `${actionLabel} (${currentIndex}/${totalItems})`;
+  if (currentFile) currentFile.textContent = `${itemName}`;
+
+  if (listEl && itemName) {
+    const row = document.createElement("div");
+    row.className = "floating-card-item-row";
+    const statusText = isError ? `❌ ${errorMsg || 'Échec'}` : (isDone ? "✅ Terminé" : "⏳ En cours");
+    const statusColor = isError ? "var(--red)" : (isDone ? "var(--green)" : "var(--mauve)");
+    row.innerHTML = `
+      <span class="item-name" title="${escapeHtml(itemName)}">📄 ${escapeHtml(itemName)}</span>
+      <span class="item-status" style="color: ${statusColor};">${statusText}</span>
+    `;
+    listEl.prepend(row);
+    while (listEl.children.length > 5) {
+      listEl.removeChild(listEl.lastChild);
+    }
+  }
+}
+
+function finishFileTransferTray(successCount, totalItems, lastError) {
+  const bar = document.getElementById("file-transfer-progress-bar");
+  const badge = document.getElementById("file-transfer-badge");
+  const title = document.getElementById("file-transfer-title");
+  const subtitle = document.getElementById("file-transfer-subtitle");
+  const currentFile = document.getElementById("file-transfer-current-file");
+
+  if (lastError && successCount === 0) {
+    if (title) title.textContent = "Transfert interrompu";
+    if (subtitle) subtitle.textContent = lastError;
+    if (badge) {
+      badge.className = "badge badge-danger";
+      badge.textContent = "❌ Échec";
+    }
+    if (bar) {
+      bar.style.width = "100%";
+      bar.style.background = "var(--red)";
+    }
+    if (currentFile) currentFile.textContent = "Erreur survenue";
+  } else {
+    if (title) title.textContent = "Transfert terminé";
+    if (subtitle) subtitle.textContent = `${successCount}/${totalItems} élément(s) transféré(s)`;
+    if (badge) {
+      badge.className = "badge badge-success";
+      badge.textContent = "✅ 100%";
+    }
+    if (bar) {
+      bar.style.width = "100%";
+      bar.style.background = "var(--green)";
+    }
+    if (currentFile) currentFile.textContent = "Tous les fichiers ont été copiés avec succès";
+
+    fileTransferAutoCloseTimer = setTimeout(() => {
+      closeFileTransferTray();
+    }, 7000);
+  }
+
+  updateFloatingDockLayout();
+}
+
+function closeFileTransferTray() {
+  if (fileTransferAutoCloseTimer) {
+    clearTimeout(fileTransferAutoCloseTimer);
+    fileTransferAutoCloseTimer = null;
+  }
+  const tray = document.getElementById("file-transfer-floating-tray");
+  if (tray) {
+    tray.style.display = "none";
+    updateFloatingDockLayout();
+  }
+}
+
+// ==========================================================================
+// POPUP FLOTTANTE : SUIVI DE COMPRESSION & EXTRACTION D'ARCHIVES
+// ==========================================================================
+let fileArchiveTimerInterval = null;
+let fileArchiveAutoCloseTimer = null;
+let fileArchiveStartTime = 0;
+
+function startFileArchiveTray(opType, targetName, destDir, detailText) {
+  if (fileArchiveTimerInterval) clearInterval(fileArchiveTimerInterval);
+  if (fileArchiveAutoCloseTimer) clearTimeout(fileArchiveAutoCloseTimer);
+
+  const tray = document.getElementById("file-archive-floating-tray");
+  if (!tray) return;
+
+  const isCompress = opType === "compress";
+  const icon = document.getElementById("file-archive-icon");
+  const title = document.getElementById("file-archive-title");
+  const subtitle = document.getElementById("file-archive-subtitle");
+  const badge = document.getElementById("file-archive-badge");
+  const targetPathEl = document.getElementById("file-archive-target-path");
+  const timerEl = document.getElementById("file-archive-timer");
+  const bar = document.getElementById("file-archive-progress-bar");
+  const descEl = document.getElementById("file-archive-status-desc");
+
+  if (icon) {
+    icon.className = "floating-card-icon spin-slow";
+    icon.textContent = isCompress ? "🗜️" : "📦";
+  }
+  if (title) title.textContent = isCompress ? "Compression d'archive" : "Extraction d'archive";
+  if (subtitle) subtitle.textContent = isCompress ? "Génération en tâche de fond..." : "Décompression en cours...";
+  if (badge) {
+    badge.className = "badge badge-warning";
+    badge.textContent = "⏳ En cours";
+  }
+  if (targetPathEl) {
+    targetPathEl.textContent = `📦 ${targetName}`;
+    targetPathEl.title = targetName;
+  }
+  if (descEl) descEl.textContent = detailText || (isCompress ? "Création de l'archive et compression..." : `Extraction vers ${destDir}...`);
+  if (bar) {
+    bar.className = "floating-card-progress-bar progress-animated";
+    bar.style.width = "40%";
+    bar.style.background = "";
+  }
+  if (timerEl) timerEl.textContent = "⏱️ 0s";
+
+  fileArchiveStartTime = Date.now();
+  fileArchiveTimerInterval = setInterval(() => {
+    const elapsed = Math.round((Date.now() - fileArchiveStartTime) / 1000);
+    if (timerEl) timerEl.textContent = `⏱️ ${elapsed}s`;
+  }, 1000);
+
+  tray.style.display = "block";
+  tray.classList.remove("minimized");
+  updateFloatingDockLayout();
+}
+
+function finishFileArchiveTray(isSuccess, message, durationSec) {
+  if (fileArchiveTimerInterval) {
+    clearInterval(fileArchiveTimerInterval);
+    fileArchiveTimerInterval = null;
+  }
+
+  const icon = document.getElementById("file-archive-icon");
+  const title = document.getElementById("file-archive-title");
+  const subtitle = document.getElementById("file-archive-subtitle");
+  const badge = document.getElementById("file-archive-badge");
+  const bar = document.getElementById("file-archive-progress-bar");
+  const timerEl = document.getElementById("file-archive-timer");
+  const descEl = document.getElementById("file-archive-status-desc");
+
+  if (timerEl) timerEl.textContent = `⏱️ ${durationSec}s`;
+
+  if (icon) icon.className = "floating-card-icon";
+
+  if (isSuccess) {
+    if (icon) icon.textContent = "✅";
+    if (title) title.textContent = "Opération réussie";
+    if (subtitle) subtitle.textContent = `Terminée en ${durationSec}s`;
+    if (badge) {
+      badge.className = "badge badge-success";
+      badge.textContent = `✅ Succès (${durationSec}s)`;
+    }
+    if (bar) {
+      bar.className = "floating-card-progress-bar";
+      bar.style.width = "100%";
+      bar.style.background = "var(--green)";
+    }
+    if (descEl) descEl.textContent = message || "L'archive a été traitée avec succès.";
+
+    fileArchiveAutoCloseTimer = setTimeout(() => {
+      closeFileArchiveTray();
+    }, 8000);
+  } else {
+    if (icon) icon.textContent = "❌";
+    if (title) title.textContent = "Échec de l'opération";
+    if (subtitle) subtitle.textContent = "Une erreur est survenue";
+    if (badge) {
+      badge.className = "badge badge-danger";
+      badge.textContent = "❌ Échec";
+    }
+    if (bar) {
+      bar.className = "floating-card-progress-bar";
+      bar.style.width = "100%";
+      bar.style.background = "var(--red)";
+    }
+    if (descEl) descEl.textContent = message || "Erreur lors du traitement de l'archive.";
+  }
+
+  updateFloatingDockLayout();
+}
+
+function closeFileArchiveTray() {
+  if (fileArchiveTimerInterval) {
+    clearInterval(fileArchiveTimerInterval);
+    fileArchiveTimerInterval = null;
+  }
+  if (fileArchiveAutoCloseTimer) {
+    clearTimeout(fileArchiveAutoCloseTimer);
+    fileArchiveAutoCloseTimer = null;
+  }
+  const tray = document.getElementById("file-archive-floating-tray");
+  if (tray) {
+    tray.style.display = "none";
+    updateFloatingDockLayout();
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -6153,6 +6504,12 @@ async function submitCompress() {
     btn.innerHTML = `<span>⏳</span> Compression en cours...`;
   }
 
+  // Fermer la modale immédiatement pour libérer l'écran et lancer la popup flottante en bas à droite
+  closeCompressModal();
+  startFileArchiveTray('compress', archiveName, destDir, `${items.length} élément(s) • Format .${fmt}`);
+  const startTime = Date.now();
+  showToast(`Création de l'archive ${archiveName}...`, "info");
+
   try {
     const res = await fetch("/api/files/compress", {
       method: "POST",
@@ -6171,18 +6528,24 @@ async function submitCompress() {
     try {
       json = JSON.parse(rawText);
     } catch (e) {
+      const duration = Math.max(1, Math.round((Date.now() - startTime) / 1000));
+      finishFileArchiveTray(false, "Réponse serveur invalide", duration);
       showToast("Erreur serveur : " + (rawText || "Réponse invalide"), "error");
       return;
     }
+    const duration = Math.max(1, Math.round((Date.now() - startTime) / 1000));
     if (json.success) {
+      finishFileArchiveTray(true, json.message || "Archive créée avec succès !", duration);
       showToast(json.message || "Archive créée avec succès !", "success");
-      closeCompressModal();
       clearFileSelection();
       refreshCurrentFolder();
     } else {
+      finishFileArchiveTray(false, json.message || "Échec de la compression", duration);
       showToast("Erreur lors de la compression : " + (json.message || "Échec"), "error");
     }
   } catch (err) {
+    const duration = Math.max(1, Math.round((Date.now() - startTime) / 1000));
+    finishFileArchiveTray(false, "Erreur réseau : " + err, duration);
     showToast("Erreur réseau : " + err, "error");
   } finally {
     if (btn) {
@@ -6289,6 +6652,12 @@ async function submitExtract() {
     btn.innerHTML = `<span>⏳</span> Extraction en cours...`;
   }
 
+  const archiveName = archivePath.split("/").pop() || "archive";
+  closeExtractModal();
+  startFileArchiveTray('extract', archiveName, destDir, `Extraction vers ${destDir}`);
+  const startTime = Date.now();
+  showToast(`Extraction de ${archiveName}...`, "info");
+
   try {
     const res = await fetch("/api/files/extract", {
       method: "POST",
@@ -6305,24 +6674,30 @@ async function submitExtract() {
     try {
       json = JSON.parse(rawText);
     } catch (e) {
+      const duration = Math.max(1, Math.round((Date.now() - startTime) / 1000));
+      finishFileArchiveTray(false, "Réponse serveur invalide", duration);
       showToast("Erreur serveur : " + (rawText || "Réponse invalide"), "error");
       return;
     }
+    const duration = Math.max(1, Math.round((Date.now() - startTime) / 1000));
     if (json.success) {
+      finishFileArchiveTray(true, json.message || "Archive extraite avec succès !", duration);
       showToast(json.message || "Archive extraite avec succès !", "success");
-      closeExtractModal();
       clearFileSelection();
       refreshCurrentFolder();
     } else {
       const errMsg = json.message || "";
       if (errMsg.toLowerCase().includes("mot de passe") || errMsg.toLowerCase().includes("password") || errMsg.toLowerCase().includes("chiffr")) {
-        closeExtractModal();
-        openArchivePasswordModal(archivePath, archivePath.split("/").pop(), destDir, createSubfolder);
+        closeFileArchiveTray();
+        openArchivePasswordModal(archivePath, archiveName, destDir, createSubfolder);
       } else {
+        finishFileArchiveTray(false, errMsg || "Échec de l'extraction", duration);
         showToast("Erreur lors de l'extraction : " + errMsg, "error");
       }
     }
   } catch (err) {
+    const duration = Math.max(1, Math.round((Date.now() - startTime) / 1000));
+    finishFileArchiveTray(false, "Erreur réseau : " + err, duration);
     showToast("Erreur réseau : " + err, "error");
   } finally {
     if (btn) {
@@ -6349,7 +6724,10 @@ async function extractArchiveDirect(path, name) {
     // Continue direct attempt
   }
 
+  startFileArchiveTray('extract', name, currentFolderPath, `Extraction directe vers ${currentFolderPath}`);
+  const startTime = Date.now();
   showToast(`Extraction de ${name} en cours... ⏳`, "info");
+
   try {
     const res = await fetch("/api/files/extract", {
       method: "POST",
@@ -6366,21 +6744,29 @@ async function extractArchiveDirect(path, name) {
     try {
       json = JSON.parse(rawText);
     } catch (e) {
+      const duration = Math.max(1, Math.round((Date.now() - startTime) / 1000));
+      finishFileArchiveTray(false, "Réponse serveur invalide", duration);
       showToast("Erreur serveur : " + (rawText || "Réponse invalide"), "error");
       return;
     }
+    const duration = Math.max(1, Math.round((Date.now() - startTime) / 1000));
     if (json.success) {
+      finishFileArchiveTray(true, json.message || `Archive ${name} extraite avec succès !`, duration);
       showToast(json.message || `Archive ${name} extraite avec succès !`, "success");
       refreshCurrentFolder();
     } else {
       const errMsg = json.message || "";
       if (errMsg.toLowerCase().includes("mot de passe") || errMsg.toLowerCase().includes("password") || errMsg.toLowerCase().includes("chiffr")) {
+        closeFileArchiveTray();
         openArchivePasswordModal(path, name, currentFolderPath, true);
       } else {
+        finishFileArchiveTray(false, errMsg || "Échec de l'extraction", duration);
         showToast("Échec de l'extraction : " + errMsg, "error");
       }
     }
   } catch (err) {
+    const duration = Math.max(1, Math.round((Date.now() - startTime) / 1000));
+    finishFileArchiveTray(false, "Erreur réseau : " + err, duration);
     showToast("Erreur réseau : " + err, "error");
   }
 }
@@ -10309,6 +10695,8 @@ function startDockerDeployToast(appId, appName, icon, port) {
   }
 
   toast.style.display = "block";
+  toast.classList.remove("minimized");
+  updateFloatingDockLayout();
 
   setTimeout(() => {
     const step1 = document.getElementById("deploy-step-1");
@@ -10544,6 +10932,7 @@ function dismissDockerDeployToast() {
     setTimeout(() => {
       toast.style.display = "none";
       toast.style.animation = "";
+      updateFloatingDockLayout();
     }, 280);
   }
 }
@@ -13197,6 +13586,8 @@ function showGenCleanupToast(count) {
   if (closeBtn) closeBtn.style.display = "block";
 
   toast.style.display = "block";
+  toast.classList.remove("minimized");
+  updateFloatingDockLayout();
 
   // Animation des étapes pendant le traitement en arrière-plan
   let step = 0;
@@ -13284,6 +13675,7 @@ function dismissGenCleanupToast() {
     setTimeout(() => {
       toast.style.display = "none";
       toast.style.animation = "";
+      updateFloatingDockLayout();
     }, 300);
   }
 }
@@ -15335,21 +15727,31 @@ function minimizeGameDeployModal() {
   const modal = document.getElementById("modal-game-deploy-progress");
   const toast = document.getElementById("game-deploy-floating-toast");
   if (modal) modal.style.display = "none";
-  if (toast) toast.style.display = "block";
+  if (toast) {
+    toast.style.display = "block";
+    toast.classList.remove("minimized");
+    updateFloatingDockLayout();
+  }
   isGameDeployModalMinimized = true;
 }
 
 function expandGameDeployModal() {
   const modal = document.getElementById("modal-game-deploy-progress");
   const toast = document.getElementById("game-deploy-floating-toast");
-  if (toast) toast.style.display = "none";
+  if (toast) {
+    toast.style.display = "none";
+    updateFloatingDockLayout();
+  }
   if (modal) modal.style.display = "flex";
   isGameDeployModalMinimized = false;
 }
 
 function dismissGameDeployToast() {
   const toast = document.getElementById("game-deploy-floating-toast");
-  if (toast) toast.style.display = "none";
+  if (toast) {
+    toast.style.display = "none";
+    updateFloatingDockLayout();
+  }
   if (gameDeployPollInterval) {
     clearInterval(gameDeployPollInterval);
     gameDeployPollInterval = null;

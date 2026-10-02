@@ -16102,3 +16102,349 @@ body.app-updating-reload #app-shell {
   border-radius: var(--radius-md);
   text-align: center;
 }
+
+/* ================= DOCK FLOTTANT UNIFIÉ EN BAS À DROITE ================= */
+/* Gestionnaire de popups superposées & déroulables / repliables */
+.floating-task-dock {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  z-index: 100050 !important;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 10px;
+  transition: all 0.3s ease;
+}
+
+.floating-dock-summary {
+  pointer-events: auto;
+  background: rgba(17, 17, 27, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(203, 166, 247, 0.4);
+  border-radius: 12px;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.6), 0 0 15px rgba(203, 166, 247, 0.12);
+  animation: slideInBottomRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.floating-dock-summary-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.floating-dock-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mauve);
+  box-shadow: 0 0 8px var(--mauve);
+  animation: pulseMauveDot 2s infinite ease-in-out;
+}
+
+@keyframes pulseMauveDot {
+  0%, 100% { transform: scale(0.9); opacity: 0.7; }
+  50% { transform: scale(1.2); opacity: 1; }
+}
+
+.floating-dock-summary-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.2px;
+}
+
+.floating-dock-count-badge {
+  font-size: 0.72rem;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+.floating-dock-summary-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.floating-dock-toggle-btn {
+  font-size: 0.74rem;
+  padding: 3px 9px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.floating-dock-toggle-btn:hover {
+  background: rgba(203, 166, 247, 0.2);
+  border-color: rgba(203, 166, 247, 0.4);
+  color: var(--mauve);
+}
+
+.floating-dock-stack {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 10px;
+  width: 100%;
+}
+
+/* Reset des positions fixes pour tous les enfants du dock flottant */
+.floating-dock-stack > *,
+.floating-dock-stack > .floating-task-card,
+.floating-dock-stack > .upload-tray,
+.floating-dock-stack > .gen-cleanup-floating-toast,
+.floating-dock-stack > .game-deploy-floating-toast,
+.floating-dock-stack > .docker-deploy-floating-toast {
+  position: relative !important;
+  bottom: auto !important;
+  right: auto !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  pointer-events: auto !important;
+}
+
+/* Base commune pour toutes les cartes de tâches flottantes */
+.floating-task-card {
+  background: rgba(24, 24, 37, 0.96);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(203, 166, 247, 0.35);
+  border-radius: 14px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(203, 166, 247, 0.12);
+  overflow: hidden;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: slideInBottomRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.floating-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: rgba(17, 17, 27, 0.7);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  gap: 10px;
+  user-select: none;
+}
+
+.floating-card-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.floating-card-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.floating-card-titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.floating-card-title {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.floating-card-subtitle {
+  font-size: 0.74rem;
+  color: var(--subtext0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.floating-card-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.floating-card-action-btn {
+  background: transparent;
+  border: none;
+  color: var(--subtext0);
+  cursor: pointer;
+  padding: 3px 7px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  line-height: 1;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.floating-card-action-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+
+.floating-card-action-btn.btn-close:hover {
+  background: rgba(243, 139, 168, 0.2);
+  color: var(--red);
+}
+
+.floating-card-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: all 0.25s ease;
+}
+
+.floating-card-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.76rem;
+  color: var(--subtext0);
+}
+
+.floating-card-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 75%;
+}
+
+.floating-card-count {
+  font-weight: 600;
+  color: var(--mauve);
+}
+
+.floating-card-timer {
+  font-size: 0.74rem;
+  color: var(--subtext0);
+  font-variant-numeric: tabular-nums;
+}
+
+.floating-card-progress-wrap {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.floating-card-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--mauve), var(--blue));
+  border-radius: 4px;
+  transition: width 0.2s ease, background 0.3s ease;
+}
+
+.floating-card-progress-bar.progress-animated {
+  background: linear-gradient(90deg, var(--mauve), var(--blue), var(--mauve));
+  background-size: 200% 100%;
+  animation: shimmerProgressBar 2s linear infinite;
+}
+
+@keyframes shimmerProgressBar {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.floating-card-status-row {
+  font-size: 0.75rem;
+  color: var(--subtext0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.floating-card-items-list {
+  max-height: 120px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.floating-card-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.73rem;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.floating-card-item-row .item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 80%;
+  color: var(--text);
+}
+
+.floating-card-item-row .item-status {
+  font-size: 0.72rem;
+  flex-shrink: 0;
+}
+
+/* État MINIMISÉ / REPLIÉ (Compact Accordion) */
+.floating-task-card.minimized {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.floating-task-card.minimized .floating-card-body,
+.floating-task-card.minimized .upload-tray-body,
+.floating-task-card.minimized .gen-cleanup-toast-body,
+.floating-task-card.minimized .docker-deploy-toast-body,
+.floating-task-card.minimized #game-deploy-toast-desc,
+.floating-task-card.minimized .game-deploy-bar-wrap {
+  display: none !important;
+}
+
+.floating-task-card.minimized .floating-card-header,
+.floating-task-card.minimized .upload-tray-header,
+.floating-task-card.minimized .gen-cleanup-toast-header,
+.floating-task-card.minimized .docker-deploy-header {
+  border-bottom: none !important;
+  padding: 7px 12px !important;
+}
+
+.spin-slow {
+  animation: spinSlow 3s linear infinite;
+}
+
+@keyframes spinSlow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+

@@ -3377,26 +3377,7 @@
   </div>
 
 
-  <!-- POPUP FLOTTANTE DE PROGRESSION DU TÉLÉVERSEMENT -->
-  <div class="upload-tray" id="upload-tray" style="display:none;">
-    <div class="upload-tray-header">
-      <div class="upload-tray-title">
-        <span class="upload-pulse-icon" id="upload-tray-icon">⏳</span>
-        <span id="upload-tray-summary">Téléversement (0/0)</span>
-      </div>
-      <div class="upload-tray-actions">
-        <span id="upload-speed-badge" class="badge badge-accent">0 Mo/s</span>
-        <button type="button" class="upload-tray-btn" onclick="toggleUploadTrayMinimize()" id="upload-tray-min-btn" title="Minimiser / Agrandir">_</button>
-        <button type="button" class="upload-tray-btn" onclick="closeUploadTray()" title="Fermer">✕</button>
-      </div>
-    </div>
-    <div class="upload-tray-body" id="upload-tray-body">
-      <div class="upload-overall-progress">
-        <div class="upload-progress-bar" id="upload-overall-bar" style="width: 0%;"></div>
-      </div>
-      <div class="upload-files-list" id="upload-files-list"></div>
-    </div>
-  </div>
+
 
   <!-- MODALE ÉDITEUR CONTEXTUEL STYLE NEOVIM -->
   <div class="file-modal-overlay" id="nvim-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'nvim-modal')">
@@ -5763,34 +5744,7 @@
     </div>
   </div>
 
-    <!-- ================= POPUP FLOTTANTE EN BAS À DROITE : PROGRESSION PURGE GÉNÉRATIONS ================= -->
-  <div class="gen-cleanup-floating-toast" id="gen-cleanup-floating-toast" style="display:none;">
-    <div class="gen-cleanup-toast-card">
-      <div class="gen-cleanup-toast-header">
-        <div class="gen-cleanup-toast-icon-wrap" id="gen-cleanup-toast-icon">
-          <span class="gen-cleanup-spin">🧹</span>
-        </div>
-        <div class="gen-cleanup-toast-titles">
-          <div class="gen-cleanup-toast-title" id="gen-cleanup-toast-title">Purge des générations NixOS</div>
-          <div class="gen-cleanup-toast-status status-badge-running" id="gen-cleanup-toast-status">En cours...</div>
-        </div>
-        <button type="button" class="btn-toast-close" id="btn-close-gen-cleanup-toast" onclick="dismissGenCleanupToast()" title="Masquer la notification">&times;</button>
-      </div>
 
-      <div class="gen-cleanup-toast-body">
-        <div class="gen-cleanup-toast-desc" id="gen-cleanup-toast-desc">
-          Suppression des profils et libération du store en cours...
-        </div>
-        <div class="gen-cleanup-toast-progress-bar-wrap">
-          <div class="gen-cleanup-toast-progress-bar progress-animated" id="gen-cleanup-toast-progress-bar" style="width: 25%;"></div>
-        </div>
-        <div class="gen-cleanup-toast-footer">
-          <span class="gen-cleanup-bg-badge">⚙️ Tâche en arrière-plan</span>
-          <span class="gen-cleanup-toast-eta" id="gen-cleanup-toast-eta">Nettoyage des profils...</span>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <!-- ================= POPUP / TOAST FLOTTANT OPÉRATION STOCKAGE (ASYNCHRONE / PERSISTANT) ================= -->
   <div class="storage-floating-toast" id="storage-floating-toast" style="display:none;">
@@ -6250,78 +6204,216 @@
     </div>
   </div>
 
-  <!-- POPUP FLOTTANTE EN BAS À DROITE (MINIMISÉE) : DÉPLOIEMENT SERVEUR -->
-  <div class="game-deploy-floating-toast" id="game-deploy-floating-toast" style="display:none;">
-    <div class="game-deploy-toast-card">
-      <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:0;">
-        <span id="game-deploy-toast-icon" style="font-size:1.4rem;">🎮</span>
-        <div style="flex:1; min-width:0;">
-          <div id="game-deploy-toast-title" style="font-weight:700; font-size:0.85rem; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Déploiement</div>
-          <div id="game-deploy-toast-desc" style="font-size:0.75rem; color:var(--subtext0); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">En cours...</div>
-          <div style="height:4px; border-radius:999px; background:rgba(255,255,255,0.08); margin-top:5px; overflow:hidden;">
-            <div id="game-deploy-toast-bar" style="width:15%; height:100%; background:var(--mauve); transition:width 0.4s ease;"></div>
+  <!-- ================= DOCK FLOTTANT UNIFIÉ EN BAS À DROITE (SUPERPOSITION & DÉROULEMENT) ================= -->
+  <div class="floating-task-dock" id="floating-task-dock">
+    <!-- Barre récapitulative globale (affichée automatiquement quand >= 2 tâches actives) -->
+    <div class="floating-dock-summary" id="floating-dock-summary" style="display:none;">
+      <div class="floating-dock-summary-left">
+        <span class="floating-dock-pulse-dot"></span>
+        <span class="floating-dock-summary-title">Tâches actives</span>
+        <span class="badge badge-accent floating-dock-count-badge" id="floating-dock-count">0</span>
+      </div>
+      <div class="floating-dock-summary-actions">
+        <button type="button" class="btn btn-xs btn-secondary floating-dock-toggle-btn" id="floating-dock-toggle-btn" onclick="toggleFloatingDockUnfold()" title="Tout replier ou dérouler">
+          <span id="floating-dock-toggle-icon">▲</span> <span id="floating-dock-toggle-text">Tout replier</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Pile des cartes / popups flottantes superposées -->
+    <div class="floating-dock-stack" id="floating-dock-stack">
+      <!-- 1. POPUP FLOTTANTE : SUIVI DE TRANSFERT DE FICHIERS (COPIER / COUPER / COLLER) -->
+      <div class="floating-task-card file-transfer-floating-tray" id="file-transfer-floating-tray" style="display:none;">
+        <div class="floating-card-header">
+          <div class="floating-card-header-left">
+            <span class="floating-card-icon" id="file-transfer-icon">📋</span>
+            <div class="floating-card-titles">
+              <div class="floating-card-title" id="file-transfer-title">Transfert de fichiers</div>
+              <div class="floating-card-subtitle" id="file-transfer-subtitle">Préparation...</div>
+            </div>
+          </div>
+          <div class="floating-card-header-right">
+            <span class="badge badge-accent" id="file-transfer-badge">0%</span>
+            <button type="button" class="floating-card-action-btn" onclick="toggleFloatingCardMinimize('file-transfer-floating-tray')" title="Réduire / Dérouler">_</button>
+            <button type="button" class="floating-card-action-btn btn-close" onclick="closeFileTransferTray()" title="Fermer">✕</button>
+          </div>
+        </div>
+        <div class="floating-card-body" id="file-transfer-body">
+          <div class="floating-card-meta-row">
+            <span class="floating-card-path" id="file-transfer-dest" title="Dossier de destination">📁 ...</span>
+            <span class="floating-card-count" id="file-transfer-count">0/0</span>
+          </div>
+          <div class="floating-card-progress-wrap">
+            <div class="floating-card-progress-bar" id="file-transfer-progress-bar" style="width: 0%;"></div>
+          </div>
+          <div class="floating-card-status-row">
+            <span class="floating-card-item-name" id="file-transfer-current-file">En attente...</span>
+          </div>
+          <div class="floating-card-items-list" id="file-transfer-items-list"></div>
+        </div>
+      </div>
+
+      <!-- 2. POPUP FLOTTANTE : SUIVI DE COMPRESSION & EXTRACTION D'ARCHIVES -->
+      <div class="floating-task-card file-archive-floating-tray" id="file-archive-floating-tray" style="display:none;">
+        <div class="floating-card-header">
+          <div class="floating-card-header-left">
+            <span class="floating-card-icon spin-slow" id="file-archive-icon">🗜️</span>
+            <div class="floating-card-titles">
+              <div class="floating-card-title" id="file-archive-title">Compression d'archive</div>
+              <div class="floating-card-subtitle" id="file-archive-subtitle">En cours...</div>
+            </div>
+          </div>
+          <div class="floating-card-header-right">
+            <span class="badge badge-warning" id="file-archive-badge">⏳ En cours</span>
+            <button type="button" class="floating-card-action-btn" onclick="toggleFloatingCardMinimize('file-archive-floating-tray')" title="Réduire / Dérouler">_</button>
+            <button type="button" class="floating-card-action-btn btn-close" onclick="closeFileArchiveTray()" title="Fermer">✕</button>
+          </div>
+        </div>
+        <div class="floating-card-body" id="file-archive-body">
+          <div class="floating-card-meta-row">
+            <span class="floating-card-path" id="file-archive-target-path" title="Cible de l'opération">📦 archive.zip</span>
+            <span class="floating-card-timer" id="file-archive-timer">⏱️ 0s</span>
+          </div>
+          <div class="floating-card-progress-wrap">
+            <div class="floating-card-progress-bar progress-animated" id="file-archive-progress-bar" style="width: 30%;"></div>
+          </div>
+          <div class="floating-card-status-row">
+            <span class="floating-card-item-name" id="file-archive-status-desc">Traitement de l'archive en tâche de fond...</span>
           </div>
         </div>
       </div>
-      <div style="display:flex; align-items:center; gap:6px; margin-left:10px;">
-        <button type="button" class="btn btn-danger btn-xs" onclick="cancelAndRemoveGameDeployment()" title="Annuler le déploiement et supprimer le serveur" style="padding:3px 7px; background:rgba(243,139,168,0.2); border:1px solid rgba(243,139,168,0.35); color:var(--red); border-radius:6px; cursor:pointer;">🗑️</button>
-        <button type="button" class="btn btn-secondary btn-xs" onclick="expandGameDeployModal()" title="Agrandir la fenêtre de déploiement">⛶</button>
-        <button type="button" class="btn-toast-close" onclick="dismissGameDeployToast()" title="Masquer la notification">&times;</button>
-      </div>
-    </div>
-  </div>
 
-  <!-- ================= POPUP FLOTTANTE EN BAS À DROITE : DÉPLOIEMENT APPLICATION DOCKER ================= -->
-  <div class="docker-deploy-floating-toast" id="docker-deploy-floating-toast" style="display:none;">
-    <div class="docker-deploy-toast-card" id="docker-deploy-toast-card">
-      <div class="docker-deploy-header">
-        <div class="docker-deploy-icon-wrap" id="docker-deploy-toast-icon-wrap">
-          <img id="docker-deploy-toast-icon" src="/favicon.ico" alt="App" class="docker-deploy-img-icon" onerror="this.src='/favicon.ico';">
-          <span class="docker-deploy-pulse-dot"></span>
+      <!-- 3. POPUP FLOTTANTE DE PROGRESSION DU TÉLÉVERSEMENT (UPLOAD) -->
+      <div class="floating-task-card upload-tray" id="upload-tray" style="display:none;">
+        <div class="upload-tray-header floating-card-header">
+          <div class="upload-tray-title floating-card-header-left">
+            <span class="upload-pulse-icon" id="upload-tray-icon">⏳</span>
+            <span id="upload-tray-summary">Téléversement (0/0)</span>
+          </div>
+          <div class="upload-tray-actions floating-card-header-right">
+            <span id="upload-speed-badge" class="badge badge-accent">0 Mo/s</span>
+            <button type="button" class="floating-card-action-btn upload-tray-btn" onclick="toggleFloatingCardMinimize('upload-tray')" id="upload-tray-min-btn" title="Minimiser / Dérouler">_</button>
+            <button type="button" class="floating-card-action-btn upload-tray-btn btn-close" onclick="closeUploadTray()" title="Fermer">✕</button>
+          </div>
         </div>
-        <div class="docker-deploy-titles">
-          <div class="docker-deploy-title" id="docker-deploy-toast-title">Déploiement en cours...</div>
-          <div class="docker-deploy-subtitle" id="docker-deploy-toast-subtitle">Docker Compose v2</div>
-        </div>
-        <div class="docker-deploy-header-right">
-          <span class="badge badge-warning" id="docker-deploy-toast-badge" style="font-size:0.7rem;">⏳ En cours</span>
-          <button type="button" class="docker-deploy-close-btn" onclick="dismissDockerDeployToast()" title="Masquer la notification">&times;</button>
+        <div class="upload-tray-body floating-card-body" id="upload-tray-body">
+          <div class="upload-overall-progress floating-card-progress-wrap">
+            <div class="upload-progress-bar floating-card-progress-bar" id="upload-overall-bar" style="width: 0%;"></div>
+          </div>
+          <div class="upload-files-list" id="upload-files-list"></div>
         </div>
       </div>
 
-      <div class="docker-deploy-progress-wrap">
-        <div class="docker-deploy-progress-bar" id="docker-deploy-toast-bar" style="width: 15%;"></div>
+      <!-- 4. POPUP FLOTTANTE : PROGRESSION PURGE GÉNÉRATIONS -->
+      <div class="floating-task-card gen-cleanup-floating-toast" id="gen-cleanup-floating-toast" style="display:none;">
+        <div class="gen-cleanup-toast-card">
+          <div class="gen-cleanup-toast-header">
+            <div class="gen-cleanup-toast-icon-wrap" id="gen-cleanup-toast-icon">
+              <span class="gen-cleanup-spin">🧹</span>
+            </div>
+            <div class="gen-cleanup-toast-titles">
+              <div class="gen-cleanup-toast-title" id="gen-cleanup-toast-title">Purge des générations NixOS</div>
+              <div class="gen-cleanup-toast-status status-badge-running" id="gen-cleanup-toast-status">En cours...</div>
+            </div>
+            <div class="floating-card-header-right">
+              <button type="button" class="floating-card-action-btn" onclick="toggleFloatingCardMinimize('gen-cleanup-floating-toast')" title="Réduire / Dérouler">_</button>
+              <button type="button" class="btn-toast-close" id="btn-close-gen-cleanup-toast" onclick="dismissGenCleanupToast()" title="Masquer la notification">&times;</button>
+            </div>
+          </div>
+
+          <div class="gen-cleanup-toast-body floating-card-body">
+            <div class="gen-cleanup-toast-desc" id="gen-cleanup-toast-desc">
+              Suppression des profils et libération du store en cours...
+            </div>
+            <div class="gen-cleanup-toast-progress-bar-wrap">
+              <div class="gen-cleanup-toast-progress-bar progress-animated" id="gen-cleanup-toast-progress-bar" style="width: 25%;"></div>
+            </div>
+            <div class="gen-cleanup-toast-footer">
+              <span class="gen-cleanup-bg-badge">⚙️ Tâche en arrière-plan</span>
+              <span class="gen-cleanup-toast-eta" id="gen-cleanup-toast-eta">Nettoyage des profils...</span>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div class="docker-deploy-steps" id="docker-deploy-toast-steps">
-        <div class="deploy-step-item active" id="deploy-step-1">
-          <span class="step-status-icon">⏳</span>
-          <span class="step-text">Préparation du dossier persistant (~/docker)</span>
-        </div>
-        <div class="deploy-step-item" id="deploy-step-2">
-          <span class="step-status-icon">⚪</span>
-          <span class="step-text">Configuration des variables & ports réseau</span>
-        </div>
-        <div class="deploy-step-item" id="deploy-step-3">
-          <span class="step-status-icon">⚪</span>
-          <span class="step-text">Lancement Docker Compose (docker compose up -d)</span>
-        </div>
-        <div class="deploy-step-item" id="deploy-step-4">
-          <span class="step-status-icon">⚪</span>
-          <span class="step-text">Vérification de l'état actif & mise en ligne</span>
+      <!-- 5. POPUP FLOTTANTE : DÉPLOIEMENT SERVEUR DE JEU -->
+      <div class="floating-task-card game-deploy-floating-toast" id="game-deploy-floating-toast" style="display:none;">
+        <div class="game-deploy-toast-card">
+          <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:0;">
+            <span id="game-deploy-toast-icon" style="font-size:1.4rem;">🎮</span>
+            <div style="flex:1; min-width:0;">
+              <div id="game-deploy-toast-title" style="font-weight:700; font-size:0.85rem; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Déploiement</div>
+              <div id="game-deploy-toast-desc" style="font-size:0.75rem; color:var(--subtext0); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">En cours...</div>
+              <div class="game-deploy-bar-wrap" style="height:4px; border-radius:999px; background:rgba(255,255,255,0.08); margin-top:5px; overflow:hidden;">
+                <div id="game-deploy-toast-bar" style="width:15%; height:100%; background:var(--mauve); transition:width 0.4s ease;"></div>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px; margin-left:10px;">
+            <button type="button" class="floating-card-action-btn" onclick="toggleFloatingCardMinimize('game-deploy-floating-toast')" title="Réduire / Dérouler">_</button>
+            <button type="button" class="btn btn-danger btn-xs" onclick="cancelAndRemoveGameDeployment()" title="Annuler le déploiement et supprimer le serveur" style="padding:3px 7px; background:rgba(243,139,168,0.2); border:1px solid rgba(243,139,168,0.35); color:var(--red); border-radius:6px; cursor:pointer;">🗑️</button>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="expandGameDeployModal()" title="Agrandir la fenêtre de déploiement">⛶</button>
+            <button type="button" class="btn-toast-close" onclick="dismissGameDeployToast()" title="Masquer la notification">&times;</button>
+          </div>
         </div>
       </div>
 
-      <div class="docker-deploy-actions" id="docker-deploy-toast-actions" style="display: none;">
-        <a href="#" target="_blank" class="btn btn-success btn-xs" id="docker-deploy-toast-open-btn">
-          <span>🚀</span> Ouvrir l'application ↗
-        </a>
-        <button type="button" class="btn btn-danger btn-xs" id="docker-deploy-toast-view-error-btn" style="display: none;" onclick="openDockerDeployErrorModal()">
-          <span>🔍</span> Voir le rapport d'erreur
-        </button>
-        <button type="button" class="btn btn-secondary btn-xs" onclick="switchTab('tab-containers'); switchDockerSubTab('containers'); dismissDockerDeployToast();">
-          <span>📦</span> Mes Conteneurs
-        </button>
+      <!-- 6. POPUP FLOTTANTE : DÉPLOIEMENT APPLICATION DOCKER -->
+      <div class="floating-task-card docker-deploy-floating-toast" id="docker-deploy-floating-toast" style="display:none;">
+        <div class="docker-deploy-toast-card" id="docker-deploy-toast-card">
+          <div class="docker-deploy-header">
+            <div class="docker-deploy-icon-wrap" id="docker-deploy-toast-icon-wrap">
+              <img id="docker-deploy-toast-icon" src="/favicon.ico" alt="App" class="docker-deploy-img-icon" onerror="this.src='/favicon.ico';">
+              <span class="docker-deploy-pulse-dot"></span>
+            </div>
+            <div class="docker-deploy-titles">
+              <div class="docker-deploy-title" id="docker-deploy-toast-title">Déploiement en cours...</div>
+              <div class="docker-deploy-subtitle" id="docker-deploy-toast-subtitle">Docker Compose v2</div>
+            </div>
+            <div class="docker-deploy-header-right">
+              <span class="badge badge-warning" id="docker-deploy-toast-badge" style="font-size:0.7rem;">⏳ En cours</span>
+              <button type="button" class="floating-card-action-btn" onclick="toggleFloatingCardMinimize('docker-deploy-floating-toast')" title="Réduire / Dérouler">_</button>
+              <button type="button" class="docker-deploy-close-btn" onclick="dismissDockerDeployToast()" title="Masquer la notification">&times;</button>
+            </div>
+          </div>
+
+          <div class="floating-card-body docker-deploy-toast-body">
+            <div class="docker-deploy-progress-wrap">
+              <div class="docker-deploy-progress-bar" id="docker-deploy-toast-bar" style="width: 15%;"></div>
+            </div>
+
+            <div class="docker-deploy-steps" id="docker-deploy-toast-steps">
+              <div class="deploy-step-item active" id="deploy-step-1">
+                <span class="step-status-icon">⏳</span>
+                <span class="step-text">Préparation du dossier persistant (~/docker)</span>
+              </div>
+              <div class="deploy-step-item" id="deploy-step-2">
+                <span class="step-status-icon">⚪</span>
+                <span class="step-text">Configuration des variables & ports réseau</span>
+              </div>
+              <div class="deploy-step-item" id="deploy-step-3">
+                <span class="step-status-icon">⚪</span>
+                <span class="step-text">Lancement Docker Compose (docker compose up -d)</span>
+              </div>
+              <div class="deploy-step-item" id="deploy-step-4">
+                <span class="step-status-icon">⚪</span>
+                <span class="step-text">Vérification de l'état actif & mise en ligne</span>
+              </div>
+            </div>
+
+            <div class="docker-deploy-actions" id="docker-deploy-toast-actions" style="display: none;">
+              <a href="#" target="_blank" class="btn btn-success btn-xs" id="docker-deploy-toast-open-btn">
+                <span>🚀</span> Ouvrir l'application ↗
+              </a>
+              <button type="button" class="btn btn-danger btn-xs" id="docker-deploy-toast-view-error-btn" style="display: none;" onclick="openDockerDeployErrorModal()">
+                <span>🔍</span> Voir le rapport d'erreur
+              </button>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="switchTab('tab-containers'); switchDockerSubTab('containers'); dismissDockerDeployToast();">
+                <span>📦</span> Mes Conteneurs
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
