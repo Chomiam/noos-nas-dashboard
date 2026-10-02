@@ -169,36 +169,61 @@ pub struct UpdateChannelConfig {
     pub channel: String,
 }
 
-pub fn get_update_channel_file_path() -> PathBuf {
-    let p = PathBuf::from("/var/lib/noos/update_channel");
-    if let Some(parent) = p.parent() {
-        if parent.exists() {
-            return p;
-        }
+static ACTIVE_CHANNEL_CACHE: Mutex<Option<String>> = Mutex::new(None);
+
+pub fn get_channel_candidate_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Ok(home) = env::var("HOME") {
+        paths.push(PathBuf::from(home).join(".config/noos/update_channel"));
     }
-    PathBuf::from("/run/noos-update-channel")
+    paths.push(PathBuf::from("/var/lib/noos/update_channel"));
+    paths.push(PathBuf::from("/tmp/noos_update_channel"));
+    paths
 }
 
 pub fn get_update_channel() -> String {
-    let path = get_update_channel_file_path();
-    if let Ok(c) = fs::read_to_string(&path) {
-        let ch = c.trim().to_lowercase();
-        if ch == "testing" {
-            return "testing".to_string();
+    if let Ok(guard) = ACTIVE_CHANNEL_CACHE.lock() {
+        if let Some(ref ch) = *guard {
+            return ch.clone();
         }
     }
+
+    for path in get_channel_candidate_paths() {
+        if let Ok(c) = fs::read_to_string(&path) {
+            let ch = c.trim().to_lowercase();
+            if ch == "testing" {
+                if let Ok(mut guard) = ACTIVE_CHANNEL_CACHE.lock() {
+                    *guard = Some("testing".to_string());
+                }
+                return "testing".to_string();
+            } else if ch == "stable" {
+                if let Ok(mut guard) = ACTIVE_CHANNEL_CACHE.lock() {
+                    *guard = Some("stable".to_string());
+                }
+                return "stable".to_string();
+            }
+        }
+    }
+
     "stable".to_string()
 }
 
 pub fn set_update_channel(channel: &str) -> Result<String, String> {
     let clean = channel.trim().to_lowercase();
     let valid_channel = if clean == "testing" { "testing" } else { "stable" };
-    let path = get_update_channel_file_path();
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
+
+    // 1. Mettre à jour immédiatement le cache en mémoire (effet immédiat garanti)
+    if let Ok(mut guard) = ACTIVE_CHANNEL_CACHE.lock() {
+        *guard = Some(valid_channel.to_string());
     }
-    fs::write(&path, valid_channel)
-        .map_err(|e| format!("Impossible d'enregistrer le canal : {}", e))?;
+
+    // 2. Tenter d'écrire sur les chemins candidats (user config ~/.config/noos, /var/lib/noos, /tmp)
+    for path in get_channel_candidate_paths() {
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::write(&path, valid_channel);
+    }
 
     clear_update_cache();
     Ok(valid_channel.to_string())
@@ -825,33 +850,61 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
         }
     }
 
-    for dashboard_git_url in &candidate_dashboard_urls {
-        if let Ok(tags_out) = Command::new(git_binary())
-            .args(["-c", "safe.directory=*", "ls-remote", "--tags", dashboard_git_url])
-            .output()
-        {
-            if tags_out.status.success() {
-                let text = String::from_utf8_lossy(&tags_out.stdout);
-                let mut highest_tag: Option<String> = None;
-                for line in text.lines() {
-                    for part in line.split_whitespace() {
-                        if let Some(tag) = part.strip_prefix("refs/tags/v") {
-                            let clean_tag = tag.trim_end_matches("^{}");
-                            if is_valid_semver(clean_tag) {
-                                if let Some(ref current) = highest_tag {
-                                    if compare_semver(clean_tag, current) > 0 {
-                                        highest_tag = Some(clean_tag.to_string());
-                                    }
-                                } else {
-                                    highest_tag = Some(clean_tag.to_string());
-                                }
-                            }
+    // Détection de la version distante du Dashboard strictement alignée sur la branche du canal (preferred_branch)
+    // - Stable (main) : lit Cargo.toml de la branche main
+    // - Testing (testing) : lit Cargo.toml de la branche testing
+    let raw_cargo_url = format!(
+        "https://raw.githubusercontent.com/Chomiam/noos-nas-dashboard/{}/Cargo.toml",
+        preferred_branch
+    );
+    if let Ok(out) = Command::new("curl")
+        .args(["-s", "-L", "--max-time", "4", &raw_cargo_url])
+        .output()
+    {
+        if out.status.success() {
+            let content = String::from_utf8_lossy(&out.stdout);
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("version = \"") {
+                    if let Some(v) = trimmed.strip_prefix("version = \"").and_then(|s| s.strip_suffix("\"")) {
+                        if is_valid_semver(v) {
+                            dashboard_remote_version = Some(v.to_string());
+                            break;
                         }
                     }
                 }
-                if highest_tag.is_some() {
-                    dashboard_remote_version = highest_tag;
-                    break;
+            }
+        }
+    }
+
+    // Fallback : si raw GitHub n'a pas répondu, vérifier uniquement les tags pointant sur le commit de preferred_branch
+    if dashboard_remote_version.is_none() {
+        if let Some(ref target_commit) = dashboard_remote_commit_full {
+            for dashboard_git_url in &candidate_dashboard_urls {
+                if let Ok(tags_out) = Command::new(git_binary())
+                    .args(["-c", "safe.directory=*", "ls-remote", "--tags", dashboard_git_url])
+                    .output()
+                {
+                    if tags_out.status.success() {
+                        let text = String::from_utf8_lossy(&tags_out.stdout);
+                        for line in text.lines() {
+                            let mut parts = line.split_whitespace();
+                            if let (Some(sha), Some(ref_str)) = (parts.next(), parts.next()) {
+                                if sha == target_commit {
+                                    if let Some(tag) = ref_str.strip_prefix("refs/tags/v") {
+                                        let clean_tag = tag.trim_end_matches("^{}");
+                                        if is_valid_semver(clean_tag) {
+                                            dashboard_remote_version = Some(clean_tag.to_string());
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if dashboard_remote_version.is_some() {
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -1818,12 +1871,20 @@ pub fn run_detached_update_process(force_packages: bool) {
 
     // Synchronisation proactive du hash du Dashboard dans flake.lock si une mise à jour est détectée
     if cached.as_ref().map(|c| c.dashboard_update_available).unwrap_or(false) || force_packages {
-        append_live_log("Synchronisation de l'entrée flake du Dashboard (noos-nas-dashboard)...\n");
+        let current_ch = get_update_channel();
+        append_live_log(&format!("Synchronisation de l'entrée flake du Dashboard (noos-nas-dashboard, canal {})...\n", current_ch));
         let nix_bin = nix_binary();
-        let _ = Command::new(&nix_bin)
-            .args(["flake", "lock", "--update-input", "noos-nas-dashboard"])
-            .current_dir(&config_dir)
-            .output();
+        if current_ch == "testing" {
+            let _ = Command::new(&nix_bin)
+                .args(["flake", "lock", "--override-input", "noos-nas-dashboard", "github:Chomiam/noos-nas-dashboard/testing"])
+                .current_dir(&config_dir)
+                .output();
+        } else {
+            let _ = Command::new(&nix_bin)
+                .args(["flake", "lock", "--override-input", "noos-nas-dashboard", "github:Chomiam/noos-nas-dashboard/main"])
+                .current_dir(&config_dir)
+                .output();
+        }
     }
 
     let nixos_rebuild = nixos_rebuild_binary();
@@ -2212,11 +2273,19 @@ fn run_switch_command(config_dir: &Path, update_inputs: bool) -> (bool, String) 
     let nixos_rebuild = nixos_rebuild_binary();
     let mut args = vec!["switch", "--flake", &dir_str];
     if update_inputs {
+        let current_ch = get_update_channel();
         let nix_bin = nix_binary();
-        let _ = Command::new(&nix_bin)
-            .args(["flake", "lock", "--update-input", "noos-nas-dashboard"])
-            .current_dir(config_dir)
-            .output();
+        if current_ch == "testing" {
+            let _ = Command::new(&nix_bin)
+                .args(["flake", "lock", "--override-input", "noos-nas-dashboard", "github:Chomiam/noos-nas-dashboard/testing"])
+                .current_dir(config_dir)
+                .output();
+        } else {
+            let _ = Command::new(&nix_bin)
+                .args(["flake", "lock", "--override-input", "noos-nas-dashboard", "github:Chomiam/noos-nas-dashboard/main"])
+                .current_dir(config_dir)
+                .output();
+        }
         args.push("--refresh");
     }
     let mut cmd = create_switch_command(&nixos_rebuild, &args, config_dir);

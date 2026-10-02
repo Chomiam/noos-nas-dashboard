@@ -643,25 +643,39 @@ function switchUpdateSubtab(tabName, updateHash = true) {
 // ==========================================================================
 // CANAL DE MISE À JOUR (STABLE / TESTING)
 // ==========================================================================
-let activeUpdateChannel = "stable";
+let activeUpdateChannel = (function() {
+  try {
+    const saved = localStorage.getItem("noos_update_channel");
+    if (saved === "testing" || saved === "stable") return saved;
+  } catch (e) {}
+  return "stable";
+})();
 
 function updateChannelSwitchUI(channel) {
   const btnStable = document.getElementById("btn-channel-stable");
   const btnTesting = document.getElementById("btn-channel-testing");
   if (btnStable) btnStable.classList.toggle("active", channel === "stable");
   if (btnTesting) btnTesting.classList.toggle("active", channel === "testing");
+
+  const heroBadge = document.getElementById("hero-channel-badge");
+  if (heroBadge) {
+    if (channel === "testing") {
+      heroBadge.className = "badge badge-channel-indicator badge-testing";
+      heroBadge.textContent = "🧪 Canal Testing";
+    } else {
+      heroBadge.className = "badge badge-channel-indicator badge-stable";
+      heroBadge.textContent = "🛡️ Canal Stable";
+    }
+  }
 }
 
 async function setSystemUpdateChannel(newChannel) {
   if (newChannel !== "stable" && newChannel !== "testing") return;
   activeUpdateChannel = newChannel;
+  try {
+    localStorage.setItem("noos_update_channel", newChannel);
+  } catch (e) {}
   updateChannelSwitchUI(newChannel);
-
-  const heroBadge = document.getElementById("hero-channel-badge");
-  if (heroBadge) {
-    heroBadge.className = `badge badge-channel-indicator badge-${newChannel}`;
-    heroBadge.textContent = newChannel === "testing" ? "🧪 Canal Testing" : "🛡️ Canal Stable";
-  }
 
   try {
     const res = await fetch("/api/updates/channel", {
@@ -672,22 +686,36 @@ async function setSystemUpdateChannel(newChannel) {
     const json = await res.json();
     if (json.success) {
       showToast(`Canal de mise à jour basculé sur ${newChannel === 'testing' ? 'Testing 🧪' : 'Stable 🛡️'}`, "success");
-      checkForUpdates(true);
-    } else {
-      showToast(`Erreur : ${json.message || 'Impossible de changer de canal'}`, "error");
     }
   } catch (err) {
-    console.error("Erreur setSystemUpdateChannel:", err);
-    showToast(`Erreur réseau : ${err.message}`, "error");
+    console.warn("Avis communication backend setSystemUpdateChannel:", err);
   }
+
+  // Relancer immédiatement la vérification des mises à jour pour ce canal
+  checkForUpdates(true);
 }
 
 async function fetchSystemUpdateChannel() {
+  // 1. Initialisation immédiate depuis le stockage local du navigateur
+  try {
+    const saved = localStorage.getItem("noos_update_channel");
+    if (saved === "testing" || saved === "stable") {
+      activeUpdateChannel = saved;
+      updateChannelSwitchUI(activeUpdateChannel);
+    }
+  } catch (e) {}
+
+  // 2. Synchronisation avec le backend
   try {
     const res = await fetch("/api/updates/channel");
     const json = await res.json();
     if (json.success && json.data && json.data.channel) {
-      activeUpdateChannel = json.data.channel;
+      // Si aucune préférence locale n'avait été enregistrée, adopter celle du serveur
+      const saved = localStorage.getItem("noos_update_channel");
+      if (!saved) {
+        activeUpdateChannel = json.data.channel;
+        try { localStorage.setItem("noos_update_channel", activeUpdateChannel); } catch (e) {}
+      }
       updateChannelSwitchUI(activeUpdateChannel);
     }
   } catch (err) {
@@ -812,20 +840,16 @@ function renderUpdatesUI(status) {
 
   // Synchronisation de l'état du canal actif
   if (status.channel) {
-    activeUpdateChannel = status.channel.toLowerCase();
-    updateChannelSwitchUI(activeUpdateChannel);
-  }
-
-  const heroChannelBadge = document.getElementById("hero-channel-badge");
-  if (heroChannelBadge) {
-    if (activeUpdateChannel === "testing") {
-      heroChannelBadge.className = "badge badge-channel-indicator badge-testing";
-      heroChannelBadge.textContent = "🧪 Canal Testing";
-    } else {
-      heroChannelBadge.className = "badge badge-channel-indicator badge-stable";
-      heroChannelBadge.textContent = "🛡️ Canal Stable";
+    try {
+      const saved = localStorage.getItem("noos_update_channel");
+      if (!saved) {
+        activeUpdateChannel = status.channel.toLowerCase();
+      }
+    } catch (e) {
+      activeUpdateChannel = status.channel.toLowerCase();
     }
   }
+  updateChannelSwitchUI(activeUpdateChannel);
 
   const hasConfigUpdate = !!status.config_update_available;
   const hasDashboardUpdate = !!status.dashboard_update_available || (status.dashboard_telemetry && status.dashboard_telemetry.update_available);
