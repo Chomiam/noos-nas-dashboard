@@ -11329,6 +11329,12 @@ const DOCKER_DEPLOY_STORAGE_KEY = "steveos_docker_deployments_v1";
 const activeDockerDeployments = {}; // appId -> { appId, appName, icon, port, payload, status, step, progressPercent, subtitle, badgeText, badgeClass, errorMessage, startedAt, ... }
 const dockerDeployQueue = [];        // [ { appId, appName, icon, port, payload }, ... ]
 let dockerDeployTickerInterval = null;
+let isDockerPageUnloading = false;
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", () => {
+    isDockerPageUnloading = true;
+  });
+}
 
 function saveDockerDeployStateToStorage() {
   try {
@@ -11430,6 +11436,7 @@ async function syncActiveDockerDeploymentsWithBackend() {
               clientDep.subtitle = clientDep.port ? `Conteneur actif sur le port ${clientDep.port}` : "Conteneur actif sur votre NAS STEvE_OS";
               clientDep.badgeText = "🟢 Prêt (100%)";
               clientDep.badgeClass = "badge-success";
+              clientDep.errorMessage = null;
               clientDep.completedAt = Date.now();
               hasUpdated = true;
 
@@ -11439,28 +11446,35 @@ async function syncActiveDockerDeploymentsWithBackend() {
                 }
               }, 12000);
             }
+          } else if (bDep.status === "installing") {
+            // RÈGLE PRIORITAIRE : Si le backend est en cours d'installation, le client doit être 'active'
+            // (corrige le faux statut d'erreur provoqué par un rechargement de page F5)
+            if (clientDep.status !== "active") {
+              clientDep.status = "active";
+              clientDep.badgeClass = "badge-warning";
+              clientDep.errorMessage = null;
+              hasUpdated = true;
+            }
+            const newStep = Math.max(clientDep.step || 1, bDep.step || 1);
+            const newProgress = Math.max(clientDep.progressPercent || 20, bDep.progress_percent || 20);
+            const newMsg = bDep.message || clientDep.subtitle;
+            if (newStep !== clientDep.step || newProgress !== clientDep.progressPercent || newMsg !== clientDep.subtitle) {
+              clientDep.step = newStep;
+              clientDep.progressPercent = newProgress;
+              clientDep.subtitle = newMsg;
+              clientDep.badgeText = `⏳ En cours (${newProgress}%)`;
+              hasUpdated = true;
+            }
           } else if (bDep.status === "failed") {
             if (clientDep.status !== "error") {
               clientDep.status = "error";
-              clientDep.step = 3;
+              clientDep.step = bDep.step || 3;
               clientDep.errorMessage = bDep.error || bDep.message || "Erreur de démarrage Docker Compose";
               clientDep.subtitle = "Erreur de démarrage Docker Compose";
               clientDep.badgeText = "🔴 Erreur";
               clientDep.badgeClass = "badge-danger";
               clientDep.completedAt = Date.now();
               hasUpdated = true;
-            }
-          } else if (bDep.status === "installing") {
-            if (clientDep.status === "active") {
-              const newStep = Math.max(clientDep.step || 1, bDep.step || 1);
-              const newProgress = Math.max(clientDep.progressPercent || 20, bDep.progress_percent || 20);
-              if (newStep !== clientDep.step || newProgress !== clientDep.progressPercent) {
-                clientDep.step = newStep;
-                clientDep.progressPercent = newProgress;
-                clientDep.subtitle = bDep.message || clientDep.subtitle;
-                clientDep.badgeText = `⏳ En cours (${newProgress}%)`;
-                hasUpdated = true;
-              }
             }
           }
         } else if (bDep.status === "installing") {
@@ -11486,8 +11500,13 @@ async function syncActiveDockerDeploymentsWithBackend() {
     }
 
     // Réconciliation supplémentaire avec /api/docker/containers pour valider les conteneurs actifs
-    const activeKeys = Object.keys(activeDockerDeployments).filter(k => activeDockerDeployments[k].status === "active");
-    if (activeKeys.length > 0) {
+    // (Vérifier à la fois 'active' et 'error' pour rattraper les faux échecs lors d'un F5)
+    const pendingKeys = Object.keys(activeDockerDeployments).filter(k => 
+      activeDockerDeployments[k].status === "active" || 
+      (activeDockerDeployments[k].status === "error" && (!activeDockerDeployments[k].completedAt || (Date.now() - activeDockerDeployments[k].completedAt < 300000)))
+    );
+
+    if (pendingKeys.length > 0) {
       try {
         const cRes = await fetch("/api/docker/containers");
         const cJson = await cRes.json();
@@ -11496,35 +11515,35 @@ async function syncActiveDockerDeploymentsWithBackend() {
             .filter(c => (c.status || "").toLowerCase().includes("up") || (c.state || "").toLowerCase() === "running")
             .map(c => (c.name || "").toLowerCase().replace(/^\//, ""));
 
-          activeKeys.forEach(cleanId => {
+          pendingKeys.forEach(cleanId => {
             const dep = activeDockerDeployments[cleanId];
-            if (dep && dep.status === "active") {
-              const isRunning = runningNames.some(n => n === cleanId || n.includes(cleanId) || cleanId.includes(n));
-              if (isRunning) {
-                dep.status = "success";
-                dep.step = 4;
-                dep.progressPercent = 100;
-                dep.subtitle = dep.port ? `Conteneur actif sur le port ${dep.port}` : "Conteneur actif sur votre NAS STEvE_OS";
-                dep.badgeText = "🟢 Prêt (100%)";
-                dep.badgeClass = "badge-success";
-                dep.completedAt = Date.now();
-                hasUpdated = true;
+            if (!dep) return;
+            const isRunning = runningNames.some(n => n === cleanId || n.includes(cleanId) || cleanId.includes(n));
+            if (isRunning) {
+              dep.status = "success";
+              dep.step = 4;
+              dep.progressPercent = 100;
+              dep.subtitle = dep.port ? `Conteneur actif sur le port ${dep.port}` : "Conteneur actif sur votre NAS STEvE_OS";
+              dep.badgeText = "🟢 Prêt (100%)";
+              dep.badgeClass = "badge-success";
+              dep.errorMessage = null;
+              dep.completedAt = Date.now();
+              hasUpdated = true;
 
-                setTimeout(() => {
-                  if (activeDockerDeployments[cleanId] && activeDockerDeployments[cleanId].status === "success") {
-                    dismissDockerDeployToast(cleanId);
-                  }
-                }, 12000);
-              } else if (dep.startedAt && (Date.now() - dep.startedAt > 300000)) {
-                dep.status = "error";
-                dep.step = 3;
-                dep.errorMessage = "Délai d'attente dépassé (timeout 5 min). Veuillez vérifier les logs du conteneur.";
-                dep.subtitle = "Délai de déploiement dépassé";
-                dep.badgeText = "🔴 Timeout";
-                dep.badgeClass = "badge-danger";
-                dep.completedAt = Date.now();
-                hasUpdated = true;
-              }
+              setTimeout(() => {
+                if (activeDockerDeployments[cleanId] && activeDockerDeployments[cleanId].status === "success") {
+                  dismissDockerDeployToast(cleanId);
+                }
+              }, 12000);
+            } else if (dep.status === "active" && dep.startedAt && (Date.now() - dep.startedAt > 300000)) {
+              dep.status = "error";
+              dep.step = 3;
+              dep.errorMessage = "Délai d'attente dépassé (timeout 5 min). Veuillez vérifier les logs du conteneur.";
+              dep.subtitle = "Délai de déploiement dépassé";
+              dep.badgeText = "🔴 Timeout";
+              dep.badgeClass = "badge-danger";
+              dep.completedAt = Date.now();
+              hasUpdated = true;
             }
           });
         }
@@ -11561,7 +11580,7 @@ function ensureDockerDeployTicker() {
     }
 
     syncActiveDockerDeploymentsWithBackend();
-  }, 3500);
+  }, 2000);
 }
 
 function updateDockerConfigModalDeployButton(appId) {
@@ -12018,6 +12037,39 @@ async function startDockerAppDeploy(item) {
       openDockerDeployErrorModal(appName, json.message);
     }
   } catch (err) {
+    if (isDockerPageUnloading) {
+      console.log(`[Docker Deploy] Requête interrompue lors du rechargement de page pour ${appName}, déploiement maintenu actif.`);
+      return;
+    }
+
+    // Avant de déclarer une erreur fatale, vérifier si le serveur est en train de déployer
+    try {
+      const checkRes = await fetch("/api/docker/store/deployments");
+      const checkJson = await checkRes.json();
+      if (checkJson.success && Array.isArray(checkJson.data)) {
+        const serverDep = checkJson.data.find(d => (d.app_id || "").toLowerCase() === cleanId);
+        if (serverDep && serverDep.status === "installing") {
+          console.log(`[Docker Deploy] Déploiement ${appName} toujours actif sur le serveur, polling maintenu.`);
+          ensureDockerDeployTicker();
+          return;
+        } else if (serverDep && (serverDep.status === "ready" || serverDep.is_running)) {
+          if (activeDockerDeployments[cleanId]) {
+            activeDockerDeployments[cleanId].status = "success";
+            activeDockerDeployments[cleanId].step = 4;
+            activeDockerDeployments[cleanId].progressPercent = 100;
+            activeDockerDeployments[cleanId].subtitle = port ? `Conteneur actif sur le port ${port}` : "Conteneur actif sur votre NAS STEvE_OS";
+            activeDockerDeployments[cleanId].badgeText = "🟢 Prêt (100%)";
+            activeDockerDeployments[cleanId].badgeClass = "badge-success";
+            activeDockerDeployments[cleanId].errorMessage = null;
+            activeDockerDeployments[cleanId].completedAt = Date.now();
+            saveDockerDeployStateToStorage();
+            renderAllDockerDeployToasts();
+            return;
+          }
+        }
+      }
+    } catch (_) {}
+
     if (activeDockerDeployments[cleanId]) {
       activeDockerDeployments[cleanId].status = "error";
       activeDockerDeployments[cleanId].step = 3;
