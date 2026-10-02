@@ -387,11 +387,10 @@ pub fn find_first_human_user() -> Option<String> {
             if parts.len() >= 4 {
                 let username = parts[0].trim();
                 let uid: u32 = parts[2].trim().parse().unwrap_or(0);
-                if uid >= 1000 && uid < 60000 && username != "nobody" && !username.starts_with("nixbld") {
-                    // Priorité absolue aux utilisateurs humains réels différents de 'chomiam' et 'admin'
-                    if username != "chomiam" && username != "admin" {
-                        return Some(username.to_string());
-                    }
+                if uid == 1000 && username != "nobody" && !username.starts_with("nixbld") {
+                    return Some(username.to_string());
+                }
+                if uid > 1000 && uid < 60000 && username != "nobody" && !username.starts_with("nixbld") {
                     if fallback.is_none() {
                         fallback = Some(username.to_string());
                     }
@@ -432,7 +431,7 @@ pub fn target_user() -> String {
                 if trimmed.starts_with("username") && trimmed.contains('=') {
                     if let Some(val) = trimmed.split('=').nth(1) {
                         let unquoted = val.trim().trim_matches(|c| c == '"' || c == ';' || c == ' ');
-                        if !unquoted.is_empty() && unquoted != "admin" && user_exists(unquoted) {
+                        if !unquoted.is_empty() && user_exists(unquoted) {
                             return unquoted.to_string();
                         }
                     }
@@ -445,19 +444,11 @@ pub fn target_user() -> String {
     if let Ok(u) = env::var("NOOS_USER") {
         let trimmed = u.trim();
         if !trimmed.is_empty() && user_exists(trimmed) {
-            if trimmed != "chomiam" && trimmed != "admin" {
-                return trimmed.to_string();
-            }
-            if let Some(human) = find_first_human_user() {
-                if human != "chomiam" && human != "admin" {
-                    return human;
-                }
-            }
             return trimmed.to_string();
         }
     }
 
-    // 3. Premier utilisateur humain du système
+    // 3. Premier utilisateur humain du système (UID 1000)
     if let Some(human) = find_first_human_user() {
         return human;
     }
