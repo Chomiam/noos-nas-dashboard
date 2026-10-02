@@ -300,14 +300,27 @@ fn customize_compose_yaml(
     base_compose: &str,
     new_port: Option<u32>,
     env_vars: Option<&HashMap<String, String>>,
+    gpu_device: Option<&str>,
 ) -> String {
     let mut lines: Vec<String> = base_compose.lines().map(|s| s.to_string()).collect();
+
+    // 0. Assainissement proactif des volumes localtime défectueux (ex: ./data/localtime -> /etc/localtime:ro)
+    for line in &mut lines {
+        if line.contains("localtime") && (line.contains("./data/localtime") || line.contains("data/localtime")) {
+            if line.contains("/etc/localtime") {
+                *line = line.replace("./data/localtime:/etc/localtime:ro", "/etc/localtime:/etc/localtime:ro")
+                            .replace("./data/localtime:/etc/localtime", "/etc/localtime:/etc/localtime:ro")
+                            .replace("data/localtime:/etc/localtime:ro", "/etc/localtime:/etc/localtime:ro")
+                            .replace("data/localtime:/etc/localtime", "/etc/localtime:/etc/localtime:ro");
+            }
+        }
+    }
 
     // 1. Remplacer le port d'hôte Web si spécifié (sans écraser les ports DNS 53, DHCP ou DoT)
     if let Some(p) = new_port {
         let mut port_replaced = false;
         let p_str = p.to_string();
-        let web_indicators = [p_str.as_str(), "3000", "80", "8080", "443", "8096", "9000", "8443", "5000"];
+        let web_indicators = [p_str.as_str(), "2283", "3000", "80", "8080", "443", "8096", "9000", "8443", "5000"];
         for line in &mut lines {
             if !port_replaced && line.trim().starts_with("- ") && line.contains(':') {
                 let trimmed = line.trim().trim_start_matches("- ").trim_matches('"').trim_matches('\'');
@@ -374,6 +387,79 @@ fn customize_compose_yaml(
                         lines[line_num] = format!("    - {}={}", clean_k, clean_v);
                     } else {
                         lines.insert(e_idx + 1, format!("    - {}={}", clean_k, clean_v));
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Remplacement des variables génériques non résolues du template (ex: ${PORT})
+    if let Some(p) = new_port {
+        for line in &mut lines {
+            if line.contains("${PORT") {
+                *line = line.replace("${PORT}", &p.to_string())
+                            .replace("${PORT:-3001}", &p.to_string())
+                            .replace("${PORT:-2283}", &p.to_string())
+                            .replace("${PORT:-8080}", &p.to_string());
+            }
+        }
+    }
+
+    // 4. Injection conditionnelle de l'accélération matérielle GPU si demandée
+    if let Some(gpu) = gpu_device {
+        let clean_gpu = gpu.trim();
+        if !clean_gpu.is_empty() && clean_gpu != "none" {
+            // Identifier le service cible pour injecter le GPU
+            let mut target_service_idx = None;
+            let mut in_services = false;
+            let mut current_service_idx = None;
+
+            for (idx, line) in lines.iter().enumerate() {
+                let trimmed = line.trim();
+                if trimmed == "services:" {
+                    in_services = true;
+                    continue;
+                }
+                if in_services && line.starts_with("  ") && !line.starts_with("    ") && trimmed.ends_with(':') {
+                    let s_name = trimmed.trim_end_matches(':').trim();
+                    current_service_idx = Some(idx);
+                    if s_name == "immich-server" || s_name == "jellyfin" || s_name == "plex" || s_name == "emby" || s_name == "ollama" {
+                        target_service_idx = Some(idx);
+                        break;
+                    }
+                    if target_service_idx.is_none() {
+                        target_service_idx = Some(idx);
+                    }
+                }
+            }
+
+            if let Some(s_idx) = target_service_idx.or(current_service_idx) {
+                let mut insert_pos = lines.len();
+                for i in (s_idx + 1)..lines.len() {
+                    let l = &lines[i];
+                    if l.starts_with("  ") && !l.starts_with("    ") && l.trim().ends_with(':') {
+                        insert_pos = i;
+                        break;
+                    }
+                }
+
+                let already_has_gpu = lines[s_idx..insert_pos].iter().any(|l| {
+                    l.contains("/dev/dri") || l.contains("driver: nvidia")
+                });
+
+                if !already_has_gpu {
+                    if clean_gpu == "--gpus all" || clean_gpu == "nvidia" {
+                        lines.insert(insert_pos, "    deploy:".to_string());
+                        lines.insert(insert_pos + 1, "      resources:".to_string());
+                        lines.insert(insert_pos + 2, "        reservations:".to_string());
+                        lines.insert(insert_pos + 3, "          devices:".to_string());
+                        lines.insert(insert_pos + 4, "            - driver: nvidia".to_string());
+                        lines.insert(insert_pos + 5, "              count: all".to_string());
+                        lines.insert(insert_pos + 6, "              capabilities: [gpu, video]".to_string());
+                    } else {
+                        let dev_path = if clean_gpu.contains("/dev/dri") { clean_gpu } else { "/dev/dri:/dev/dri" };
+                        lines.insert(insert_pos, "    devices:".to_string());
+                        lines.insert(insert_pos + 1, format!("      - {}", dev_path));
                     }
                 }
             }
@@ -474,6 +560,16 @@ pub fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
         return Err(err_msg);
     }
 
+    // Nettoyage préventif des répertoires erronés créés par de mauvaises tentatives antérieures
+    let bad_lt1 = data_dir.join("localtime");
+    if bad_lt1.is_dir() {
+        let _ = std::fs::remove_dir_all(&bad_lt1);
+    }
+    let bad_lt2 = app_dir.join("localtime");
+    if bad_lt2.is_dir() {
+        let _ = std::fs::remove_dir_all(&bad_lt2);
+    }
+
     let _ = Command::new("chown").args(["-R", &format!("{}:users", user), &app_dir.display().to_string()]).status();
     let _ = Command::new("chmod").args(["-R", "0775", &app_dir.display().to_string()]).status();
 
@@ -502,8 +598,8 @@ pub fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
 
     let base_compose = fetched_compose.unwrap_or_else(|| generate_default_compose(&clean_id, req.port.unwrap_or(8080)));
 
-    // 3. Personnaliser le compose.yaml (port et variables d'environnement)
-    let customized = customize_compose_yaml(&base_compose, req.port, req.env_vars.as_ref());
+    // 3. Personnaliser le compose.yaml (port, variables d'environnement et GPU)
+    let customized = customize_compose_yaml(&base_compose, req.port, req.env_vars.as_ref(), req.gpu_device.as_deref());
 
     // 4. Écrire le fichier compose.yaml
     if let Err(e) = std::fs::write(&compose_file, &customized) {

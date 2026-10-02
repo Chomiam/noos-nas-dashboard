@@ -11749,9 +11749,10 @@ function openDockerConfigModal(appId, customData = null) {
     }
   }
 
-  // Configuration Accélération Matérielle GPU (Jellyfin / Transcodage)
+  // Configuration Accélération Matérielle GPU (Jellyfin, Immich, Transcodage & IA)
   const gpuSection = document.getElementById("config-gpu-section");
-  const isGpuApp = (appId === "jellyfin");
+  const GPU_COMPATIBLE_APPS = ["jellyfin", "immich", "plex", "emby", "ollama", "open-webui", "tdarr", "whisper", "photoprism"];
+  const isGpuApp = GPU_COMPATIBLE_APPS.includes(appId) || (app && (app.gpu_support || app.gpuSupport));
   if (gpuSection) {
     if (isGpuApp) {
       gpuSection.style.display = "flex";
@@ -11965,6 +11966,9 @@ function openDockerComposeNvimPreview() {
       composeYaml += `      - ${mediaDir}/anims:/data/anims\n`;
       composeYaml += `      - ${mediaDir}:/media\n`;
     }
+  } else if (appId === "immich") {
+    composeYaml += `      - ${mediaDir || dataDir + "/library"}:/usr/src/app/upload\n`;
+    composeYaml += `      - /etc/localtime:/etc/localtime:ro\n`;
   } else if (appId === "adguard" || appId.includes("adguard")) {
     composeYaml += `      - ${dataDir}/work:/opt/adguardhome/work\n`;
     composeYaml += `      - ${dataDir}/conf:/opt/adguardhome/conf\n`;
