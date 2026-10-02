@@ -1,5 +1,5 @@
 fn target_user() -> String {
-    std::env::var("USER").unwrap_or_else(|_| "chomiam".to_string())
+    crate::updates::target_user()
 }
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};

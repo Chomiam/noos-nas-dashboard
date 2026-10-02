@@ -49,6 +49,20 @@ pub struct UnpinMountRequest {
     pub path: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PinnedMountsConfig {
+    pub pins: Vec<PinnedMount>,
+    #[serde(default)]
+    pub hidden_paths: HashSet<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+enum PinnedStore {
+    Config(PinnedMountsConfig),
+    List(Vec<PinnedMount>),
+}
+
 fn get_pinned_mounts_file() -> PathBuf {
     let var_lib = Path::new("/var/lib/steveos");
     if var_lib.exists() || fs::create_dir_all(var_lib).is_ok() {
@@ -58,101 +72,33 @@ fn get_pinned_mounts_file() -> PathBuf {
     }
 }
 
-pub fn load_pinned_mounts() -> Vec<PinnedMount> {
+pub fn load_pinned_mounts_config() -> PinnedMountsConfig {
     let path = get_pinned_mounts_file();
     if let Ok(content) = fs::read_to_string(&path) {
-        if let Ok(list) = serde_json::from_str::<Vec<PinnedMount>>(&content) {
-            return list;
+        if let Ok(store) = serde_json::from_str::<PinnedStore>(&content) {
+            match store {
+                PinnedStore::Config(c) => return c,
+                PinnedStore::List(list) => return PinnedMountsConfig {
+                    pins: list,
+                    hidden_paths: HashSet::new(),
+                },
+            }
         }
     }
-
-    // Initialisation avec des favoris recommandés par défaut
-    vec![
-        PinnedMount {
-            path: "/".into(),
-            label: "Système Root (NixOS)".into(),
-            icon: "🗄️".into(),
-            date_added: "Default".into(),
-        },
-        PinnedMount {
-            path: "/mnt/storage".into(),
-            label: "Stockage Principal".into(),
-            icon: "💾".into(),
-            date_added: "Default".into(),
-        },
-        PinnedMount {
-            path: "/home".into(),
-            label: "Dossiers Utilisateurs".into(),
-            icon: "🏠".into(),
-            date_added: "Default".into(),
-        },
-    ]
+    PinnedMountsConfig::default()
 }
 
-pub fn save_pinned_mounts(mounts: &[PinnedMount]) -> Result<(), String> {
+pub fn save_pinned_mounts_config(config: &PinnedMountsConfig) -> Result<(), String> {
     let path = get_pinned_mounts_file();
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let json = serde_json::to_string_pretty(mounts).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| format!("Impossible de sauvegarder les favoris : {}", e))
 }
 
-pub fn pin_mount(path_str: &str, custom_label: Option<&str>, custom_icon: Option<&str>) -> Result<PinnedMount, String> {
-    let mut current = load_pinned_mounts();
-    let clean_path = path_str.trim().trim_end_matches('/');
-    let final_path = if clean_path.is_empty() { "/" } else { clean_path };
-
-    if let Some(existing) = current.iter().find(|m| m.path == final_path) {
-        return Ok(existing.clone());
-    }
-
-    let default_icon = if final_path == "/" {
-        "🗄️"
-    } else if final_path.contains("raid") {
-        "💽"
-    } else if final_path.contains("remote") || final_path.contains("sftp") {
-        "🌐"
-    } else if final_path.contains("media") {
-        "🎬"
-    } else {
-        "💾"
-    };
-
-    let default_label = final_path.split('/').last().unwrap_or("Disque").to_string();
-    let now = chrono_timestamp_approx();
-
-    let new_pin = PinnedMount {
-        path: final_path.to_string(),
-        label: custom_label.unwrap_or(&default_label).to_string(),
-        icon: custom_icon.unwrap_or(default_icon).to_string(),
-        date_added: now,
-    };
-
-    current.push(new_pin.clone());
-    save_pinned_mounts(&current)?;
-    Ok(new_pin)
-}
-
-pub fn unpin_mount(path_str: &str) -> Result<(), String> {
-    let mut current = load_pinned_mounts();
-    let clean_path = path_str.trim().trim_end_matches('/');
-    let final_path = if clean_path.is_empty() { "/" } else { clean_path };
-
-    let before_len = current.len();
-    current.retain(|m| m.path != final_path);
-
-    if current.len() == before_len {
-        return Err("Point de montage non trouvé dans les épinglés".into());
-    }
-
-    save_pinned_mounts(&current)
-}
-
-pub fn get_storage_mounts() -> Vec<StorageMountItem> {
+pub fn get_storage_mounts_raw() -> Vec<StorageMountItem> {
     let mut items = Vec::new();
-    let pinned = load_pinned_mounts();
-    let pinned_set: HashSet<String> = pinned.iter().map(|p| p.path.clone()).collect();
 
     if let Ok(output) = Command::new("df").args(["-B1", "-T"]).output() {
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -210,8 +156,6 @@ pub fn get_storage_mounts() -> Vec<StorageMountItem> {
                     (mount_point.split('/').last().unwrap_or("Disque").to_string(), "💾".into())
                 };
 
-                let is_pinned = pinned_set.contains(&mount_point);
-
                 items.push(StorageMountItem {
                     mount_point,
                     device,
@@ -225,11 +169,228 @@ pub fn get_storage_mounts() -> Vec<StorageMountItem> {
                     free_human: format_bytes(free_bytes),
                     label,
                     icon,
-                    is_pinned,
+                    is_pinned: false,
                     is_removable,
                 });
             }
         }
+    }
+
+    items
+}
+
+pub fn load_pinned_mounts() -> Vec<PinnedMount> {
+    let config = load_pinned_mounts_config();
+    let raw_mounts = get_storage_mounts_raw();
+    let mut active_mounts_map: HashMap<String, StorageMountItem> = HashMap::new();
+    for sm in raw_mounts {
+        active_mounts_map.insert(sm.mount_point.clone(), sm);
+    }
+
+    let mut all_available: HashMap<String, PinnedMount> = HashMap::new();
+
+    // 1. Dossiers système de base (avec vérification stricte de l'existence physique)
+    if !config.hidden_paths.contains("/") {
+        all_available.insert("/".into(), PinnedMount {
+            path: "/".into(),
+            label: "Système Root (NixOS)".into(),
+            icon: "🗄️".into(),
+            date_added: "Système".into(),
+        });
+    }
+
+    if Path::new("/mnt/storage").exists() && !config.hidden_paths.contains("/mnt/storage") {
+        all_available.insert("/mnt/storage".into(), PinnedMount {
+            path: "/mnt/storage".into(),
+            label: "Stockage Principal (/mnt/storage)".into(),
+            icon: "💾".into(),
+            date_added: "Système".into(),
+        });
+    }
+
+    if Path::new("/home").exists() && !config.hidden_paths.contains("/home") {
+        all_available.insert("/home".into(), PinnedMount {
+            path: "/home".into(),
+            label: "Dossiers Utilisateurs (/home)".into(),
+            icon: "🏠".into(),
+            date_added: "Système".into(),
+        });
+    }
+
+    // 2. Détection dynamique de tous les volumes/disques actuellement montés
+    for (mount_point, item) in &active_mounts_map {
+        if mount_point == "/" || config.hidden_paths.contains(mount_point) {
+            continue;
+        }
+        all_available.entry(mount_point.clone()).or_insert_with(|| {
+            PinnedMount {
+                path: mount_point.clone(),
+                label: item.label.clone(),
+                icon: item.icon.clone(),
+                date_added: "Montage Détecté".into(),
+            }
+        });
+    }
+
+    // 3. Épingles personnalisées enregistrées : n'inclure que si le chemin existe
+    // et s'il s'agit d'un point de montage (ex: USB démonté sous /run/media ou /media),
+    // vérifier qu'il est toujours actif
+    for sp in &config.pins {
+        let p = &sp.path;
+        if config.hidden_paths.contains(p) {
+            continue;
+        }
+        if !Path::new(p).exists() {
+            // Le disque ou dossier n'existe plus physiquement -> éliminé
+            continue;
+        }
+        if (p.starts_with("/run/media") || p.starts_with("/media")) && !active_mounts_map.contains_key(p) {
+            // Disque amovible démonté -> masqué automatiquement
+            continue;
+        }
+
+        if let Some(entry) = all_available.get_mut(p) {
+            entry.label = sp.label.clone();
+            entry.icon = sp.icon.clone();
+        } else {
+            all_available.insert(p.clone(), sp.clone());
+        }
+    }
+
+    // 4. Ordonner selon l'ordre personnalisé de l'utilisateur
+    let mut result = Vec::new();
+    let mut used_keys = HashSet::new();
+
+    for sp in &config.pins {
+        if let Some(m) = all_available.get(&sp.path) {
+            if used_keys.insert(sp.path.clone()) {
+                result.push(m.clone());
+            }
+        }
+    }
+
+    // Ajouter les éléments restants selon l'ordre canonique
+    let mut remaining: Vec<PinnedMount> = all_available
+        .into_values()
+        .filter(|m| !used_keys.contains(&m.path))
+        .collect();
+
+    remaining.sort_by(|a, b| {
+        let priority = |p: &str| match p {
+            "/" => 0,
+            "/mnt/storage" => 1,
+            "/home" => 2,
+            _ => 3,
+        };
+        let pa = priority(&a.path);
+        let pb = priority(&b.path);
+        if pa != pb {
+            pa.cmp(&pb)
+        } else {
+            a.path.cmp(&b.path)
+        }
+    });
+
+    result.extend(remaining);
+    result
+}
+
+#[allow(dead_code)]
+pub fn save_pinned_mounts(mounts: &[PinnedMount]) -> Result<(), String> {
+    let mut config = load_pinned_mounts_config();
+    config.pins = mounts.to_vec();
+    save_pinned_mounts_config(&config)
+}
+
+pub fn reorder_pinned_mounts(ordered_paths: &[String]) -> Result<Vec<PinnedMount>, String> {
+    let current_list = load_pinned_mounts();
+    let current_map: HashMap<String, PinnedMount> = current_list.into_iter().map(|m| (m.path.clone(), m)).collect();
+
+    let mut config = load_pinned_mounts_config();
+    let mut reordered = Vec::new();
+    let mut seen = HashSet::new();
+
+    for path in ordered_paths {
+        let clean = path.trim().trim_end_matches('/');
+        let final_path = if clean.is_empty() { "/" } else { clean };
+        if let Some(m) = current_map.get(final_path) {
+            if seen.insert(final_path.to_string()) {
+                reordered.push(m.clone());
+            }
+        }
+    }
+
+    for (path, m) in current_map {
+        if seen.insert(path) {
+            reordered.push(m);
+        }
+    }
+
+    config.pins = reordered.clone();
+    save_pinned_mounts_config(&config)?;
+    Ok(reordered)
+}
+
+pub fn pin_mount(path_str: &str, custom_label: Option<&str>, custom_icon: Option<&str>) -> Result<PinnedMount, String> {
+    let mut config = load_pinned_mounts_config();
+    let clean_path = path_str.trim().trim_end_matches('/');
+    let final_path = if clean_path.is_empty() { "/" } else { clean_path };
+
+    config.hidden_paths.remove(final_path);
+
+    if let Some(existing) = config.pins.iter_mut().find(|m| m.path == final_path) {
+        if let Some(lbl) = custom_label { existing.label = lbl.to_string(); }
+        if let Some(ic) = custom_icon { existing.icon = ic.to_string(); }
+        let res = existing.clone();
+        save_pinned_mounts_config(&config)?;
+        return Ok(res);
+    }
+
+    let default_icon = if final_path == "/" {
+        "🗄️"
+    } else if final_path.contains("raid") {
+        "💽"
+    } else if final_path.contains("remote") || final_path.contains("sftp") {
+        "🌐"
+    } else if final_path.contains("media") {
+        "🎬"
+    } else {
+        "💾"
+    };
+
+    let default_label = final_path.split('/').last().unwrap_or("Disque").to_string();
+    let now = chrono_timestamp_approx();
+
+    let new_pin = PinnedMount {
+        path: final_path.to_string(),
+        label: custom_label.unwrap_or(&default_label).to_string(),
+        icon: custom_icon.unwrap_or(default_icon).to_string(),
+        date_added: now,
+    };
+
+    config.pins.push(new_pin.clone());
+    save_pinned_mounts_config(&config)?;
+    Ok(new_pin)
+}
+
+pub fn unpin_mount(path_str: &str) -> Result<(), String> {
+    let mut config = load_pinned_mounts_config();
+    let clean_path = path_str.trim().trim_end_matches('/');
+    let final_path = if clean_path.is_empty() { "/" } else { clean_path };
+
+    config.pins.retain(|m| m.path != final_path);
+    config.hidden_paths.insert(final_path.to_string());
+
+    save_pinned_mounts_config(&config)
+}
+
+pub fn get_storage_mounts() -> Vec<StorageMountItem> {
+    let mut items = get_storage_mounts_raw();
+    let pinned = load_pinned_mounts();
+    let pinned_set: HashSet<String> = pinned.iter().map(|p| p.path.clone()).collect();
+
+    for item in &mut items {
+        item.is_pinned = pinned_set.contains(&item.mount_point);
     }
 
     items.sort_by(|a, b| {

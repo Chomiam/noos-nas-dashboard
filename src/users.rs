@@ -582,7 +582,7 @@ pub async fn handle_users_list(headers: HeaderMap) -> Response {
     };
 
     let users = list_all_users().await;
-    let main_admin_user = std::env::var("STEVEOS_USER").unwrap_or_else(|_| "chomiam".to_string());
+    let main_admin_user = std::env::var("STEVEOS_USER").unwrap_or_else(|_| crate::updates::target_user());
     (
         StatusCode::OK,
         Json(serde_json::json!({

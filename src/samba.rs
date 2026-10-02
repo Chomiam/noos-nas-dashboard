@@ -173,7 +173,7 @@ pub fn get_samba_conf_paths() -> Vec<PathBuf> {
 }
 
 fn target_user() -> String {
-    std::env::var("USER").unwrap_or_else(|_| "chomiam".to_string())
+    crate::updates::target_user()
 }
 
 pub fn load_samba_shares() -> Vec<SambaShare> {

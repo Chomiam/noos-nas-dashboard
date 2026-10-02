@@ -405,6 +405,7 @@ function setupPolling() {
     if (activeTab === "tab-storage") loadStorage();
     if (activeTab === "tab-network") loadNetwork();
     if (activeTab === "tab-containers") refreshContainersAndStore();
+    if (activeTab === "tab-files") loadPinnedMounts();
   }, 12000);
 
   // Rafraîchissement dynamique des serveurs de jeu (3.5 secondes pour suivre démarrages/statuts)
@@ -476,11 +477,16 @@ function switchTab(tabId, updateHash = true) {
   if (tabId === "tab-files") {
     try {
       const savedPath = localStorage.getItem("steveos_files_path");
-      if (savedPath && savedPath !== currentFolderPath) {
+      if (savedPath && !savedPath.includes("/chomiam")) {
         currentFolderPath = savedPath;
+      } else {
+        currentFolderPath = getUserHome();
       }
-    } catch (e) {}
-    navigateToPath(currentFolderPath);
+    } catch (e) {
+      currentFolderPath = getUserHome();
+    }
+    navigateToPath(currentFolderPath || getUserHome());
+    loadPinnedMounts();
   }
   if (tabId === "tab-updates") { checkForUpdates(false); loadGenerations(); }
   if (tabId === "tab-storage") loadStorage();
@@ -3339,12 +3345,13 @@ function appendCommandToTerminal(cmd, cwd) {
   const body = document.getElementById("bash-terminal-body");
   if (!body) return;
 
+  const u = getCurrentDashboardUsername();
   const entry = document.createElement("div");
   entry.className = "term-history-entry";
   entry.innerHTML = `
     <div class="term-cmd-line">
       <div>
-        <span class="term-cmd-prompt">chomiam@steveos-nas:<b>${escapeHtml(formatShortCwd(cwd))}</b>$</span>
+        <span class="term-cmd-prompt">${escapeHtml(u)}@steveos-nas:<b>${escapeHtml(formatShortCwd(cwd))}</b>$</span>
         <span class="term-cmd-text">${escapeHtml(cmd)}</span>
       </div>
       <span class="badge badge-warning">⏳ En cours</span>
@@ -3392,9 +3399,10 @@ function updateTerminalPrompt() {
   const promptLabel = document.getElementById("bash-prompt-label");
   const cwdBadge = document.getElementById("term-cwd-badge");
   const shortCwd = formatShortCwd(terminalCwd);
+  const u = getCurrentDashboardUsername();
 
   if (promptLabel) {
-    promptLabel.innerHTML = `chomiam@steveos-nas:<b>${escapeHtml(shortCwd)}</b>$`;
+    promptLabel.innerHTML = `${escapeHtml(u)}@steveos-nas:<b>${escapeHtml(shortCwd)}</b>$`;
   }
   if (cwdBadge) {
     cwdBadge.textContent = `📁 ${shortCwd}`;
@@ -3402,6 +3410,12 @@ function updateTerminalPrompt() {
 }
 
 function formatShortCwd(cwd) {
+  if (!cwd) return "~";
+  const home = getUserHome();
+  if (cwd === home) return "~";
+  if (home && cwd.startsWith(home + "/")) {
+    return "~" + cwd.substring(home.length);
+  }
   if (cwd.startsWith("/home/chomiam")) {
     return "~" + cwd.substring("/home/chomiam".length);
   }
@@ -3575,7 +3589,7 @@ function hideAutocompleteDropdown() {
 // --------------------------------------------------------------------------
 // EXPLORATEUR DE FICHIERS (FILE MANAGER)
 // --------------------------------------------------------------------------
-let currentFolderPath = "/home/chomiam";
+let currentFolderPath = "";
 let isTrashView = false;
 let trashOverview = null;
 let selectedTrashItem = null;
@@ -3603,13 +3617,19 @@ async function navigateToPath(targetPath) {
   const trashTb = document.getElementById("files-toolbar-trash");
   if (normalTb) normalTb.style.display = "flex";
   if (trashTb) trashTb.style.display = "none";
-  if (!targetPath) return;
+  if (!targetPath) targetPath = getUserHome();
 
   try {
     const res = await fetch(`/api/files/list?path=${encodeURIComponent(targetPath)}`);
     const json = await res.json();
 
     if (!json.success || !json.data) {
+      const fallback = getUserHome();
+      if (targetPath !== fallback) {
+        console.warn(`Chemin inaccessible (${targetPath}), repli vers ${fallback}`);
+        showToast(json.message || "Dossier introuvable, retour au dossier personnel.", "warning");
+        return navigateToPath(fallback);
+      }
       showToast(json.message || "Impossible d'ouvrir ce dossier", "error");
       return;
     }
@@ -3634,24 +3654,25 @@ async function navigateToPath(targetPath) {
 function updateSidebarNavActive(path) {
   if (path === "/corbeille" || isTrashView) {
     document.querySelectorAll(".files-nav-item").forEach(item => item.classList.remove("active"));
+    document.querySelectorAll(".files-mount-item").forEach(item => item.classList.remove("active"));
     const el = document.getElementById("fnav-trash");
     if (el) el.classList.add("active");
     return;
   }
+  const home = getUserHome();
   const normPath = path ? path.replace(/\/+$/, '') : '';
+  const normHome = home ? home.replace(/\/+$/, '') : '';
   const mapping = {
-    "/home/chomiam": "fnav-home",
-    "/home/chomiam/documents": "fnav-docs",
-    "/home/chomiam/images": "fnav-pics",
-    "/home/chomiam/videos": "fnav-vids",
-    "/home/chomiam/musique": "fnav-music",
-    "/home/chomiam/telechargements": "fnav-dl",
-    "/home/chomiam/downloads": "fnav-dl",
-    "/home/chomiam/pictures": "fnav-pics",
-    "/home/chomiam/music": "fnav-music",
-    "/": "fnav-root",
-    "/mnt/storage/shares": "fnav-shares",
-    "/mnt/storage/media": "fnav-media",
+    [home]: "fnav-home",
+    [normHome]: "fnav-home",
+    [`${normHome}/documents`]: "fnav-docs",
+    [`${normHome}/images`]: "fnav-pics",
+    [`${normHome}/videos`]: "fnav-vids",
+    [`${normHome}/musique`]: "fnav-music",
+    [`${normHome}/telechargements`]: "fnav-dl",
+    [`${normHome}/downloads`]: "fnav-dl",
+    [`${normHome}/pictures`]: "fnav-pics",
+    [`${normHome}/music`]: "fnav-music",
     "/etc/nixos": "fnav-nixos"
   };
 
@@ -3661,6 +3682,17 @@ function updateSidebarNavActive(path) {
     const el = document.getElementById(activeId);
     if (el) el.classList.add("active");
   }
+
+  // Synchronisation avec les disques et volumes épinglés
+  document.querySelectorAll(".files-mount-item").forEach(item => {
+    const mp = item.getAttribute("data-mount-path");
+    const normMp = mp ? mp.replace(/\/+$/, '') || '/' : '';
+    if (mp && (mp === path || normMp === normPath || (normPath === '' && normMp === '/'))) {
+      item.classList.add("active");
+    } else {
+      item.classList.remove("active");
+    }
+  });
 }
 
 function copyCurrentFolderPath() {
@@ -7317,7 +7349,7 @@ function openRepairPermissionsModal(path) {
   if (!modal) return;
 
   if (pathInput) pathInput.value = path || "/mnt/storage";
-  if (userInput) userInput.value = "chomiam";
+  if (userInput) userInput.value = getCurrentDashboardUsername();
   if (groupInput) groupInput.value = "storage";
   if (pwdInput) pwdInput.value = "";
   if (alertEl) {
@@ -7346,7 +7378,7 @@ function togglePermPasswordVisibility() {
 
 async function submitRepairPermissions() {
   const path = document.getElementById("repair-perm-path")?.value;
-  const user = document.getElementById("repair-perm-user")?.value || "chomiam";
+  const user = document.getElementById("repair-perm-user")?.value || getCurrentDashboardUsername();
   const group = document.getElementById("repair-perm-group")?.value || "storage";
   const pwd = document.getElementById("repair-perm-password")?.value || "";
   const recursive = document.getElementById("repair-perm-recursive")?.checked ?? true;
@@ -10661,14 +10693,21 @@ function updateUserSessionUI(session) {
   const userPill = document.getElementById("header-user-pill");
   const usernameEl = document.getElementById("header-username");
   const userRoleEl = document.getElementById("header-user-role");
+  const homeTextEl = document.getElementById("fnav-home-text");
 
   if (session && session.username) {
     if (userPill) userPill.style.display = "flex";
     if (usernameEl) usernameEl.textContent = session.username;
     if (userRoleEl) userRoleEl.textContent = session.is_admin ? "(Admin)" : "(Utilisateur)";
+    if (homeTextEl) homeTextEl.textContent = `personnel (~/${session.username})`;
     updateSftpQuickUrisWithUser(session.username);
+
+    if (!currentFolderPath || currentFolderPath === "/home/chomiam" || currentFolderPath.includes("/chomiam")) {
+      currentFolderPath = getUserHome();
+    }
   } else {
     if (userPill) userPill.style.display = "none";
+    if (homeTextEl) homeTextEl.textContent = "personnel";
   }
 }
 
@@ -10716,8 +10755,10 @@ async function handleLoginSubmit(event) {
       setAuthToken(data.token, remember);
       currentUserSession = {
         username: data.username,
-        is_admin: data.is_admin
+        is_admin: data.is_admin,
+        home_dir: data.home_dir || `/home/${data.username}`
       };
+      if (data.home_dir) currentUserHome = data.home_dir;
       updateUserSessionUI(currentUserSession);
       document.body.classList.remove("not-authenticated");
       document.body.classList.add("authenticated");
@@ -16423,7 +16464,7 @@ async function toggleUserLock(username) {
 // --------------------------------------------------------------------------
 // MODAL SUPPRESSION UTILISATEUR
 // --------------------------------------------------------------------------
-let mainAdminUser = "chomiam";
+let mainAdminUser = getCurrentDashboardUsername();
 
 function openDeleteUserModal(username) {
   const inputUser = document.getElementById('du-username');
@@ -18134,14 +18175,15 @@ function renderSambaUsersCheckboxes(selectedUsers = []) {
   const container = document.getElementById("samba-share-users-checkboxes");
   if (!container) return;
 
-  const users = currentSambaData?.available_users || ["chomiam"];
+  const currentU = getCurrentDashboardUsername();
+  const users = currentSambaData?.available_users || [currentU];
   if (users.length === 0) {
     container.innerHTML = `<div style="color:var(--subtext0); font-size:0.8rem;">Aucun utilisateur spécifique détecté sur le système.</div>`;
     return;
   }
 
   container.innerHTML = users.map(user => {
-    const isChecked = selectedUsers.includes(user) || (selectedUsers.length === 0 && user === "chomiam");
+    const isChecked = selectedUsers.includes(user) || (selectedUsers.length === 0 && user === currentU);
     return `
       <label class="samba-user-checkbox-item">
         <input type="checkbox" name="samba-user-perm" value="${escapeHtml(user)}" ${isChecked ? "checked" : ""}>
@@ -19071,12 +19113,36 @@ async function disconnectSftpSession(pid) {
 // GESTION DES POINTS DE MONTAGE & DISQUES ÉPINGLÉS (PINNED MOUNTS)
 // =========================================================================
 
+let draggedMountIndex = null;
+
 async function loadPinnedMounts() {
   try {
     const res = await fetch("/api/files/pinned-mounts");
     const json = await res.json();
     if (json.success && json.data) {
-      pinnedMountsList = json.data;
+      let serverPins = json.data;
+
+      // Appliquer l'ordre sauvegardé en localStorage s'il existe pour une fluidité instantanée
+      try {
+        const savedOrder = JSON.parse(localStorage.getItem("steveos_pinned_mounts_order") || "[]");
+        if (Array.isArray(savedOrder) && savedOrder.length > 0) {
+          const pinMap = new Map(serverPins.map(p => [p.path, p]));
+          const ordered = [];
+          for (const p of savedOrder) {
+            if (pinMap.has(p)) {
+              ordered.push(pinMap.get(p));
+              pinMap.delete(p);
+            }
+          }
+          // Ajouter les nouveaux disques montés qui ne figuraient pas encore dans l'ordre
+          for (const p of pinMap.values()) {
+            ordered.push(p);
+          }
+          serverPins = ordered;
+        }
+      } catch (e) {}
+
+      pinnedMountsList = serverPins;
       renderPinnedMounts(pinnedMountsList);
     }
   } catch (err) {
@@ -19090,42 +19156,146 @@ function renderPinnedMounts(pins) {
 
   if (!pins || pins.length === 0) {
     container.innerHTML = `
-      <div style="padding:6px 10px; font-size:0.75rem; color:var(--subtext0); font-style:italic;">
-        Aucun disque épinglé.
+      <div style="padding:8px 10px; font-size:0.75rem; color:var(--subtext0); font-style:italic;">
+        Aucun disque ou volume détecté.
       </div>
     `;
     return;
   }
 
-  container.innerHTML = pins.map(p => {
+  container.innerHTML = pins.map((p, index) => {
     const cleanPath = p.path.replace(/\/+$/, "") || "/";
     const isActive = currentFolderPath === p.path || currentFolderPath === cleanPath;
+    const isRoot = p.path === "/";
 
     return `
-      <div class="files-mount-item ${isActive ? "active" : ""}" data-mount-path="${escapeHtml(p.path)}" onclick="navigateToPath('${escapeHtml(p.path)}')" title="Accéder à : ${escapeHtml(p.path)}">
+      <div class="files-mount-item ${isActive ? "active" : ""}"
+           draggable="true"
+           data-mount-path="${escapeHtml(p.path)}"
+           data-index="${index}"
+           onclick="navigateToPath('${escapeHtml(p.path)}')"
+           title="Glisser pour réorganiser • Accéder à : ${escapeHtml(p.path)}">
         <div class="files-mount-left">
-          <span class="files-nav-icon nav-icon-subtext">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
-              <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
-              <line x1="6" y1="6" x2="6.01" y2="6"></line>
-              <line x1="6" y1="18" x2="6.01" y2="18"></line>
+          <span class="files-mount-drag-handle" title="Glisser pour réorganiser l'ordre">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/>
+              <circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/>
+              <circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/>
             </svg>
           </span>
+          <span class="files-mount-icon">${escapeHtml(p.icon || "💾")}</span>
           <div class="files-mount-info">
             <span class="files-mount-label">${escapeHtml(p.label)}</span>
             <span class="files-mount-meta">${escapeHtml(p.path)}</span>
           </div>
         </div>
+        ${!isRoot ? `
         <button type="button" class="files-mount-unpin-btn" onclick="unpinMountAction('${escapeHtml(p.path)}', event)" title="Désépingler ce point de montage">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="18" y1="6" x2="6" y2="18"></line>
             <line x1="6" y1="6" x2="18" y2="18"></line>
           </svg>
         </button>
+        ` : ''}
       </div>
     `;
   }).join("");
+
+  attachPinnedMountsDragAndDrop(container);
+}
+
+function attachPinnedMountsDragAndDrop(container) {
+  if (!container) return;
+  const items = container.querySelectorAll(".files-mount-item");
+
+  items.forEach(item => {
+    item.addEventListener("dragstart", (e) => {
+      draggedMountIndex = parseInt(item.getAttribute("data-index"), 10);
+      item.classList.add("is-dragging");
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", item.getAttribute("data-mount-path") || "");
+      }
+    });
+
+    item.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      if (draggedMountIndex === null) return;
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+
+      const targetIndex = parseInt(item.getAttribute("data-index"), 10);
+      if (targetIndex === draggedMountIndex) return;
+
+      const rect = item.getBoundingClientRect();
+      const relY = e.clientY - rect.top;
+      if (relY < rect.height / 2) {
+        item.classList.add("drag-over-top");
+        item.classList.remove("drag-over-bottom");
+      } else {
+        item.classList.add("drag-over-bottom");
+        item.classList.remove("drag-over-top");
+      }
+    });
+
+    item.addEventListener("dragleave", () => {
+      item.classList.remove("drag-over-top");
+      item.classList.remove("drag-over-bottom");
+    });
+
+    item.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      item.classList.remove("drag-over-top");
+      item.classList.remove("drag-over-bottom");
+
+      if (draggedMountIndex === null) return;
+      const targetIndex = parseInt(item.getAttribute("data-index"), 10);
+      if (targetIndex === draggedMountIndex || isNaN(targetIndex) || isNaN(draggedMountIndex)) return;
+
+      const rect = item.getBoundingClientRect();
+      const relY = e.clientY - rect.top;
+      const insertAfter = relY >= rect.height / 2;
+
+      // Déplacer l'élément dans la liste locale
+      const movedItem = pinnedMountsList.splice(draggedMountIndex, 1)[0];
+      if (!movedItem) return;
+
+      let newIndex = targetIndex;
+      if (draggedMountIndex < targetIndex) {
+        newIndex = insertAfter ? targetIndex : targetIndex - 1;
+      } else {
+        newIndex = insertAfter ? targetIndex + 1 : targetIndex;
+      }
+      newIndex = Math.max(0, Math.min(newIndex, pinnedMountsList.length));
+
+      pinnedMountsList.splice(newIndex, 0, movedItem);
+
+      // Re-render immédiat (0ms flicker)
+      renderPinnedMounts(pinnedMountsList);
+
+      // Persistance locale et distante
+      const orderedPaths = pinnedMountsList.map(p => p.path);
+      try {
+        localStorage.setItem("steveos_pinned_mounts_order", JSON.stringify(orderedPaths));
+      } catch (e) {}
+
+      try {
+        await fetch("/api/files/pinned-mounts/reorder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paths: orderedPaths })
+        });
+      } catch (err) {
+        console.warn("Erreur sauvegarde ordre distant des épingles:", err);
+      }
+    });
+
+    item.addEventListener("dragend", () => {
+      draggedMountIndex = null;
+      items.forEach(el => {
+        el.classList.remove("is-dragging", "drag-over-top", "drag-over-bottom");
+      });
+    });
+  });
 }
 
 async function pinCurrentFolder() {
@@ -19164,6 +19334,12 @@ async function unpinMountAction(path, event) {
     });
     const json = await res.json();
     if (!json.success) throw new Error(json.message || "Échec");
+
+    try {
+      let savedOrder = JSON.parse(localStorage.getItem("steveos_pinned_mounts_order") || "[]");
+      savedOrder = savedOrder.filter(p => p !== path);
+      localStorage.setItem("steveos_pinned_mounts_order", JSON.stringify(savedOrder));
+    } catch (e) {}
 
     showToast("Point de montage retiré des favoris.", "info");
     await loadPinnedMounts();

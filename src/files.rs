@@ -60,6 +60,30 @@ pub fn normalize_user_path(target: PathBuf) -> PathBuf {
         return target;
     }
 
+    let target_u = crate::updates::target_user();
+    let user_home = crate::updates::get_user_home(&target_u);
+
+    // 0. Redirection automatique des dossiers /home/<utilisateur> inexistants vers le dossier de l'utilisateur actif
+    if target.starts_with("/home") {
+        if let Ok(rel) = target.strip_prefix("/home") {
+            let mut components = rel.components();
+            if let Some(first) = components.next() {
+                let first_name = first.as_os_str().to_string_lossy();
+                if first_name != target_u {
+                    let subpath: PathBuf = components.collect();
+                    let redirected = if subpath.as_os_str().is_empty() {
+                        user_home.clone()
+                    } else {
+                        user_home.join(&subpath)
+                    };
+                    if redirected.exists() {
+                        return redirected;
+                    }
+                }
+            }
+        }
+    }
+
     let path_str = target.to_string_lossy().to_string();
 
     // 1. Remplacement direct des anciens noms avec majuscules et accents
@@ -113,7 +137,7 @@ pub fn list_directory(req_path: Option<&str>) -> Result<DirectoryListing, String
     let target_u = crate::updates::target_user();
     let user_home = crate::updates::get_user_home(&target_u).to_string_lossy().to_string();
     let raw_home = env::var("HOME").unwrap_or_else(|_| user_home.clone());
-    let home = if raw_home == "/root" { user_home } else { raw_home };
+    let home = if raw_home == "/root" { user_home.clone() } else { raw_home };
     let raw_target = req_path
         .map(|p| p.trim())
         .filter(|p| !p.is_empty())
@@ -122,8 +146,18 @@ pub fn list_directory(req_path: Option<&str>) -> Result<DirectoryListing, String
 
     let target = normalize_user_path(raw_target);
 
-    let canonical = target.canonicalize()
-        .map_err(|e| format!("Impossible d'accéder au dossier {} : {}", target.display(), e))?;
+    let canonical = match target.canonicalize() {
+        Ok(c) => c,
+        Err(e) => {
+            // Repli gracieux vers user_home si le dossier demandé est introuvable
+            let fallback_home = crate::updates::get_user_home(&target_u);
+            if target != fallback_home && fallback_home.exists() {
+                fallback_home.canonicalize().unwrap_or(fallback_home)
+            } else {
+                return Err(format!("Impossible d'accéder au dossier {} : {}", target.display(), e));
+            }
+        }
+    };
 
     if !canonical.is_dir() {
         return Err(format!("Le chemin {} n'est pas un dossier valide.", canonical.display()));

@@ -70,7 +70,8 @@ pub fn get_dns_json_paths() -> Vec<PathBuf> {
             paths.push(p);
         }
     }
-    let user_dev_dns = PathBuf::from("/home/chomiam/Projects/steveos-nas/dns.json");
+    let target_u = crate::updates::target_user();
+    let user_dev_dns = crate::updates::get_user_home(&target_u).join("Projects/steveos-nas/dns.json");
     if !paths.contains(&user_dev_dns) {
         paths.push(user_dev_dns);
     }

@@ -173,7 +173,6 @@ pub fn get_vars_nix_paths() -> Vec<PathBuf> {
     for p in &[
         "/etc/nixos/vars.nix",
         "/etc/nixos/steveos-nas/vars.nix",
-        "/home/chomiam/Projects/steveos-nas/vars.nix",
         "./vars.nix",
         "../vars.nix",
     ] {
@@ -181,6 +180,12 @@ pub fn get_vars_nix_paths() -> Vec<PathBuf> {
         if !paths.contains(&pb) {
             paths.push(pb);
         }
+    }
+
+    let target_u = crate::updates::target_user();
+    let dev_vars = crate::updates::get_user_home(&target_u).join("Projects/steveos-nas/vars.nix");
+    if !paths.contains(&dev_vars) {
+        paths.push(dev_vars);
     }
     paths
 }

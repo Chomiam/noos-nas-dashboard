@@ -227,6 +227,7 @@ pub fn api_routes() -> Router {
         .route("/files/trash/empty", post(handle_trash_empty))
         .route("/files/storage-mounts", get(handle_storage_mounts_list))
         .route("/files/pinned-mounts", get(handle_pinned_mounts_list).post(handle_pinned_mounts_add).delete(handle_pinned_mounts_remove))
+        .route("/files/pinned-mounts/reorder", post(handle_pinned_mounts_reorder))
         .route("/files/network/discover", get(handle_network_discover))
         .route("/files/remote-mounts", get(handle_remote_mounts_list).post(handle_remote_mounts_create))
         .route("/files/remote-mounts/:id", delete(handle_remote_mounts_delete))
@@ -2518,6 +2519,28 @@ async fn handle_pinned_mounts_remove(
             success: true,
             data: Some(()),
             message: Some("Point de montage retiré des épinglés.".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReorderPinnedMountsRequest {
+    pub paths: Vec<String>,
+}
+
+async fn handle_pinned_mounts_reorder(
+    Json(body): Json<ReorderPinnedMountsRequest>,
+) -> Json<ApiResponse<Vec<crate::remote_shares::PinnedMount>>> {
+    match crate::remote_shares::reorder_pinned_mounts(&body.paths) {
+        Ok(list) => Json(ApiResponse {
+            success: true,
+            data: Some(list),
+            message: Some("Ordre des épingles mis à jour avec succès.".into()),
         }),
         Err(err) => Json(ApiResponse {
             success: false,
