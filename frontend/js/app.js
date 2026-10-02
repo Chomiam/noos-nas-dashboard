@@ -1224,17 +1224,27 @@ function updateProgressView(data) {
     const wasUpdating = isUpdatingNow;
     isUpdatingNow = false;
 
-    if (panelSpinner) panelSpinner.textContent = "✅";
-    if (toastIcon) toastIcon.textContent = "🎉";
-    if (toastClose) toastClose.style.display = "block";
-    if (toastTitle) toastTitle.textContent = "Mise à jour terminée avec succès !";
-    if (toastDetail) toastDetail.textContent = data.status_detail || "Le système STEvE_OS a été actualisé.";
-    if (toastBar) {
-      toastBar.style.width = "100%";
-      toastBar.style.background = "linear-gradient(90deg, var(--green), var(--teal))";
+    if (data.warning) {
+      if (panelSpinner) panelSpinner.textContent = "⚠️";
+      if (toastIcon) toastIcon.textContent = "⚠️";
+      if (toastTitle) toastTitle.textContent = data.status_title || "Mise à jour appliquée avec avertissements";
+      if (toastDetail) toastDetail.textContent = data.status_detail || "Le système STEvE_OS a été actualisé avec des avertissements.";
+      if (toastBar) {
+        toastBar.style.width = "100%";
+        toastBar.style.background = "linear-gradient(90deg, var(--peach, #fab387), var(--yellow, #f9e2af))";
+      }
+      showToast(data.status_detail || "Mise à jour appliquée avec avertissements.", "warning");
+    } else {
+      if (panelSpinner) panelSpinner.textContent = "✅";
+      if (toastIcon) toastIcon.textContent = "🎉";
+      if (toastTitle) toastTitle.textContent = data.status_title || "Mise à jour terminée avec succès !";
+      if (toastDetail) toastDetail.textContent = data.status_detail || "Le système STEvE_OS a été actualisé.";
+      if (toastBar) {
+        toastBar.style.width = "100%";
+        toastBar.style.background = "linear-gradient(90deg, var(--green), var(--teal))";
+      }
+      showToast("🎉 STEvE_OS a été mis à jour avec succès !", "success");
     }
-
-    showToast("🎉 STEvE_OS a été mis à jour avec succès !", "success");
 
     // Auto-dismiss de la bulle après 10 secondes
     scheduleUpdateToastDismiss(10000);
@@ -1261,6 +1271,15 @@ function updateProgressView(data) {
     if (panelSpinner) panelSpinner.textContent = "❌";
     if (toastIcon) toastIcon.textContent = "❌";
     if (toastClose) toastClose.style.display = "block";
+    if (panelTitle) panelTitle.textContent = data.status_title || "Échec de la mise à jour";
+    if (panelDetail) panelDetail.textContent = data.status_detail || "Une erreur est survenue lors du déploiement.";
+
+    // Ouvrir automatiquement l'accordéon des journaux pour voir le diagnostic
+    const acc = document.getElementById("build-log-accordion");
+    if (acc) {
+      acc.style.display = "block";
+      acc.scrollTop = acc.scrollHeight;
+    }
 
     showToast("Échec de la mise à jour : " + (data.error || data.status_detail), "error");
 

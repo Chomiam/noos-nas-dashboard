@@ -121,6 +121,10 @@ pub struct UpdateProgressState {
     pub current_derivation_index: Option<u32>,
     #[serde(default)]
     pub current_package_name: Option<String>,
+    #[serde(default)]
+    pub failed_units: Vec<String>,
+    #[serde(default)]
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -240,6 +244,8 @@ pub fn get_update_progress() -> UpdateProgressState {
         total_derivations: None,
         current_derivation_index: None,
         current_package_name: None,
+        failed_units: Vec::new(),
+        warning: None,
     }
 }
 
@@ -1376,6 +1382,8 @@ pub fn start_detached_update(force_packages: bool) -> Result<(), String> {
         total_derivations: None,
         current_derivation_index: None,
         current_package_name: None,
+        failed_units: Vec::new(),
+        warning: None,
     };
     save_update_progress(&initial_state);
 
@@ -1489,7 +1497,6 @@ pub fn run_detached_update_process(force_packages: bool) {
     cmd.stderr(std::process::Stdio::piped());
 
     let mut switch_success = false;
-    let mut switch_err = String::new();
 
     if let Ok(mut child) = cmd.spawn() {
         use std::io::BufRead;
@@ -1629,58 +1636,210 @@ pub fn run_detached_update_process(force_packages: bool) {
             }
         }
 
+        let mut exit_code: Option<i32> = None;
+        let mut child_wait_err: Option<String> = None;
         match child.wait() {
             Ok(status) => {
                 switch_success = status.success();
-                if !status.success() {
-                    switch_err = format!("Le processus s'est terminé avec le code {}", status.code().unwrap_or(-1));
-                }
+                exit_code = status.code();
             }
             Err(e) => {
-                switch_err = e.to_string();
+                child_wait_err = Some(e.to_string());
             }
         }
 
+        let (failed_units, root_err) = extract_switch_diagnostics(exit_code, &lines);
+        if !failed_units.is_empty() {
+            append_live_log(&format!("\n⚠️ Diagnostic système : {} unité(s) systemd en échec : {}\n", failed_units.len(), failed_units.join(", ")));
+            let systemctl_bin = find_bin(&[
+                "/run/current-system/sw/bin/systemctl",
+                "systemctl",
+                "/usr/bin/systemctl",
+            ]);
+            for u in &failed_units {
+                if let Ok(st) = Command::new(&systemctl_bin).args(["status", u, "--no-pager", "-n", "5"]).output() {
+                    let st_text = String::from_utf8_lossy(&st.stdout);
+                    if !st_text.trim().is_empty() {
+                        append_live_log(&format!("--- [Journal systemd : {}] ---\n{}\n", u, st_text.trim()));
+                    }
+                }
+            }
+        }
+
+        let cur_gen = get_current_system_generation();
+        let gen_advanced = match (&cur_gen, &state.generation_before) {
+            (Some(new_g), Some(old_g)) => new_g != old_g,
+            (Some(_), None) => true,
+            _ => false,
+        };
+
         let full_output = if lines.len() > 80 {
-            lines[lines.len() - 80..].join("
-")
+            lines[lines.len() - 80..].join("\n")
         } else {
-            lines.join("
-")
+            lines.join("\n")
         };
         state.log_tail = full_output;
-    } else {
-        switch_err = "Impossible de lancer la commande de déploiement.".to_string();
-    }
 
-    if switch_success {
-        let cur_gen = get_current_system_generation();
-        // S'assurer que le service steveos-nas-dashboard est bien relancé avec le nouveau binaire
-        let _ = Command::new("/run/current-system/sw/bin/systemctl")
-            .args(["try-restart", "steveos-nas-dashboard.service"])
-            .status();
+        // Une mise à jour avec code 2, 3 ou 4 où la génération NixOS a progressé
+        // signifie que le système a bien été compilé, bootloader installé et profil basculé.
+        let is_effective_update = switch_success || (gen_advanced && matches!(exit_code, Some(2) | Some(3) | Some(4)));
 
-        let now_ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        state.is_running = false;
-        state.stage = "completed".to_string();
-        state.step_index = 4;
-        state.total_steps = 4;
-        state.progress_percent = 100;
-        state.status_title = "Mise à jour terminée avec succès !".to_string();
-        state.status_detail = format!("Le système est actif sur la génération {}.", cur_gen.clone().unwrap_or_else(|| "suivante".to_string()));
-        state.generation_after = cur_gen;
-        state.completed_at = Some(current_time_formatted());
-        state.completed_timestamp = Some(now_ts);
-        state.dashboard_restarting = false;
-        save_update_progress(&state);
+        if is_effective_update {
+            // S'assurer que le service steveos-nas-dashboard est bien relancé avec le nouveau binaire
+            let _ = Command::new("/run/current-system/sw/bin/systemctl")
+                .args(["try-restart", "steveos-nas-dashboard.service"])
+                .status();
+
+            let now_ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            state.is_running = false;
+            state.stage = "completed".to_string();
+            state.step_index = 4;
+            state.total_steps = 4;
+            state.progress_percent = 100;
+            state.generation_after = cur_gen.clone();
+            state.completed_at = Some(current_time_formatted());
+            state.completed_timestamp = Some(now_ts);
+            state.dashboard_restarting = false;
+
+            if !failed_units.is_empty() || !switch_success {
+                let code_num = exit_code.unwrap_or(4);
+                let failed_str = if failed_units.is_empty() { "services secondaires".to_string() } else { failed_units.join(", ") };
+                state.status_title = "Mise à jour appliquée avec avertissements".to_string();
+                state.status_detail = format!(
+                    "Le système est actif sur la génération {}. Avertissement (code {}) : {} n'a/ont pas pu démarrer.",
+                    cur_gen.unwrap_or_else(|| "suivante".to_string()),
+                    code_num,
+                    failed_str
+                );
+                state.warning = Some(format!("Code de sortie {}. Unités en échec : {}", code_num, failed_str));
+                state.failed_units = failed_units;
+            } else {
+                state.status_title = "Mise à jour terminée avec succès !".to_string();
+                state.status_detail = format!("Le système est actif sur la génération {}.", cur_gen.clone().unwrap_or_else(|| "suivante".to_string()));
+            }
+            save_update_progress(&state);
+        } else {
+            state.is_running = false;
+            state.stage = "failed".to_string();
+            state.status_title = "Échec de la mise à jour".to_string();
+            state.failed_units = failed_units.clone();
+
+            let code_num = exit_code.unwrap_or(-1);
+            let detail = if !failed_units.is_empty() {
+                format!(
+                    "Le processus s'est terminé avec le code {}. Unité(s) en échec : {}. Consultez les journaux ci-dessous.",
+                    code_num,
+                    failed_units.join(", ")
+                )
+            } else if let Some(ref r_err) = root_err {
+                format!("Le processus s'est terminé avec le code {} : {}", code_num, r_err)
+            } else if let Some(ref w_err) = child_wait_err {
+                format!("Erreur d'exécution du processus : {}", w_err)
+            } else {
+                format!("Le processus s'est terminé avec le code {}. Consultez le journal des opérations ci-dessous.", code_num)
+            };
+
+            state.status_detail = detail.clone();
+            state.error = Some(detail);
+            save_update_progress(&state);
+        }
     } else {
         state.is_running = false;
         state.stage = "failed".to_string();
         state.status_title = "Échec de la mise à jour".to_string();
-        state.status_detail = switch_err.clone();
-        state.error = Some(switch_err);
+        let err_msg = "Impossible de lancer la commande de déploiement (nixos-rebuild).".to_string();
+        state.status_detail = err_msg.clone();
+        state.error = Some(err_msg);
         save_update_progress(&state);
     }
+}
+
+pub fn extract_switch_diagnostics(_exit_code: Option<i32>, lines: &[String]) -> (Vec<String>, Option<String>) {
+    let mut failed_units: Vec<String> = Vec::new();
+    let mut root_error: Option<String> = None;
+
+    for line in lines {
+        let trimmed = line.trim();
+
+        // 1. Détection des avertissements de switch-to-configuration NixOS
+        if trimmed.contains("the following units failed:")
+            || trimmed.contains("the following units failed to start:")
+            || trimmed.contains("the following units failed to restart:")
+            || trimmed.contains("the following units failed to reload:")
+            || trimmed.contains("failed to start the following units:")
+        {
+            if let Some(pos) = trimmed.find(':') {
+                let units_part = &trimmed[pos + 1..];
+                for u in units_part.split(',') {
+                    let cleaned = u.trim().trim_matches('\'').trim_matches('"');
+                    if !cleaned.is_empty() && !failed_units.contains(&cleaned.to_string()) {
+                        failed_units.push(cleaned.to_string());
+                    }
+                }
+            }
+        } else if trimmed.starts_with("Failed to start ") || trimmed.starts_with("Failed to restart ") {
+            let u = trimmed
+                .trim_start_matches("Failed to start ")
+                .trim_start_matches("Failed to restart ")
+                .trim()
+                .trim_end_matches('.');
+            if !u.is_empty() && !failed_units.contains(&u.to_string()) {
+                failed_units.push(u.to_string());
+            }
+        } else if trimmed.starts_with("× ") {
+            let rest = trimmed.trim_start_matches("× ");
+            if let Some(unit) = rest.split_whitespace().next() {
+                let u = unit.trim().to_string();
+                if (u.ends_with(".service") || u.ends_with(".mount") || u.ends_with(".target") || u.ends_with(".socket"))
+                    && !failed_units.contains(&u)
+                {
+                    failed_units.push(u);
+                }
+            }
+        }
+
+        // 2. Détection d'erreurs de montage ou de filesystem
+        if (trimmed.starts_with("mount:") || trimmed.contains("wrong fs type") || trimmed.contains("Failed to mount"))
+            && root_error.is_none()
+        {
+            root_error = Some(trimmed.to_string());
+        }
+
+        // 3. Détection d'erreurs Nix générales
+        if (trimmed.starts_with("error:") || trimmed.contains("builder for") && trimmed.contains("failed"))
+            && root_error.is_none()
+        {
+            root_error = Some(trimmed.to_string());
+        }
+    }
+
+    // 4. Interrogation directe de systemctl si des unités sont en échec
+    let systemctl_bin = find_bin(&[
+        "/run/current-system/sw/bin/systemctl",
+        "systemctl",
+        "/usr/bin/systemctl",
+    ]);
+    if let Ok(out) = Command::new(&systemctl_bin)
+        .args(["--failed", "--no-legend", "--plain"])
+        .output()
+    {
+        if out.status.success() {
+            let stdout_str = String::from_utf8_lossy(&out.stdout);
+            for l in stdout_str.lines() {
+                let parts: Vec<&str> = l.split_whitespace().collect();
+                if let Some(unit) = parts.first() {
+                    let u = unit.trim().trim_start_matches('●').trim().to_string();
+                    if (u.ends_with(".service") || u.ends_with(".mount") || u.ends_with(".target") || u.ends_with(".socket"))
+                        && !failed_units.contains(&u)
+                    {
+                        failed_units.push(u);
+                    }
+                }
+            }
+        }
+    }
+
+    (failed_units, root_error)
 }
 
 

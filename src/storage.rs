@@ -1913,15 +1913,30 @@ fn run_create_raid_worker(job: StorageJob) {
         opts.push("compress=zstd".to_string());
     }
 
+    let _ = Command::new("udevadm").args(["settle", "--timeout=3"]).output();
+    let uuid = Command::new("blkid")
+        .args(["-s", "UUID", "-o", "value", &md_device])
+        .output()
+        .ok()
+        .and_then(|o| {
+            let u = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if u.is_empty() { None } else { Some(u) }
+        });
+    let effective_device = if let Some(ref u) = uuid {
+        format!("/dev/disk/by-uuid/{}", u)
+    } else {
+        md_device.clone()
+    };
+
     let mut mounts = load_persisted_mounts();
-    mounts.retain(|m| m.mount_point != *mountpoint && m.device != md_device);
+    mounts.retain(|m| m.mount_point != *mountpoint && m.device != md_device && m.device != effective_device);
     let mount_id = format!("mount-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs());
 
     mounts.push(PersistedMount {
         id: mount_id,
         name: clean_name.clone(),
-        device: md_device.clone(),
-        device_uuid: None,
+        device: effective_device,
+        device_uuid: uuid,
         mount_point: mountpoint.clone(),
         fs_type: fs_type.clone(),
         options: opts,
@@ -1929,7 +1944,6 @@ fn run_create_raid_worker(job: StorageJob) {
         created_at: Some("Aujourd'hui".to_string()),
     });
     let _ = save_persisted_mounts(&mounts);
-    let _ = Command::new("udevadm").args(["settle", "--timeout=3"]).output();
 
     complete_job(job_id, &format!(
         "Pool RAID {} ({}) créé avec succès avec {} disque(s), formaté en {} et monté sur {} !",
@@ -2560,8 +2574,14 @@ pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
                 if u.is_empty() { None } else { Some(u) }
             });
 
+        let effective_device = if let Some(ref u) = uuid {
+            format!("/dev/disk/by-uuid/{}", u)
+        } else {
+            final_block_device.clone()
+        };
+
         let mut mounts = load_persisted_mounts();
-        mounts.retain(|m| m.mount_point != mount_target && m.device != final_block_device);
+        mounts.retain(|m| m.mount_point != mount_target && m.device != final_block_device && m.device != effective_device);
 
         let pool_name = mount_target.trim_start_matches("/mnt/").trim_start_matches("/media/").trim_start_matches('/').to_string();
         let mount_id = format!("mount-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs());
@@ -2569,7 +2589,7 @@ pub fn mount_volume(req: &MountVolumeRequest) -> Result<String, String> {
         mounts.push(PersistedMount {
             id: mount_id,
             name: if pool_name.is_empty() { "storage".to_string() } else { pool_name },
-            device: final_block_device.clone(),
+            device: effective_device,
             device_uuid: uuid,
             mount_point: mount_target.to_string(),
             fs_type: if detected_fs.is_empty() { "auto".to_string() } else { detected_fs },
@@ -2771,8 +2791,23 @@ pub fn create_partition(req: &CreatePartitionRequest) -> Result<String, String> 
             let _ = Command::new("chown").args(["-R", &format!("{}:storage", user), clean_mnt]).output();
             let _ = Command::new("chmod").args(["2775", clean_mnt]).output();
 
+            let _ = Command::new("udevadm").args(["settle", "--timeout=3"]).output();
+            let uuid = Command::new("blkid")
+                .args(["-s", "UUID", "-o", "value", &new_part_path])
+                .output()
+                .ok()
+                .and_then(|o| {
+                    let u = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    if u.is_empty() { None } else { Some(u) }
+                });
+            let effective_device = if let Some(ref u) = uuid {
+                format!("/dev/disk/by-uuid/{}", u)
+            } else {
+                new_part_path.clone()
+            };
+
             let mut mounts = load_persisted_mounts();
-            mounts.retain(|m| m.mount_point != clean_mnt && m.device != new_part_path);
+            mounts.retain(|m| m.mount_point != clean_mnt && m.device != new_part_path && m.device != effective_device);
             let mount_id = format!("mount-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs());
             let mut opts = vec!["defaults".to_string(), "noatime".to_string(), "nofail".to_string()];
             if part_fs == "btrfs" { opts.push("compress=zstd".to_string()); }
@@ -2780,8 +2815,8 @@ pub fn create_partition(req: &CreatePartitionRequest) -> Result<String, String> 
             mounts.push(PersistedMount {
                 id: mount_id,
                 name: label.to_string(),
-                device: new_part_path.clone(),
-                device_uuid: None,
+                device: effective_device,
+                device_uuid: uuid,
                 mount_point: clean_mnt.to_string(),
                 fs_type: part_fs.to_string(),
                 options: opts,
