@@ -8378,7 +8378,7 @@
               <span style="font-size:0.75rem; color:var(--subtext0);">Ne sera jamais partagé</span>
             </label>
             <div style="display:flex; gap:8px;">
-              <input type="password" id="kdrive-input-token" class="form-input" style="flex:1; font-family:var(--font-mono); font-size:0.85rem;" placeholder="Ex: inf_api_xxxxxxxxxxxxxxxxxxxx" required>
+              <input type="password" id="kdrive-input-token" class="form-input" style="flex:1; font-family:var(--font-mono); font-size:0.85rem;" placeholder="Ex: inf_api_xxxxxxxxxxxxxxxxxxxx" oninput="onKDriveManualInput()" required>
               <button type="button" class="btn btn-secondary btn-sm" onclick="toggleKDriveTokenVisibility()" title="Afficher / Masquer le jeton">
                 <span id="kdrive-token-eye-icon">👁️</span>
               </button>

@@ -3303,8 +3303,9 @@ async fn handle_kdrive_detect(
     Json(payload): Json<crate::kdrive::DetectTokenRequest>,
 ) -> Json<ApiResponse<Vec<crate::kdrive::KDriveDriveInfo>>> {
     let token = payload.token;
+    let drive_id = payload.drive_id;
     let res = tokio::task::spawn_blocking(move || {
-        crate::kdrive::test_and_fetch_drives(&token)
+        crate::kdrive::test_and_fetch_drives(&token, drive_id)
     }).await;
 
     match res {

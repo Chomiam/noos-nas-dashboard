@@ -22663,7 +22663,10 @@ function toggleKDriveTokenVisibility() {
 
 async function testAndDetectKDrives() {
   const tokenInp = document.getElementById("kdrive-input-token");
+  const manualIdInp = document.getElementById("kdrive-input-manual-id");
   const token = tokenInp ? tokenInp.value.trim() : "";
+  const manualId = manualIdInp && manualIdInp.value.trim() ? parseInt(manualIdInp.value.trim(), 10) : undefined;
+
   if (!token) {
     showToast("Veuillez saisir votre jeton d'accès API Infomaniak.", "warning");
     return;
@@ -22678,7 +22681,7 @@ async function testAndDetectKDrives() {
     const res = await fetch("/api/kdrive/detect", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token })
+      body: JSON.stringify({ token, drive_id: manualId })
     });
     const json = await res.json();
 
@@ -22697,12 +22700,21 @@ async function testAndDetectKDrives() {
       }
       const detectedSec = document.getElementById("kdrive-detected-section");
       if (detectedSec) detectedSec.style.display = "block";
+      const manualSec = document.getElementById("kdrive-manual-section");
+      if (manualSec && (!manualId || isNaN(manualId))) manualSec.style.display = "none";
       const btnSubmit = document.getElementById("btn-submit-kdrive");
       if (btnSubmit) btnSubmit.disabled = false;
 
-      showToast(`✓ ${json.data.length} kDrive détecté(s) sur votre compte !`, "success");
+      showToast(`✓ kDrive "${json.data[0].name}" (#${json.data[0].id}) validé !`, "success");
     } else {
-      showToast(json.message || "Aucun kDrive trouvé avec ce jeton. Vérifiez les permissions du jeton.", "error");
+      const msg = json.message || "Aucun kDrive trouvé avec ce jeton.";
+      showToast(msg, "warning");
+      const manualSec = document.getElementById("kdrive-manual-section");
+      if (manualSec) {
+        manualSec.style.display = "block";
+        const manualIdInp = document.getElementById("kdrive-input-manual-id");
+        if (manualIdInp && !manualIdInp.value) manualIdInp.focus();
+      }
     }
   } catch (err) {
     showToast("Erreur lors de la détection : " + err, "error");
@@ -22732,11 +22744,13 @@ function toggleKDriveManualMode() {
 }
 
 function onKDriveManualInput() {
+  const tokenInp = document.getElementById("kdrive-input-token");
   const idInp = document.getElementById("kdrive-input-manual-id");
   const btnSubmit = document.getElementById("btn-submit-kdrive");
+  const token = tokenInp ? tokenInp.value.trim() : "";
   const val = idInp ? parseInt(idInp.value.trim(), 10) : 0;
   if (btnSubmit) {
-    btnSubmit.disabled = !val || isNaN(val) || val <= 0;
+    btnSubmit.disabled = !token || !val || isNaN(val) || val <= 0;
   }
 }
 

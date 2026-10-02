@@ -79,6 +79,7 @@ pub struct KDriveDriveInfo {
 #[derive(Debug, Deserialize)]
 pub struct DetectTokenRequest {
     pub token: String,
+    pub drive_id: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -306,10 +307,38 @@ fn curl_api_delete(token: &str, url: &str) -> Result<(), String> {
 // =========================================================================
 
 /// Teste un jeton API Infomaniak et renvoie la liste des drives accessibles.
-pub fn test_and_fetch_drives(token: &str) -> Result<Vec<KDriveDriveInfo>, String> {
+/// Si un drive_id est fourni, teste directement l'accès à ce kDrive.
+pub fn test_and_fetch_drives(token: &str, drive_id_opt: Option<u64>) -> Result<Vec<KDriveDriveInfo>, String> {
     let clean_token = token.trim();
     if clean_token.is_empty() {
         return Err("Le jeton API ne peut pas être vide.".into());
+    }
+
+    // 0. Si un Drive ID spécifique a été fourni, le tester directement via GET /2/drive/{drive_id}
+    if let Some(drive_id) = drive_id_opt {
+        if drive_id > 0 {
+            let res = curl_api_get(clean_token, &format!("https://api.infomaniak.com/2/drive/{}", drive_id));
+            match res {
+                Ok(val) => {
+                    if let Some(data) = val.get("data") {
+                        let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("Mon kDrive").to_string();
+                        let size = data.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let used_size = data.get("used_size").and_then(|v| v.as_u64()).unwrap_or(0);
+                        return Ok(vec![KDriveDriveInfo {
+                            id: drive_id,
+                            name,
+                            size,
+                            used_size,
+                            size_human: format_size(size),
+                            used_size_human: format_size(used_size),
+                        }]);
+                    }
+                }
+                Err(e) => {
+                    return Err(format!("Le kDrive #{} est inaccessible avec ce jeton : {}", drive_id, e));
+                }
+            }
+        }
     }
 
     // 1. Essayer en priorité l'API officielle kDrive v2 : GET /2/drive
@@ -372,9 +401,13 @@ pub fn test_and_fetch_drives(token: &str) -> Result<Vec<KDriveDriveInfo>, String
         }
     }
 
-    // 3. Si les deux ont échoué, retourner l'erreur de l'API Infomaniak
-    if let Err(e) = res_v2 {
-        Err(format!("Erreur API Infomaniak : {}", e))
+    // 3. Diagnostic précis et pédagogique de la cause de l'erreur
+    let err_str = res_v2.err().unwrap_or_default();
+    let prod_err = res_prod.err().unwrap_or_default();
+    if err_str.contains("account id field is required") || prod_err.contains("require this specific scope: \"accounts\"") {
+        Err("Ce jeton possède la permission kDrive mais pas la permission 'Comptes' nécessaire à la détection automatique de l'ID. Renseignez directement l'ID de votre kDrive (le numéro dans l'URL de votre navigateur : ksuite.infomaniak.com/.../drive/ID).".into())
+    } else if !err_str.is_empty() {
+        Err(format!("Erreur API Infomaniak : {}", err_str))
     } else {
         Err("Aucun kDrive n'a pu être détecté pour ce compte. Vérifiez les permissions du jeton API.".into())
     }
@@ -403,7 +436,7 @@ pub fn add_kdrive_account(name: &str, token: &str, drive_id: u64) -> Result<KDri
             total_size = data.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
             used_size = data.get("used_size").and_then(|v| v.as_u64()).unwrap_or(0);
         }
-    } else if let Ok(drives) = test_and_fetch_drives(clean_token) {
+    } else if let Ok(drives) = test_and_fetch_drives(clean_token, Some(drive_id)) {
         if let Some(d) = drives.iter().find(|d| d.id == drive_id) {
             if drive_name.is_empty() {
                 drive_name = d.name.clone();
