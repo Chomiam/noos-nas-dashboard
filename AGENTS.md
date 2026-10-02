@@ -1,7 +1,7 @@
-# 📋 Directives de Développement & Cycle CI/CD — STEvE_OS Dashboard
+# 📋 Directives de Développement & Cycle CI/CD — Noos Dashboard
 
 > **CONSIGNE IMPÉRATIVE POUR L'AGENT IA ET TOUT DÉVELOPPEUR :**
-> À chaque modification du projet `steveos-nas-dashboard`, respecter scrupuleusement les 3 règles fondamentales suivantes.
+> À chaque modification du projet `noos-nas-dashboard`, respecter scrupuleusement les 3 règles fondamentales suivantes.
 
 ---
 
@@ -36,7 +36,7 @@
 ---
 
 ## 🧬 Règle n°4 : Vérification systématique nix-ld pour toute dépendance native
-- Pour toute nouvelle dépendance, outil externe ou bibliothèque requis par le dashboard ou ses services sous-jacents, vérifier systématiquement si des bibliothèques partagées (`.so`) associées doivent être ajoutées dans `modules/services/nix-ld.nix` côté `steveos-nas`.
+- Pour toute nouvelle dépendance, outil externe ou bibliothèque requis par le dashboard ou ses services sous-jacents, vérifier systématiquement si des bibliothèques partagées (`.so`) associées doivent être ajoutées dans `modules/services/nix-ld.nix` côté `noos-nas`.
 
 ---
 

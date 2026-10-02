@@ -1,6 +1,6 @@
-# 🚀 STEvE_OS NAS Dashboard
+# 🚀 Noos NAS Dashboard
 
-Tableau de bord web moderne, léger et ultra-réactif pour **STEvE_OS NAS Edition**.  
+Tableau de bord web moderne, léger et ultra-réactif pour **Noos NAS Edition**.  
 Développé avec un backend performant en **Rust (Axum + Tokio)** et une interface client en **Vanilla JavaScript** habillée du thème **Catppuccin Mocha**.
 
 ---
