@@ -20,6 +20,8 @@ pub struct SambaOverview {
     pub locked_files: Vec<SambaLockedFile>,
     pub global_config: SambaGlobalConfig,
     pub available_users: Vec<String>,
+    #[serde(default)]
+    pub samba_users: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -426,7 +428,8 @@ pub fn get_samba_overview() -> SambaOverview {
     let locked_files = get_detailed_smb_locks();
     let global_config = load_samba_global_config();
 
-    let available_users: Vec<String> = crate::users::get_samba_users().into_iter().collect();
+    let available_users: Vec<String> = crate::users::get_all_human_usernames();
+    let samba_users: Vec<String> = crate::users::get_samba_users().into_iter().collect();
 
     SambaOverview {
         is_active,
@@ -448,6 +451,7 @@ pub fn get_samba_overview() -> SambaOverview {
         locked_files,
         global_config,
         available_users,
+        samba_users,
     }
 }
 

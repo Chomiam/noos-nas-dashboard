@@ -17074,13 +17074,31 @@ function renderUsersList() {
           </div>
 
           <!-- ACTIONS CARD -->
-          ${(isRoot || (typeof mainAdminUser !== 'undefined' && u.username === mainAdminUser)) ? `
+          ${isRoot ? `
             <div style="display: flex; gap: 8px; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 14px; font-size: 0.8rem; color: var(--subtext0);">
-              <span>${isRoot ? '🛡️ Superviseur système' : '👑 Administrateur principal'} (NixOS)</span>
+              <span>🛡️ Superviseur système (root)</span>
               <span style="padding: 2px 8px; border-radius: 4px; background: rgba(243, 139, 168, 0.15); color: var(--red); font-size: 0.72rem; font-weight: 600;">🔒 Immuable</span>
             </div>
+          ` : (typeof mainAdminUser !== 'undefined' && u.username === mainAdminUser) ? `
+            <div style="display: flex; gap: 6px; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 14px; flex-wrap: wrap;">
+              <span style="font-size: 0.75rem; color: var(--mauve); font-weight: 600;">👑 Admin NixOS</span>
+              <div style="display: flex; gap: 6px;">
+                <button type="button" class="btn btn-secondary btn-xs" onclick="openSambaPasswordModal('${escapeHtml(u.username)}')" title="Définir ou synchroniser le mot de passe réseau Samba (SMB)">
+                  <span>📁</span> ${u.samba_enabled ? 'Mdp Samba' : 'Activer Samba'}
+                </button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="openChangePasswordModal('${escapeHtml(u.username)}')" title="Changer le mot de passe">
+                  <span>🔑</span> Mdp
+                </button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="openEditUserModal('${escapeHtml(u.username)}')" title="Modifier les informations (profil, avatar)">
+                  <span>✏️</span> Profil
+                </button>
+              </div>
+            </div>
           ` : `
-            <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 14px;">
+            <div style="display: flex; gap: 6px; justify-content: flex-end; align-items: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 14px;">
+              <button type="button" class="btn btn-secondary btn-xs" onclick="openSambaPasswordModal('${escapeHtml(u.username)}')" title="Configurer l'accès Samba (SMB)">
+                <span>📁</span> ${u.samba_enabled ? 'Samba' : '+ SMB'}
+              </button>
               <button type="button" class="btn btn-secondary btn-xs" onclick="openEditUserModal('${escapeHtml(u.username)}')" title="Modifier les informations et groupes">
                 <span>✏️</span> Modifier
               </button>
@@ -17140,10 +17158,17 @@ function renderUsersList() {
             <div style="color: var(--subtext0); font-size: 0.75rem;">${u.shell.endsWith('nologin') ? 'Pas de shell' : escapeHtml(u.shell.split('/').pop())}</div>
           </td>
           <td style="padding: 12px 16px; text-align: right;">
-            ${(isRoot || (typeof mainAdminUser !== 'undefined' && u.username === mainAdminUser)) ? `
+            ${isRoot ? `
               <span style="padding: 3px 8px; border-radius: 4px; background: rgba(243, 139, 168, 0.15); color: var(--red); font-size: 0.72rem; font-weight: 600;">🔒 Immuable</span>
+            ` : (typeof mainAdminUser !== 'undefined' && u.username === mainAdminUser) ? `
+              <div style="display: flex; gap: 6px; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary btn-xs" onclick="openSambaPasswordModal('${escapeHtml(u.username)}')" title="Mot de passe Samba">📁 SMB</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="openChangePasswordModal('${escapeHtml(u.username)}')" title="Mot de passe">🔑 Mdp</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="openEditUserModal('${escapeHtml(u.username)}')" title="Profil">✏️</button>
+              </div>
             ` : `
               <div style="display: flex; gap: 6px; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary btn-xs" onclick="openSambaPasswordModal('${escapeHtml(u.username)}')" title="Accès Samba">📁</button>
                 <button type="button" class="btn btn-secondary btn-xs" onclick="openEditUserModal('${escapeHtml(u.username)}')" title="Modifier">✏️</button>
                 <button type="button" class="btn btn-secondary btn-xs" onclick="openChangePasswordModal('${escapeHtml(u.username)}')" title="Mot de passe">🔑</button>
                 ${!isSelf ? `
@@ -17723,11 +17748,81 @@ async function submitChangePassword() {
     if (res && res.success) {
       showToast(`Mot de passe modifié pour '${username}'.`, "success");
       closeChangePasswordModal();
+      loadUsersAndGroups();
+      if (typeof loadSambaOverview === 'function') loadSambaOverview();
     } else {
       showToast(res.error || "Erreur de modification du mot de passe", "error");
     }
   } catch (err) {
     showToast("Erreur de connexion", "error");
+  }
+}
+
+// --------------------------------------------------------------------------
+// MODAL MOT DE PASSE SAMBA (SMB)
+// --------------------------------------------------------------------------
+function openSambaPasswordModal(username) {
+  const user = (usersData || []).find(u => u.username === username);
+  const uName = user ? user.username : username;
+  document.getElementById('sp-username').value = uName;
+  const userDisplay = document.getElementById('sp-user-display');
+  if (userDisplay) userDisplay.textContent = `'${uName}'`;
+  const title = document.getElementById('sp-modal-title');
+  if (title) title.textContent = `Accès Samba (SMB) — ${uName}`;
+  document.getElementById('sp-password').value = '';
+  document.getElementById('sp-password-confirm').value = '';
+  const modal = document.getElementById('modal-samba-password');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeSambaPasswordModal() {
+  const modal = document.getElementById('modal-samba-password');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitSambaPassword() {
+  const username = document.getElementById('sp-username')?.value;
+  const pwd = document.getElementById('sp-password')?.value;
+  const pwdConfirm = document.getElementById('sp-password-confirm')?.value;
+  const btn = document.getElementById('btn-sp-submit');
+
+  if (!username) return;
+  if (!pwd || pwd.length < 1) {
+    showToast("Veuillez saisir un mot de passe pour Samba.", "warning");
+    return;
+  }
+  if (pwd !== pwdConfirm) {
+    showToast("Les deux mots de passe ne correspondent pas.", "error");
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span>⏳</span> Configuration...`;
+  }
+
+  try {
+    const res = await fetch(`/api/users/${username}/samba-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pwd })
+    }).then(r => r.json());
+
+    if (res && res.success) {
+      showToast(`Accès Samba configuré et activé pour '${username}' !`, "success");
+      closeSambaPasswordModal();
+      loadUsersAndGroups();
+      if (typeof loadSambaOverview === 'function') loadSambaOverview();
+    } else {
+      showToast(res.error || "Erreur lors de la configuration Samba", "error");
+    }
+  } catch (err) {
+    showToast("Erreur de communication avec le serveur", "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<span>💾</span> Enregistrer l'Accès Samba`;
+    }
   }
 }
 
@@ -19469,6 +19564,7 @@ function renderSambaUsersCheckboxes(selectedUsers = []) {
 
   const currentU = getCurrentDashboardUsername();
   const users = currentSambaData?.available_users || [currentU];
+  const smbUsers = currentSambaData?.samba_users || [];
   if (users.length === 0) {
     container.innerHTML = `<div style="color:var(--subtext0); font-size:0.8rem;">Aucun utilisateur spécifique détecté sur le système.</div>`;
     return;
@@ -19476,10 +19572,17 @@ function renderSambaUsersCheckboxes(selectedUsers = []) {
 
   container.innerHTML = users.map(user => {
     const isChecked = selectedUsers.includes(user) || (selectedUsers.length === 0 && user === currentU);
+    const hasSamba = smbUsers.includes(user);
+    const statusBadge = hasSamba
+      ? `<span style="font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; background: rgba(166, 227, 161, 0.15); color: #a6e3a1; border: 1px solid rgba(166, 227, 161, 0.3); margin-left: 6px;">Samba OK</span>`
+      : `<span style="font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; background: rgba(250, 179, 135, 0.15); color: #fab387; border: 1px solid rgba(250, 179, 135, 0.3); margin-left: 6px;" title="Cet utilisateur n'a pas encore configuré de mot de passe Samba réseau">⚠️ Mot de passe SMB requis</span>`;
     return `
       <label class="samba-user-checkbox-item">
         <input type="checkbox" name="samba-user-perm" value="${escapeHtml(user)}" ${isChecked ? "checked" : ""}>
-        <span><strong>${escapeHtml(user)}</strong></span>
+        <div style="display:inline-flex; align-items:center; gap:4px;">
+          <span><strong>${escapeHtml(user)}</strong></span>
+          ${statusBadge}
+        </div>
       </label>
     `;
   }).join("");

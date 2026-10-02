@@ -285,6 +285,26 @@ pub fn get_samba_users() -> HashSet<String> {
     smb_users
 }
 
+// Récupération de tous les noms d'utilisateurs humains éligibles
+pub fn get_all_human_usernames() -> Vec<String> {
+    let mut names = Vec::new();
+    if let Ok(passwd_content) = std::fs::read_to_string("/etc/passwd") {
+        for line in passwd_content.lines() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() >= 7 {
+                let username = parts[0].to_string();
+                let uid: u32 = parts[2].parse().unwrap_or(9999);
+                let home_dir = parts[5];
+                if is_human_user(&username, uid, home_dir) && username != "root" {
+                    names.push(username);
+                }
+            }
+        }
+    }
+    names.sort();
+    names
+}
+
 // Construction en mémoire ultra-rapide (< 1 ms) de la table d'appartenance aux groupes
 fn build_user_groups_map() -> HashMap<String, HashSet<String>> {
     let mut user_groups: HashMap<String, HashSet<String>> = HashMap::new();
@@ -995,7 +1015,10 @@ pub async fn handle_users_update(
     if let Some(samba_access) = body.samba_access {
         let smbpasswd_bin = find_bin("smbpasswd");
         if samba_access {
-            let _ = Command::new(&smbpasswd_bin).args(["-e", &username]).status();
+            let smb_users = get_samba_users();
+            if smb_users.contains(&username) {
+                let _ = Command::new(&smbpasswd_bin).args(["-e", &username]).status();
+            }
         } else {
             let _ = Command::new(&smbpasswd_bin).args(["-d", &username]).status();
         }
@@ -1118,21 +1141,50 @@ pub async fn handle_users_change_password(
     // Synchronisation Samba si demandée
     if body.update_samba.unwrap_or(true) {
         let smbpasswd_bin = find_bin("smbpasswd");
-        if let Ok(mut child) = Command::new(smbpasswd_bin)
-            .args(["-s", &username])
+        let smb_users = get_samba_users();
+        let is_existing = smb_users.contains(&username);
+        let args = if is_existing {
+            vec!["-s", username.as_str()]
+        } else {
+            vec!["-s", "-a", username.as_str()]
+        };
+
+        let mut ok = false;
+        if let Ok(mut child) = Command::new(&smbpasswd_bin)
+            .args(&args)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
         {
             if let Some(mut stdin) = child.stdin.take() {
-                let payload = format!("{}
-{}
-", body.password, body.password);
+                let payload = format!("{}\n{}\n", body.password, body.password);
                 let _ = stdin.write_all(payload.as_bytes());
             }
-            let _ = child.wait();
+            if let Ok(status) = child.wait() {
+                ok = status.success();
+            }
         }
+
+        // Si l'exécution a échoué (ex: -s sur un compte manquant de passdb), tenter un ajout forcé avec -s -a
+        if !ok {
+            if let Ok(mut child) = Command::new(&smbpasswd_bin)
+                .args(["-s", "-a", username.as_str()])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let payload = format!("{}\n{}\n", body.password, body.password);
+                    let _ = stdin.write_all(payload.as_bytes());
+                }
+                let _ = child.wait();
+            }
+        }
+
+        // S'assurer que le compte Samba est actif
+        let _ = Command::new(&smbpasswd_bin).args(["-e", username.as_str()]).status();
     }
 
     // Révocation des sessions actives si demandée
@@ -1148,6 +1200,108 @@ pub async fn handle_users_change_password(
         })),
     )
         .into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetSambaPasswordRequest {
+    pub password: String,
+}
+
+// POST /api/users/:username/samba-password
+pub async fn handle_users_set_samba_password(
+    Path(username): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<SetSambaPasswordRequest>,
+) -> Response {
+    let _session = match auth::get_session_from_headers(&headers).await {
+        Some(s) if s.is_admin || s.username == username => s,
+        _ => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "Accès refusé. Privilèges administrateur requis."
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    if body.password.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Le mot de passe Samba ne peut pas être vide."
+            })),
+        )
+            .into_response();
+    }
+
+    let smbpasswd_bin = find_bin("smbpasswd");
+    let smb_users = get_samba_users();
+    let is_existing = smb_users.contains(&username);
+    let args = if is_existing {
+        vec!["-s", username.as_str()]
+    } else {
+        vec!["-s", "-a", username.as_str()]
+    };
+
+    let mut success = false;
+    if let Ok(mut child) = Command::new(&smbpasswd_bin)
+        .args(&args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        if let Some(mut stdin) = child.stdin.take() {
+            let payload = format!("{}\n{}\n", body.password, body.password);
+            let _ = stdin.write_all(payload.as_bytes());
+        }
+        if let Ok(status) = child.wait() {
+            success = status.success();
+        }
+    }
+
+    if !success {
+        if let Ok(mut child) = Command::new(&smbpasswd_bin)
+            .args(["-s", "-a", username.as_str()])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            if let Some(mut stdin) = child.stdin.take() {
+                let payload = format!("{}\n{}\n", body.password, body.password);
+                let _ = stdin.write_all(payload.as_bytes());
+            }
+            if let Ok(status) = child.wait() {
+                success = status.success();
+            }
+        }
+    }
+
+    if success {
+        let _ = Command::new(&smbpasswd_bin).args(["-e", &username]).status();
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "message": format!("Mot de passe Samba configuré avec succès pour '{}'.", username)
+            })),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Échec de l'enregistrement du mot de passe dans Samba via smbpasswd."
+            })),
+        )
+            .into_response()
+    }
 }
 
 // POST /api/users/:username/toggle-lock

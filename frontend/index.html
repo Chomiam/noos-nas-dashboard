@@ -6857,6 +6857,39 @@
     </div>
   </div>
 
+  <!-- MODAL : ACCÈS & MOT DE PASSE SAMBA (SMB) -->
+  <div class="file-modal-overlay" id="modal-samba-password" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-samba-password')">
+    <div class="file-modal-window" style="max-width: 480px;">
+      <div class="file-modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.06); padding: 18px 24px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 1.4rem;">📁🔑</span>
+          <span class="file-modal-title" id="sp-modal-title">Accès Réseau Samba (SMB)</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeSambaPasswordModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 24px;">
+        <input type="hidden" id="sp-username">
+        <p style="font-size: 0.85rem; color: var(--subtext0); margin: 0 0 16px 0; line-height: 1.4;">
+          Définissez ou synchronisez le mot de passe réseau Samba pour <strong id="sp-user-display" style="color: var(--text);"></strong>. Ce mot de passe permet d'authentifier les connexions SMB depuis l'Explorateur Windows (<code style="color:var(--sapphire);">\\steveos-nas</code>), macOS Finder (<code style="color:var(--sapphire);">smb://steveos-nas</code>) ou Linux.
+        </p>
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text);">Mot de passe Samba *</label>
+          <input type="password" id="sp-password" class="form-control" placeholder="••••••••" style="width: 100%;">
+        </div>
+        <div class="form-group" style="margin-bottom: 10px;">
+          <label style="display: block; font-weight: 600; margin-bottom: 6px; color: var(--text);">Confirmer le mot de passe Samba *</label>
+          <input type="password" id="sp-password-confirm" class="form-control" placeholder="••••••••" style="width: 100%;">
+        </div>
+      </div>
+      <div class="file-modal-footer" style="padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeSambaPasswordModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" id="btn-sp-submit" onclick="submitSambaPassword()">
+          <span>💾</span> Enregistrer l'Accès Samba
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL 4 : CRÉATION DE GROUPE -->
   <div class="file-modal-overlay" id="modal-create-group" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-create-group')">
     <div class="file-modal-window" style="max-width: 480px;">
