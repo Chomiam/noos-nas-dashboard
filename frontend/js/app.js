@@ -16542,6 +16542,16 @@ let isGameConsoleExpanded = false;
 let isGameConsoleProgrammaticScrolling = false;
 let lastGameConsoleRawMap = {};
 
+function isMinecraftServer(server) {
+  if (!server) return false;
+  const egg = (server.egg_id || "").toLowerCase();
+  const game = (server.game_name || "").toLowerCase();
+  const name = (server.name || "").toLowerCase();
+  if (egg.includes("minecraft") || game.includes("minecraft") || name.includes("minecraft")) return true;
+  if (server.env && (server.env.MINECRAFT_VERSION || server.env.MINECRAFT_LOADER)) return true;
+  return false;
+}
+
 function updateGameConsoleSelectOptions() {
   const sel = document.getElementById("game-console-server-select");
   if (!sel) return;
@@ -16553,11 +16563,15 @@ function updateGameConsoleSelectOptions() {
     return;
   }
 
-  sel.innerHTML = gameServersData.map(s => `
-    <option value="${s.id}" ${s.id === activeConsoleServerId ? 'selected' : ''}>
-      ${escapeHtml(s.name)} (${s.status === 'online' ? '🟢 En ligne' : (s.status === 'starting' ? '🚀 Démarrage...' : (s.status === 'error' ? '⚠️ Erreur' : '⏹️ Arrêté'))})
-    </option>
-  `).join('');
+  sel.innerHTML = gameServersData.map(s => {
+    const gameTitle = s.game_name || s.name;
+    const statusLabel = s.status === 'online' ? '🟢 En ligne' : (s.status === 'starting' ? '🚀 Démarrage...' : (s.status === 'error' ? '⚠️ Erreur' : '⏹️ Arrêté'));
+    return `
+      <option value="${s.id}" ${s.id === activeConsoleServerId ? 'selected' : ''}>
+        ${escapeHtml(gameTitle)} (${statusLabel})
+      </option>
+    `;
+  }).join('');
 
   if (!activeConsoleServerId && gameServersData.length > 0) {
     activeConsoleServerId = gameServersData[0].id;
@@ -16584,6 +16598,18 @@ function updateConsoleHeaderStats(server) {
   const valWg = document.getElementById("console-ip-wg");
   const chipPub = document.getElementById("chip-ip-public");
   const valPub = document.getElementById("console-ip-public");
+
+  // Masquer ou afficher Modrinth Hub et Addons selon que le serveur actif est Minecraft
+  const btnModrinth = document.getElementById("tab-btn-console-modrinth");
+  const btnAddons = document.getElementById("tab-btn-console-addons");
+  const isMc = isMinecraftServer(server);
+
+  if (btnModrinth) btnModrinth.style.display = isMc ? "" : "none";
+  if (btnAddons) btnAddons.style.display = isMc ? "" : "none";
+
+  if (!isMc && (activeGameConsoleView === 'modrinth' || activeGameConsoleView === 'addons')) {
+    switchGameConsoleView('terminal');
+  }
 
   if (!server) {
     if (statusPill) statusPill.className = "game-console-status badge-stopped";
@@ -17052,6 +17078,14 @@ let installedAddonsSearchQuery = '';
  * Bascule entre l'affichage Terminal/Logs, Modrinth Hub et Addons Installés
  */
 function switchGameConsoleView(view) {
+  const current = gameServersData.find(s => s.id === activeConsoleServerId);
+  const isMc = isMinecraftServer(current);
+
+  if ((view === 'modrinth' || view === 'addons') && !isMc) {
+    showToast("Le Modrinth Hub est exclusivement réservé aux serveurs Minecraft.", "warning");
+    view = 'terminal';
+  }
+
   activeGameConsoleView = view;
 
   // Mise à jour visuelle des boutons de navigation
@@ -17091,8 +17125,27 @@ function switchGameConsoleView(view) {
  * Détecte le profil Minecraft (chargeur et version) pour le serveur actif
  */
 async function detectAndInitMinecraftModrinth(serverId) {
+  const btnModrinth = document.getElementById("tab-btn-console-modrinth");
+  const btnAddons = document.getElementById("tab-btn-console-addons");
+
   if (!serverId) {
     currentMinecraftProfile = null;
+    if (btnModrinth) btnModrinth.style.display = "none";
+    if (btnAddons) btnAddons.style.display = "none";
+    updateModrinthProfileUI(null);
+    return;
+  }
+
+  const current = gameServersData.find(s => s.id === serverId);
+  const isMcFast = isMinecraftServer(current);
+
+  if (!isMcFast) {
+    currentMinecraftProfile = null;
+    if (btnModrinth) btnModrinth.style.display = "none";
+    if (btnAddons) btnAddons.style.display = "none";
+    if (activeGameConsoleView === 'modrinth' || activeGameConsoleView === 'addons') {
+      switchGameConsoleView('terminal');
+    }
     updateModrinthProfileUI(null);
     return;
   }
@@ -17126,42 +17179,49 @@ function updateModrinthProfileUI(profile) {
   const warningNonMc = document.getElementById("modrinth-not-minecraft-alert");
   const manualLoader = document.getElementById("modrinth-manual-loader");
   const manualVersion = document.getElementById("modrinth-manual-version");
+  const btnModrinth = document.getElementById("tab-btn-console-modrinth");
+  const btnAddons = document.getElementById("tab-btn-console-addons");
 
-  if (profile && profile.is_minecraft) {
-    const loaderName = (profile.loader || "Serveur").toUpperCase();
-    const verText = profile.game_version ? `v${profile.game_version}` : "Dernière version";
+  const current = gameServersData.find(s => s.id === activeConsoleServerId);
+  const isMc = (profile && profile.is_minecraft) || isMinecraftServer(current);
 
-    if (badgeProfile) {
-      badgeProfile.textContent = `${loaderName} ${profile.game_version || ''}`.trim();
-      badgeProfile.style.display = "inline-flex";
+  if (btnModrinth) btnModrinth.style.display = isMc ? "" : "none";
+  if (btnAddons) btnAddons.style.display = isMc ? "" : "none";
+
+  if (!isMc) {
+    if (activeGameConsoleView === 'modrinth' || activeGameConsoleView === 'addons') {
+      switchGameConsoleView('terminal');
     }
+    return;
+  }
 
-    if (pillSummary) {
-      pillSummary.innerHTML = `<strong>${loaderName}</strong> • ${verText}`;
-    }
+  const loaderVal = profile ? (profile.detected_loader || profile.loader || "Serveur") : "Serveur";
+  const loaderName = loaderVal.toUpperCase();
+  const verVal = profile ? (profile.detected_version || profile.game_version) : null;
+  const verText = verVal ? `v${verVal}` : "Dernière version";
 
-    if (warningNonMc) warningNonMc.style.display = "none";
+  if (badgeProfile) {
+    badgeProfile.textContent = `${loaderName} ${verVal || ''}`.trim();
+    badgeProfile.style.display = "inline-flex";
+  }
 
-    // Pré-remplit les filtres manuels
-    if (manualLoader && profile.loader) manualLoader.value = profile.loader.toLowerCase();
-    if (manualVersion && profile.game_version) manualVersion.value = profile.game_version;
+  if (pillSummary) {
+    pillSummary.innerHTML = `<strong>${loaderName}</strong> • ${verText}`;
+  }
 
-    // Prérégler intelligemment le type selon le loader si aucun filtre sélectionné
-    if (!modrinthCurrentType) {
-      if (profile.supports_plugins && !profile.supports_mods) {
-        setModrinthFilterType('plugin', false);
-      } else if (profile.supports_mods && !profile.supports_plugins) {
-        setModrinthFilterType('mod', false);
-      }
+  if (warningNonMc) warningNonMc.style.display = "none";
+
+  // Pré-remplit les filtres manuels
+  if (manualLoader && loaderVal) manualLoader.value = loaderVal.toLowerCase();
+  if (manualVersion && verVal) manualVersion.value = verVal;
+
+  // Prérégler intelligemment le type selon le loader si aucun filtre sélectionné
+  if (!modrinthCurrentType && profile) {
+    if (profile.supports_plugins && !profile.supports_mods) {
+      setModrinthFilterType('plugin', false);
+    } else if (profile.supports_mods && !profile.supports_plugins) {
+      setModrinthFilterType('mod', false);
     }
-  } else {
-    if (badgeProfile) {
-      badgeProfile.textContent = "Catalogue Général";
-    }
-    if (pillSummary) {
-      pillSummary.textContent = "Serveur standard";
-    }
-    if (warningNonMc) warningNonMc.style.display = "flex";
   }
 }
 

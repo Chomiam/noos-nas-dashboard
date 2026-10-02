@@ -620,6 +620,7 @@ pub struct ToggleAddonRequest {
 pub struct MinecraftServerProfile {
     pub server_id: String,
     pub server_name: String,
+    pub is_minecraft: bool,
     pub detected_loader: String,
     pub detected_version: String,
     pub preferred_type: String, // "plugin" ou "mod"
@@ -795,6 +796,31 @@ pub fn get_modrinth_project_versions(
         .map_err(|e| format!("Format de versions Modrinth invalide : {}", e))
 }
 
+/// Détermine de manière stricte si un serveur est un serveur Minecraft (Java ou Bedrock)
+pub fn is_minecraft_server(server: &crate::games::GameServer) -> bool {
+    let egg_id = server.egg_id.to_lowercase();
+    let game_name = server.game_name.to_lowercase();
+    let name = server.name.to_lowercase();
+
+    if egg_id.contains("minecraft") || game_name.contains("minecraft") || name.contains("minecraft") {
+        return true;
+    }
+    if server.env.contains_key("MINECRAFT_VERSION") || server.env.contains_key("MINECRAFT_LOADER") {
+        return true;
+    }
+    let data_path = PathBuf::from(&server.data_dir);
+    if data_path.join("server.properties").exists()
+        || data_path.join("paper.yml").exists()
+        || data_path.join("paper.toml").exists()
+        || data_path.join("purpur.yml").exists()
+        || data_path.join("fabric-server-launch.jar").exists()
+        || data_path.join("eula.txt").exists()
+    {
+        return true;
+    }
+    false
+}
+
 /// Détecte le profil Minecraft d'un serveur (loader, version, mods/plugins)
 pub fn detect_minecraft_profile(server_id: &str) -> Result<MinecraftServerProfile, String> {
     let servers = crate::games::load_saved_servers();
@@ -802,6 +828,22 @@ pub fn detect_minecraft_profile(server_id: &str) -> Result<MinecraftServerProfil
         .into_iter()
         .find(|s| s.id == server_id)
         .ok_or_else(|| format!("Serveur de jeu '{}' introuvable", server_id))?;
+
+    if !is_minecraft_server(&server) {
+        return Ok(MinecraftServerProfile {
+            server_id: server.id,
+            server_name: server.name,
+            is_minecraft: false,
+            detected_loader: String::new(),
+            detected_version: String::new(),
+            preferred_type: String::new(),
+            supports_plugins: false,
+            supports_mods: false,
+            data_dir: server.data_dir,
+            installed_mods_count: 0,
+            installed_plugins_count: 0,
+        });
+    }
 
     let data_path = PathBuf::from(&server.data_dir);
 
@@ -868,6 +910,7 @@ pub fn detect_minecraft_profile(server_id: &str) -> Result<MinecraftServerProfil
     Ok(MinecraftServerProfile {
         server_id: server.id,
         server_name: server.name,
+        is_minecraft: true,
         detected_loader,
         detected_version,
         preferred_type,
@@ -889,6 +932,10 @@ pub fn install_modrinth_addon(
         .into_iter()
         .find(|s| s.id == server_id)
         .ok_or_else(|| format!("Serveur de jeu '{}' introuvable", server_id))?;
+
+    if !is_minecraft_server(&server) {
+        return Err("Ce serveur n'est pas un serveur Minecraft (Modrinth est réservé aux serveurs Minecraft).".into());
+    }
 
     // 1. Validation stricte du nom de fichier
     let safe_filename = req.filename.trim();
@@ -975,6 +1022,10 @@ pub fn list_installed_addons(server_id: &str) -> Result<Vec<InstalledAddonItem>,
         .into_iter()
         .find(|s| s.id == server_id)
         .ok_or_else(|| format!("Serveur de jeu '{}' introuvable", server_id))?;
+
+    if !is_minecraft_server(&server) {
+        return Ok(Vec::new());
+    }
 
     let data_path = PathBuf::from(&server.data_dir);
     let mut items = Vec::new();
