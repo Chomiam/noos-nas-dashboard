@@ -826,15 +826,16 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
         "https://github.com/Chomiam/noos-nas-dashboard.git",
     ];
 
-    let dashboard_target_ref = format!("refs/heads/{}", preferred_branch);
+    let preferred_dashboard_branch = if active_channel == "testing" { "testing" } else { "stable" };
+    let dashboard_target_ref = format!("refs/heads/{}", preferred_dashboard_branch);
     for dashboard_git_url in &candidate_dashboard_urls {
         let mut ls_out = Command::new(git_binary())
             .args(["-c", "safe.directory=*", "ls-remote", dashboard_git_url, &dashboard_target_ref])
             .output();
 
-        if ls_out.as_ref().map(|o| !o.status.success() || String::from_utf8_lossy(&o.stdout).trim().is_empty()).unwrap_or(true) && preferred_branch != "main" {
+        if ls_out.as_ref().map(|o| !o.status.success() || String::from_utf8_lossy(&o.stdout).trim().is_empty()).unwrap_or(true) && preferred_dashboard_branch != "stable" {
             ls_out = Command::new(git_binary())
-                .args(["-c", "safe.directory=*", "ls-remote", dashboard_git_url, "refs/heads/main"])
+                .args(["-c", "safe.directory=*", "ls-remote", dashboard_git_url, "refs/heads/stable"])
                 .output();
         }
 
@@ -962,7 +963,8 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
 
                     let owner = original.and_then(|o| o.get("owner")).and_then(|o| o.as_str()).unwrap_or("");
                     let repo = original.and_then(|o| o.get("repo")).and_then(|r| r.as_str()).unwrap_or("");
-                    let ref_branch = original.and_then(|o| o.get("ref")).and_then(|r| r.as_str()).unwrap_or("main");
+                    let default_ref = if repo == "noos-nas-dashboard" { "stable" } else { "main" };
+                    let ref_branch = original.and_then(|o| o.get("ref")).and_then(|r| r.as_str()).unwrap_or(default_ref);
 
                     if !owner.is_empty() && !repo.is_empty() {
                         let remote_git_url = format!("https://github.com/{}/{}", owner, repo);
@@ -1828,7 +1830,7 @@ pub fn run_detached_update_process(force_packages: bool) {
                 .output();
         } else {
             let _ = Command::new(&nix_bin)
-                .args(["flake", "lock", "--override-input", "noos-nas-dashboard", "github:Chomiam/noos-nas-dashboard/main"])
+                .args(["flake", "lock", "--override-input", "noos-nas-dashboard", "github:Chomiam/noos-nas-dashboard/stable"])
                 .current_dir(&config_dir)
                 .output();
         }
@@ -2229,7 +2231,7 @@ fn run_switch_command(config_dir: &Path, update_inputs: bool) -> (bool, String) 
                 .output();
         } else {
             let _ = Command::new(&nix_bin)
-                .args(["flake", "lock", "--override-input", "noos-nas-dashboard", "github:Chomiam/noos-nas-dashboard/main"])
+                .args(["flake", "lock", "--override-input", "noos-nas-dashboard", "github:Chomiam/noos-nas-dashboard/stable"])
                 .current_dir(config_dir)
                 .output();
         }

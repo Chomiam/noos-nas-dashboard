@@ -21,7 +21,7 @@
      ```bash
      git tag -a vX.Y.Z -m "Release vX.Y.Z : résumé des nouveautés"
      ```
-  3. **Pousser sur GitHub** (`git push origin main --tags`) pour déclencher automatiquement le workflow GitHub Actions CI/CD.
+  3. **Pousser sur GitHub** (`git push origin testing --tags` ou `git push origin stable --tags`) pour déclencher automatiquement le workflow GitHub Actions CI/CD.
 
 ---
 

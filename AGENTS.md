@@ -7,7 +7,7 @@
 
 ## 🛡️ Règle Première Absolue : Publication exclusive sur la branche `testing`
 - **Toute modification, commit, tag et publication doivent obligatoirement et exclusivement être effectués sur la branche `testing`.**
-- **Interdiction formelle absolue de publier, pousser ou fusionner sur la branche `main` (Stable) sauf si l'utilisateur donne l'instruction explicite et formelle de publier en stable.**
+- **Interdiction formelle absolue de publier, pousser ou fusionner sur la branche `stable` (Stable) sauf si l'utilisateur donne l'instruction explicite et formelle de publier en stable.**
 - **Cycle de travail standard :**
   1. Travailler sur la branche `testing` (`git checkout testing`).
   2. Valider le code localement par des vérifications ultra-légères (`cargo check`, `node -c`).
@@ -15,7 +15,7 @@
      ```bash
      git push origin testing --tags
      ```
-  4. La branche `main` (Stable) demeure sanctuarisée et réservée aux releases majeures expressément demandées.
+  4. La branche `stable` (Stable) demeure sanctuarisée et réservée aux releases majeures expressément demandées.
 
 ---
 
