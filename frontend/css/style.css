@@ -1492,16 +1492,19 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
+  flex-wrap: wrap;
+  row-gap: 8px;
 }
 
 .files-toolbar-left {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: nowrap;
+  gap: 6px;
+  flex-wrap: wrap;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .files-btn-group {
@@ -1513,22 +1516,24 @@ kbd {
 .files-actions-group {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .files-toolbar-divider {
   width: 1px;
-  height: 22px;
+  height: 20px;
   background: rgba(255, 255, 255, 0.1);
-  margin: 0 4px;
+  margin: 0 2px;
   flex-shrink: 0;
 }
 
 .files-toolbar-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 /* Tier 2 : Barre de chemin / Fil d'Ariane */
@@ -1643,8 +1648,13 @@ kbd {
   background: var(--mantle);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-md);
-  padding: 4px 10px;
+  padding: 4px 8px;
   gap: 6px;
+  transition: border-color 0.2s ease;
+}
+
+.files-search-box:focus-within {
+  border-color: var(--mauve);
 }
 
 .files-search-input {
@@ -1653,6 +1663,11 @@ kbd {
   outline: none;
   color: var(--text);
   font-size: 0.82rem;
+  width: 120px;
+  transition: width 0.2s ease;
+}
+
+.files-search-input:focus {
   width: 140px;
 }
 
@@ -16436,7 +16451,7 @@ body.app-updating-reload #app-shell {
   background: var(--mantle);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: var(--subtext0);
-  padding: 6px 13px;
+  padding: 6px 11px;
   border-radius: 6px;
   font-size: 0.82rem;
   font-weight: 600;
@@ -16444,7 +16459,7 @@ body.app-updating-reload #app-shell {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
