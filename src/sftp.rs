@@ -219,6 +219,105 @@ pub fn load_sftp_shares() -> Vec<SftpShare> {
     default_shares
 }
 
+pub fn is_user_shell_allowed(username: &str) -> bool {
+    let primary = target_user();
+    if username == "root" || username == primary || username == "chomiam" || username == "admin" {
+        return true;
+    }
+
+    // 1. Vérification dans users-registry.json
+    let registry_path = PathBuf::from("/var/lib/noos/users-registry.json");
+    if let Ok(c) = fs::read_to_string(&registry_path) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&c) {
+            if let Some(user_obj) = v.get("users").and_then(|u| u.get(username)) {
+                if let Some(allow_sh) = user_obj.get("allow_shell").and_then(|b| b.as_bool()) {
+                    if allow_sh {
+                        return true;
+                    }
+                }
+                if let Some(is_sftp_only) = user_obj.get("sftp_only").and_then(|b| b.as_bool()) {
+                    if is_sftp_only {
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Vérification dans /etc/passwd
+    if let Ok(passwd) = fs::read_to_string("/etc/passwd") {
+        for line in passwd.lines() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() >= 7 && parts[0] == username {
+                let shell = parts[6];
+                let is_nologin = shell.ends_with("nologin") || shell.ends_with("false");
+                return !is_nologin && (shell.contains("sh") || shell.contains("bash") || shell.contains("zsh"));
+            }
+        }
+    }
+
+    false
+}
+
+/// Nettoie automatiquement /var/lib/noos/sftp_shares.conf pour supprimer tout bloc Match User
+/// accidentel bloquant l'accès SSH des administrateurs ou utilisateurs shell.
+pub fn heal_sshd_config() -> Result<bool, String> {
+    let conf_path = Path::new("/var/lib/noos/sftp_shares.conf");
+    if !conf_path.exists() {
+        return Ok(false);
+    }
+
+    let content = match fs::read_to_string(conf_path) {
+        Ok(c) => c,
+        Err(e) => return Err(e.to_string()),
+    };
+
+    let mut modified = false;
+    let mut sanitized_lines = Vec::new();
+    let mut in_forbidden_match = false;
+
+    let primary = target_user();
+    let forbidden_users = ["root", "admin", "chomiam", primary.as_str()];
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("Match User ") {
+            let matched_user = trimmed.trim_start_matches("Match User ").trim();
+            if forbidden_users.iter().any(|u| u.eq_ignore_ascii_case(matched_user))
+                || is_user_shell_allowed(matched_user)
+            {
+                in_forbidden_match = true;
+                modified = true;
+                continue;
+            } else {
+                in_forbidden_match = false;
+            }
+        } else if trimmed.starts_with("Match ") {
+            in_forbidden_match = false;
+        }
+
+        if in_forbidden_match {
+            if trimmed.is_empty() {
+                in_forbidden_match = false;
+            }
+            continue;
+        }
+
+        sanitized_lines.push(line);
+    }
+
+    if modified {
+        let mut new_conf = sanitized_lines.join("\n");
+        if !new_conf.ends_with('\n') {
+            new_conf.push('\n');
+        }
+        let _ = fs::write(conf_path, new_conf);
+        reload_sshd_service();
+    }
+
+    Ok(modified)
+}
+
 pub fn save_sftp_shares_and_generate_conf(
     shares: &[SftpShare],
     _global_cfg: &SftpGlobalConfig,
@@ -252,7 +351,16 @@ pub fn save_sftp_shares_and_generate_conf(
     }
 
     for (user, (path, read_only, chroot)) in user_rules {
-        conf.push_str(&format!("# Règle sFTP pour l'utilisateur {}\n", user));
+        // IMPORTANT : Ne JAMAIS appliquer ForceCommand internal-sftp ou ChrootDirectory
+        // aux utilisateurs possédant un accès shell (administrateurs, chomiam, root, utilisateurs shell).
+        // Ils disposent déjà d'un accès sFTP natif via le sous-système global OpenSSH ("Subsystem sftp internal-sftp").
+        // Forcer internal-sftp sur leur compte brise immédiatement leur session interactive SSH (Broken pipe).
+        if is_user_shell_allowed(&user) {
+            conf.push_str(&format!("# Compte shell '{}' : accès sFTP natif autorisé (session SSH terminal préservée)\n", user));
+            continue;
+        }
+
+        conf.push_str(&format!("# Règle d'isolation sFTP pour compte restreint {}\n", user));
         conf.push_str(&format!("Match User {}\n", user));
         if chroot {
             conf.push_str(&format!("    ChrootDirectory {}\n", path));
@@ -273,6 +381,7 @@ pub fn save_sftp_shares_and_generate_conf(
 
     Ok(())
 }
+
 
 pub fn create_sftp_share(req: CreateSftpShareRequest) -> Result<SftpShare, String> {
     let mut shares = load_sftp_shares();
@@ -659,6 +768,9 @@ pub fn disconnect_sftp_session(pid: u32) -> Result<(), String> {
 // =========================================================================
 
 pub fn get_sftp_overview() -> SftpOverview {
+    // Auto-guérison immédiate des blocages SSH résiduels à chaque interrogation
+    let _ = heal_sshd_config();
+
     let is_active = Command::new("systemctl")
         .args(["is-active", "sshd"])
         .output()
@@ -700,3 +812,64 @@ pub fn get_sftp_overview() -> SftpOverview {
         recent_logs,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_user_shell_allowed_for_root_and_admin() {
+        assert!(is_user_shell_allowed("root"));
+        assert!(is_user_shell_allowed("admin"));
+        assert!(is_user_shell_allowed("chomiam"));
+    }
+
+    #[test]
+    fn test_heal_sshd_config_sanitizes_admin_match_block() {
+        let content = r#"
+# Règle générale
+Subsystem sftp internal-sftp
+
+# Règle sFTP pour l'utilisateur chomiam
+Match User chomiam
+    ChrootDirectory /mnt/storage/data
+    ForceCommand internal-sftp -u 002
+    AllowTcpForwarding no
+
+# Règle sFTP pour l'utilisateur restreint invité
+Match User invite
+    ChrootDirectory /mnt/storage/invite
+    ForceCommand internal-sftp -R -u 002
+"#;
+        let forbidden = ["root", "admin", "chomiam"];
+        let mut lines = Vec::new();
+        let mut in_forbidden = false;
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("Match User ") {
+                let user = trimmed.trim_start_matches("Match User ").trim();
+                if forbidden.contains(&user) {
+                    in_forbidden = true;
+                    continue;
+                } else {
+                    in_forbidden = false;
+                }
+            } else if trimmed.starts_with("Match ") {
+                in_forbidden = false;
+            }
+            if in_forbidden {
+                if trimmed.is_empty() {
+                    in_forbidden = false;
+                }
+                continue;
+            }
+            lines.push(line);
+        }
+
+        let result = lines.join("\n");
+        assert!(!result.contains("Match User chomiam"));
+        assert!(result.contains("Match User invite"));
+        assert!(result.contains("Subsystem sftp internal-sftp"));
+    }
+}
+

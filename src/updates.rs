@@ -947,16 +947,59 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
                     if node_name == "noos-nas-dashboard" {
                         dashboard_target_commit_full = Some(locked_rev.to_string());
                         dashboard_target_commit = Some(locked_rev[..7.min(locked_rev.len())].to_string());
+                        let dash_ref = preferred_dashboard_branch;
+                        let mut dash_has_update = false;
+                        if let Some(ref remote_sha) = dashboard_remote_commit_full {
+                            if remote_sha != locked_rev {
+                                dash_has_update = true;
+                                package_updates_available = true;
+                                package_updates_count += 1;
+                                package_details.push(format!("noos-nas-dashboard ({}) : mise à niveau disponible", dash_ref));
+                            }
+                        }
+                        flake_inputs_status.push(FlakeInputStatus {
+                            name: node_name.clone(),
+                            locked_rev: locked_rev[..7.min(locked_rev.len())].to_string(),
+                            remote_rev: dashboard_remote_commit.clone(),
+                            has_update: dash_has_update,
+                            channel_or_ref: dash_ref.to_string(),
+                        });
                         continue;
                     }
 
                     if node_name == "nixpkgs" {
+                        let nixpkgs_ref = original
+                            .and_then(|o| o.get("ref"))
+                            .and_then(|r| r.as_str())
+                            .unwrap_or("nixos-26.05");
+                        let mut nixpkgs_remote_rev = None;
+                        let mut nixpkgs_has_update = false;
+
+                        if let Ok(ls_out) = Command::new(git_binary())
+                            .args(["-c", "safe.directory=*", "ls-remote", "https://github.com/nixos/nixpkgs.git", &format!("refs/heads/{}", nixpkgs_ref)])
+                            .output()
+                        {
+                            if ls_out.status.success() {
+                                let ls_text = String::from_utf8_lossy(&ls_out.stdout);
+                                if let Some(r_sha) = ls_text.split_whitespace().next() {
+                                    let short_remote = r_sha[..7.min(r_sha.len())].to_string();
+                                    nixpkgs_remote_rev = Some(short_remote);
+                                    if r_sha != locked_rev {
+                                        nixpkgs_has_update = true;
+                                        package_updates_available = true;
+                                        package_updates_count += 1;
+                                        package_details.push(format!("Canal Nixpkgs ({}) : nouvelles versions de paquets disponibles", nixpkgs_ref));
+                                    }
+                                }
+                            }
+                        }
+
                         flake_inputs_status.push(FlakeInputStatus {
                             name: node_name.clone(),
                             locked_rev: locked_rev[..7.min(locked_rev.len())].to_string(),
-                            remote_rev: None,
-                            has_update: false,
-                            channel_or_ref: "nixos-26.05".to_string(),
+                            remote_rev: nixpkgs_remote_rev,
+                            has_update: nixpkgs_has_update,
+                            channel_or_ref: nixpkgs_ref.to_string(),
                         });
                         continue;
                     }
@@ -1047,7 +1090,18 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
     };
 
     // 4. Liste détaillée des paquets qui seront mis à jour / modifiés
-    let package_updates_list = detect_package_updates_list(&config_dir, package_updates_available);
+    let package_updates_list = detect_package_updates_list(
+        &config_dir,
+        package_updates_available,
+        config_update_available,
+        dashboard_update_available,
+        &running_dashboard_version,
+        dashboard_remote_version.as_deref(),
+        &flake_inputs_status,
+    );
+
+    package_updates_count = package_updates_count.max(package_updates_list.len() as u32);
+    let package_updates_available = package_updates_count > 0 || package_updates_available;
 
     // 5. Détermination du type d'action requise (Double Télémétrie)
     let has_pkg_or_dash = dashboard_update_available || package_updates_available || !package_updates_list.is_empty();
@@ -1121,9 +1175,43 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
     status
 }
 
-fn detect_package_updates_list(config_dir: &Path, inputs_have_updates: bool) -> Vec<PackageUpdateItem> {
+fn detect_package_updates_list(
+    config_dir: &Path,
+    inputs_have_updates: bool,
+    config_has_updates: bool,
+    dashboard_update_available: bool,
+    running_dashboard_version: &str,
+    target_dashboard_version: Option<&str>,
+    flake_inputs: &[FlakeInputStatus],
+) -> Vec<PackageUpdateItem> {
     let mut list = Vec::new();
-    if !inputs_have_updates {
+
+    // 1. Toujours inclure le Dashboard Noos s'il possède une mise à niveau
+    if dashboard_update_available {
+        list.push(PackageUpdateItem {
+            name: "noos-nas-dashboard".to_string(),
+            current_version: format!("v{}", running_dashboard_version),
+            new_version: target_dashboard_version.map(|v| format!("v{}", v)),
+            action: "update".to_string(),
+            size: None,
+        });
+    }
+
+    // 2. Inclure les entrées Flake principales ayant des mises à jour détectées (nixpkgs, etc.)
+    for input in flake_inputs {
+        if input.has_update && input.name != "noos-nas-dashboard" {
+            list.push(PackageUpdateItem {
+                name: format!("Canal {}", input.name),
+                current_version: input.locked_rev.clone(),
+                new_version: input.remote_rev.clone(),
+                action: "flake".to_string(),
+                size: None,
+            });
+        }
+    }
+
+    // 3. Si aucun changement n'est détecté nulle part, retourner
+    if !inputs_have_updates && !config_has_updates && !dashboard_update_available {
         return list;
     }
 
@@ -1135,13 +1223,19 @@ fn detect_package_updates_list(config_dir: &Path, inputs_have_updates: bool) -> 
         "nix-command flakes",
         &target_attr,
         "--dry-run",
+        "--refresh",
     ];
 
     if let Ok(out) = Command::new(nix_binary()).args(&args).output() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         let stdout = String::from_utf8_lossy(&out.stdout);
         let combined = format!("{}\n{}", stdout, stderr);
-        list.extend(parse_nix_dry_run(&combined));
+        let parsed = parse_nix_dry_run(&combined);
+        for item in parsed {
+            if !list.iter().any(|existing| existing.name == item.name) {
+                list.push(item);
+            }
+        }
     }
 
     list
@@ -1818,22 +1912,29 @@ pub fn run_detached_update_process(force_packages: bool) {
     state.status_detail = "Compilation des dérivations NixOS et téléchargement des paquets binaires...".to_string();
     save_update_progress(&state);
 
-    // Synchronisation proactive du hash du Dashboard dans flake.lock si une mise à jour est détectée
-    if cached.as_ref().map(|c| c.dashboard_update_available).unwrap_or(false) || force_packages {
+    // Synchronisation proactive du hash du Dashboard et de nixpkgs dans flake.lock
+    if cached.as_ref().map(|c| c.dashboard_update_available || c.package_updates_available).unwrap_or(false) || force_packages {
         let current_ch = get_update_channel();
+        let target_branch = if current_ch == "testing" { "testing" } else { "stable" };
         append_live_log(&format!("Synchronisation de l'entrée flake du Dashboard (noos-nas-dashboard, canal {})...\n", current_ch));
         let nix_bin = nix_binary();
-        if current_ch == "testing" {
+        let _ = Command::new(&nix_bin)
+            .args(["flake", "update", "noos-nas-dashboard", "--override-input", "noos-nas-dashboard", &format!("github:Chomiam/noos-nas-dashboard/{}", target_branch)])
+            .current_dir(&config_dir)
+            .output();
+
+        if force_packages || cached.as_ref().map(|c| c.package_updates_available).unwrap_or(false) {
+            append_live_log("Mise à jour proactive de l'entrée nixpkgs dans flake.lock...\n");
             let _ = Command::new(&nix_bin)
-                .args(["flake", "lock", "--override-input", "noos-nas-dashboard", "github:Chomiam/noos-nas-dashboard/testing"])
-                .current_dir(&config_dir)
-                .output();
-        } else {
-            let _ = Command::new(&nix_bin)
-                .args(["flake", "lock", "--override-input", "noos-nas-dashboard", "github:Chomiam/noos-nas-dashboard/stable"])
+                .args(["flake", "update", "nixpkgs"])
                 .current_dir(&config_dir)
                 .output();
         }
+
+        // Indexer immédiatement flake.lock dans Git pour que nixos-rebuild prenne en compte les nouveautés
+        let _ = git_cmd(&dir_str)
+            .args(["add", "flake.lock"])
+            .output();
     }
 
     let nixos_rebuild = nixos_rebuild_binary();
@@ -2313,3 +2414,182 @@ fn current_time_formatted() -> String {
         .unwrap_or_else(|_| "Récemment".into());
     output
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_semver_valid_three_digits() {
+        assert_eq!(parse_semver("0.3.32"), Some((0, 3, 32)));
+        assert_eq!(parse_semver("1.0.0"), Some((1, 0, 0)));
+        assert_eq!(parse_semver("26.05.1"), Some((26, 5, 1)));
+    }
+
+    #[test]
+    fn test_parse_semver_two_digits() {
+        assert_eq!(parse_semver("0.3"), Some((0, 3, 0)));
+        assert_eq!(parse_semver("26.05"), Some((26, 5, 0)));
+    }
+
+    #[test]
+    fn test_parse_semver_invalid() {
+        assert_eq!(parse_semver("invalid"), None);
+        assert_eq!(parse_semver(""), None);
+        assert_eq!(parse_semver("v1.2.3"), None);
+    }
+
+    #[test]
+    fn test_compare_semver_equal() {
+        assert_eq!(compare_semver("0.3.32", "0.3.32"), 0);
+    }
+
+    #[test]
+    fn test_compare_semver_greater_patch() {
+        assert!(compare_semver("0.3.33", "0.3.32") > 0);
+    }
+
+    #[test]
+    fn test_compare_semver_greater_minor() {
+        assert!(compare_semver("0.4.0", "0.3.32") > 0);
+    }
+
+    #[test]
+    fn test_compare_semver_greater_major() {
+        assert!(compare_semver("1.0.0", "0.9.9") > 0);
+    }
+
+    #[test]
+    fn test_compare_semver_less() {
+        assert!(compare_semver("0.3.29", "0.3.32") < 0);
+    }
+
+    #[test]
+    fn test_split_pkg_name_and_version_simple() {
+        let (name, ver) = split_pkg_name_and_version("htop-3.3.0");
+        assert_eq!(name, "htop");
+        assert_eq!(ver, "3.3.0");
+    }
+
+    #[test]
+    fn test_split_pkg_name_and_version_with_subnames() {
+        let (name, ver) = split_pkg_name_and_version("noos-nas-dashboard-0.3.32");
+        assert_eq!(name, "noos-nas-dashboard");
+        assert_eq!(ver, "0.3.32");
+    }
+
+    #[test]
+    fn test_split_pkg_name_and_version_with_dashes_in_version() {
+        let (name, ver) = split_pkg_name_and_version("glibc-2.39-52");
+        assert_eq!(name, "glibc");
+        assert_eq!(ver, "2.39-52");
+    }
+
+    #[test]
+    fn test_split_pkg_name_and_version_no_digits() {
+        let (name, ver) = split_pkg_name_and_version("custom-package");
+        assert_eq!(name, "custom-package");
+        assert_eq!(ver, "dernière version");
+    }
+
+    #[test]
+    fn test_parse_nix_dry_run_fetches_and_builds() {
+        let sample = r#"
+these 2 paths will be fetched (25.4 MiB download, 89.2 MiB unpacked):
+  /nix/store/h9ab3j68r7987p1r9km31a61y79a29y0-linux-6.6.21
+  /nix/store/5kl3m930c2j21k29sm2918am2901a09z-openssh-9.7p1
+these 1 derivations will be built:
+  /nix/store/a812m10s921j291m0192a0912ma0912m-noos-nas-dashboard-0.3.32.drv
+"#;
+        let items = parse_nix_dry_run(sample);
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0].name, "linux");
+        assert_eq!(items[0].new_version, Some("6.6.21".into()));
+        assert_eq!(items[0].action, "download");
+        assert_eq!(items[1].name, "openssh");
+        assert_eq!(items[1].new_version, Some("9.7p1".into()));
+        assert_eq!(items[1].action, "download");
+        assert_eq!(items[2].name, "noos-nas-dashboard");
+        assert_eq!(items[2].new_version, Some("0.3.32".into()));
+        assert_eq!(items[2].action, "build");
+    }
+
+    #[test]
+    fn test_parse_nix_dry_run_filters_system_units() {
+        let sample = r#"
+these 2 paths will be fetched:
+  /nix/store/11111111111111111111111111111111-system-units
+  /nix/store/22222222222222222222222222222222-unit-sshd.service
+  /nix/store/33333333333333333333333333333333-etc
+  /nix/store/44444444444444444444444444444444-btop-1.3.2
+"#;
+        let items = parse_nix_dry_run(sample);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].name, "btop");
+    }
+
+    #[test]
+    fn test_detect_package_updates_list_includes_dashboard_when_newer() {
+        let dummy_path = Path::new("/tmp/noos-test-nonexistent");
+        let list = detect_package_updates_list(
+            dummy_path,
+            false,
+            false,
+            true, // dashboard update available
+            "0.3.29",
+            Some("0.3.33"),
+            &[],
+        );
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].name, "noos-nas-dashboard");
+        assert_eq!(list[0].current_version, "v0.3.29");
+        assert_eq!(list[0].new_version, Some("v0.3.33".into()));
+    }
+
+    #[test]
+    fn test_detect_package_updates_list_includes_flake_inputs() {
+        let dummy_path = Path::new("/tmp/noos-test-nonexistent");
+        let flake_inputs = vec![
+            FlakeInputStatus {
+                name: "nixpkgs".into(),
+                locked_rev: "7fc6f2c".into(),
+                remote_rev: Some("8ab92e1".into()),
+                has_update: true,
+                channel_or_ref: "nixos-26.05".into(),
+            },
+        ];
+        let list = detect_package_updates_list(
+            dummy_path,
+            true,
+            false,
+            false,
+            "0.3.32",
+            None,
+            &flake_inputs,
+        );
+        assert!(list.iter().any(|item| item.name == "Canal nixpkgs" && item.action == "flake"));
+    }
+
+    #[test]
+    fn test_set_and_get_update_channel() {
+        let res = set_update_channel("testing");
+        assert_eq!(res, Ok("testing".to_string()));
+        assert_eq!(get_update_channel(), "testing");
+
+        let res2 = set_update_channel("stable");
+        assert_eq!(res2, Ok("stable".to_string()));
+        assert_eq!(get_update_channel(), "stable");
+
+        // Fallback to stable for unknown channel
+        let res3 = set_update_channel("experimental");
+        assert_eq!(res3, Ok("stable".to_string()));
+    }
+
+    #[test]
+    fn test_sanitize_terminal_output() {
+        let raw = "Progress 10%\rProgress 50%\rProgress 100%\nDone";
+        let cleaned = sanitize_terminal_output(raw);
+        assert_eq!(cleaned, "Progress 100%\nDone");
+    }
+}
+
