@@ -310,7 +310,7 @@ function applySubtabRoute(tabId, subtab) {
   if (!subtab) return;
   if (tabId === "tab-network") {
     const fullSubtab = subtab.startsWith("subtab-") ? subtab : `subtab-${subtab}`;
-    if (["subtab-vpn", "subtab-firewall", "subtab-samba", "subtab-sftp", "subtab-dns"].includes(fullSubtab)) {
+    if (["subtab-vpn", "subtab-firewall", "subtab-samba", "subtab-sftp", "subtab-ssh", "subtab-dns"].includes(fullSubtab)) {
       switchNetworkSubtab(fullSubtab, false);
     }
   } else if (tabId === "tab-containers") {
@@ -13693,7 +13693,7 @@ function switchNetworkSubtab(subtabId, updateHash = true) {
   if (subtabId === "subtab-samba") {
     loadSambaData();
   }
-  if (subtabId === "subtab-sftp") {
+  if (subtabId === "subtab-sftp" || subtabId === "subtab-ssh") {
     loadSftpData();
   }
   if (subtabId === "subtab-firewall") {
@@ -13920,14 +13920,20 @@ async function loadNetwork(showFeedback = false) {
     const sftp = net.sftp;
     const badgeSftp = document.getElementById("badge-subtab-sftp");
     if (badgeSftp) {
-      badgeSftp.textContent = sftp.is_active ? "Port 22" : "Inactif";
+      badgeSftp.textContent = sftp.is_active ? "Partages" : "Inactif";
       badgeSftp.className = `subtab-pill-badge ${sftp.is_active ? "badge-success" : "badge-secondary"}`;
+    }
+
+    const badgeSsh = document.getElementById("badge-subtab-ssh");
+    if (badgeSsh) {
+      badgeSsh.textContent = sftp.is_active ? `Port ${sftp.port || 22}` : "Inactif";
+      badgeSsh.className = `subtab-pill-badge ${sftp.is_active ? "badge-success" : "badge-secondary"}`;
     }
 
     const sftpSessionsTbody = document.getElementById("sftp-sessions-tbody");
     if (sftpSessionsTbody) {
       if (!sftp.active_sessions || sftp.active_sessions.length === 0) {
-        sftpSessionsTbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--subtext0); padding:16px;">Aucune session SSH / sFTP active actuellement.</td></tr>`;
+        sftpSessionsTbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--subtext0); padding:16px;">Aucune session SSH / sFTP active actuellement.</td></tr>`;
       } else {
         sftpSessionsTbody.innerHTML = sftp.active_sessions.map(s => `
           <tr>
@@ -13935,14 +13941,20 @@ async function loadNetwork(showFeedback = false) {
             <td><code>${escapeHtml(s.client_ip)}</code></td>
             <td><span class="badge badge-info">${escapeHtml(s.protocol)}</span></td>
             <td><span class="badge badge-success">${escapeHtml(s.login_time)}</span></td>
+            <td style="text-align:right;">
+              <button type="button" class="btn btn-danger btn-xs" onclick="disconnectSftpSession(${s.pid || 0})" title="Déconnecter cette session">Déconnecter</button>
+            </td>
           </tr>
         `).join("");
       }
     }
 
-    // Charger sFTP si le sous-onglet sFTP est actif
+    // Charger sFTP ou SSH si le sous-onglet est actif
     const sftpSubpane = document.getElementById("subtab-sftp");
-    if (activeNetworkSubtab === "subtab-sftp" || (sftpSubpane && sftpSubpane.classList.contains("active"))) {
+    const sshSubpane = document.getElementById("subtab-ssh");
+    if (activeNetworkSubtab === "subtab-sftp" || activeNetworkSubtab === "subtab-ssh" || 
+        (sftpSubpane && sftpSubpane.classList.contains("active")) || 
+        (sshSubpane && sshSubpane.classList.contains("active"))) {
       loadSftpData();
     }
 
@@ -21662,44 +21674,56 @@ async function loadSftpData(showFeedback = false) {
     const data = json.data;
     currentSftpData = data;
 
-    // 1. En-tête et Badges d'état
+    // 1. En-tête et Badges d'état (sFTP & SSH)
     const statusBadge = document.getElementById("sftp-status-badge");
     const portBadge = document.getElementById("sftp-port-badge");
     const fail2banBadge = document.getElementById("sftp-fail2ban-badge");
     const pulseDot = document.getElementById("sftp-hero-pulse-dot");
 
-    if (statusBadge) {
-      statusBadge.textContent = data.is_active ? "● OpenSSH En Ligne" : "● Inactif";
-      statusBadge.className = `sftp-status-tag ${data.is_active ? "active" : "inactive"}`;
-    }
-    if (portBadge) {
-      portBadge.textContent = `Port ${data.port} TCP`;
-    }
-    if (fail2banBadge) {
-      if (data.fail2ban_active) {
-        fail2banBadge.textContent = data.fail2ban_banned_count > 0 
-          ? `🛡️ Fail2ban (${data.fail2ban_banned_count} IP bannie${data.fail2ban_banned_count > 1 ? "s" : ""})`
-          : "🛡️ Fail2ban Actif";
-        fail2banBadge.style.color = "var(--green)";
-      } else {
-        fail2banBadge.textContent = "🛡️ Fail2ban Inactif";
-        fail2banBadge.style.color = "var(--subtext0)";
-      }
-    }
-    if (pulseDot) {
-      pulseDot.style.display = data.is_active ? "block" : "none";
-    }
+    const sshStatusBadge = document.getElementById("ssh-status-badge");
+    const sshPortBadge = document.getElementById("ssh-port-badge");
+    const sshFail2banBadge = document.getElementById("ssh-fail2ban-badge");
+    const sshPulseDot = document.getElementById("ssh-hero-pulse-dot");
 
-    // Badge sous-onglet dans la navigation
-    const navBadge = document.getElementById("badge-subtab-sftp");
-    if (navBadge) {
-      navBadge.textContent = data.is_active ? `Port ${data.port}` : "Inactif";
-      navBadge.className = `subtab-pill-badge ${data.is_active ? "badge-success" : "badge-secondary"}`;
+    const statusText = data.is_active ? "● OpenSSH En Ligne" : "● Inactif";
+    const statusClass = `sftp-status-tag ${data.is_active ? "active" : "inactive"}`;
+    const portText = `Port ${data.port} TCP`;
+
+    if (statusBadge) { statusBadge.textContent = statusText; statusBadge.className = statusClass; }
+    if (sshStatusBadge) { sshStatusBadge.textContent = statusText; sshStatusBadge.className = statusClass; }
+    if (portBadge) portBadge.textContent = portText;
+    if (sshPortBadge) sshPortBadge.textContent = portText;
+
+    const fail2banText = data.fail2ban_active
+      ? (data.fail2ban_banned_count > 0 
+          ? `🛡️ Fail2ban (${data.fail2ban_banned_count} IP bannie${data.fail2ban_banned_count > 1 ? "s" : ""})`
+          : "🛡️ Fail2ban Actif")
+      : "🛡️ Fail2ban Inactif";
+    const fail2banColor = data.fail2ban_active ? "var(--green)" : "var(--subtext0)";
+
+    if (fail2banBadge) { fail2banBadge.textContent = fail2banText; fail2banBadge.style.color = fail2banColor; }
+    if (sshFail2banBadge) { sshFail2banBadge.textContent = fail2banText; sshFail2banBadge.style.color = fail2banColor; }
+
+    if (pulseDot) pulseDot.style.display = data.is_active ? "block" : "none";
+    if (sshPulseDot) sshPulseDot.style.display = data.is_active ? "block" : "none";
+
+    // Badges sous-onglets dans la navigation
+    const navBadgeSftp = document.getElementById("badge-subtab-sftp");
+    if (navBadgeSftp) {
+      const shareCount = (data.shares || []).length;
+      navBadgeSftp.textContent = `${shareCount} Partage${shareCount > 1 ? "s" : ""}`;
+      navBadgeSftp.className = `subtab-pill-badge ${data.is_active ? "badge-success" : "badge-secondary"}`;
+    }
+    const navBadgeSsh = document.getElementById("badge-subtab-ssh");
+    if (navBadgeSsh) {
+      navBadgeSsh.textContent = data.is_active ? `Port ${data.port}` : "Inactif";
+      navBadgeSsh.className = `subtab-pill-badge ${data.is_active ? "badge-success" : "badge-secondary"}`;
     }
 
     // 2. Adresses de connexion rapide
     const uriClient = document.getElementById("sftp-uri-val-client");
     const uriCli = document.getElementById("sftp-uri-val-cli");
+    const sshUriCli = document.getElementById("ssh-uri-val-cli");
     const uriSshfs = document.getElementById("sftp-uri-val-sshfs");
 
     const ip = data.primary_lan_ip || window.location.hostname;
@@ -21711,9 +21735,10 @@ async function loadSftpData(showFeedback = false) {
 
     if (uriClient) uriClient.textContent = `sftp://${primaryUser}@${ip}:${data.port}`;
     if (uriCli) uriCli.textContent = `sftp -P ${data.port} ${primaryUser}@${ip}`;
+    if (sshUriCli) sshUriCli.textContent = `ssh -p ${data.port} ${primaryUser}@${ip}`;
     if (uriSshfs) uriSshfs.textContent = `sshfs -p ${data.port} ${primaryUser}@${ip}:/ /mnt/nas`;
 
-    // 3. Mise à jour des KPIs
+    // 3. Mise à jour des KPIs sFTP
     const kpiPortVal = document.getElementById("sftp-kpi-port-val");
     const kpiPortSub = document.getElementById("sftp-kpi-port-sub");
     const kpiSharesCount = document.getElementById("sftp-kpi-shares-count");
@@ -21741,9 +21766,33 @@ async function loadSftpData(showFeedback = false) {
     if (kpiUsersSub) kpiUsersSub.textContent = `${keyUsersCount} avec clés SSH, ${users.length - keyUsersCount} mdp`;
 
     if (kpiSecVal) kpiSecVal.textContent = chrootCount > 0 ? "Prison Chroot" : "Accès Standard";
-    if (kpiSecSub) kpiSecSub.textContent = data.fail2ban_active 
-      ? `Fail2ban Actif (${data.fail2ban_banned_count} IP bannie${data.fail2ban_banned_count > 1 ? "s" : ""})`
-      : "Fail2ban Inactif";
+    if (kpiSecSub) kpiSecSub.textContent = chrootCount > 0 ? `${chrootCount} partage(s) chrooté(s)` : "Confinement disponible";
+
+    // 3b. Mise à jour des KPIs SSH dédiés
+    const sshKpiPortVal = document.getElementById("ssh-kpi-port-val");
+    const sshKpiPortSub = document.getElementById("ssh-kpi-port-sub");
+    const sshKpiUsersCount = document.getElementById("ssh-kpi-users-count");
+    const sshKpiUsersSub = document.getElementById("ssh-kpi-users-sub");
+    const sshKpiSessionsCount = document.getElementById("ssh-kpi-sessions-count");
+    const sshKpiSessionsSub = document.getElementById("ssh-kpi-sessions-sub");
+    const sshKpiFail2banVal = document.getElementById("ssh-kpi-fail2ban-val");
+    const sshKpiFail2banSub = document.getElementById("ssh-kpi-fail2ban-sub");
+
+    if (sshKpiPortVal) sshKpiPortVal.textContent = `Port ${data.port}`;
+    if (sshKpiPortSub) sshKpiPortSub.textContent = data.is_active ? "OpenSSH 10.5 Chiffré" : "Serveur arrêté";
+
+    if (sshKpiUsersCount) sshKpiUsersCount.textContent = users.length;
+    if (sshKpiUsersSub) sshKpiUsersSub.textContent = `${keyUsersCount} avec clés SSH, ${users.length - keyUsersCount} mdp`;
+
+    if (sshKpiSessionsCount) sshKpiSessionsCount.textContent = sessions.length;
+    if (sshKpiSessionsSub) sshKpiSessionsSub.textContent = sessions.length === 0 
+      ? "Aucune connexion active" 
+      : `${sessions.length} session${sessions.length > 1 ? "s" : ""} en direct`;
+
+    if (sshKpiFail2banVal) sshKpiFail2banVal.textContent = data.fail2ban_active ? "Fail2ban Actif" : "Fail2ban Inactif";
+    if (sshKpiFail2banSub) sshKpiFail2banSub.textContent = data.fail2ban_banned_count > 0 
+      ? `${data.fail2ban_banned_count} IP bannie${data.fail2ban_banned_count > 1 ? "s" : ""}` 
+      : "0 IP bannie";
 
     // 4. Rendu de la liste des partages sFTP
     renderSftpSharesList(shares);

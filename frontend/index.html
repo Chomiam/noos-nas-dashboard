@@ -1560,7 +1560,12 @@
           <button type="button" class="network-subtab-btn" data-subtab="subtab-sftp" onclick="switchNetworkSubtab('subtab-sftp')">
             <span class="subtab-icon">🚀</span>
             <span class="subtab-text">sFTP</span>
-            <span class="subtab-pill-badge" id="badge-subtab-sftp">Port 22</span>
+            <span class="subtab-pill-badge" id="badge-subtab-sftp">Partages</span>
+          </button>
+          <button type="button" class="network-subtab-btn" data-subtab="subtab-ssh" onclick="switchNetworkSubtab('subtab-ssh')">
+            <span class="subtab-icon">🔑</span>
+            <span class="subtab-text">Accès SSH</span>
+            <span class="subtab-pill-badge" id="badge-subtab-ssh">Port 22</span>
           </button>
           <button type="button" class="network-subtab-btn" data-subtab="subtab-dns" onclick="switchNetworkSubtab('subtab-dns')">
             <span class="subtab-icon">🌐</span>
@@ -2162,7 +2167,7 @@
 
       </div>
 
-      <!-- SOUS-ONGLET 4 : sFTP (SSH FILE TRANSFER PROTOCOL) REBÂTI HAUTE SÉCURITÉ -->
+      <!-- SOUS-ONGLET 4 : sFTP (TRANSFERT DE FICHIERS SÉCURISÉ) -->
       <div id="subtab-sftp" class="network-subpane">
 
         <!-- HERO HEADER sFTP CATPPUCCIN MOCHA -->
@@ -2175,13 +2180,12 @@
               </div>
               <div>
                 <div class="sftp-hero-title-row">
-                  <h2 class="sftp-hero-title">Serveur & Partages sFTP (SSH Chiffré)</h2>
+                  <h2 class="sftp-hero-title">Serveur & Partages de Fichiers sFTP</h2>
                   <span class="sftp-port-tag" id="sftp-port-badge">Port 22 TCP</span>
                   <span class="sftp-status-tag active" id="sftp-status-badge">● OpenSSH En Ligne</span>
-                  <span class="sftp-fail2ban-tag" id="sftp-fail2ban-badge">🛡️ Fail2ban Actif</span>
                 </div>
                 <p class="sftp-hero-desc">
-                  Transferts distants chiffrés de bout en bout avec isolation stricte en prison Chroot, contrôle d'accès réservé aux utilisateurs SSH autorisés, et protection contre les attaques par force brute.
+                  Transferts distants chiffrés de bout en bout avec isolation stricte en prison Chroot, contrôle d'accès aux répertoires du NAS et compatibilité universelle avec les clients FTP modernes.
                 </p>
               </div>
             </div>
@@ -2208,22 +2212,11 @@
             <div class="sftp-uri-card client">
               <div class="sftp-uri-os">
                 <span class="sftp-os-icon">📁</span>
-                <span class="sftp-os-name">URI Client (FileZilla / Cyberduck / WinSCP)</span>
+                <span class="sftp-os-name">Client Graphique (FileZilla / Cyberduck / WinSCP)</span>
               </div>
               <div class="sftp-uri-value-row">
                 <code class="sftp-uri-code" id="sftp-uri-val-client">sftp://utilisateur@nas:22</code>
                 <button type="button" class="btn-copy-uri" onclick="copyElementText('sftp-uri-val-client', 'URI sFTP copiée !')" title="Copier l'URI sFTP">📋</button>
-              </div>
-            </div>
-
-            <div class="sftp-uri-card cli">
-              <div class="sftp-uri-os">
-                <span class="sftp-os-icon">💻</span>
-                <span class="sftp-os-name">Ligne de Commande Terminal (Linux / Mac / PowerShell)</span>
-              </div>
-              <div class="sftp-uri-value-row">
-                <code class="sftp-uri-code" id="sftp-uri-val-cli">sftp -P 22 utilisateur@nas</code>
-                <button type="button" class="btn-copy-uri" onclick="copyElementText('sftp-uri-val-cli', 'Commande terminal copiée !')" title="Copier la commande sftp">📋</button>
               </div>
             </div>
 
@@ -2240,8 +2233,8 @@
           </div>
         </div>
 
-        <!-- 4 KPIS EN CARTES CATPPUCCIN MOCHA -->
-        <div class="sftp-kpis-grid">
+        <!-- 3 KPIS sFTP CATPPUCCIN MOCHA -->
+        <div class="sftp-kpis-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
           <div class="sftp-kpi-card">
             <div class="sftp-kpi-icon-wrap blue">🔌</div>
             <div class="sftp-kpi-content">
@@ -2261,25 +2254,16 @@
           </div>
 
           <div class="sftp-kpi-card">
-            <div class="sftp-kpi-icon-wrap mauve">👥</div>
-            <div class="sftp-kpi-content">
-              <div class="sftp-kpi-label">Accès SSH Autorisés</div>
-              <div class="sftp-kpi-val" id="sftp-kpi-users-count">-</div>
-              <div class="sftp-kpi-sub" id="sftp-kpi-users-sub">Comptes avec droit SSH</div>
-            </div>
-          </div>
-
-          <div class="sftp-kpi-card">
             <div class="sftp-kpi-icon-wrap green">🛡️</div>
             <div class="sftp-kpi-content">
-              <div class="sftp-kpi-label">Chroot & Sécurité</div>
+              <div class="sftp-kpi-label">Isolation Système</div>
               <div class="sftp-kpi-val" id="sftp-kpi-security-val">Prison Chroot</div>
-              <div class="sftp-kpi-sub" id="sftp-kpi-security-sub">Fail2ban Actif (0 IP bannie)</div>
+              <div class="sftp-kpi-sub" id="sftp-kpi-security-sub">Confinement activé</div>
             </div>
           </div>
         </div>
 
-        <!-- SECTION 1 : PARTAGES sFTP DÉCLARÉS -->
+        <!-- SECTION : PARTAGES sFTP DÉCLARÉS -->
         <div class="section-card" style="margin-top:20px;">
           <div class="section-header" style="justify-content:space-between; flex-wrap:wrap; gap:12px;">
             <div class="section-title-wrap">
@@ -2302,14 +2286,133 @@
           </div>
         </div>
 
-        <!-- SECTION 2 : UTILISATEURS DU NAS AYANT L'ACCÈS SSH / sFTP -->
+        <!-- CARTE DE LIAISON RAPIDE VERS CONTRÔLE D'ACCÈS SSH -->
+        <div class="sftp-crosslink-card" style="margin-top:20px; padding:18px 22px; background:rgba(203,166,247,0.06); border:1px solid rgba(203,166,247,0.22); border-radius:var(--radius-lg); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+          <div style="display:flex; align-items:center; gap:14px;">
+            <span style="font-size:1.8rem;">🔑</span>
+            <div>
+              <div style="font-weight:700; color:var(--text); font-size:0.95rem;">Contrôle d'Accès, Clés SSH & Sessions en Direct</div>
+              <div style="font-size:0.84rem; color:var(--subtext0); margin-top:2px;">Gérez les utilisateurs autorisés, les clés publiques SSH, les sessions interactives et surveillez les journaux Fail2ban.</div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="switchNetworkSubtab('subtab-ssh')">
+            <span>🔑</span> Ouvrir Contrôle d'Accès SSH ↗
+          </button>
+        </div>
+
+      </div>
+
+      <!-- SOUS-ONGLET 5 : CONTRÔLE D'ACCÈS & SÉCURITÉ SSH -->
+      <div id="subtab-ssh" class="network-subpane">
+
+        <!-- HERO HEADER SSH CATPPUCCIN MOCHA -->
+        <div class="sftp-hero-card" style="background: linear-gradient(135deg, rgba(203, 166, 247, 0.08) 0%, rgba(180, 190, 254, 0.05) 50%, rgba(30, 30, 46, 0.95) 100%); border-color: rgba(203, 166, 247, 0.25);">
+          <div class="sftp-hero-top">
+            <div class="sftp-hero-identity">
+              <div class="sftp-hero-icon-box" style="background: linear-gradient(135deg, rgba(203, 166, 247, 0.25), rgba(180, 190, 254, 0.15)); border-color: rgba(203, 166, 247, 0.35);">
+                <span class="sftp-hero-icon">🔑</span>
+                <span class="sftp-hero-pulse" id="ssh-hero-pulse-dot" style="background:var(--green); box-shadow:0 0 10px var(--green);"></span>
+              </div>
+              <div>
+                <div class="sftp-hero-title-row">
+                  <h2 class="sftp-hero-title">Contrôle d'Accès & Sécurité SSH</h2>
+                  <span class="sftp-port-tag" id="ssh-port-badge">Port 22 TCP</span>
+                  <span class="sftp-status-tag active" id="ssh-status-badge">● OpenSSH En Ligne</span>
+                  <span class="sftp-fail2ban-tag" id="ssh-fail2ban-badge">🛡️ Fail2ban Actif</span>
+                </div>
+                <p class="sftp-hero-desc">
+                  Surveillance des connexions shell distantes, gestion des autorisations d'accès, clés SSH publiques et protection proactive contre les attaques par force brute.
+                </p>
+              </div>
+            </div>
+
+            <!-- Actions globales SSH -->
+            <div class="sftp-hero-actions">
+              <a href="#" onclick="switchTab('tab-users')" class="btn btn-primary" style="text-decoration:none;">
+                <span>👤</span> Gérer les Comptes
+              </a>
+              <button type="button" class="btn btn-secondary" onclick="openSftpGlobalModal()" title="Paramètres globaux SSH & sFTP">
+                <span>⚙️</span> Configuration
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="loadSftpData(true)" title="Actualiser les sessions et les logs">
+                <span>🔄</span> Actualiser
+              </button>
+            </div>
+          </div>
+
+          <!-- BANNIÈRE COMMANDE TERMINAL -->
+          <div class="sftp-uris-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+            <div class="sftp-uri-card cli">
+              <div class="sftp-uri-os">
+                <span class="sftp-os-icon">💻</span>
+                <span class="sftp-os-name">Ligne de Commande Terminal (Linux / Mac / PowerShell)</span>
+              </div>
+              <div class="sftp-uri-value-row">
+                <code class="sftp-uri-code" id="ssh-uri-val-cli">ssh -p 22 utilisateur@nas</code>
+                <button type="button" class="btn-copy-uri" onclick="copyElementText('ssh-uri-val-cli', 'Commande terminal copiée !')" title="Copier la commande SSH">📋</button>
+              </div>
+            </div>
+
+            <div class="sftp-uri-card client">
+              <div class="sftp-uri-os">
+                <span class="sftp-os-icon">🔐</span>
+                <span class="sftp-os-name">Authentification par Clé Publique</span>
+              </div>
+              <div class="sftp-uri-value-row">
+                <code class="sftp-uri-code" style="color:var(--mauve);">~/.ssh/authorized_keys</code>
+                <span style="font-size:0.75rem; color:var(--subtext0);">Activée</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4 KPIS SSH CATPPUCCIN MOCHA -->
+        <div class="sftp-kpis-grid">
+          <div class="sftp-kpi-card">
+            <div class="sftp-kpi-icon-wrap blue">🔌</div>
+            <div class="sftp-kpi-content">
+              <div class="sftp-kpi-label">Démon OpenSSH</div>
+              <div class="sftp-kpi-val" id="ssh-kpi-port-val">Port 22</div>
+              <div class="sftp-kpi-sub" id="ssh-kpi-port-sub">OpenSSH 10.5 Chiffré</div>
+            </div>
+          </div>
+
+          <div class="sftp-kpi-card">
+            <div class="sftp-kpi-icon-wrap mauve">👥</div>
+            <div class="sftp-kpi-content">
+              <div class="sftp-kpi-label">Accès SSH Autorisés</div>
+              <div class="sftp-kpi-val" id="ssh-kpi-users-count">-</div>
+              <div class="sftp-kpi-sub" id="ssh-kpi-users-sub">Comptes avec droit SSH</div>
+            </div>
+          </div>
+
+          <div class="sftp-kpi-card">
+            <div class="sftp-kpi-icon-wrap sapphire">🌐</div>
+            <div class="sftp-kpi-content">
+              <div class="sftp-kpi-label">Sessions en Direct</div>
+              <div class="sftp-kpi-val" id="ssh-kpi-sessions-count">0</div>
+              <div class="sftp-kpi-sub" id="ssh-kpi-sessions-sub">Aucune connexion active</div>
+            </div>
+          </div>
+
+          <div class="sftp-kpi-card">
+            <div class="sftp-kpi-icon-wrap green">🛡️</div>
+            <div class="sftp-kpi-content">
+              <div class="sftp-kpi-label">Protection Fail2ban</div>
+              <div class="sftp-kpi-val" id="ssh-kpi-fail2ban-val">Fail2ban Actif</div>
+              <div class="sftp-kpi-sub" id="ssh-kpi-fail2ban-sub">0 IP bannie</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 1 : UTILISATEURS DU NAS AYANT L'ACCÈS SSH / sFTP -->
         <div class="section-card" style="margin-top:20px;">
           <div class="section-header" style="justify-content:space-between; flex-wrap:wrap; gap:12px;">
             <div class="section-title-wrap">
               <div class="section-icon-box" style="background:rgba(203,166,247,0.18); color:var(--mauve);">🔑</div>
               <div>
                 <div class="section-title">Utilisateurs Autorisés pour SSH & sFTP</div>
-                <div class="section-subtitle">Comptes système disposant d'un accès shell/distant et pouvant s'authentifier sur le serveur sFTP</div>
+                <div class="section-subtitle">Comptes système disposant d'un accès shell/distant et pouvant s'authentifier sur le serveur SSH</div>
               </div>
             </div>
             <div style="display:flex; align-items:center; gap:10px;">
@@ -2337,7 +2440,7 @@
           </div>
         </div>
 
-        <!-- SECTION 3 : MONITORING SESSIONS EN DIRECT & JOURNAL D'AUDIT -->
+        <!-- SECTION 2 & 3 : MONITORING SESSIONS EN DIRECT & JOURNAL D'AUDIT -->
         <div class="sftp-monitoring-grid">
           <!-- Carte 1 : Sessions actives -->
           <div class="section-card">
@@ -2396,6 +2499,20 @@
               </table>
             </div>
           </div>
+        </div>
+
+        <!-- CARTE DE LIAISON RAPIDE VERS PARTAGES sFTP -->
+        <div class="sftp-crosslink-card" style="margin-top:20px; padding:18px 22px; background:rgba(137,180,250,0.06); border:1px solid rgba(137,180,250,0.2); border-radius:var(--radius-lg); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+          <div style="display:flex; align-items:center; gap:14px;">
+            <span style="font-size:1.8rem;">🚀</span>
+            <div>
+              <div style="font-weight:700; color:var(--text); font-size:0.95rem;">Partages de Fichiers sFTP</div>
+              <div style="font-size:0.84rem; color:var(--subtext0); margin-top:2px;">Configurez les dossiers partagés, les quotas et les répertoires Chroot pour les clients FTP.</div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="switchNetworkSubtab('subtab-sftp')">
+            <span>🚀</span> Voir les Partages sFTP ↗
+          </button>
         </div>
 
       </div>

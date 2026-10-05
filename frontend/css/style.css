@@ -15743,6 +15743,16 @@ body.app-updating-reload #app-shell {
   }
 }
 
+/* Crosslink Cards (between sFTP & SSH subtabs) */
+.sftp-crosslink-card {
+  transition: all 0.2s ease;
+}
+
+.sftp-crosslink-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
 /* Toggles & Modals */
 .sftp-options-grid {
   display: grid;
