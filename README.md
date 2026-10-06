@@ -10,6 +10,7 @@
   [![Theme](https://img.shields.io/badge/Thème-Catppuccin%20Mocha-magenta?style=for-the-badge)](https://github.com/catppuccin/catppuccin)
   [![Port](https://img.shields.io/badge/Port%20Réseau-9339%20(Isolé)-blue?style=for-the-badge)](#)
   [![Performance](https://img.shields.io/badge/Empreinte%20RAM-%3C%2025%20Mo-brightgreen?style=for-the-badge)](#)
+  [![License](https://img.shields.io/badge/Licence-GNU%20GPLv3-blue?style=for-the-badge)](LICENSE)
 
   <p align="center">
     <strong>Élégant, instantané et ultra-sécurisé. Pilotez l'intégralité de votre NAS depuis une interface moderne pensée pour simplifier votre vie numérique.</strong>
@@ -139,6 +140,13 @@ nix run
 
 L'interface est immédiatement accessible sur :  
 👉 **http://localhost:9339**
+
+---
+
+## 📄 Licence
+
+Ce projet est distribué sous licence libre et copyleft **GNU General Public License v3.0 (GPLv3)**.  
+Consultez le fichier [LICENSE](LICENSE) pour plus d'informations.
 
 ---
 

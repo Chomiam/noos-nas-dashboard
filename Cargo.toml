@@ -3,6 +3,7 @@ name = "noos-nas-dashboard"
 version = "0.3.39"
 edition = "2021"
 description = "Tableau de bord web en Rust & JS pour Noos NAS Edition (Catppuccin Mocha)"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
