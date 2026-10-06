@@ -20,6 +20,8 @@ pub struct StoreEnv {
     pub label: String,
     #[serde(default)]
     pub default: String,
+    #[serde(default)]
+    pub r#type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -298,6 +300,115 @@ pub fn get_store_catalog() -> StoreCatalog {
     catalog
 }
 
+/// Génère une clé ou un mot de passe cryptographiquement sécurisé selon le type demandé.
+pub fn generate_secret_key(key_type: &str) -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let pid = std::process::id();
+    let mut random_bytes = [0u8; 64];
+    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+        use std::io::Read;
+        let _ = f.read_exact(&mut random_bytes);
+    } else {
+        for (i, b) in random_bytes.iter_mut().enumerate() {
+            *b = ((nanos.wrapping_add((i as u128).wrapping_mul(31)).wrapping_add(pid as u128)) & 0xFF) as u8;
+        }
+    }
+
+    let lower_type = key_type.to_lowercase();
+    if lower_type.contains("hex64") || lower_type.contains("hex_64") {
+        // 32 octets = 64 caractères hexadécimaux
+        random_bytes[..32].iter().map(|b| format!("{:02x}", b)).collect()
+    } else if lower_type.contains("hex128") || lower_type.contains("hex_128") {
+        // 64 octets = 128 caractères hexadécimaux
+        random_bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    } else if lower_type.contains("hex") {
+        // 16 octets = 32 caractères hexadécimaux (hex32 ou hex par défaut)
+        random_bytes[..16].iter().map(|b| format!("{:02x}", b)).collect()
+    } else if lower_type.contains("base64") {
+        const B64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut res = String::new();
+        for chunk in random_bytes[..32].chunks(3) {
+            let b0 = chunk[0] as usize;
+            let b1 = if chunk.len() > 1 { chunk[1] as usize } else { 0 };
+            let b2 = if chunk.len() > 2 { chunk[2] as usize } else { 0 };
+            res.push(B64_CHARS[(b0 >> 2) & 0x3F] as char);
+            res.push(B64_CHARS[((b0 & 0x03) << 4) | ((b1 >> 4) & 0x0F)] as char);
+            if chunk.len() > 1 {
+                res.push(B64_CHARS[((b1 & 0x0F) << 2) | ((b2 >> 6) & 0x03)] as char);
+            } else {
+                res.push('=');
+            }
+            if chunk.len() > 2 {
+                res.push(B64_CHARS[b2 & 0x3F] as char);
+            } else {
+                res.push('=');
+            }
+        }
+        res
+    } else if lower_type.contains("uuid") {
+        let mut u = [0u8; 16];
+        u.copy_from_slice(&random_bytes[..16]);
+        u[6] = (u[6] & 0x0F) | 0x40; // Version 4
+        u[8] = (u[8] & 0x3F) | 0x80; // Variant RFC 4122
+        format!(
+            "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+            u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7], u[8], u[9], u[10], u[11], u[12], u[13], u[14], u[15]
+        )
+    } else {
+        // Mot de passe alphanumérique robuste de 24 caractères (A-Z, a-z, 0-9) sans caractères spéciaux brisant docker
+        const ALPHA_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        let mut res = String::new();
+        for &b in &random_bytes[..24] {
+            res.push(ALPHA_CHARS[(b as usize) % ALPHA_CHARS.len()] as char);
+        }
+        res
+    }
+}
+
+/// Détermine si une variable d'environnement doit être auto-générée et génère sa valeur le cas échéant.
+pub fn should_generate_secret(key_name: &str, key_type: Option<&str>, current_val: &str) -> Option<String> {
+    let val = current_val.trim();
+    if val.starts_with("{{GENERATE_") || val == "generate" || val == "auto" {
+        let requested_type = if val.contains("HEX_64") || val.contains("HEX64") {
+            "hex64"
+        } else if val.contains("HEX") {
+            "hex32"
+        } else if val.contains("BASE64") {
+            "base64"
+        } else if val.contains("UUID") {
+            "uuid"
+        } else if val.contains("SECRET") || val.contains("JWT") {
+            "base64"
+        } else {
+            key_type.unwrap_or("password")
+        };
+        return Some(generate_secret_key(requested_type));
+    }
+
+    if let Some(t) = key_type {
+        let lt = t.to_lowercase();
+        if (val.is_empty() || val == "changeme" || val == "secret" || val == "password")
+            && (lt == "password" || lt == "secret" || lt == "hex" || lt == "hex32" || lt == "hex64" || lt == "base64" || lt == "uuid")
+        {
+            return Some(generate_secret_key(&lt));
+        }
+    }
+
+    let kn = key_name.to_uppercase();
+    if val.is_empty() {
+        if kn.contains("PASSWORD") || kn.contains("PASSWD") || kn.ends_with("_PASS") {
+            return Some(generate_secret_key("password"));
+        } else if kn.contains("SECRET_KEY") || kn.contains("JWT_SECRET") || kn.contains("AUTH_SECRET") || kn.contains("ENCRYPTION_KEY") {
+            return Some(generate_secret_key("base64"));
+        } else if kn.contains("UUID") || kn.contains("GUID") {
+            return Some(generate_secret_key("uuid"));
+        }
+    }
+
+    None
+}
+
 fn customize_compose_yaml(
     base_compose: &str,
     new_port: Option<u32>,
@@ -358,7 +469,7 @@ fn customize_compose_yaml(
         }
     }
 
-    // 2. Mettre à jour les variables d'environnement
+    // 2. Mettre à jour les variables d'environnement avec conservation stricte de l'indentation YAML
     if let Some(envs) = env_vars {
         if !envs.is_empty() {
             let mut env_idx = None;
@@ -370,6 +481,7 @@ fn customize_compose_yaml(
             }
 
             if let Some(e_idx) = env_idx {
+                let header_indent = lines[e_idx].chars().take_while(|c| c.is_whitespace()).collect::<String>();
                 let mut existing_keys = HashMap::new();
                 for i in (e_idx + 1)..lines.len() {
                     let l = &lines[i];
@@ -387,9 +499,12 @@ fn customize_compose_yaml(
                     let clean_k = k.trim();
                     let clean_v = v.trim();
                     if let Some(&line_num) = existing_keys.get(clean_k) {
-                        lines[line_num] = format!("    - {}={}", clean_k, clean_v);
+                        let orig_indent = lines[line_num].chars().take_while(|c| c.is_whitespace()).collect::<String>();
+                        let indent = if orig_indent.is_empty() { format!("{}  ", header_indent) } else { orig_indent };
+                        lines[line_num] = format!("{}- {}={}", indent, clean_k, clean_v);
                     } else {
-                        lines.insert(e_idx + 1, format!("    - {}={}", clean_k, clean_v));
+                        let item_indent = format!("{}  ", header_indent);
+                        lines.insert(e_idx + 1, format!("{}- {}={}", item_indent, clean_k, clean_v));
                     }
                 }
             }
@@ -646,7 +761,111 @@ pub fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
         }
     }
 
-    // 2. Récupérer le compose.yaml depuis noos_nas_store
+    // 2. Récupérer le manifest de l'application pour connaître les variables et leurs types
+    let manifest_url = format!("https://raw.githubusercontent.com/Chomiam/noos_nas_store/main/apps/{}/manifest.json", clean_id);
+    let mut fetched_manifest: Option<StoreApp> = None;
+    if let Ok(out) = Command::new("curl")
+        .args(["-s", "-L", "--connect-timeout", "4", "--max-time", "10", &manifest_url])
+        .output()
+    {
+        let txt = String::from_utf8_lossy(&out.stdout);
+        if txt.trim().starts_with('{') {
+            fetched_manifest = serde_json::from_str(&txt).ok();
+        }
+    }
+    if fetched_manifest.is_none() {
+        let catalog = get_store_catalog();
+        fetched_manifest = catalog.apps.into_iter().find(|a| a.id.to_lowercase() == clean_id);
+    }
+
+    // 2.b Résoudre et auto-générer les variables d'environnement (.env)
+    let mut final_envs: HashMap<String, String> = HashMap::new();
+    let mut env_types: HashMap<String, String> = HashMap::new();
+
+    if let Some(ref m) = fetched_manifest {
+        for e in &m.env {
+            if let Some(ref t) = e.r#type {
+                env_types.insert(e.name.clone(), t.clone());
+            }
+            if !e.default.is_empty() {
+                final_envs.insert(e.name.clone(), e.default.clone());
+            }
+        }
+    }
+
+    if let Some(ref user_envs) = req.env_vars {
+        for (k, v) in user_envs {
+            final_envs.insert(k.clone(), v.clone());
+        }
+    }
+
+    // Auto-génération des clés selon leur type ou détection heuristique
+    for (k, v) in final_envs.iter_mut() {
+        let t = env_types.get(k).map(|s| s.as_str());
+        if let Some(gen) = should_generate_secret(k, t, v) {
+            *v = gen;
+        }
+    }
+
+    // Pour les variables déclarées dans le manifest mais absentes ou vides dans final_envs
+    if let Some(ref m) = fetched_manifest {
+        for e in &m.env {
+            if !final_envs.contains_key(&e.name) || final_envs.get(&e.name).map(|s| s.trim().is_empty()).unwrap_or(true) {
+                if let Some(gen) = should_generate_secret(&e.name, e.r#type.as_deref(), &e.default) {
+                    final_envs.insert(e.name.clone(), gen);
+                } else if !e.default.is_empty() {
+                    final_envs.insert(e.name.clone(), e.default.clone());
+                }
+            }
+        }
+    }
+
+    // Harmonisation des variables de bases de données relationnelles (ex: Immich DB_PASSWORD <-> POSTGRES_PASSWORD)
+    if let Some(db_pass) = final_envs.get("DB_PASSWORD").cloned() {
+        if !db_pass.is_empty() {
+            final_envs.entry("POSTGRES_PASSWORD".to_string()).or_insert(db_pass);
+        }
+    }
+    if let Some(db_user) = final_envs.get("DB_USERNAME").cloned() {
+        final_envs.entry("POSTGRES_USER".to_string()).or_insert(db_user);
+    }
+    if let Some(db_name) = final_envs.get("DB_DATABASE_NAME").cloned() {
+        final_envs.entry("POSTGRES_DB".to_string()).or_insert(db_name);
+    }
+
+    // Variables système Noos NAS standard
+    final_envs.entry("TZ".to_string()).or_insert_with(|| "Europe/Paris".to_string());
+    final_envs.entry("PUID".to_string()).or_insert_with(|| "1000".to_string());
+    final_envs.entry("PGID".to_string()).or_insert_with(|| "100".to_string());
+    if let Some(p) = req.port {
+        final_envs.insert("PORT".to_string(), p.to_string());
+    }
+
+    // 2.c Écrire le fichier .env sécurisé pour ce conteneur
+    let env_file = app_dir.join(".env");
+    let mut env_content = format!(
+        "# =========================================================================\n\
+         # ⚙️ Noos NAS Edition — Fichier d'environnement pour {}\n\
+         # Généré automatiquement le {}\n\
+         # =========================================================================\n\n",
+        clean_id,
+        now
+    );
+    let mut sorted_keys: Vec<_> = final_envs.keys().cloned().collect();
+    sorted_keys.sort();
+    for k in sorted_keys {
+        if let Some(v) = final_envs.get(&k) {
+            env_content.push_str(&format!("{}={}\n", k, v));
+        }
+    }
+    if let Err(e) = std::fs::write(&env_file, &env_content) {
+        eprintln!("Avertissement: Impossible d'écrire {} : {}", env_file.display(), e);
+    } else {
+        let _ = Command::new("chown").args([&format!("{}:users", user), &env_file.display().to_string()]).status();
+        let _ = Command::new("chmod").args(["0600", &env_file.display().to_string()]).status();
+    }
+
+    // 2.d Récupérer le compose.yaml depuis noos_nas_store
     let compose_url = format!("https://raw.githubusercontent.com/Chomiam/noos_nas_store/main/apps/{}/compose.yaml", clean_id);
 
     let mut fetched_compose = None;
@@ -666,7 +885,7 @@ pub fn install_store_app(req: InstallAppRequest) -> Result<String, String> {
     let customized = customize_compose_yaml(
         &base_compose,
         req.port,
-        req.env_vars.as_ref(),
+        Some(&final_envs),
         req.gpu_device.as_deref(),
         req.extra_volumes.as_deref(),
     );
@@ -1142,3 +1361,74 @@ pub async fn remove_docker_container(
         clean_name, img_msg, data_msg
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_secret_key_types() {
+        let pass = generate_secret_key("password");
+        assert_eq!(pass.len(), 24);
+
+        let hex = generate_secret_key("hex32");
+        assert_eq!(hex.len(), 32);
+        assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
+
+        let b64 = generate_secret_key("base64");
+        assert!(!b64.is_empty());
+
+        let uuid = generate_secret_key("uuid");
+        assert_eq!(uuid.len(), 36);
+        assert_eq!(uuid.chars().nth(8), Some('-'));
+        assert_eq!(uuid.chars().nth(13), Some('-'));
+        assert_eq!(uuid.chars().nth(18), Some('-'));
+        assert_eq!(uuid.chars().nth(23), Some('-'));
+    }
+
+    #[test]
+    fn test_should_generate_secret_templates_and_heuristics() {
+        let gen1 = should_generate_secret("DB_PASSWORD", Some("password"), "{{GENERATE_PASSWORD}}");
+        assert!(gen1.is_some());
+        assert_eq!(gen1.unwrap().len(), 24);
+
+        let gen2 = should_generate_secret("JWT_SECRET", Some("base64"), "{{GENERATE_BASE64}}");
+        assert!(gen2.is_some());
+
+        let gen3 = should_generate_secret("ADMIN_PASSWORD", None, "");
+        assert!(gen3.is_some());
+
+        let gen4 = should_generate_secret("DB_NAME", None, "immich");
+        assert!(gen4.is_none());
+    }
+
+    #[test]
+    fn test_customize_compose_yaml_preserves_indentation() {
+        let original_yaml = r#"services:
+  immich-server:
+    container_name: immich_server
+    image: ghcr.io/immich-app/immich-server:release
+    environment:
+      - NODE_ENV=production
+      - DB_HOSTNAME=immich_postgres
+      - DB_USERNAME=postgres
+      - DB_PASSWORD=postgres
+      - DB_DATABASE_NAME=immich
+"#;
+
+        let mut envs = HashMap::new();
+        envs.insert("DB_PASSWORD".to_string(), "SuperSecretKey123!".to_string());
+        envs.insert("CUSTOM_KEY".to_string(), "CustomVal".to_string());
+
+        let output = customize_compose_yaml(original_yaml, None, Some(&envs), None, None);
+
+        // Verify that existing keys retain their 6-space indentation
+        assert!(output.contains("      - DB_PASSWORD=SuperSecretKey123!"));
+        // Verify that newly inserted keys use the correct 6-space indentation under environment:
+        assert!(output.contains("      - CUSTOM_KEY=CustomVal"));
+        // Verify no invalid 4-space un-indentation occurred that would break YAML parser
+        assert!(!output.contains("\n    - DB_PASSWORD="));
+        assert!(!output.contains("\n    - CUSTOM_KEY="));
+    }
+}
+

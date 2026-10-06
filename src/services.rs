@@ -68,6 +68,8 @@ pub struct DockerContainer {
     pub store_icon: Option<String>,
     #[serde(default)]
     pub is_store_app: bool,
+    #[serde(default)]
+    pub env_file_path: Option<String>,
 }
 
 pub fn get_services_overview() -> ServicesOverview {
@@ -250,15 +252,24 @@ pub fn get_docker_containers() -> Vec<DockerContainer> {
                 let labels = if parts.len() > 7 { parts[7] } else { "" };
                 let web_port = extract_web_port(&ports);
 
-                // Détection de lien avec le Store Docker (via label com.docker.compose.project ou nom de conteneur)
+                // Détection de lien avec Docker Compose et le Store Docker
                 let mut store_project = None;
+                let mut compose_working_dir = None;
+                let mut compose_env_file = None;
+                let mut compose_config_files = None;
+
                 for label in labels.split(',') {
                     if let Some((k, v)) = label.split_once('=') {
-                        if k.trim() == "com.docker.compose.project" {
-                            let proj = v.trim().to_string();
-                            if !proj.is_empty() {
-                                store_project = Some(proj);
-                            }
+                        let k_trim = k.trim();
+                        let v_trim = v.trim();
+                        if k_trim == "com.docker.compose.project" && !v_trim.is_empty() {
+                            store_project = Some(v_trim.to_string());
+                        } else if k_trim == "com.docker.compose.project.working_dir" && !v_trim.is_empty() {
+                            compose_working_dir = Some(v_trim.to_string());
+                        } else if k_trim == "com.docker.compose.project.environment_file" && !v_trim.is_empty() {
+                            compose_env_file = Some(v_trim.to_string());
+                        } else if k_trim == "com.docker.compose.project.config_files" && !v_trim.is_empty() {
+                            compose_config_files = Some(v_trim.to_string());
                         }
                     }
                 }
@@ -271,6 +282,73 @@ pub fn get_docker_containers() -> Vec<DockerContainer> {
                     Some((app_id, app_name, icon)) => (Some(app_id), Some(app_name), Some(icon), true),
                     None => (None, None, None, false),
                 };
+
+                // Recherche et association stricte du fichier .env
+                let mut env_file_path = None;
+
+                // 1. Depuis le label direct com.docker.compose.project.environment_file
+                if let Some(ref env_f) = compose_env_file {
+                    let p = std::path::Path::new(env_f);
+                    if p.is_file() {
+                        env_file_path = Some(p.to_string_lossy().to_string());
+                    } else if let Some(ref wd) = compose_working_dir {
+                        let p_rel = std::path::Path::new(wd).join(env_f);
+                        if p_rel.is_file() {
+                            env_file_path = Some(p_rel.to_string_lossy().to_string());
+                        }
+                    }
+                }
+
+                // 2. Depuis le répertoire de travail Docker Compose
+                if env_file_path.is_none() {
+                    if let Some(ref wd) = compose_working_dir {
+                        let p = std::path::Path::new(wd).join(".env");
+                        if p.is_file() {
+                            env_file_path = Some(p.to_string_lossy().to_string());
+                        }
+                    }
+                }
+
+                // 3. Depuis l'emplacement du fichier compose
+                if env_file_path.is_none() {
+                    if let Some(ref cfg_f) = compose_config_files {
+                        for f in cfg_f.split(';') {
+                            let p_cfg = std::path::Path::new(f.trim());
+                            if let Some(parent) = p_cfg.parent() {
+                                let p = parent.join(".env");
+                                if p.is_file() {
+                                    env_file_path = Some(p.to_string_lossy().to_string());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4. Emplacements conventionnels Noos NAS (/home/{user}/docker/{app}/.env et /mnt/storage/docker/apps/{app}/.env)
+                if env_file_path.is_none() {
+                    let user = crate::updates::target_user();
+                    let candidates = [
+                        lookup_key,
+                        store_app_id.as_deref().unwrap_or(""),
+                    ];
+
+                    for candidate_app in candidates {
+                        if candidate_app.is_empty() {
+                            continue;
+                        }
+                        let user_env = std::path::PathBuf::from(format!("/home/{}/docker/{}/.env", user, candidate_app));
+                        if user_env.is_file() {
+                            env_file_path = Some(user_env.to_string_lossy().to_string());
+                            break;
+                        }
+                        let storage_env = std::path::PathBuf::from(format!("/mnt/storage/docker/apps/{}/.env", candidate_app));
+                        if storage_env.is_file() {
+                            env_file_path = Some(storage_env.to_string_lossy().to_string());
+                            break;
+                        }
+                    }
+                }
 
                 containers.push(DockerContainer {
                     id,
@@ -285,6 +363,7 @@ pub fn get_docker_containers() -> Vec<DockerContainer> {
                     store_app_name,
                     store_icon,
                     is_store_app,
+                    env_file_path,
                 });
             }
         }

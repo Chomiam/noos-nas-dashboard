@@ -6450,7 +6450,7 @@ function detectNvimLanguage(fileName, content = "") {
   if (lower === "flake.lock") return "json";
   if (lower === "cargo.lock") return "toml";
   if (lower === "makefile" || lower === "justfile" || lower === "dockerfile" || lower === "containerfile") return "bash";
-  if (lower === ".gitignore" || lower === ".env") return "ini";
+  if (lower === ".gitignore" || lower.includes(".env")) return "ini";
   if (lower.endsWith("rc") && (lower.includes("bash") || lower.includes("zsh"))) return "bash";
   if (lower === ".fishrc" || lower.endsWith(".fish")) return "fish";
 
@@ -10596,6 +10596,12 @@ function renderDockerContainersView() {
          </button>`
       : "";
 
+    const envBtn = (c.env_file_path && c.env_file_path.trim().length > 0)
+      ? `<button type="button" class="btn-docker-action btn-docker-env" onclick="openNvimModal('${escapeHtml(c.env_file_path)}', '.env (${escapeHtml(cleanName)})')" title="Visualiser et modifier le fichier .env avec NeoVim">
+           <span>📝</span> .env
+         </button>`
+      : "";
+
     const stateBadgeText = isUnhealthy ? "⚠️ Dégradé (Unhealthy)" : (isRunning ? "🟢 En cours" : "🟡 Arrêté");
     const stateBadgeClass = isUnhealthy ? "state-unhealthy" : (isRunning ? "state-running" : "state-stopped");
     const dotClass = isUnhealthy ? "dot-unhealthy" : (isRunning ? "dot-running" : "dot-stopped");
@@ -10648,6 +10654,7 @@ function renderDockerContainersView() {
           <button type="button" class="btn-docker-action" onclick="openDockerConfigModalForContainer('${escapeHtml(cleanName)}')" title="Modifier les variables d'environnement">
             <span>⚙️</span> Variables
           </button>
+          ${envBtn}
           ${storeBtn}
           <button type="button" class="btn-docker-action" onclick="openDockerLogsModal('${escapeHtml(cleanName)}')" title="Consulter les journaux Docker">
             <span>📜</span> Logs
