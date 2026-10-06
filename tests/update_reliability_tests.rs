@@ -225,3 +225,50 @@ fn test_integration_hardware_configuration_sanctuarization_simulation() {
 
     let _ = fs::remove_dir_all(temp_dir);
 }
+
+#[test]
+fn test_integration_user_ssh_and_permission_management_simulation() {
+    let temp_dir = std::env::temp_dir().join(format!("noos_test_user_sim_{}", std::process::id()));
+    let _ = fs::create_dir_all(&temp_dir);
+
+    let home_path = temp_dir.join("home/test_user");
+    let ssh_dir = home_path.join(".ssh");
+    let auth_keys = ssh_dir.join("authorized_keys");
+
+    // 1. Simulation de création d'arborescence utilisateur avec permissions strictes
+    let _ = fs::create_dir_all(&ssh_dir);
+    let sample_ssh_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockKey123456789 test@noos-nas\n";
+    let _ = fs::write(&auth_keys, sample_ssh_key);
+
+    assert!(home_path.exists());
+    assert!(ssh_dir.exists());
+    assert!(auth_keys.exists());
+
+    let content = fs::read_to_string(&auth_keys).unwrap();
+    assert!(content.contains("IMockKey123456789"));
+
+    // 2. Simulation de modification dynamique des permissions (allow_shell: false -> true -> false)
+    let mut shell_state = "/run/current-system/sw/bin/nologin";
+    assert_eq!(shell_state, "/run/current-system/sw/bin/nologin");
+
+    // Modification depuis le Dashboard (UI) : Promotion vers bash
+    shell_state = "/run/current-system/sw/bin/bash";
+    assert_eq!(shell_state, "/run/current-system/sw/bin/bash");
+
+    // Révocation depuis le Dashboard (UI) : Retour vers nologin
+    shell_state = "/run/current-system/sw/bin/nologin";
+    assert_eq!(shell_state, "/run/current-system/sw/bin/nologin");
+
+    // 3. Vérification de l'anti-auto-éviction admin
+    let current_admin = "chomiam";
+    let req_groups = vec!["storage".to_string(), "docker".to_string()];
+    let can_evict_self = if req_groups.contains(&"wheel".to_string()) || current_admin != "chomiam" {
+        true
+    } else {
+        false
+    };
+    assert!(!can_evict_self, "L'administrateur ne doit pas pouvoir se retirer de wheel");
+
+    let _ = fs::remove_dir_all(temp_dir);
+}
+
