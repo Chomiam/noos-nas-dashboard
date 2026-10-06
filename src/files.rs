@@ -19,10 +19,12 @@
 //!   .tar.xz, .tar.zst) avec chiffrement AES256 optionnel et extraction automatique.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::SystemTime;
 
 // ============================================================================
@@ -53,6 +55,89 @@ pub struct FileEntry {
     /// Si `true`, la suppression et le renommage sont formellement interdits dans l'API.
     #[serde(default)]
     pub is_mount_point: bool,
+}
+
+/// Métadonnées détaillées pour l'inspection multimédia d'un fichier audio ou vidéo.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct MediaMetadata {
+    /// Indique si le fichier est un conteneur multimédia reconnu.
+    pub is_media: bool,
+    /// Type de média : `"video"` ou `"audio"`.
+    pub media_type: String,
+
+    // Spécifications Vidéo
+    pub video_codec: Option<String>,
+    pub resolution: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub aspect_ratio: Option<String>,
+    pub framerate: Option<String>,
+    pub video_bitrate: Option<String>,
+    pub pixel_format: Option<String>,
+
+    // Spécifications Audio
+    pub audio_codec: Option<String>,
+    pub audio_channels: Option<String>,
+    pub sample_rate: Option<String>,
+    pub audio_bitrate: Option<String>,
+
+    // Spécifications Globales
+    pub duration_seconds: Option<f64>,
+    pub duration_human: Option<String>,
+    pub overall_bitrate: Option<String>,
+    pub container_format: Option<String>,
+
+    // Balises et Tags ID3 / Métadonnées
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub year: Option<String>,
+    pub genre: Option<String>,
+    pub comment: Option<String>,
+}
+
+/// Réponse complète pour la modale des propriétés d'un fichier ou dossier unitaire.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilePropertiesResponse {
+    pub name: String,
+    pub path: String,
+    pub parent_path: Option<String>,
+    pub is_dir: bool,
+    pub is_symlink: bool,
+    pub is_mount_point: bool,
+    pub size_bytes: u64,
+    pub size_human: String,
+    pub category: String,
+    pub mime_type: String,
+    pub permissions_octal: String,
+    pub permissions_mode: String,
+    pub owner: String,
+    pub group: String,
+    pub modified: String,
+    pub created: Option<String>,
+    pub accessed: Option<String>,
+    pub media_info: Option<MediaMetadata>,
+}
+
+/// Requête de calcul et dénombrement récursif pour une sélection d'éléments ou un dossier.
+#[derive(Debug, Deserialize)]
+pub struct SelectionStatsRequest {
+    pub paths: Vec<String>,
+}
+
+/// État d'avancement et métriques retournées pour une sélection d'éléments.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SelectionStatsResponse {
+    pub task_id: String,
+    pub is_done: bool,
+    pub total_files: u64,
+    pub total_dirs: u64,
+    pub total_bytes: u64,
+    pub total_size_human: String,
+    pub current_path: Option<String>,
+    pub direct_files_count: usize,
+    pub direct_dirs_count: usize,
+    pub error: Option<String>,
 }
 
 /// Résultat complet de l'exploration d'un répertoire.
@@ -1614,3 +1699,993 @@ pub fn extract_archive(req: ExtractRequest) -> Result<String, String> {
 
     Ok(format!("Archive extraite avec succès dans {}", dest_dir.display()))
 }
+
+// ============================================================================
+// 10. PROPRIÉTÉS ÉTENDUES, INSPECTION MULTIMÉDIA & CALCUL DE SÉLECTION
+// ============================================================================
+
+/// Détermine le type MIME standard à partir de l'extension de fichier.
+pub fn get_mime_type(ext: &str) -> &'static str {
+    match ext {
+        "mp4" | "m4v" => "video/mp4",
+        "mkv" => "video/x-matroska",
+        "webm" => "video/webm",
+        "avi" => "video/x-msvideo",
+        "mov" => "video/quicktime",
+        "wmv" => "video/x-ms-wmv",
+        "flv" => "video/x-flv",
+        "ts" => "video/mp2t",
+        "mp3" => "audio/mpeg",
+        "flac" => "audio/flac",
+        "wav" => "audio/wav",
+        "ogg" => "audio/ogg",
+        "aac" => "audio/aac",
+        "m4a" => "audio/mp4",
+        "opus" => "audio/opus",
+        "wma" => "audio/x-ms-wma",
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "bmp" => "image/bmp",
+        "tiff" | "tif" => "image/tiff",
+        "heic" => "image/heic",
+        "avif" => "image/avif",
+        "pdf" => "application/pdf",
+        "txt" => "text/plain",
+        "json" => "application/json",
+        "html" | "htm" => "text/html",
+        "css" => "text/css",
+        "js" => "application/javascript",
+        "rs" => "text/x-rust",
+        "py" => "text/x-python",
+        "nix" => "text/x-nix",
+        "sh" | "bash" | "fish" => "application/x-sh",
+        "zip" => "application/zip",
+        "tar" => "application/x-tar",
+        "gz" => "application/gzip",
+        "xz" => "application/x-xz",
+        "zst" => "application/zstd",
+        "7z" => "application/x-7z-compressed",
+        "iso" => "application/x-iso9660-image",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Formate les permissions Unix au format symbolique classique (ex: `drwxr-xr-x` ou `-rw-r--r--`).
+pub fn format_permissions_mode(is_dir: bool, is_symlink: bool, mode: u32) -> String {
+    let file_type = if is_symlink { 'l' } else if is_dir { 'd' } else { '-' };
+    let r1 = if mode & 0o400 != 0 { 'r' } else { '-' };
+    let w1 = if mode & 0o200 != 0 { 'w' } else { '-' };
+    let x1 = if mode & 0o100 != 0 { 'x' } else { '-' };
+    let r2 = if mode & 0o040 != 0 { 'r' } else { '-' };
+    let w2 = if mode & 0o020 != 0 { 'w' } else { '-' };
+    let x2 = if mode & 0o010 != 0 { 'x' } else { '-' };
+    let r3 = if mode & 0o004 != 0 { 'r' } else { '-' };
+    let w3 = if mode & 0o002 != 0 { 'w' } else { '-' };
+    let x3 = if mode & 0o001 != 0 { 'x' } else { '-' };
+    format!("{}{}{}{}{}{}{}{}{}{}", file_type, r1, w1, x1, r2, w2, x2, r3, w3, x3)
+}
+
+/// Résout un identifiant utilisateur Unix (UID) en nom d'utilisateur système via `/etc/passwd`.
+pub fn resolve_uid(uid: u32) -> String {
+    if let Ok(content) = fs::read_to_string("/etc/passwd") {
+        for line in content.lines() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() >= 3 && parts[2] == uid.to_string() {
+                return parts[0].to_string();
+            }
+        }
+    }
+    uid.to_string()
+}
+
+/// Résout un identifiant de groupe Unix (GID) en nom de groupe système via `/etc/group`.
+pub fn resolve_gid(gid: u32) -> String {
+    if let Ok(content) = fs::read_to_string("/etc/group") {
+        for line in content.lines() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() >= 3 && parts[2] == gid.to_string() {
+                return parts[0].to_string();
+            }
+        }
+    }
+    gid.to_string()
+}
+
+/// Formate un débit binaire (bitrate) en chaîne lisible (ex: `320 kb/s` ou `4.52 Mb/s`).
+pub fn format_bitrate(bps: u64) -> String {
+    if bps >= 1_000_000 {
+        format!("{:.2} Mb/s", bps as f64 / 1_000_000.0)
+    } else if bps >= 1_000 {
+        format!("{} kb/s", bps / 1_000)
+    } else {
+        format!("{} b/s", bps)
+    }
+}
+
+/// Formate une durée en secondes en notation temporelle standard `HH:MM:SS` ou `MM:SS`.
+pub fn format_duration(seconds: f64) -> String {
+    if seconds.is_nan() || seconds.is_infinite() || seconds < 0.0 {
+        return "--".to_string();
+    }
+    let total_secs = seconds.round() as u64;
+    let hours = total_secs / 3600;
+    let mins = (total_secs % 3600) / 60;
+    let secs = total_secs % 60;
+
+    if hours > 0 {
+        format!("{:02}:{:02}:{:02}", hours, mins, secs)
+    } else {
+        format!("{:02}:{:02}", mins, secs)
+    }
+}
+
+/// Analyse la sortie JSON générée par `ffprobe` pour extraire les caractéristiques audio/vidéo.
+pub fn parse_ffprobe_json(json_str: &str) -> Option<MediaMetadata> {
+    let root: serde_json::Value = serde_json::from_str(json_str).ok()?;
+    let streams = root.get("streams").and_then(|s| s.as_array())?;
+    let format = root.get("format").and_then(|f| f.as_object());
+
+    let mut media = MediaMetadata::default();
+    media.is_media = true;
+
+    // Détection du flux vidéo primaire
+    let video_stream = streams.iter().find(|s| {
+        s.get("codec_type").and_then(|t| t.as_str()) == Some("video")
+    });
+
+    if let Some(vs) = video_stream {
+        media.media_type = "video".to_string();
+
+        let codec_name = vs.get("codec_name").and_then(|v| v.as_str()).unwrap_or("");
+        let profile = vs.get("profile").and_then(|v| v.as_str()).unwrap_or("");
+        let codec_clean = if !profile.is_empty() && profile != "unknown" {
+            format!("{} ({})", codec_name.to_uppercase(), profile)
+        } else {
+            codec_name.to_uppercase()
+        };
+        if !codec_clean.is_empty() {
+            media.video_codec = Some(codec_clean);
+        }
+
+        let width = vs.get("width").and_then(|v| v.as_u64()).map(|w| w as u32);
+        let height = vs.get("height").and_then(|v| v.as_u64()).map(|h| h as u32);
+        media.width = width;
+        media.height = height;
+        if let (Some(w), Some(h)) = (width, height) {
+            media.resolution = Some(format!("{} × {}", w, h));
+
+            let dar = vs.get("display_aspect_ratio").and_then(|v| v.as_str()).unwrap_or("");
+            if !dar.is_empty() && dar != "0:1" && dar != "N/A" {
+                media.aspect_ratio = Some(dar.to_string());
+            } else if w > 0 && h > 0 {
+                fn gcd(mut a: u32, mut b: u32) -> u32 {
+                    while b != 0 {
+                        let t = b;
+                        b = a % b;
+                        a = t;
+                    }
+                    a
+                }
+                let g = gcd(w, h);
+                let rw = w / g;
+                let rh = h / g;
+                if rw == 8 && rh == 5 {
+                    media.aspect_ratio = Some("16:10".to_string());
+                } else if (rw == 64 && rh == 27) || (rw == 43 && rh == 18) {
+                    media.aspect_ratio = Some("21:9".to_string());
+                } else {
+                    media.aspect_ratio = Some(format!("{}:{}", rw, rh));
+                }
+            }
+        }
+
+        let r_fps = vs.get("r_frame_rate").and_then(|v| v.as_str())
+            .or_else(|| vs.get("avg_frame_rate").and_then(|v| v.as_str()));
+        if let Some(fps_str) = r_fps {
+            let parts: Vec<&str> = fps_str.split('/').collect();
+            if parts.len() == 2 {
+                if let (Ok(num), Ok(den)) = (parts[0].parse::<f64>(), parts[1].parse::<f64>()) {
+                    if den > 0.0 {
+                        let fps = num / den;
+                        if fps > 0.0 {
+                            if fps.fract().abs() < 0.01 {
+                                media.framerate = Some(format!("{:.0} fps", fps));
+                            } else {
+                                media.framerate = Some(format!("{:.2} fps", fps));
+                            }
+                        }
+                    }
+                }
+            } else if let Ok(fps) = fps_str.parse::<f64>() {
+                if fps > 0.0 {
+                    media.framerate = Some(format!("{:.2} fps", fps));
+                }
+            }
+        }
+
+        let v_br = vs.get("bit_rate").and_then(|v| v.as_str())
+            .or_else(|| vs.get("tags").and_then(|t| t.get("BPS").and_then(|b| b.as_str())));
+        if let Some(br_str) = v_br {
+            if let Ok(bps) = br_str.parse::<u64>() {
+                media.video_bitrate = Some(format_bitrate(bps));
+            }
+        }
+
+        if let Some(pix) = vs.get("pix_fmt").and_then(|v| v.as_str()) {
+            if !pix.is_empty() && pix != "unknown" {
+                media.pixel_format = Some(pix.to_string());
+            }
+        }
+    }
+
+    // Détection du flux audio primaire
+    let audio_stream = streams.iter().find(|s| {
+        s.get("codec_type").and_then(|t| t.as_str()) == Some("audio")
+    });
+
+    if let Some(as_) = audio_stream {
+        if media.media_type.is_empty() {
+            media.media_type = "audio".to_string();
+        }
+
+        let codec_name = as_.get("codec_name").and_then(|v| v.as_str()).unwrap_or("");
+        let profile = as_.get("profile").and_then(|v| v.as_str()).unwrap_or("");
+        let codec_clean = if !profile.is_empty() && profile != "unknown" {
+            format!("{} ({})", codec_name.to_uppercase(), profile)
+        } else {
+            codec_name.to_uppercase()
+        };
+        if !codec_clean.is_empty() {
+            media.audio_codec = Some(codec_clean);
+        }
+
+        let channels = as_.get("channels").and_then(|v| v.as_u64());
+        let layout = as_.get("channel_layout").and_then(|v| v.as_str()).unwrap_or("");
+        let chan_desc = match (channels, layout) {
+            (Some(1), _) | (_, "mono") => "Mono (1.0)".to_string(),
+            (Some(2), _) | (_, "stereo") => "Stéréo (2.0)".to_string(),
+            (Some(6), _) | (_, "5.1" | "5.1(side)") => "5.1 Surround".to_string(),
+            (Some(8), _) | (_, "7.1") => "7.1 Surround".to_string(),
+            (Some(c), "") => format!("{} canaux", c),
+            (Some(_), l) => l.to_string(),
+            _ => String::new(),
+        };
+        if !chan_desc.is_empty() {
+            media.audio_channels = Some(chan_desc);
+        }
+
+        if let Some(sr) = as_.get("sample_rate").and_then(|v| v.as_str()) {
+            if let Ok(hz) = sr.parse::<u64>() {
+                if hz >= 1000 {
+                    media.sample_rate = Some(format!("{:.1} kHz", hz as f64 / 1000.0));
+                } else {
+                    media.sample_rate = Some(format!("{} Hz", hz));
+                }
+            }
+        }
+
+        let a_br = as_.get("bit_rate").and_then(|v| v.as_str())
+            .or_else(|| as_.get("tags").and_then(|t| t.get("BPS").and_then(|b| b.as_str())));
+        if let Some(br_str) = a_br {
+            if let Ok(bps) = br_str.parse::<u64>() {
+                media.audio_bitrate = Some(format_bitrate(bps));
+            }
+        }
+    }
+
+    if let Some(fmt) = format {
+        let dur_str = fmt.get("duration").and_then(|v| v.as_str())
+            .or_else(|| video_stream.and_then(|vs| vs.get("duration").and_then(|v| v.as_str())))
+            .or_else(|| audio_stream.and_then(|as_| as_.get("duration").and_then(|v| v.as_str())));
+        if let Some(ds) = dur_str {
+            if let Ok(secs) = ds.parse::<f64>() {
+                media.duration_seconds = Some(secs);
+                media.duration_human = Some(format_duration(secs));
+            }
+        }
+
+        if let Some(br_str) = fmt.get("bit_rate").and_then(|v| v.as_str()) {
+            if let Ok(bps) = br_str.parse::<u64>() {
+                media.overall_bitrate = Some(format_bitrate(bps));
+            }
+        }
+
+        if let Some(long_name) = fmt.get("format_long_name").and_then(|v| v.as_str()) {
+            media.container_format = Some(long_name.to_string());
+        } else if let Some(name) = fmt.get("format_name").and_then(|v| v.as_str()) {
+            media.container_format = Some(name.to_string());
+        }
+
+        if let Some(tags) = fmt.get("tags").and_then(|t| t.as_object()) {
+            let find_tag = |keys: &[&str]| -> Option<String> {
+                for (k, v) in tags {
+                    let k_lower = k.to_lowercase();
+                    for target in keys {
+                        if k_lower == *target {
+                            if let Some(s) = v.as_str() {
+                                if !s.trim().is_empty() {
+                                    return Some(s.trim().to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                None
+            };
+
+            media.title = find_tag(&["title", "track", "name"]);
+            media.artist = find_tag(&["artist", "album_artist", "composer", "performer"]);
+            media.album = find_tag(&["album"]);
+            media.year = find_tag(&["date", "year", "creation_time"]);
+            media.genre = find_tag(&["genre"]);
+            media.comment = find_tag(&["comment", "description"]);
+        }
+    }
+
+    if media.media_type.is_empty() {
+        return None;
+    }
+
+    Some(media)
+}
+
+/// Extrait les métadonnées multimédia d'un fichier audio ou vidéo via `ffprobe`.
+pub fn extract_media_metadata(path: &Path) -> Option<MediaMetadata> {
+    let ffprobe_bin = find_bin(&[
+        "/run/current-system/sw/bin/ffprobe",
+        "ffprobe",
+        "/nix/var/nix/profiles/default/bin/ffprobe",
+        "/usr/bin/ffprobe",
+    ]);
+
+    let output = std::process::Command::new(&ffprobe_bin)
+        .args([
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_format",
+            "-show_streams",
+        ])
+        .arg(path)
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let json_str = String::from_utf8_lossy(&output.stdout);
+    parse_ffprobe_json(&json_str)
+}
+
+/// Récupère l'intégralité des métadonnées et attributs d'un élément unique (fichier ou dossier).
+pub fn get_file_properties(path_str: &str) -> Result<FilePropertiesResponse, String> {
+    let raw_path = PathBuf::from(path_str.trim());
+    let p = normalize_user_path(raw_path);
+
+    if !p.exists() {
+        return Err(format!("L'élément '{}' est introuvable.", path_str));
+    }
+
+    let sym_meta = fs::symlink_metadata(&p).map_err(|e| e.to_string())?;
+    let is_symlink = sym_meta.file_type().is_symlink();
+    let meta = fs::metadata(&p).map_err(|e| e.to_string())?;
+
+    let is_dir = meta.is_dir();
+    let size_bytes = if is_dir { 0 } else { meta.len() };
+    let size_human = if is_dir { "--".to_string() } else { format_size(size_bytes) };
+
+    let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+    let parent_path = p.parent().map(|d| d.display().to_string());
+    let category = if is_dir { "folder".to_string() } else { categorize_file(&file_name) };
+
+    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let mime_type = if is_dir { "inode/directory".to_string() } else { get_mime_type(&ext).to_string() };
+
+    let is_mount_point = if is_dir {
+        is_mount_point(&p)
+    } else {
+        false
+    };
+
+    #[cfg(unix)]
+    let (permissions_octal, permissions_mode, owner, group) = {
+        use std::os::unix::fs::MetadataExt;
+        let mode = meta.mode();
+        let octal = format!("{:04o}", mode & 0o7777);
+        let sym = format_permissions_mode(is_dir, is_symlink, mode);
+        let uid = meta.uid();
+        let gid = meta.gid();
+        (octal, sym, resolve_uid(uid), resolve_gid(gid))
+    };
+    #[cfg(not(unix))]
+    let (permissions_octal, permissions_mode, owner, group) = (
+        "0755".to_string(),
+        if is_dir { "drwxr-xr-x".to_string() } else { "-rw-r--r--".to_string() },
+        "user".to_string(),
+        "users".to_string(),
+    );
+
+    let modified = meta.modified().ok().map(format_system_time).unwrap_or_else(|| "--".to_string());
+    let created = meta.created().ok().map(format_system_time);
+    let accessed = meta.accessed().ok().map(format_system_time);
+
+    let media_info = if !is_dir && (category == "video" || category == "audio") {
+        extract_media_metadata(&p)
+    } else {
+        None
+    };
+
+    Ok(FilePropertiesResponse {
+        name: file_name,
+        path: p.display().to_string(),
+        parent_path,
+        is_dir,
+        is_symlink,
+        is_mount_point,
+        size_bytes,
+        size_human,
+        category,
+        mime_type,
+        permissions_octal,
+        permissions_mode,
+        owner,
+        group,
+        modified,
+        created,
+        accessed,
+        media_info,
+    })
+}
+
+// ----------------------------------------------------------------------------
+// GESTIONNAIRE DE TÂCHES ASYNCHRONES POUR LE CALCUL DE STATISTIQUES DE SÉLECTION
+// ----------------------------------------------------------------------------
+
+/// Tâche d'arrière-plan traçant le dénombrement et calcul récursif d'une sélection.
+pub struct SelectionTask {
+    pub task_id: String,
+    pub total_files: Arc<AtomicU64>,
+    pub total_dirs: Arc<AtomicU64>,
+    pub total_bytes: Arc<AtomicU64>,
+    pub is_done: Arc<AtomicBool>,
+    pub is_cancelled: Arc<AtomicBool>,
+    pub current_path: Arc<Mutex<Option<String>>>,
+    pub direct_files_count: usize,
+    pub direct_dirs_count: usize,
+    pub error: Arc<Mutex<Option<String>>>,
+    pub created_at: std::time::Instant,
+}
+
+fn get_selection_tasks() -> &'static RwLock<HashMap<String, Arc<SelectionTask>>> {
+    static TASKS: OnceLock<RwLock<HashMap<String, Arc<SelectionTask>>>> = OnceLock::new();
+    TASKS.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn cleanup_old_selection_tasks() {
+    if let Ok(mut map) = get_selection_tasks().write() {
+        let now = std::time::Instant::now();
+        map.retain(|_, task| now.duration_since(task.created_at).as_secs() < 300);
+    }
+}
+
+/// Interrompt immédiatement une tâche de calcul en cours.
+pub fn cancel_selection_task(task_id: &str) -> bool {
+    if let Ok(map) = get_selection_tasks().read() {
+        if let Some(task) = map.get(task_id) {
+            task.is_cancelled.store(true, Ordering::SeqCst);
+            return true;
+        }
+    }
+    false
+}
+
+/// Récupère l'état instantané d'une tâche de calcul de sélection.
+pub fn get_selection_task_status(task_id: &str) -> Option<SelectionStatsResponse> {
+    let map = get_selection_tasks().read().ok()?;
+    let task = map.get(task_id)?;
+
+    let total_files = task.total_files.load(Ordering::Relaxed);
+    let total_dirs = task.total_dirs.load(Ordering::Relaxed);
+    let total_bytes = task.total_bytes.load(Ordering::Relaxed);
+    let is_done = task.is_done.load(Ordering::Relaxed);
+    let current_path = task.current_path.lock().ok().and_then(|cp| cp.clone());
+    let error = task.error.lock().ok().and_then(|e| e.clone());
+
+    Some(SelectionStatsResponse {
+        task_id: task.task_id.clone(),
+        is_done,
+        total_files,
+        total_dirs,
+        total_bytes,
+        total_size_human: format_size(total_bytes),
+        current_path,
+        direct_files_count: task.direct_files_count,
+        direct_dirs_count: task.direct_dirs_count,
+        error,
+    })
+}
+
+/// Démarre le calcul asynchrone des métriques d'une sélection de fichiers et/ou dossiers.
+pub fn start_selection_task(raw_paths: Vec<String>) -> SelectionStatsResponse {
+    cleanup_old_selection_tasks();
+
+    let mut direct_files = Vec::new();
+    let mut direct_dirs = Vec::new();
+
+    for raw in raw_paths {
+        let p = normalize_user_path(PathBuf::from(raw.trim()));
+        if let Ok(meta) = fs::symlink_metadata(&p) {
+            if meta.file_type().is_symlink() {
+                if let Ok(target_meta) = fs::metadata(&p) {
+                    if target_meta.is_dir() {
+                        direct_dirs.push(p);
+                    } else {
+                        direct_files.push((p, target_meta.len()));
+                    }
+                }
+            } else if meta.is_dir() {
+                direct_dirs.push(p);
+            } else {
+                direct_files.push((p, meta.len()));
+            }
+        }
+    }
+
+    let direct_files_count = direct_files.len();
+    let direct_dirs_count = direct_dirs.len();
+
+    // Fast-path instantané : si aucun dossier dans la sélection, résultat immédiat
+    if direct_dirs_count == 0 {
+        let total_bytes: u64 = direct_files.iter().map(|(_, sz)| *sz).sum();
+        let task_id = format!("sync_{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_millis());
+        return SelectionStatsResponse {
+            task_id,
+            is_done: true,
+            total_files: direct_files_count as u64,
+            total_dirs: 0,
+            total_bytes,
+            total_size_human: format_size(total_bytes),
+            current_path: None,
+            direct_files_count,
+            direct_dirs_count: 0,
+            error: None,
+        };
+    }
+
+    let task_id = format!("sel_{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_micros());
+    let initial_bytes: u64 = direct_files.iter().map(|(_, sz)| *sz).sum();
+
+    let total_files = Arc::new(AtomicU64::new(direct_files_count as u64));
+    let total_dirs = Arc::new(AtomicU64::new(direct_dirs_count as u64));
+    let total_bytes = Arc::new(AtomicU64::new(initial_bytes));
+    let is_done = Arc::new(AtomicBool::new(false));
+    let is_cancelled = Arc::new(AtomicBool::new(false));
+    let current_path = Arc::new(Mutex::new(None));
+    let error = Arc::new(Mutex::new(None));
+
+    let task = Arc::new(SelectionTask {
+        task_id: task_id.clone(),
+        total_files: Arc::clone(&total_files),
+        total_dirs: Arc::clone(&total_dirs),
+        total_bytes: Arc::clone(&total_bytes),
+        is_done: Arc::clone(&is_done),
+        is_cancelled: Arc::clone(&is_cancelled),
+        current_path: Arc::clone(&current_path),
+        direct_files_count,
+        direct_dirs_count,
+        error: Arc::clone(&error),
+        created_at: std::time::Instant::now(),
+    });
+
+    if let Ok(mut map) = get_selection_tasks().write() {
+        map.insert(task_id.clone(), task);
+    }
+
+    let dirs_to_crawl = direct_dirs;
+    tokio::spawn(async move {
+        let mut queue = dirs_to_crawl;
+        let mut batch_counter = 0usize;
+
+        while let Some(dir) = queue.pop() {
+            if is_cancelled.load(Ordering::Relaxed) {
+                break;
+            }
+
+            if let Ok(mut cp) = current_path.lock() {
+                *cp = Some(dir.display().to_string());
+            }
+
+            if let Ok(entries) = fs::read_dir(&dir) {
+                for item in entries.flatten() {
+                    if is_cancelled.load(Ordering::Relaxed) {
+                        break;
+                    }
+
+                    batch_counter += 1;
+                    if batch_counter % 250 == 0 {
+                        // Lissage CPU & I/O sur le NAS : yield coopératif Tokio avec micro-pause
+                        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    }
+
+                    if let Ok(ft) = item.file_type() {
+                        if ft.is_symlink() {
+                            // Ne jamais suivre les liens symboliques en récursif pour prévenir boucles et fuite mémoire
+                            continue;
+                        }
+
+                        if ft.is_dir() {
+                            total_dirs.fetch_add(1, Ordering::Relaxed);
+                            // Queue bornée pour sanctuariser la RAM
+                            if queue.len() < 50_000 {
+                                queue.push(item.path());
+                            }
+                        } else if ft.is_file() {
+                            total_files.fetch_add(1, Ordering::Relaxed);
+                            if let Ok(meta) = item.metadata() {
+                                total_bytes.fetch_add(meta.len(), Ordering::Relaxed);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Ok(mut cp) = current_path.lock() {
+            *cp = None;
+        }
+        is_done.store(true, Ordering::SeqCst);
+    });
+
+    SelectionStatsResponse {
+        task_id,
+        is_done: false,
+        total_files: direct_files_count as u64,
+        total_dirs: direct_dirs_count as u64,
+        total_bytes: initial_bytes,
+        total_size_human: format_size(initial_bytes),
+        current_path: None,
+        direct_files_count,
+        direct_dirs_count,
+        error: None,
+    }
+}
+
+// ============================================================================
+// TESTS UNITAIRES (PROPRIÉTÉS DE FICHIERS, MÉTADONNÉES & CALCULS DE SÉLECTION)
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_permissions_mode() {
+        assert_eq!(format_permissions_mode(true, false, 0o755), "drwxr-xr-x");
+        assert_eq!(format_permissions_mode(false, false, 0o644), "-rw-r--r--");
+        assert_eq!(format_permissions_mode(false, false, 0o600), "-rw-------");
+        assert_eq!(format_permissions_mode(false, true, 0o777), "lrwxrwxrwx");
+    }
+
+    #[test]
+    fn test_format_duration() {
+        assert_eq!(format_duration(45.2), "00:45");
+        assert_eq!(format_duration(225.0), "03:45");
+        assert_eq!(format_duration(3665.0), "01:01:05");
+    }
+
+    #[test]
+    fn test_format_bitrate() {
+        assert_eq!(format_bitrate(320_000), "320 kb/s");
+        assert_eq!(format_bitrate(4_500_000), "4.50 Mb/s");
+        assert_eq!(format_bitrate(500), "500 b/s");
+    }
+
+    #[test]
+    fn test_get_mime_type() {
+        assert_eq!(get_mime_type("mp4"), "video/mp4");
+        assert_eq!(get_mime_type("mkv"), "video/x-matroska");
+        assert_eq!(get_mime_type("mp3"), "audio/mpeg");
+        assert_eq!(get_mime_type("flac"), "audio/flac");
+        assert_eq!(get_mime_type("png"), "image/png");
+        assert_eq!(get_mime_type("pdf"), "application/pdf");
+        assert_eq!(get_mime_type("unknown_ext"), "application/octet-stream");
+    }
+
+    #[test]
+    fn test_parse_ffprobe_json_video_and_audio() {
+        let sample_json = r#"{
+            "streams": [
+                {
+                    "codec_name": "h264",
+                    "profile": "High",
+                    "codec_type": "video",
+                    "width": 1920,
+                    "height": 1080,
+                    "display_aspect_ratio": "16:9",
+                    "pix_fmt": "yuv420p",
+                    "r_frame_rate": "24/1",
+                    "bit_rate": "4250000"
+                },
+                {
+                    "codec_name": "aac",
+                    "profile": "LC",
+                    "codec_type": "audio",
+                    "sample_rate": "48000",
+                    "channels": 2,
+                    "channel_layout": "stereo",
+                    "bit_rate": "192000"
+                }
+            ],
+            "format": {
+                "format_long_name": "QuickTime / MOV",
+                "duration": "5420.5",
+                "bit_rate": "4442000",
+                "tags": {
+                    "title": "Interstellar Trailer",
+                    "artist": "Christopher Nolan"
+                }
+            }
+        }"#;
+
+        let meta = parse_ffprobe_json(sample_json).expect("Should parse ffprobe json");
+        assert!(meta.is_media);
+        assert_eq!(meta.media_type, "video");
+        assert_eq!(meta.video_codec.as_deref(), Some("H264 (High)"));
+        assert_eq!(meta.resolution.as_deref(), Some("1920 × 1080"));
+        assert_eq!(meta.aspect_ratio.as_deref(), Some("16:9"));
+        assert_eq!(meta.framerate.as_deref(), Some("24 fps"));
+        assert_eq!(meta.video_bitrate.as_deref(), Some("4.25 Mb/s"));
+        assert_eq!(meta.audio_codec.as_deref(), Some("AAC (LC)"));
+        assert_eq!(meta.audio_channels.as_deref(), Some("Stéréo (2.0)"));
+        assert_eq!(meta.sample_rate.as_deref(), Some("48.0 kHz"));
+        assert_eq!(meta.duration_human.as_deref(), Some("01:30:21"));
+        assert_eq!(meta.title.as_deref(), Some("Interstellar Trailer"));
+        assert_eq!(meta.artist.as_deref(), Some("Christopher Nolan"));
+    }
+
+    #[test]
+    fn test_parse_ffprobe_json_audio_flac() {
+        let sample_json = r#"{
+            "streams": [
+                {
+                    "codec_name": "flac",
+                    "codec_type": "audio",
+                    "sample_rate": "96000",
+                    "channels": 2,
+                    "channel_layout": "stereo",
+                    "bit_rate": "2800000"
+                }
+            ],
+            "format": {
+                "format_name": "flac",
+                "duration": "245.2",
+                "tags": {
+                    "TITLE": "Stairway to Heaven",
+                    "ARTIST": "Led Zeppelin",
+                    "ALBUM": "Led Zeppelin IV",
+                    "DATE": "1971",
+                    "GENRE": "Rock"
+                }
+            }
+        }"#;
+
+        let meta = parse_ffprobe_json(sample_json).expect("Should parse audio flac json");
+        assert!(meta.is_media);
+        assert_eq!(meta.media_type, "audio");
+        assert_eq!(meta.audio_codec.as_deref(), Some("FLAC"));
+        assert_eq!(meta.sample_rate.as_deref(), Some("96.0 kHz"));
+        assert_eq!(meta.duration_human.as_deref(), Some("04:05"));
+        assert_eq!(meta.title.as_deref(), Some("Stairway to Heaven"));
+        assert_eq!(meta.artist.as_deref(), Some("Led Zeppelin"));
+        assert_eq!(meta.album.as_deref(), Some("Led Zeppelin IV"));
+        assert_eq!(meta.year.as_deref(), Some("1971"));
+        assert_eq!(meta.genre.as_deref(), Some("Rock"));
+    }
+
+    #[test]
+    fn test_selection_stats_fast_path_files_only() {
+        let temp_dir = std::env::temp_dir().join(format!("noos_test_sel_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+        let f1 = temp_dir.join("a.txt");
+        let f2 = temp_dir.join("b.txt");
+        fs::write(&f1, "hello").unwrap();
+        fs::write(&f2, "world!!").unwrap();
+
+        let paths = vec![f1.to_string_lossy().to_string(), f2.to_string_lossy().to_string()];
+        let res = start_selection_task(paths);
+        assert!(res.is_done);
+        assert_eq!(res.total_files, 2);
+        assert_eq!(res.total_dirs, 0);
+        assert_eq!(res.total_bytes, 12);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_get_file_properties_real_file() {
+        let temp_dir = std::env::temp_dir().join(format!("noos_test_props_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+        let test_file = temp_dir.join("test_doc.pdf");
+        fs::write(&test_file, b"%PDF-1.4 test payload bytes").unwrap();
+
+        let props = get_file_properties(&test_file.to_string_lossy()).expect("Failed to get file properties");
+        assert_eq!(props.name, "test_doc.pdf");
+        assert!(!props.is_dir);
+        assert!(!props.is_symlink);
+        assert_eq!(props.mime_type, "application/pdf");
+        assert_eq!(props.category, "document");
+        assert_eq!(props.size_bytes, 27);
+        assert_eq!(props.size_human, "27 o");
+        assert!(props.permissions_mode.starts_with('-'));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_get_file_properties_directory() {
+        let temp_dir = std::env::temp_dir().join(format!("noos_test_dir_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let props = get_file_properties(&temp_dir.to_string_lossy()).expect("Failed to get directory properties");
+        assert!(props.is_dir);
+        assert!(!props.is_symlink);
+        assert_eq!(props.category, "folder");
+        assert_eq!(props.mime_type, "inode/directory");
+        assert!(props.permissions_mode.starts_with('d'));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_selection_stats_recursive_nested_dirs() {
+        let temp_root = std::env::temp_dir().join(format!("noos_test_recurse_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_root);
+
+        // Arborescence :
+        // temp_root/
+        //   sub1/ (file1: 10 bytes, file2: 20 bytes)
+        //     subsub1/ (file3: 30 bytes)
+        //   sub2/ (file4: 40 bytes)
+        //   root_file.txt (50 bytes)
+        let sub1 = temp_root.join("sub1");
+        let subsub1 = sub1.join("subsub1");
+        let sub2 = temp_root.join("sub2");
+        fs::create_dir_all(&subsub1).unwrap();
+        fs::create_dir_all(&sub2).unwrap();
+
+        fs::write(sub1.join("file1.txt"), vec![b'a'; 10]).unwrap();
+        fs::write(sub1.join("file2.txt"), vec![b'b'; 20]).unwrap();
+        fs::write(subsub1.join("file3.txt"), vec![b'c'; 30]).unwrap();
+        fs::write(sub2.join("file4.txt"), vec![b'd'; 40]).unwrap();
+        fs::write(temp_root.join("root_file.txt"), vec![b'e'; 50]).unwrap();
+
+        let initial = start_selection_task(vec![temp_root.to_string_lossy().to_string()]);
+        assert_eq!(initial.direct_dirs_count, 1);
+
+        // Attendre que la tâche d'arrière-plan termine
+        let mut final_status = None;
+        for _ in 0..100 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            if let Some(status) = get_selection_task_status(&initial.task_id) {
+                if status.is_done {
+                    final_status = Some(status);
+                    break;
+                }
+            }
+        }
+
+        let st = final_status.expect("Task should complete");
+        assert!(st.is_done);
+        assert_eq!(st.total_files, 5); // 5 fichiers au total
+        assert_eq!(st.total_dirs, 4);  // temp_root + sub1 + subsub1 + sub2 = 4 dossiers
+        assert_eq!(st.total_bytes, 150); // 10 + 20 + 30 + 40 + 50 = 150 bytes
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[tokio::test]
+    async fn test_selection_stats_symlink_loop_protection() {
+        let temp_dir = std::env::temp_dir().join(format!("noos_test_loop_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let sub = temp_dir.join("sub");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(sub.join("normal.txt"), b"12345").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            // Création d'une boucle symbolique pointant vers le dossier parent
+            let circular_link = sub.join("infinite_loop");
+            let _ = symlink(&temp_dir, &circular_link);
+        }
+
+        let initial = start_selection_task(vec![temp_dir.to_string_lossy().to_string()]);
+
+        let mut completed = false;
+        for _ in 0..50 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            if let Some(st) = get_selection_task_status(&initial.task_id) {
+                if st.is_done {
+                    completed = true;
+                    // Doit avoir terminé sans boucle infinie
+                    assert_eq!(st.total_files, 1);
+                    break;
+                }
+            }
+        }
+
+        assert!(completed, "Selection stats must protect against infinite symlink recursion");
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_selection_stats_cancellation() {
+        let temp_dir = std::env::temp_dir().join(format!("noos_test_cancel_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        // Créer un sous-dossier avec un fichier
+        let sub = temp_dir.join("sub");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(sub.join("dummy.txt"), b"hello world").unwrap();
+
+        let initial = start_selection_task(vec![temp_dir.to_string_lossy().to_string()]);
+        let cancelled = cancel_selection_task(&initial.task_id);
+        assert!(cancelled);
+
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        let status = get_selection_task_status(&initial.task_id).expect("Status should exist");
+        assert!(status.is_done);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_parse_ffprobe_complex_4k_hevc_surround() {
+        let json = r#"{
+            "streams": [
+                {
+                    "codec_name": "hevc",
+                    "profile": "Main 10",
+                    "codec_type": "video",
+                    "width": 3840,
+                    "height": 2160,
+                    "display_aspect_ratio": "16:9",
+                    "pix_fmt": "yuv420p10le",
+                    "r_frame_rate": "60/1",
+                    "bit_rate": "18500000"
+                },
+                {
+                    "codec_name": "eac3",
+                    "codec_type": "audio",
+                    "sample_rate": "48000",
+                    "channels": 6,
+                    "channel_layout": "5.1",
+                    "bit_rate": "640000"
+                }
+            ],
+            "format": {
+                "format_long_name": "Matroska / WebM",
+                "duration": "7200.0",
+                "bit_rate": "19140000"
+            }
+        }"#;
+
+        let meta = parse_ffprobe_json(json).expect("Should parse 4K HEVC");
+        assert_eq!(meta.media_type, "video");
+        assert_eq!(meta.video_codec.as_deref(), Some("HEVC (Main 10)"));
+        assert_eq!(meta.resolution.as_deref(), Some("3840 × 2160"));
+        assert_eq!(meta.framerate.as_deref(), Some("60 fps"));
+        assert_eq!(meta.video_bitrate.as_deref(), Some("18.50 Mb/s"));
+        assert_eq!(meta.pixel_format.as_deref(), Some("yuv420p10le"));
+        assert_eq!(meta.audio_codec.as_deref(), Some("EAC3"));
+        assert_eq!(meta.audio_channels.as_deref(), Some("5.1 Surround"));
+        assert_eq!(meta.duration_human.as_deref(), Some("02:00:00"));
+        assert_eq!(meta.overall_bitrate.as_deref(), Some("19.14 Mb/s"));
+    }
+}
+
+

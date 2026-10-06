@@ -80,9 +80,11 @@ use crate::trash::{
     TrashActionRequest, TrashOverview,
 };
 use crate::files::{
-    copy_item, create_directory, delete_item, get_image_info, get_image_preview_path,
-    list_directory, move_item, rename_item, ActionRequest, DeleteRequest, DirectoryListing,
-    ImageInfoResponse, ListQuery, MkdirRequest, RenameRequest,
+    cancel_selection_task, copy_item, create_directory, delete_item, get_file_properties,
+    get_image_info, get_image_preview_path, get_selection_task_status, list_directory, move_item,
+    rename_item, start_selection_task, ActionRequest, DeleteRequest, DirectoryListing,
+    FilePropertiesResponse, ImageInfoResponse, ListQuery, MkdirRequest, RenameRequest,
+    SelectionStatsRequest, SelectionStatsResponse,
 };
 use crate::firewall::{
     create_custom_rule, delete_custom_rule, get_firewall_overview, toggle_firewall, unban_ip,
@@ -377,6 +379,10 @@ pub fn api_routes() -> Router {
         .route("/files/compress", post(handle_files_compress))
         .route("/files/extract", post(handle_files_extract))
         .route("/files/archive-info", post(handle_files_archive_info))
+        .route("/files/properties", get(handle_files_properties))
+        .route("/files/selection-stats/start", post(handle_files_selection_stats_start))
+        .route("/files/selection-stats/status", get(handle_files_selection_stats_status))
+        .route("/files/selection-stats/cancel", post(handle_files_selection_stats_cancel))
         .route("/files/storage-mounts", get(handle_storage_mounts_list))
         .route("/files/pinned-mounts", get(handle_pinned_mounts_list).post(handle_pinned_mounts_add).delete(handle_pinned_mounts_remove))
         .route("/files/pinned-mounts/reorder", post(handle_pinned_mounts_reorder))
@@ -1813,6 +1819,94 @@ async fn handle_files_image_info(
             message: Some(e.to_string()),
         }),
     }
+}
+
+/// Paramètres de requête GET pour inspecter les métadonnées détaillées d'un fichier ou dossier.
+#[derive(Debug, Deserialize)]
+pub struct FilePropertiesQuery {
+    pub path: String,
+}
+
+/// Paramètres de requête GET pour interroger l'état d'une tâche de calcul de sélection.
+#[derive(Debug, Deserialize)]
+pub struct SelectionTaskStatusQuery {
+    pub task_id: String,
+}
+
+/// Paramètres de requête POST pour interrompre une tâche de calcul de sélection.
+#[derive(Debug, Deserialize)]
+pub struct SelectionTaskCancelRequest {
+    pub task_id: String,
+}
+
+/// Extrait les propriétés complètes (attributs Unix, métadonnées multimédia, etc.) d'un fichier ou dossier.
+async fn handle_files_properties(
+    Query(params): Query<FilePropertiesQuery>,
+) -> Json<ApiResponse<FilePropertiesResponse>> {
+    let res = tokio::task::spawn_blocking(move || {
+        get_file_properties(&params.path)
+    }).await;
+
+    match res {
+        Ok(Ok(props)) => Json(ApiResponse {
+            success: true,
+            data: Some(props),
+            message: None,
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
+        }),
+    }
+}
+
+/// Démarre le calcul asynchrone des métriques d'une sélection (fichiers, dossiers, taille cumulée).
+async fn handle_files_selection_stats_start(
+    Json(payload): Json<SelectionStatsRequest>,
+) -> Json<ApiResponse<SelectionStatsResponse>> {
+    let res = start_selection_task(payload.paths);
+    Json(ApiResponse {
+        success: true,
+        data: Some(res),
+        message: None,
+    })
+}
+
+/// Interroge l'avancement du calcul d'une sélection.
+async fn handle_files_selection_stats_status(
+    Query(params): Query<SelectionTaskStatusQuery>,
+) -> Json<ApiResponse<SelectionStatsResponse>> {
+    if let Some(status) = get_selection_task_status(&params.task_id) {
+        Json(ApiResponse {
+            success: true,
+            data: Some(status),
+            message: None,
+        })
+    } else {
+        Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some("Tâche de calcul introuvable ou expirée.".to_string()),
+        })
+    }
+}
+
+/// Interrompt une tâche de calcul de sélection en cours.
+async fn handle_files_selection_stats_cancel(
+    Json(payload): Json<SelectionTaskCancelRequest>,
+) -> Json<ApiResponse<bool>> {
+    let cancelled = cancel_selection_task(&payload.task_id);
+    Json(ApiResponse {
+        success: cancelled,
+        data: Some(cancelled),
+        message: if cancelled { None } else { Some("Tâche de calcul introuvable.".to_string()) },
+    })
 }
 
 // ============================================================================

@@ -3758,6 +3758,31 @@
     <div class="context-menu-item" onclick="triggerFileAction('new-folder')" id="ctx-new-folder">
       <span>➕</span> Nouveau dossier
     </div>
+    <div class="context-menu-item" onclick="triggerFileAction('properties')" id="ctx-properties">
+      <span>ℹ️</span> Propriétés
+    </div>
+  </div>
+
+  <!-- ================= MODALE PROPRIÉTÉS (FICHIER UNIQUE / SÉLECTION MULTIPLE) ================= -->
+  <div class="file-modal-overlay" id="file-properties-modal" style="display:none;" onclick="handleModalOverlayClick(event, 'file-properties-modal')">
+    <div class="file-modal-window properties-window">
+      <div class="file-modal-header" style="border-bottom: 1px solid rgba(203, 166, 247, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-accent" id="prop-badge" style="font-size:0.75rem; font-weight:800;">PROPRIÉTÉS</span>
+          <span class="file-modal-title" id="prop-title">Propriétés</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeFilePropertiesModal()">&times;</button>
+      </div>
+
+      <div class="properties-modal-body" id="prop-modal-body">
+        <!-- Rendu dynamique par app.js -->
+      </div>
+
+      <div class="file-modal-footer" style="padding: 12px 20px; border-top: 1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; background:var(--mantle);">
+        <div id="prop-footer-status" style="font-size:0.8rem; color:var(--subtext0);"></div>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeFilePropertiesModal()">Fermer</button>
+      </div>
+    </div>
   </div>
 
 

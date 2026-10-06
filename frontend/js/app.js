@@ -4909,6 +4909,16 @@ function handleItemContextMenu(e, path) {
     ctxTransferKDrive.style.display = (!isKDriveView && selectedFileItem && !selectedFileItem.is_dir && kdriveAccountsList && kdriveAccountsList.length > 0) ? "flex" : "none";
   }
 
+  const ctxProperties = document.getElementById("ctx-properties");
+  if (ctxProperties) {
+    ctxProperties.style.display = "flex";
+    if (selectedFilePaths.size > 1) {
+      ctxProperties.innerHTML = `<span>ℹ️</span> Propriétés (${selectedFilePaths.size})...`;
+    } else {
+      ctxProperties.innerHTML = `<span>ℹ️</span> Propriétés`;
+    }
+  }
+
   positionContextMenu(menu, e.clientX, e.clientY);
 }
 
@@ -4948,6 +4958,12 @@ function handleBackgroundContextMenu(e) {
     ctxPaste.classList.toggle("disabled", !fileClipboard);
   }
 
+  const ctxProperties = document.getElementById("ctx-properties");
+  if (ctxProperties) {
+    ctxProperties.style.display = "flex";
+    ctxProperties.innerHTML = `<span>ℹ️</span> Propriétés du dossier`;
+  }
+
   positionContextMenu(menu, e.clientX, e.clientY);
 }
 
@@ -4960,7 +4976,7 @@ function positionContextMenu(menu, x, y) {
     });
     const isMount = selectedFileItem.is_mount_point || hasMountInSelection;
 
-    ["ctx-copy", "ctx-paste"].forEach(id => {
+    ["ctx-copy", "ctx-paste", "ctx-properties"].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = "flex";
     });
@@ -4995,6 +5011,10 @@ async function triggerFileAction(action) {
   if (menu) menu.style.display = "none";
 
   switch (action) {
+    case "properties":
+      openFilePropertiesModal();
+      break;
+
     case "open":
       if (selectedFileItem && selectedFileItem.is_dir) {
         navigateToPath(selectedFileItem.path);
@@ -5353,6 +5373,666 @@ async function pasteClipboardItem(targetDir) {
   }
 }
 
+// --------------------------------------------------------------------------
+// PROPRIÉTÉS DE FICHIER, INSPECTION MULTIMÉDIA & CALCUL DE SÉLECTION
+// --------------------------------------------------------------------------
+let propStatsTaskId = null;
+let propStatsPollInterval = null;
+
+function closeFilePropertiesModal() {
+  if (propStatsPollInterval) {
+    clearInterval(propStatsPollInterval);
+    propStatsPollInterval = null;
+  }
+  if (propStatsTaskId) {
+    cancelSelectionStats();
+  }
+  const modal = document.getElementById("file-properties-modal");
+  if (modal) modal.style.display = "none";
+}
+
+async function cancelSelectionStats() {
+  if (!propStatsTaskId) return;
+  const taskId = propStatsTaskId;
+  propStatsTaskId = null;
+  if (propStatsPollInterval) {
+    clearInterval(propStatsPollInterval);
+    propStatsPollInterval = null;
+  }
+
+  const btnCancel = document.getElementById("prop-btn-cancel");
+  if (btnCancel) {
+    btnCancel.disabled = true;
+    btnCancel.textContent = "Arrêt...";
+  }
+
+  try {
+    await fetch("/api/files/selection-stats/cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task_id: taskId }),
+    });
+  } catch (e) {
+    console.error("Erreur lors de l'annulation de la tâche de sélection :", e);
+  }
+
+  const label = document.getElementById("prop-progress-label");
+  if (label) label.textContent = "Calcul arrêté par l'utilisateur.";
+  const fill = document.getElementById("prop-progress-bar-fill");
+  if (fill) fill.classList.remove("animated-stripes");
+  if (btnCancel) btnCancel.style.display = "none";
+}
+
+function copyPropertiesPath(path, btnEl) {
+  if (!path) return;
+  navigator.clipboard.writeText(path).then(() => {
+    if (btnEl) {
+      const origHtml = btnEl.innerHTML;
+      btnEl.innerHTML = `<span>✓</span> Copié`;
+      btnEl.classList.add("btn-success");
+      setTimeout(() => {
+        btnEl.innerHTML = origHtml;
+        btnEl.classList.remove("btn-success");
+      }, 1500);
+    }
+  }).catch(() => {
+    showToast("Impossible de copier le chemin.", "warning");
+  });
+}
+
+async function openFilePropertiesModal() {
+  const modal = document.getElementById("file-properties-modal");
+  if (!modal) return;
+
+  const bodyEl = document.getElementById("prop-modal-body");
+  const titleEl = document.getElementById("prop-title");
+  const badgeEl = document.getElementById("prop-badge");
+  const statusEl = document.getElementById("prop-footer-status");
+
+  if (bodyEl) {
+    bodyEl.innerHTML = `
+      <div style="padding: 40px 20px; text-align: center; color: var(--subtext0);">
+        <div class="spinner" style="margin: 0 auto 12px auto;"></div>
+        <div>Chargement des propriétés...</div>
+      </div>
+    `;
+  }
+  if (statusEl) statusEl.textContent = "";
+
+  modal.style.display = "flex";
+
+  // Cas 1 : Sélection multiple (plus d'un élément)
+  if (selectedFilePaths && selectedFilePaths.size > 1) {
+    const paths = Array.from(selectedFilePaths);
+    if (badgeEl) badgeEl.textContent = "SÉLECTION MULTIPLE";
+    if (titleEl) titleEl.textContent = `Propriétés de la sélection (${paths.length} éléments)`;
+    renderMultiPropertiesView(paths);
+    return;
+  }
+
+  // Cas 2 : Élément unique (fichier ou dossier)
+  let targetPath = null;
+  if (selectedFilePaths && selectedFilePaths.size === 1) {
+    targetPath = Array.from(selectedFilePaths)[0];
+  } else if (selectedFileItem && selectedFileItem.path) {
+    targetPath = selectedFileItem.path;
+  } else {
+    // Cas 3 : Clic dans le vide du dossier actuel -> propriétés du dossier courant
+    targetPath = currentFolderPath;
+  }
+
+  if (!targetPath) {
+    closeFilePropertiesModal();
+    showToast("Aucun fichier ou dossier sélectionné.", "warning");
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/files/properties?path=${encodeURIComponent(targetPath)}`);
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      if (bodyEl) {
+        bodyEl.innerHTML = `
+          <div style="padding: 24px; text-align: center; color: var(--red);">
+            <div style="font-size: 2rem; margin-bottom: 8px;">⚠️</div>
+            <div>${escapeHtml(json.message || "Impossible de charger les propriétés")}</div>
+          </div>
+        `;
+      }
+      return;
+    }
+
+    const data = json.data;
+    if (data.is_dir) {
+      if (badgeEl) badgeEl.textContent = "DOSSIER";
+      if (titleEl) titleEl.textContent = `Propriétés de ${escapeHtml(data.name)}`;
+      renderFolderPropertiesView(data);
+    } else {
+      if (badgeEl) {
+        if (data.category === "video") badgeEl.textContent = "VIDÉO";
+        else if (data.category === "audio") badgeEl.textContent = "AUDIO";
+        else if (data.category === "image") badgeEl.textContent = "IMAGE";
+        else if (data.category === "archive") badgeEl.textContent = "ARCHIVE";
+        else badgeEl.textContent = "FICHIER";
+      }
+      if (titleEl) titleEl.textContent = `Propriétés de ${escapeHtml(data.name)}`;
+      renderSingleFilePropertiesView(data);
+    }
+  } catch (err) {
+    if (bodyEl) {
+      bodyEl.innerHTML = `
+        <div style="padding: 24px; text-align: center; color: var(--red);">
+          <div style="font-size: 2rem; margin-bottom: 8px;">⚠️</div>
+          <div>Erreur réseau : ${escapeHtml(String(err))}</div>
+        </div>
+      `;
+    }
+  }
+}
+
+function renderSingleFilePropertiesView(data) {
+  const bodyEl = document.getElementById("prop-modal-body");
+  if (!bodyEl) return;
+
+  let icon = "📄";
+  if (data.category === "video") icon = "🎬";
+  else if (data.category === "audio") icon = "🎵";
+  else if (data.category === "image") icon = "🖼️";
+  else if (data.category === "archive") icon = "📦";
+  else if (data.category === "code") icon = "📝";
+
+  const safeName = escapeHtml(data.name);
+
+  let mediaHtml = "";
+  if (data.media_info && data.media_info.is_media) {
+    const mi = data.media_info;
+    if (mi.media_type === "video") {
+      mediaHtml = `
+        <div>
+          <div class="prop-section-title">
+            <span>🎬</span> Spécifications Vidéo & Multimédia
+          </div>
+          <div class="prop-specs-badges">
+            ${mi.resolution ? `
+              <div class="prop-spec-chip">
+                <span class="prop-spec-chip-label">Résolution</span>
+                <span class="prop-spec-chip-val" style="color:var(--mauve);">${escapeHtml(mi.resolution)} ${mi.aspect_ratio ? `<small style="color:var(--subtext0);">(${escapeHtml(mi.aspect_ratio)})</small>` : ''}</span>
+              </div>
+            ` : ''}
+            ${mi.video_codec ? `
+              <div class="prop-spec-chip">
+                <span class="prop-spec-chip-label">Codec Vidéo</span>
+                <span class="prop-spec-chip-val" style="color:var(--blue);">${escapeHtml(mi.video_codec)}</span>
+              </div>
+            ` : ''}
+            ${mi.framerate ? `
+              <div class="prop-spec-chip">
+                <span class="prop-spec-chip-label">Cadence (FPS)</span>
+                <span class="prop-spec-chip-val" style="color:var(--green);">${escapeHtml(mi.framerate)}</span>
+              </div>
+            ` : ''}
+            ${mi.duration_human ? `
+              <div class="prop-spec-chip">
+                <span class="prop-spec-chip-label">Durée</span>
+                <span class="prop-spec-chip-val" style="color:var(--sapphire);">${escapeHtml(mi.duration_human)}</span>
+              </div>
+            ` : ''}
+            ${mi.video_bitrate ? `
+              <div class="prop-spec-chip">
+                <span class="prop-spec-chip-label">Débit Vidéo</span>
+                <span class="prop-spec-chip-val">${escapeHtml(mi.video_bitrate)}</span>
+              </div>
+            ` : ''}
+            ${mi.pixel_format ? `
+              <div class="prop-spec-chip">
+                <span class="prop-spec-chip-label">Format Pixels</span>
+                <span class="prop-spec-chip-val">${escapeHtml(mi.pixel_format)}</span>
+              </div>
+            ` : ''}
+            ${mi.container_format ? `
+              <div class="prop-spec-chip">
+                <span class="prop-spec-chip-label">Conteneur</span>
+                <span class="prop-spec-chip-val">${escapeHtml(mi.container_format)}</span>
+              </div>
+            ` : ''}
+          </div>
+
+          ${(mi.audio_codec || mi.audio_channels || mi.sample_rate || mi.audio_bitrate) ? `
+            <div style="margin-top: 12px;">
+              <div class="prop-section-title">
+                <span>🎵</span> Flux Audio Intégré
+              </div>
+              <div class="prop-specs-badges">
+                ${mi.audio_codec ? `
+                  <div class="prop-spec-chip">
+                    <span class="prop-spec-chip-label">Codec Audio</span>
+                    <span class="prop-spec-chip-val" style="color:var(--yellow);">${escapeHtml(mi.audio_codec)}</span>
+                  </div>
+                ` : ''}
+                ${mi.audio_channels ? `
+                  <div class="prop-spec-chip">
+                    <span class="prop-spec-chip-label">Canaux</span>
+                    <span class="prop-spec-chip-val">${escapeHtml(mi.audio_channels)}</span>
+                  </div>
+                ` : ''}
+                ${mi.sample_rate ? `
+                  <div class="prop-spec-chip">
+                    <span class="prop-spec-chip-label">Échantillonnage</span>
+                    <span class="prop-spec-chip-val">${escapeHtml(mi.sample_rate)}</span>
+                  </div>
+                ` : ''}
+                ${mi.audio_bitrate ? `
+                  <div class="prop-spec-chip">
+                    <span class="prop-spec-chip-label">Débit Audio</span>
+                    <span class="prop-spec-chip-val">${escapeHtml(mi.audio_bitrate)}</span>
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    } else if (mi.media_type === "audio") {
+      mediaHtml = `
+        <div>
+          <div class="prop-section-title">
+            <span>🎵</span> Spécifications Audio & Format
+          </div>
+          <div class="prop-specs-badges">
+            ${mi.audio_codec ? `
+              <div class="prop-spec-chip">
+                <span class="prop-spec-chip-label">Codec Audio</span>
+                <span class="prop-spec-chip-val" style="color:var(--yellow);">${escapeHtml(mi.audio_codec)}</span>
+              </div>
+            ` : ''}
+            ${mi.duration_human ? `
+              <div class="prop-spec-chip">
+                <span class="prop-spec-chip-label">Durée</span>
+                <span class="prop-spec-chip-val" style="color:var(--sapphire);">${escapeHtml(mi.duration_human)}</span>
+              </div>
+            ` : ''}
+            ${mi.sample_rate ? `
+              <div class="prop-spec-chip">
+                <span class="prop-spec-chip-label">Fréquence</span>
+                <span class="prop-spec-chip-val" style="color:var(--green);">${escapeHtml(mi.sample_rate)}</span>
+              </div>
+            ` : ''}
+            ${mi.audio_channels ? `
+              <div class="prop-spec-chip">
+                <span class="prop-spec-chip-label">Canaux</span>
+                <span class="prop-spec-chip-val">${escapeHtml(mi.audio_channels)}</span>
+              </div>
+            ` : ''}
+            ${mi.audio_bitrate ? `
+              <div class="prop-spec-chip">
+                <span class="prop-spec-chip-label">Débit Binaire</span>
+                <span class="prop-spec-chip-val">${escapeHtml(mi.audio_bitrate)}</span>
+              </div>
+            ` : ''}
+            ${mi.container_format ? `
+              <div class="prop-spec-chip">
+                <span class="prop-spec-chip-label">Conteneur</span>
+                <span class="prop-spec-chip-val">${escapeHtml(mi.container_format)}</span>
+              </div>
+            ` : ''}
+          </div>
+
+          ${(mi.title || mi.artist || mi.album || mi.year || mi.genre) ? `
+            <div style="margin-top: 12px;">
+              <div class="prop-section-title">
+                <span>🏷️</span> Métadonnées & Balises ID3
+              </div>
+              <div class="prop-grid-table">
+                ${mi.title ? `
+                  <div class="prop-grid-row">
+                    <span class="prop-grid-label">Titre</span>
+                    <span class="prop-grid-val font-semibold">${escapeHtml(mi.title)}</span>
+                  </div>
+                ` : ''}
+                ${mi.artist ? `
+                  <div class="prop-grid-row">
+                    <span class="prop-grid-label">Artiste</span>
+                    <span class="prop-grid-val">${escapeHtml(mi.artist)}</span>
+                  </div>
+                ` : ''}
+                ${mi.album ? `
+                  <div class="prop-grid-row">
+                    <span class="prop-grid-label">Album</span>
+                    <span class="prop-grid-val">${escapeHtml(mi.album)}</span>
+                  </div>
+                ` : ''}
+                ${mi.year ? `
+                  <div class="prop-grid-row">
+                    <span class="prop-grid-label">Année</span>
+                    <span class="prop-grid-val">${escapeHtml(mi.year)}</span>
+                  </div>
+                ` : ''}
+                ${mi.genre ? `
+                  <div class="prop-grid-row">
+                    <span class="prop-grid-label">Genre</span>
+                    <span class="prop-grid-val">${escapeHtml(mi.genre)}</span>
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+  }
+
+  bodyEl.innerHTML = `
+    <!-- Carte En-tête Fichier -->
+    <div class="prop-hero-card">
+      <div class="prop-hero-icon">${icon}</div>
+      <div class="prop-hero-info">
+        <div class="prop-hero-name" title="${safeName}">${safeName}</div>
+        <div class="prop-hero-sub">
+          <span class="badge badge-accent" style="font-size:0.75rem;">${escapeHtml(data.size_human)}</span>
+          <span style="color:var(--subtext0);">${escapeHtml(data.mime_type)}</span>
+        </div>
+      </div>
+      <button type="button" class="btn btn-secondary btn-xs" onclick="copyPropertiesPath('${data.path.replace(/'/g, "\\'")}', this)" title="Copier le chemin absolu">
+        <span>📋</span> Copier chemin
+      </button>
+    </div>
+
+    <!-- Attributs Système & Unix -->
+    <div>
+      <div class="prop-section-title">
+        <span>⚙️</span> Attributs Système & Droits d'Accès
+      </div>
+      <div class="prop-grid-table">
+        <div class="prop-grid-row">
+          <span class="prop-grid-label">Emplacement</span>
+          <span class="prop-grid-val font-mono" style="font-size:0.78rem;">${escapeHtml(data.parent_path || "/")}</span>
+        </div>
+        <div class="prop-grid-row">
+          <span class="prop-grid-label">Poids exact</span>
+          <span class="prop-grid-val font-mono">${data.size_bytes.toLocaleString()} octets <span style="color:var(--subtext0);">(${escapeHtml(data.size_human)})</span></span>
+        </div>
+        <div class="prop-grid-row">
+          <span class="prop-grid-label">Permissions Unix</span>
+          <span class="prop-grid-val font-mono">${escapeHtml(data.permissions_octal)} <span style="color:var(--mauve); font-weight:600;">(${escapeHtml(data.permissions_mode)})</span></span>
+        </div>
+        <div class="prop-grid-row">
+          <span class="prop-grid-label">Propriétaire / Groupe</span>
+          <span class="prop-grid-val font-mono">${escapeHtml(data.owner)} : ${escapeHtml(data.group)}</span>
+        </div>
+        <div class="prop-grid-row">
+          <span class="prop-grid-label">Dernière modification</span>
+          <span class="prop-grid-val">${escapeHtml(data.modified)}</span>
+        </div>
+        ${data.created ? `
+          <div class="prop-grid-row">
+            <span class="prop-grid-label">Date de création</span>
+            <span class="prop-grid-val">${escapeHtml(data.created)}</span>
+          </div>
+        ` : ''}
+        ${data.accessed ? `
+          <div class="prop-grid-row">
+            <span class="prop-grid-label">Dernier accès</span>
+            <span class="prop-grid-val">${escapeHtml(data.accessed)}</span>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+
+    ${mediaHtml}
+  `;
+}
+
+function renderFolderPropertiesView(data) {
+  const bodyEl = document.getElementById("prop-modal-body");
+  if (!bodyEl) return;
+
+  const safeName = escapeHtml(data.name);
+
+  bodyEl.innerHTML = `
+    <!-- Carte En-tête Dossier -->
+    <div class="prop-hero-card">
+      <div class="prop-hero-icon" style="background:rgba(137, 180, 250, 0.12); border-color:rgba(137, 180, 250, 0.25);">📁</div>
+      <div class="prop-hero-info">
+        <div class="prop-hero-name" title="${safeName}">${safeName}</div>
+        <div class="prop-hero-sub">
+          <span class="badge badge-accent" style="font-size:0.75rem;">Dossier</span>
+          ${data.is_mount_point ? `<span class="badge badge-warning" style="font-size:0.72rem;">Point de montage</span>` : ''}
+        </div>
+      </div>
+      <button type="button" class="btn btn-secondary btn-xs" onclick="copyPropertiesPath('${data.path.replace(/'/g, "\\'")}', this)" title="Copier le chemin absolu">
+        <span>📋</span> Copier chemin
+      </button>
+    </div>
+
+    <!-- Section Dénombrement et Calcul Dynamique -->
+    <div>
+      <div class="prop-section-title">
+        <span>📊</span> Analyse du Contenu & Poids Total
+      </div>
+      <div id="prop-stats-container">
+        <!-- Rendu par startSelectionStats -->
+      </div>
+    </div>
+
+    <!-- Attributs Système & Unix du Dossier -->
+    <div>
+      <div class="prop-section-title">
+        <span>⚙️</span> Attributs Système du Dossier
+      </div>
+      <div class="prop-grid-table">
+        <div class="prop-grid-row">
+          <span class="prop-grid-label">Emplacement</span>
+          <span class="prop-grid-val font-mono" style="font-size:0.78rem;">${escapeHtml(data.parent_path || "/")}</span>
+        </div>
+        <div class="prop-grid-row">
+          <span class="prop-grid-label">Permissions Unix</span>
+          <span class="prop-grid-val font-mono">${escapeHtml(data.permissions_octal)} <span style="color:var(--mauve); font-weight:600;">(${escapeHtml(data.permissions_mode)})</span></span>
+        </div>
+        <div class="prop-grid-row">
+          <span class="prop-grid-label">Propriétaire / Groupe</span>
+          <span class="prop-grid-val font-mono">${escapeHtml(data.owner)} : ${escapeHtml(data.group)}</span>
+        </div>
+        <div class="prop-grid-row">
+          <span class="prop-grid-label">Dernière modification</span>
+          <span class="prop-grid-val">${escapeHtml(data.modified)}</span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  startSelectionStats([data.path]);
+}
+
+function renderMultiPropertiesView(paths) {
+  const bodyEl = document.getElementById("prop-modal-body");
+  if (!bodyEl) return;
+
+  const parentFolder = paths.length > 0 ? (paths[0].substring(0, paths[0].lastIndexOf("/")) || "/") : "/";
+
+  bodyEl.innerHTML = `
+    <!-- Carte En-tête Sélection Multiple -->
+    <div class="prop-hero-card">
+      <div class="prop-hero-icon" style="background:rgba(203, 166, 247, 0.12); border-color:rgba(203, 166, 247, 0.25);">🗂️</div>
+      <div class="prop-hero-info">
+        <div class="prop-hero-name">Sélection de ${paths.length} élément(s)</div>
+        <div class="prop-hero-sub">
+          <span style="color:var(--subtext0);">Emplacement :</span>
+          <span class="font-mono" style="font-size:0.78rem;">${escapeHtml(parentFolder)}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section Dénombrement et Calcul Dynamique -->
+    <div>
+      <div class="prop-section-title">
+        <span>📊</span> Évaluation Globale de la Sélection
+      </div>
+      <div id="prop-stats-container">
+        <!-- Rendu par startSelectionStats -->
+      </div>
+    </div>
+  `;
+
+  startSelectionStats(paths);
+}
+
+async function startSelectionStats(paths) {
+  const container = document.getElementById("prop-stats-container");
+  if (!container) return;
+
+  if (propStatsPollInterval) {
+    clearInterval(propStatsPollInterval);
+    propStatsPollInterval = null;
+  }
+  propStatsTaskId = null;
+
+  container.innerHTML = `
+    <div class="prop-progress-wrap">
+      <!-- Barre de progression -->
+      <div class="prop-progress-bar-bg">
+        <div class="prop-progress-bar-fill animated-stripes" id="prop-progress-bar-fill"></div>
+      </div>
+
+      <!-- Statut & Bouton Arrêter -->
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div class="spinner" id="prop-spinner" style="width:14px; height:14px; border-width:2px;"></div>
+          <span id="prop-progress-label" style="font-size:0.82rem; color:var(--text); font-weight:500;">Calcul du volume en cours...</span>
+        </div>
+        <button type="button" class="btn btn-xs btn-outline-danger" id="prop-btn-cancel" onclick="cancelSelectionStats()">
+          Arrêter le calcul
+        </button>
+      </div>
+
+      <!-- Ticker chemin en cours -->
+      <div class="prop-path-ticker" id="prop-ticker-box" style="display:none;">
+        <span style="color:var(--subtext0);">Exploration : </span>
+        <span id="prop-ticker-path" class="font-mono"></span>
+      </div>
+
+      <!-- Compteurs Triples -->
+      <div class="prop-stats-triple-grid" style="margin-top:6px;">
+        <div class="prop-stat-triple-card">
+          <span class="prop-stat-triple-num" style="color:var(--blue);" id="prop-count-files">0</span>
+          <span class="prop-stat-triple-title">📄 Fichiers</span>
+        </div>
+        <div class="prop-stat-triple-card">
+          <span class="prop-stat-triple-num" style="color:var(--mauve);" id="prop-count-dirs">0</span>
+          <span class="prop-stat-triple-title">📁 Dossiers</span>
+        </div>
+        <div class="prop-stat-triple-card">
+          <span class="prop-stat-triple-num" style="color:var(--green);" id="prop-count-bytes">0 o</span>
+          <span class="prop-stat-triple-title">💾 Poids Total</span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  try {
+    const res = await fetch("/api/files/selection-stats/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paths: paths }),
+    });
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      const label = document.getElementById("prop-progress-label");
+      if (label) label.textContent = json.message || "Erreur de calcul";
+      const spinner = document.getElementById("prop-spinner");
+      if (spinner) spinner.style.display = "none";
+      const fill = document.getElementById("prop-progress-bar-fill");
+      if (fill) fill.classList.remove("animated-stripes");
+      return;
+    }
+
+    const data = json.data;
+    updateSelectionStatsUI(data);
+
+    if (data.is_done) {
+      finalizeSelectionStatsUI(data);
+    } else {
+      propStatsTaskId = data.task_id;
+      propStatsPollInterval = setInterval(pollSelectionStats, 250);
+    }
+  } catch (err) {
+    const label = document.getElementById("prop-progress-label");
+    if (label) label.textContent = "Erreur de communication : " + err;
+  }
+}
+
+async function pollSelectionStats() {
+  if (!propStatsTaskId) {
+    if (propStatsPollInterval) clearInterval(propStatsPollInterval);
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/files/selection-stats/status?task_id=${encodeURIComponent(propStatsTaskId)}`);
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      if (propStatsPollInterval) clearInterval(propStatsPollInterval);
+      return;
+    }
+
+    const data = json.data;
+    updateSelectionStatsUI(data);
+
+    if (data.is_done) {
+      if (propStatsPollInterval) {
+        clearInterval(propStatsPollInterval);
+        propStatsPollInterval = null;
+      }
+      propStatsTaskId = null;
+      finalizeSelectionStatsUI(data);
+    }
+  } catch (e) {
+    console.error("Erreur polling sélection :", e);
+  }
+}
+
+function updateSelectionStatsUI(data) {
+  const fEl = document.getElementById("prop-count-files");
+  const dEl = document.getElementById("prop-count-dirs");
+  const bEl = document.getElementById("prop-count-bytes");
+  const tickerBox = document.getElementById("prop-ticker-box");
+  const tickerPath = document.getElementById("prop-ticker-path");
+
+  if (fEl) fEl.textContent = data.total_files.toLocaleString();
+  if (dEl) dEl.textContent = data.total_dirs.toLocaleString();
+  if (bEl) bEl.textContent = data.total_size_human;
+
+  if (tickerBox && tickerPath) {
+    if (data.current_path) {
+      tickerBox.style.display = "block";
+      tickerPath.textContent = data.current_path;
+    } else {
+      tickerBox.style.display = "none";
+    }
+  }
+}
+
+function finalizeSelectionStatsUI(data) {
+  const label = document.getElementById("prop-progress-label");
+  const spinner = document.getElementById("prop-spinner");
+  const fill = document.getElementById("prop-progress-bar-fill");
+  const btnCancel = document.getElementById("prop-btn-cancel");
+  const tickerBox = document.getElementById("prop-ticker-box");
+
+  if (spinner) spinner.style.display = "none";
+  if (btnCancel) btnCancel.style.display = "none";
+  if (tickerBox) tickerBox.style.display = "none";
+
+  if (fill) {
+    fill.classList.remove("animated-stripes");
+    fill.style.width = "100%";
+    fill.style.background = "var(--green)";
+  }
+
+  if (label) {
+    label.innerHTML = `✓ Calcul terminé (${data.total_files.toLocaleString()} fichier(s), ${data.total_dirs.toLocaleString()} dossier(s))`;
+    label.style.color = "var(--green)";
+  }
+}
 
 // --------------------------------------------------------------------------
 // SPÉCIFICATIONS MATÉRIELLES (HARDWARE INVENTORY)
@@ -7728,6 +8408,7 @@ function handleModalOverlayClick(e, modalId) {
     if (modalId === "modal-compress") closeCompressModal();
     if (modalId === "modal-extract") closeExtractModal();
     if (modalId === "modal-archive-password") closeArchivePasswordModal();
+    if (modalId === "file-properties-modal") closeFilePropertiesModal();
   }
 }
 
