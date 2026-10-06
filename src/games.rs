@@ -2217,13 +2217,17 @@ if [ -n "{auth_token}" ]; then
   AUTH_ARG="/dedicatedcustomserverauthtoken \"{auth_token}\""
 else
   echo "=================================================================================="
-  echo "⚠️ AVERTISSEMENT BANNERLORD : Aucun jeton TaleWorlds AUTH_TOKEN configuré."
-  echo "Pour afficher votre serveur dans le lobby public TaleWorlds et éviter l'arrêt :"
+  echo "⚠️ CONFIGURATION BANNERLORD : Aucun jeton TaleWorlds AUTH_TOKEN configuré."
+  echo "TaleWorlds exige un jeton d'authentification pour maintenir le serveur actif."
+  echo ""
+  echo "Instructions pour obtenir votre jeton :"
   echo "1. Lancez Mount & Blade II: Bannerlord sur PC en mode multijoueur."
-  echo "2. Ouvrez la console (Alt + ~) et tapez : customserver.gettoken"
-  echo "3. Copiez le jeton dans Documents/Mount and Blade II Bannerlord/Tokens/..."
-  echo "4. Renseignez ce jeton dans la variable AUTH_TOKEN de votre serveur sur Noos NAS."
+  echo "2. Ouvrez la console développeur (Alt + ~ ou Alt + ²) et tapez : customserver.gettoken"
+  echo "3. Copiez le jeton généré (dans Documents/Mount and Blade II Bannerlord/Tokens/)."
+  echo "4. Renseignez ce jeton dans les variables du serveur (AUTH_TOKEN) sur Noos NAS."
   echo "=================================================================================="
+  echo "Mise en pause du conteneur en attente de la configuration du jeton (évite le redémarrage en boucle)..."
+  sleep infinity
 fi
 
 cd /home/container/bin/Linux64_Shipping_Server
