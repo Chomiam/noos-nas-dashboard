@@ -53,23 +53,17 @@ echo "Surveillance du run #${RUN_ID}..."
 (cd "${DASHBOARD_DIR}" && gh run watch "${RUN_ID}" --exit-status)
 echo "✅ Binaire compilé et injecté avec succès dans Cachix (steveos)."
 
-echo "🧬 [5/6] Propagation automatique dans le flake.lock de l'OS (noos-nas)..."
-if [[ -d "${NAS_DIR}" ]]; then
-  for target_b in testing main; do
-    if (cd "${NAS_DIR}" && git checkout "${target_b}" 2>/dev/null && git pull --ff-only origin "${target_b}" 2>/dev/null); then
-      echo "Mise à jour de flake.lock sur la branche ${target_b} de noos-nas..."
-      if [[ -x "${NAS_DIR}/scripts/bump-flake-inputs.sh" ]]; then
-        (cd "${NAS_DIR}" && "${NAS_DIR}/scripts/bump-flake-inputs.sh" noos-nas-dashboard) || true
-      elif command -v nix &>/dev/null; then
-        (cd "${NAS_DIR}" && nix flake update noos-nas-dashboard)
-        (cd "${NAS_DIR}" && git add flake.lock && git commit -m "chore(flake): mise à jour de noos-nas-dashboard vers v${NEW_VERSION} (${COMMIT_MSG:-release})" && git push origin "${target_b}") || true
-      fi
-      echo "✅ Branche ${target_b} de noos-nas synchronisée avec flake.lock !"
-    fi
-  done
-  (cd "${NAS_DIR}" && git checkout "${CURRENT_BRANCH}" 2>/dev/null || git checkout main 2>/dev/null || true)
-else
-  echo "⚠️ Répertoire ../noos-nas introuvable, propagation flake.lock ignorée."
+echo "🧬 [5/6] Propagation automatique dans le flake.lock de l'OS (noos-nas via GitHub Actions)..."
+echo "Déclenchement ou surveillance de l'Action Update Flake Inputs sur Chomiam/noos-nas..."
+sleep 4
+NAS_RUN_ID=$(gh run list -R Chomiam/noos-nas --workflow=update-flake.yml --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || true)
+if [[ -n "${NAS_RUN_ID}" ]]; then
+  echo "Surveillance de la mise à jour flake.lock sur noos-nas (run #${NAS_RUN_ID})..."
+  gh run watch "${NAS_RUN_ID}" -R Chomiam/noos-nas --exit-status || true
 fi
+if [[ -d "${NAS_DIR}" ]]; then
+  (cd "${NAS_DIR}" && git pull --ff-only 2>/dev/null || true)
+fi
+echo "✅ flake.lock mis à jour et validé par GitHub Actions sur noos-nas !"
 
 echo "🎉 [6/6] TERMINÉ AVEC SUCCÈS ! La mise à jour v${NEW_VERSION} est instantanément déployable sur le NAS."

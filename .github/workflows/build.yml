@@ -25,3 +25,25 @@ jobs:
 
       - name: Build Package
         run: nix build .#default --print-out-paths
+
+      - name: 🔄 Déclencher la mise à jour de flake.lock dans noos-nas
+        if: success()
+        run: |
+          DASH_BRANCH="${{ github.ref_name }}"
+          echo "Binaire injecté dans Cachix. Déclenchement de la mise à jour de flake.lock sur Chomiam/noos-nas..."
+          
+          # Mapper les branches vers noos-nas :
+          # 'testing' -> branche 'testing' de noos-nas
+          # 'stable'  -> branche 'main' de noos-nas
+          TARGET_BRANCH="$DASH_BRANCH"
+          if [ "$TARGET_BRANCH" = "stable" ]; then
+            TARGET_BRANCH="main"
+          fi
+          
+          echo "Envoi du signal à Chomiam/noos-nas pour la branche $TARGET_BRANCH..."
+          gh workflow run update-flake.yml \
+            --repo Chomiam/noos-nas \
+            -f branch="$TARGET_BRANCH" \
+            -f input="noos-nas-dashboard" || true
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
