@@ -1300,7 +1300,9 @@ fn split_pkg_name_and_version(s: &str) -> (&str, &str) {
 }
 
 pub fn parse_semver(s: &str) -> Option<(u32, u32, u32)> {
-    let parts: Vec<&str> = s.split('.').collect();
+    let clean = s.trim().trim_start_matches(|c| c == 'v' || c == 'V').trim_end_matches("^{}");
+    let main_part = clean.split('-').next().unwrap_or(clean);
+    let parts: Vec<&str> = main_part.split('.').collect();
     if parts.len() >= 3 {
         let major = parts[0].parse().ok()?;
         let minor = parts[1].parse().ok()?;
@@ -1319,19 +1321,68 @@ pub fn compare_semver(a: &str, b: &str) -> i32 {
     match (parse_semver(a), parse_semver(b)) {
         (Some(sa), Some(sb)) => {
             if sa.0 != sb.0 {
-                sa.0.cmp(&sb.0) as i32
+                if sa.0 > sb.0 { 1 } else { -1 }
             } else if sa.1 != sb.1 {
-                sa.1.cmp(&sb.1) as i32
+                if sa.1 > sb.1 { 1 } else { -1 }
+            } else if sa.2 != sb.2 {
+                if sa.2 > sb.2 { 1 } else { -1 }
             } else {
-                sa.2.cmp(&sb.2) as i32
+                0
             }
         }
-        _ => a.cmp(b) as i32,
+        (Some(_), None) => 1,
+        (None, Some(_)) => -1,
+        (None, None) => match a.cmp(b) {
+            std::cmp::Ordering::Greater => 1,
+            std::cmp::Ordering::Less => -1,
+            std::cmp::Ordering::Equal => 0,
+        },
     }
 }
 
 pub fn is_valid_semver(s: &str) -> bool {
+    let clean = s.trim().trim_start_matches(|c| c == 'v' || c == 'V').trim_end_matches("^{}");
+    if clean.is_empty() {
+        return false;
+    }
     parse_semver(s).is_some()
+}
+
+/// Vérifie l'espace disque disponible avant une mise à jour.
+/// Recommande au minimum 1.5 Go (1_500_000_000 octets) d'espace libre sur la partition racine.
+pub fn check_disk_space_available(min_bytes: u64) -> Result<u64, String> {
+    let out = Command::new("df")
+        .args(["-Pk", "/"])
+        .output()
+        .map_err(|e| format!("Impossible de vérifier l'espace disque (df) : {}", e))?;
+
+    if !out.status.success() {
+        return Err("Erreur lors de l'exécution de la commande de vérification d'espace disque (df -Pk /)".to_string());
+    }
+
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut lines = text.lines();
+    lines.next(); // Skip header
+    if let Some(line) = lines.next() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        // Format df -Pk: Filesystem 1024-blocks Used Available Capacity Mounted
+        if parts.len() >= 4 {
+            if let Ok(avail_kb) = parts[3].parse::<u64>() {
+                let avail_bytes = avail_kb * 1024;
+                if avail_bytes < min_bytes {
+                    let avail_mb = avail_bytes / (1024 * 1024);
+                    let min_mb = min_bytes / (1024 * 1024);
+                    return Err(format!(
+                        "Espace disque insuffisant sur la partition racine (/): {} Mo disponibles, {} Mo minimum requis pour une mise à jour système sécurisée. Veuillez libérer de l'espace ou purger les anciennes générations NixOS.",
+                        avail_mb, min_mb
+                    ));
+                }
+                return Ok(avail_bytes);
+            }
+        }
+    }
+
+    Ok(min_bytes)
 }
 
 
@@ -1661,6 +1712,23 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
             };
         }
 
+        _ => {
+            const MIN_REQUIRED_DISK_BYTES: u64 = 1_500_000_000;
+            if let Err(disk_err) = check_disk_space_available(MIN_REQUIRED_DISK_BYTES) {
+                output_log.push_str(&format!("❌ Sécurité système : {}\n", disk_err));
+                return ApplyUpdateResult {
+                    success: false,
+                    steps_executed,
+                    output_log,
+                    error: Some(disk_err),
+                };
+            }
+        }
+    }
+
+    match update_type {
+        UpdateType::None => unreachable!(),
+
         UpdateType::ConfigOnly => {
             // 1. D'abord le git pull sécurisé
             steps_executed.push("Git pull sécurisé de la configuration".into());
@@ -1925,6 +1993,19 @@ pub fn run_detached_update_process(force_packages: bool) {
     state.status_title = "Construction & téléchargement du système...".to_string();
     state.status_detail = "Compilation des dérivations NixOS et téléchargement des paquets binaires...".to_string();
     save_update_progress(&state);
+
+    // Contrôle de sécurité de l'espace disque disponible avant téléchargement et compilation
+    const MIN_REQUIRED_DISK_BYTES: u64 = 1_500_000_000; // 1.5 Go
+    if let Err(disk_err) = check_disk_space_available(MIN_REQUIRED_DISK_BYTES) {
+        state.is_running = false;
+        state.stage = "failed".to_string();
+        state.status_title = "Espace disque insuffisant".to_string();
+        state.status_detail = disk_err.clone();
+        state.error = Some(disk_err.clone());
+        state.log_tail.push_str(&format!("\n❌ Sécurité système : {}\n", disk_err));
+        save_update_progress(&state);
+        return;
+    }
 
     // Synchronisation proactive du hash du Dashboard et de nixpkgs dans flake.lock
     let current_ch = get_update_channel();
@@ -2277,8 +2358,17 @@ pub fn extract_switch_diagnostics(_exit_code: Option<i32>, lines: &[String]) -> 
             root_error = Some(trimmed.to_string());
         }
 
-        // 3. Détection d'erreurs Nix générales
-        if (trimmed.starts_with("error:") || trimmed.contains("builder for") && trimmed.contains("failed"))
+        // 3. Détection de saturation disque ou mémoire
+        if (trimmed.contains("No space left on device") || trimmed.contains("disk full")) && root_error.is_none() {
+            root_error = Some("Espace disque saturé : No space left on device. Nettoyage de /nix/store requis.".to_string());
+        } else if (trimmed.contains("Out of memory") || trimmed.contains("Cannot allocate memory")) && root_error.is_none() {
+            root_error = Some("Mémoire vive saturée pendant la construction du système.".to_string());
+        } else if (trimmed.contains("syntax error") || trimmed.contains("undefined variable")) && root_error.is_none() {
+            root_error = Some(format!("Erreur de syntaxe dans la configuration NixOS : {}", trimmed));
+        }
+
+        // 4. Détection d'erreurs Nix générales
+        if (trimmed.starts_with("error:") || (trimmed.contains("builder for") && trimmed.contains("failed")))
             && root_error.is_none()
         {
             root_error = Some(trimmed.to_string());
@@ -2452,35 +2542,134 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_semver_with_v_prefix() {
+        assert_eq!(parse_semver("v0.3.39"), Some((0, 3, 39)));
+        assert_eq!(parse_semver("V1.2.3"), Some((1, 2, 3)));
+        assert_eq!(parse_semver("v26.05"), Some((26, 5, 0)));
+    }
+
+    #[test]
+    fn test_parse_semver_with_git_tag_decorations() {
+        assert_eq!(parse_semver("0.3.39^{}"), Some((0, 3, 39)));
+        assert_eq!(parse_semver("v0.3.39^{}"), Some((0, 3, 39)));
+    }
+
+    #[test]
+    fn test_parse_semver_with_prerelease() {
+        assert_eq!(parse_semver("0.3.39-beta1"), Some((0, 3, 39)));
+        assert_eq!(parse_semver("v0.3.39-rc.2"), Some((0, 3, 39)));
+    }
+
+    #[test]
+    fn test_parse_semver_with_whitespace() {
+        assert_eq!(parse_semver("  0.3.39  "), Some((0, 3, 39)));
+        assert_eq!(parse_semver("\tv0.3.39\n"), Some((0, 3, 39)));
+    }
+
+    #[test]
     fn test_parse_semver_invalid() {
         assert_eq!(parse_semver("invalid"), None);
         assert_eq!(parse_semver(""), None);
-        assert_eq!(parse_semver("v1.2.3"), None);
+        assert_eq!(parse_semver("v"), None);
+        assert_eq!(parse_semver("a.b.c"), None);
     }
 
     #[test]
     fn test_compare_semver_equal() {
         assert_eq!(compare_semver("0.3.32", "0.3.32"), 0);
+        assert_eq!(compare_semver("v0.3.39", "0.3.39"), 0);
+        assert_eq!(compare_semver("0.3.39^{}", "v0.3.39"), 0);
     }
 
     #[test]
     fn test_compare_semver_greater_patch() {
+        assert!(compare_semver("0.3.39", "0.3.38") > 0);
+        assert!(compare_semver("v0.3.39", "0.3.38") > 0);
         assert!(compare_semver("0.3.33", "0.3.32") > 0);
     }
 
     #[test]
     fn test_compare_semver_greater_minor() {
+        assert!(compare_semver("0.4.0", "0.3.39") > 0);
         assert!(compare_semver("0.4.0", "0.3.32") > 0);
     }
 
     #[test]
     fn test_compare_semver_greater_major() {
         assert!(compare_semver("1.0.0", "0.9.9") > 0);
+        assert!(compare_semver("1.0.0", "0.3.39") > 0);
     }
 
     #[test]
-    fn test_compare_semver_less() {
+    fn test_compare_semver_downgrade() {
+        assert!(compare_semver("0.3.38", "0.3.39") < 0);
         assert!(compare_semver("0.3.29", "0.3.32") < 0);
+        assert!(compare_semver("0.2.99", "0.3.0") < 0);
+    }
+
+    #[test]
+    fn test_compare_semver_numeric_not_lexical() {
+        // En comparaison lexicale pure, "9" > "10". En Semver numérique, 10 > 9.
+        assert!(compare_semver("0.3.10", "0.3.9") > 0);
+        assert!(compare_semver("0.3.9", "0.3.10") < 0);
+        assert!(compare_semver("0.10.0", "0.9.0") > 0);
+    }
+
+    #[test]
+    fn test_compare_semver_valid_vs_invalid() {
+        assert!(compare_semver("0.3.39", "unknown") > 0);
+        assert!(compare_semver("unknown", "0.3.39") < 0);
+    }
+
+    #[test]
+    fn test_is_valid_semver() {
+        assert!(is_valid_semver("0.3.39"));
+        assert!(is_valid_semver("v0.3.39"));
+        assert!(is_valid_semver("V1.0.0"));
+        assert!(is_valid_semver("0.3"));
+        assert!(!is_valid_semver(""));
+        assert!(!is_valid_semver("v"));
+        assert!(!is_valid_semver("invalid"));
+    }
+
+    #[test]
+    fn test_check_disk_space_available_threshold() {
+        // 0 octet doit toujours passer si la commande df réussit
+        let res = check_disk_space_available(0);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_extract_switch_diagnostics_unit_failures() {
+        let lines = vec![
+            "the following units failed: noos-nas-dashboard.service, docker.service".to_string(),
+        ];
+        let (failed, err) = extract_switch_diagnostics(Some(1), &lines);
+        assert_eq!(failed.len(), 2);
+        assert!(failed.contains(&"noos-nas-dashboard.service".to_string()));
+        assert!(failed.contains(&"docker.service".to_string()));
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn test_extract_switch_diagnostics_out_of_space() {
+        let lines = vec![
+            "building '/nix/store/abc.drv'...".to_string(),
+            "error: write: No space left on device".to_string(),
+        ];
+        let (_failed, err) = extract_switch_diagnostics(Some(1), &lines);
+        assert!(err.is_some());
+        assert!(err.unwrap().contains("Espace disque saturé"));
+    }
+
+    #[test]
+    fn test_extract_switch_diagnostics_syntax_error() {
+        let lines = vec![
+            "error: syntax error, unexpected ';', expecting '}' at /etc/nixos/vars.nix:15:3".to_string(),
+        ];
+        let (_failed, err) = extract_switch_diagnostics(Some(1), &lines);
+        assert!(err.is_some());
+        assert!(err.unwrap().contains("Erreur de syntaxe"));
     }
 
     #[test]
@@ -2602,6 +2791,12 @@ these 2 paths will be fetched:
         // Fallback to stable for unknown channel
         let res3 = set_update_channel("experimental");
         assert_eq!(res3, Ok("stable".to_string()));
+
+        // Injection security test: path traversal or command injection fallback safely to stable
+        let res4 = set_update_channel("../../etc/shadow");
+        assert_eq!(res4, Ok("stable".to_string()));
+        let res5 = set_update_channel("testing; rm -rf /");
+        assert_eq!(res5, Ok("stable".to_string()));
     }
 
     #[test]

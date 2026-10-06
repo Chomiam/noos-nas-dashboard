@@ -684,8 +684,10 @@ async fn handle_updates_get_channel() -> Json<ApiResponse<crate::updates::Update
 
 /// Modifie le canal de mise à jour actif (Stable ou Testing).
 async fn handle_updates_set_channel(
+    headers: HeaderMap,
     Json(payload): Json<UpdateChannelRequest>,
 ) -> Json<ApiResponse<crate::updates::UpdateChannelConfig>> {
+    require_admin_or_err!(headers);
     match crate::updates::set_update_channel(&payload.channel) {
         Ok(channel) => Json(ApiResponse {
             success: true,
@@ -737,7 +739,8 @@ async fn handle_updates_progress() -> Json<ApiResponse<UpdateProgressState>> {
 }
 
 /// Réinitialise l'état de progression après consultation par l'utilisateur.
-async fn handle_updates_dismiss() -> Json<ApiResponse<bool>> {
+async fn handle_updates_dismiss(headers: HeaderMap) -> Json<ApiResponse<bool>> {
+    require_admin_or_err!(headers);
     dismiss_update_progress();
     Json(ApiResponse {
         success: true,
@@ -747,7 +750,11 @@ async fn handle_updates_dismiss() -> Json<ApiResponse<bool>> {
 }
 
 /// Applique la mise à jour de manière synchrone bloquante (mode direct).
-async fn handle_updates_apply(Query(params): Query<ApplyUpdateQuery>) -> Json<ApiResponse<ApplyUpdateResult>> {
+async fn handle_updates_apply(
+    headers: HeaderMap,
+    Query(params): Query<ApplyUpdateQuery>,
+) -> Json<ApiResponse<ApplyUpdateResult>> {
+    require_admin_or_err!(headers);
     let force_pkgs = params.force_packages.unwrap_or(false);
     let result = tokio::task::spawn_blocking(move || {
         apply_intelligent_update(force_pkgs)
