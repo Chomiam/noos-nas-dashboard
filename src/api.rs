@@ -273,6 +273,7 @@ pub fn api_routes() -> Router {
         .route("/docker/containers/:name/action", post(handle_docker_container_action))
         .route("/docker/containers/:name/logs", get(handle_docker_container_logs))
         .route("/docker/store", get(handle_docker_store))
+        .route("/docker/store/compose", get(handle_docker_store_compose))
         .route("/docker/store/deployments", get(handle_docker_store_deployments))
         .route("/docker/store/deployments/:app_id", get(handle_docker_store_deployment_status))
         .route("/docker/store/install", post(handle_docker_store_install))
@@ -1979,6 +1980,45 @@ async fn handle_docker_store() -> Json<ApiResponse<StoreCatalog>> {
         data: Some(catalog),
         message: None,
     })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AppComposeQuery {
+    pub app_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AppComposeResponse {
+    pub app_id: String,
+    pub has_device: bool,
+    pub compose_found: bool,
+}
+
+/// Retourne les informations d'un compose d'application Store (détection de section devices/GPU).
+async fn handle_docker_store_compose(
+    Query(query): Query<AppComposeQuery>,
+) -> Json<ApiResponse<AppComposeResponse>> {
+    let app_id = query.app_id.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        crate::docker_store::get_app_compose_info(&app_id)
+    }).await;
+
+    match res {
+        Ok((has_device, compose_opt)) => Json(ApiResponse {
+            success: true,
+            data: Some(AppComposeResponse {
+                app_id: query.app_id,
+                has_device,
+                compose_found: compose_opt.is_some(),
+            }),
+            message: None,
+        }),
+        Err(_) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some("Erreur lors de la lecture du fichier compose".into()),
+        }),
+    }
 }
 
 /// Installe une application du catalogue Docker Store en déployant son conteneur et ses volumes.

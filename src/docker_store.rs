@@ -300,6 +300,76 @@ pub fn get_store_catalog() -> StoreCatalog {
     catalog
 }
 
+/// Vérifie si un fichier docker-compose possède une section de périphériques matériels (GPU/devices).
+pub fn check_compose_has_device_section(content: &str) -> bool {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        let code_part = trimmed.trim_start_matches('#').trim();
+        if code_part.starts_with("devices:")
+            || code_part == "devices:"
+            || code_part.starts_with("device:")
+            || code_part.contains("/dev/dri")
+            || code_part.contains("device_ids:")
+            || code_part.contains("capabilities: [gpu]")
+            || code_part.contains("capabilities: [\"gpu\"]")
+            || (code_part.starts_with("- ") && code_part.contains("/dev/"))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Récupère le contenu d'un compose d'application Store (local ou distant) et détecte la présence de devices GPU.
+pub fn get_app_compose_info(app_id: &str) -> (bool, Option<String>) {
+    let clean_id = app_id.trim().to_lowercase();
+    let user = get_target_user();
+
+    // 1. Vérifier si un fichier compose.yaml local existe déjà dans le home de l'utilisateur
+    let local_compose = PathBuf::from(format!("/home/{}/docker/{}/compose.yaml", user, clean_id));
+    if local_compose.is_file() {
+        if let Ok(txt) = std::fs::read_to_string(&local_compose) {
+            let has_device = check_compose_has_device_section(&txt);
+            return (has_device, Some(txt));
+        }
+    }
+
+    let local_yml = PathBuf::from(format!("/home/{}/docker/{}/docker-compose.yml", user, clean_id));
+    if local_yml.is_file() {
+        if let Ok(txt) = std::fs::read_to_string(&local_yml) {
+            let has_device = check_compose_has_device_section(&txt);
+            return (has_device, Some(txt));
+        }
+    }
+
+    // 2. Vérifier le cache dans /var/cache/noos-nas-dashboard/
+    let cache_dir = Path::new("/var/cache/noos-nas-dashboard");
+    let cache_file = cache_dir.join(format!("compose_{}.yaml", clean_id));
+    if cache_file.is_file() {
+        if let Ok(txt) = std::fs::read_to_string(&cache_file) {
+            let has_device = check_compose_has_device_section(&txt);
+            return (has_device, Some(txt));
+        }
+    }
+
+    // 3. Télécharger depuis noos_nas_store GitHub
+    let url = format!("https://raw.githubusercontent.com/Chomiam/noos_nas_store/main/apps/{}/compose.yaml", clean_id);
+    if let Ok(out) = Command::new("curl")
+        .args(["-s", "-L", "--connect-timeout", "4", "--max-time", "8", &url])
+        .output()
+    {
+        let txt = String::from_utf8_lossy(&out.stdout).to_string();
+        if txt.contains("services:") {
+            let _ = std::fs::create_dir_all(cache_dir);
+            let _ = std::fs::write(&cache_file, &txt);
+            let has_device = check_compose_has_device_section(&txt);
+            return (has_device, Some(txt));
+        }
+    }
+
+    (false, None)
+}
+
 /// Génère une clé ou un mot de passe cryptographiquement sécurisé selon le type demandé.
 pub fn generate_secret_key(key_type: &str) -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1430,5 +1500,36 @@ mod tests {
         assert!(!output.contains("\n    - DB_PASSWORD="));
         assert!(!output.contains("\n    - CUSTOM_KEY="));
     }
+
+    #[test]
+    fn test_check_compose_has_device_section() {
+        let with_devices = r#"services:
+  immich:
+    image: immich:release
+    # devices:
+    #   - /dev/dri:/dev/dri
+"#;
+        assert!(check_compose_has_device_section(with_devices));
+
+        let with_active_devices = r#"services:
+  jellyfin:
+    image: jellyfin:latest
+    devices:
+      - /dev/dri:/dev/dri
+"#;
+        assert!(check_compose_has_device_section(with_active_devices));
+
+        let without_devices = r#"services:
+  adguard:
+    image: adguard/adguardhome:latest
+    ports:
+      - 53:53/udp
+      - 3000:3000
+    environment:
+      - TZ=Europe/Paris
+"#;
+        assert!(!check_compose_has_device_section(without_devices));
+    }
 }
+
 

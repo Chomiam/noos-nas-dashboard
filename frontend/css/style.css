@@ -6182,6 +6182,16 @@ select.form-control option,
   user-select: none;
 }
 
+.docker-env-row .env-val-wrapper {
+  flex: 2;
+  display: flex;
+  width: 100%;
+}
+
+.docker-env-row .env-val-wrapper .env-val-input {
+  width: 100%;
+}
+
 .docker-env-row .env-val-input {
   flex: 2;
   font-family: var(--font-mono, monospace) !important;

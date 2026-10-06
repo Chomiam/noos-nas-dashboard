@@ -11757,9 +11757,6 @@ function openDockerConfigModal(appId, customData = null) {
     }
   }
 
-  // Peupler le menu déroulant universel de variables préremplies pour cette application
-  populateDockerEnvPresetSelect(appId, app);
-
   // Configuration médiathèque (Jellyfin / Multimédia)
   const mediaSection = document.getElementById("config-media-section");
   const isMediaApp = (appId === "jellyfin") || (app && app.media_support);
@@ -11777,11 +11774,11 @@ function openDockerConfigModal(appId, customData = null) {
     }
   }
 
-  // Configuration Accélération Matérielle GPU (Disponible pour l'ensemble des conteneurs Docker)
+  // Configuration Accélération Matérielle GPU (Affichée SI ET SEULEMENT SI le docker compose possède une section style "device")
   const gpuSection = document.getElementById("config-gpu-section");
   if (gpuSection) {
-    gpuSection.style.display = "flex";
-    initGpuSettingsForModal(appId, isGpuRecommendedApp(appId, app));
+    gpuSection.style.display = "none";
+    checkAndDisplayGpuSectionForApp(appId, app);
   }
 
   updateDockerConfigModalDeployButton(appId);
@@ -11898,112 +11895,36 @@ function initGpuSettingsForModal(appId = "", recommendGpu = false) {
   }
 }
 
+async function checkAndDisplayGpuSectionForApp(appId, app) {
+  const gpuSection = document.getElementById("config-gpu-section");
+  if (!gpuSection) return;
+
+  gpuSection.style.display = "none";
+
+  try {
+    const res = await fetch(`/api/docker/store/compose?app_id=${encodeURIComponent(appId)}`);
+    const json = await res.json();
+    const currentId = document.getElementById("config-app-id") ? document.getElementById("config-app-id").value : "";
+    if (currentId !== appId) return;
+
+    if (json.success && json.data && json.data.has_device) {
+      gpuSection.style.display = "flex";
+      initGpuSettingsForModal(appId, true);
+    } else {
+      gpuSection.style.display = "none";
+      const devInput = document.getElementById("config-app-gpu-device");
+      if (devInput) devInput.value = "";
+    }
+  } catch (err) {
+    console.warn("Impossible de vérifier les sections GPU/device pour", appId, err);
+    gpuSection.style.display = "none";
+  }
+}
+
 function populateDockerEnvPresetSelect(appId, app) {
+  // Désactivé : aucun menu déroulant de presets de variables
   const select = document.getElementById("config-env-preset-select");
-  if (!select) return;
-
-  const appName = (app && app.name) ? app.name : (appId ? appId.toUpperCase() : "Application");
-  let html = `<option value="" disabled selected>⚡ Variables & Préréglages (${escapeHtml(appName)})...</option>`;
-
-  // 1. Groupe : Variables spécifiques au conteneur sélectionné
-  const specificVars = [];
-  if (app && Array.isArray(app.env) && app.env.length > 0) {
-    app.env.forEach(e => {
-      specificVars.push({ key: e.name, val: e.default || "", desc: e.label || e.description || e.name });
-    });
-  } else if (DEFAULT_DOCKER_ENVS[appId]) {
-    DEFAULT_DOCKER_ENVS[appId].forEach(e => {
-      specificVars.push({ key: e.key, val: e.value || "", desc: e.key });
-    });
-  }
-
-  if (specificVars.length > 0) {
-    html += `<optgroup label="⭐ Variables Spécifiques à ${escapeHtml(appName)}">`;
-    specificVars.forEach(v => {
-      const label = v.val ? `${v.key} = ${v.val}` : `${v.key} (${v.desc || 'optionnel'})`;
-      html += `<option value="custom_single:${escapeHtml(v.key)}:${escapeHtml(v.val)}">${escapeHtml(label)}</option>`;
-    });
-    html += `</optgroup>`;
-  }
-
-  // 2. Groupe : Profils Recommandés / Stacks Clés en Main
-  html += `
-    <optgroup label="📦 Profils Recommandés en 1 Clic">
-      <option value="profile_standard_nas">👤 Droits Utilisateur NAS (TZ, PUID, PGID, UMASK)</option>
-      <option value="profile_network_web">🌐 Ports & Écoute Web (PORT, HOST, WEBUI_PORT)</option>
-      <option value="profile_gpu_intel">🎮 Accélération Intel QuickSync (LIBVA_DRIVER_NAME=iHD)</option>
-      <option value="profile_gpu_nvidia">🎮 Accélération NVIDIA (NVIDIA_VISIBLE_DEVICES, DRIVER_CAPS)</option>
-      <option value="profile_postgres">🗄️ Connexion PostgreSQL (POSTGRES_USER, PASSWORD, DB)</option>
-      <option value="profile_mysql">🐬 Connexion MySQL / MariaDB (MYSQL_USER, PASSWORD, DATABASE)</option>
-      <option value="profile_redis">⚡ Cache Redis (REDIS_HOST, REDIS_PORT)</option>
-      <option value="profile_security">🔒 Sécurité & Tokens (SECRET_KEY, JWT_SECRET)</option>
-      <option value="profile_admin">👑 Administrateur Initial (ADMIN_USER, ADMIN_PASSWORD, EMAIL)</option>
-    </optgroup>
-  `;
-
-  // 3. Groupe : Variables Individuelles Générales pour tout conteneur
-  html += `
-    <optgroup label="🕒 Fuseaux Horaires (Timezone)">
-      <option value="custom_single:TZ:Europe/Paris">TZ = Europe/Paris (France / Suisse / Belgique)</option>
-      <option value="custom_single:TZ:UTC">TZ = UTC (Temps Universel)</option>
-      <option value="custom_single:TZ:America/Montreal">TZ = America/Montreal (Canada)</option>
-      <option value="custom_single:TZ:America/New_York">TZ = America/New_York (US Est)</option>
-      <option value="custom_single:TZ:America/Los_Angeles">TZ = America/Los_Angeles (US Ouest)</option>
-      <option value="custom_single:TZ:Europe/London">TZ = Europe/London (Royaume-Uni)</option>
-      <option value="custom_single:TZ:Asia/Tokyo">TZ = Asia/Tokyo (Japon)</option>
-    </optgroup>
-
-    <optgroup label="👤 Droits & Environnement Système">
-      <option value="custom_single:TZ:Europe/Paris">TZ = Europe/Paris</option>
-      <option value="custom_single:PUID:1000">PUID = 1000 (ID Utilisateur NAS)</option>
-      <option value="custom_single:PGID:100">PGID = 100 (ID Groupe Users)</option>
-      <option value="custom_single:UMASK:002">UMASK = 002 (Droits partages 775/664)</option>
-      <option value="custom_single:LANG:fr_FR.UTF-8">LANG = fr_FR.UTF-8</option>
-      <option value="custom_single:NODE_ENV:production">NODE_ENV = production</option>
-    </optgroup>
-
-    <optgroup label="🎮 Variables Accélération GPU">
-      <option value="custom_single:NVIDIA_VISIBLE_DEVICES:all">NVIDIA_VISIBLE_DEVICES = all</option>
-      <option value="custom_single:NVIDIA_DRIVER_CAPABILITIES:all">NVIDIA_DRIVER_CAPABILITIES = all</option>
-      <option value="custom_single:LIBVA_DRIVER_NAME:iHD">LIBVA_DRIVER_NAME = iHD (Intel)</option>
-      <option value="custom_single:LIBVA_DRIVER_NAME:radeonsi">LIBVA_DRIVER_NAME = radeonsi (AMD)</option>
-      <option value="custom_single:DRI_NAME:card1">DRI_NAME = card1</option>
-    </optgroup>
-
-    <optgroup label="🗄️ Bases de Données & Cache">
-      <option value="custom_single:DB_HOST:localhost">DB_HOST = localhost</option>
-      <option value="custom_single:DB_PORT:5432">DB_PORT = 5432</option>
-      <option value="custom_single:DB_USER:postgres">DB_USER = postgres</option>
-      <option value="custom_single:DB_PASSWORD:postgres">DB_PASSWORD = postgres</option>
-      <option value="custom_single:DB_NAME:app">DB_NAME = app</option>
-      <option value="custom_single:POSTGRES_USER:postgres">POSTGRES_USER = postgres</option>
-      <option value="custom_single:POSTGRES_PASSWORD:postgres">POSTGRES_PASSWORD = postgres</option>
-      <option value="custom_single:POSTGRES_DB:app">POSTGRES_DB = app</option>
-      <option value="custom_single:MYSQL_DATABASE:app">MYSQL_DATABASE = app</option>
-      <option value="custom_single:MYSQL_USER:app">MYSQL_USER = app</option>
-      <option value="custom_single:MYSQL_PASSWORD:secret">MYSQL_PASSWORD = secret</option>
-      <option value="custom_single:MYSQL_ROOT_PASSWORD:secret">MYSQL_ROOT_PASSWORD = secret</option>
-      <option value="custom_single:REDIS_HOST:redis">REDIS_HOST = redis</option>
-      <option value="custom_single:REDIS_PORT:6379">REDIS_PORT = 6379</option>
-      <option value="custom_single:DATABASE_URL:postgresql://postgres:postgres@localhost:5432/app">DATABASE_URL = postgresql://...</option>
-    </optgroup>
-
-    <optgroup label="🌐 Réseau, Logs & Sécurité">
-      <option value="custom_single:PORT:8080">PORT = 8080</option>
-      <option value="custom_single:WEBUI_PORT:8080">WEBUI_PORT = 8080</option>
-      <option value="custom_single:HOST:0.0.0.0">HOST = 0.0.0.0</option>
-      <option value="custom_single:LOG_LEVEL:info">LOG_LEVEL = info</option>
-      <option value="custom_single:DEBUG:false">DEBUG = false</option>
-      <option value="custom_single:ADMIN_USER:admin">ADMIN_USER = admin</option>
-      <option value="custom_single:ADMIN_PASSWORD:admin">ADMIN_PASSWORD = admin</option>
-      <option value="custom_single:ADMIN_EMAIL:admin@nas.local">ADMIN_EMAIL = admin@nas.local</option>
-      <option value="custom_single:SECRET_KEY:secret123456789">SECRET_KEY = secret123456789</option>
-      <option value="custom_single:JWT_SECRET:jwtsecret123456789">JWT_SECRET = jwtsecret123456789</option>
-    </optgroup>
-  `;
-
-  select.innerHTML = html;
-  select.selectedIndex = 0;
+  if (select) select.style.display = "none";
 }
 
 function onGpuProfileChange(profile) {
@@ -12368,6 +12289,90 @@ async function promptCreateFolderInPicker() {
   }
 }
 
+function isTzEnvKey(key) {
+  const k = (key || "").trim().toUpperCase();
+  return k === "TZ" || k === "TIMEZONE" || k === "TIME_ZONE";
+}
+
+function getAllTimezones() {
+  if (typeof Intl !== 'undefined' && typeof Intl.supportedValuesOf === 'function') {
+    try {
+      const tzs = Intl.supportedValuesOf('timeZone');
+      if (Array.isArray(tzs) && tzs.length > 50) {
+        return tzs;
+      }
+    } catch (e) {}
+  }
+  return [
+    "Africa/Abidjan", "Africa/Accra", "Africa/Addis_Ababa", "Africa/Algiers", "Africa/Cairo",
+    "Africa/Casablanca", "Africa/Johannesburg", "Africa/Lagos", "Africa/Nairobi", "Africa/Tunis",
+    "America/Anchorage", "America/Argentina/Buenos_Aires", "America/Bogota", "America/Cancun",
+    "America/Caracas", "America/Chicago", "America/Denver", "America/Detroit", "America/Edmonton",
+    "America/Guatemala", "America/Halifax", "America/Havana", "America/Indiana/Indianapolis",
+    "America/Jamaica", "America/Lima", "America/Los_Angeles", "America/Manaus", "America/Martinique",
+    "America/Mexico_City", "America/Montreal", "America/New_York", "America/Panama", "America/Phoenix",
+    "America/Santiago", "America/Sao_Paulo", "America/Toronto", "America/Vancouver", "America/Winnipeg",
+    "Asia/Almaty", "Asia/Amman", "Asia/Baghdad", "Asia/Baku", "Asia/Bangkok", "Asia/Beirut",
+    "Asia/Calcutta", "Asia/Colombo", "Asia/Damascus", "Asia/Dhaka", "Asia/Dubai", "Asia/Gaza",
+    "Asia/Hong_Kong", "Asia/Ho_Chi_Minh", "Asia/Jakarta", "Asia/Jerusalem", "Asia/Kabul",
+    "Asia/Karachi", "Asia/Kathmandu", "Asia/Kolkata", "Asia/Kuala_Lumpur", "Asia/Kuwait",
+    "Asia/Manila", "Asia/Muscat", "Asia/Nicosia", "Asia/Qatar", "Asia/Riyadh", "Asia/Seoul",
+    "Asia/Shanghai", "Asia/Singapore", "Asia/Taipei", "Asia/Tashkent", "Asia/Tbilisi",
+    "Asia/Tehran", "Asia/Tel_Aviv", "Asia/Tokyo", "Asia/Vladivostok", "Asia/Yerevan",
+    "Atlantic/Azores", "Atlantic/Bermuda", "Atlantic/Canary", "Atlantic/Cape_Verde", "Atlantic/Reykjavik",
+    "Australia/Adelaide", "Australia/Brisbane", "Australia/Darwin", "Australia/Hobart",
+    "Australia/Melbourne", "Australia/Perth", "Australia/Sydney",
+    "Europe/Amsterdam", "Europe/Andorra", "Europe/Athens", "Europe/Belgrade", "Europe/Berlin",
+    "Europe/Bratislava", "Europe/Brussels", "Europe/Bucharest", "Europe/Budapest", "Europe/Copenhagen",
+    "Europe/Dublin", "Europe/Gibraltar", "Europe/Helsinki", "Europe/Istanbul", "Europe/Kiev",
+    "Europe/Lisbon", "Europe/Ljubljana", "Europe/London", "Europe/Luxembourg", "Europe/Madrid",
+    "Europe/Malta", "Europe/Minsk", "Europe/Monaco", "Europe/Moscow", "Europe/Oslo", "Europe/Paris",
+    "Europe/Prague", "Europe/Riga", "Europe/Rome", "Europe/Sofia", "Europe/Stockholm",
+    "Europe/Tallinn", "Europe/Tirane", "Europe/Vienna", "Europe/Vilnius", "Europe/Warsaw",
+    "Europe/Zagreb", "Europe/Zurich",
+    "Indian/Maldives", "Indian/Mauritius", "Indian/Reunion",
+    "Pacific/Auckland", "Pacific/Fiji", "Pacific/Guam", "Pacific/Honolulu", "Pacific/Noumea",
+    "Pacific/Pago_Pago", "Pacific/Port_Moresby", "Pacific/Tahiti",
+    "UTC"
+  ];
+}
+
+function buildTimezoneSelectHtml(currentVal) {
+  const tzs = getAllTimezones();
+  const selected = (currentVal && currentVal.trim()) ? currentVal.trim() : "Europe/Paris";
+
+  let optionsHtml = "";
+  if (selected && !tzs.includes(selected)) {
+    optionsHtml += `<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected)}</option>`;
+  }
+
+  const groups = {};
+  tzs.forEach(tz => {
+    const parts = tz.split("/");
+    const region = parts.length > 1 ? parts[0] : "Autres";
+    if (!groups[region]) groups[region] = [];
+    groups[region].push(tz);
+  });
+
+  for (const [region, list] of Object.entries(groups)) {
+    optionsHtml += `<optgroup label="🌍 ${escapeHtml(region)}">`;
+    list.forEach(tz => {
+      const isSel = (tz === selected) ? "selected" : "";
+      optionsHtml += `<option value="${escapeHtml(tz)}" ${isSel}>${escapeHtml(tz)}</option>`;
+    });
+    optionsHtml += `</optgroup>`;
+  }
+
+  return `<select class="form-input env-val-input" style="cursor: pointer; appearance: auto;" title="Choisir le fuseau horaire">${optionsHtml}</select>`;
+}
+
+function buildEnvValueElement(key, val) {
+  if (isTzEnvKey(key)) {
+    return buildTimezoneSelectHtml(val);
+  }
+  return `<input type="text" class="form-input env-val-input" placeholder="valeur" value="${escapeHtml(val)}" spellcheck="false" autocomplete="off">`;
+}
+
 function addDockerConfigEnvRow(key = '', val = '') {
   const container = document.getElementById("config-env-rows-container");
   if (!container) return;
@@ -12375,12 +12380,34 @@ function addDockerConfigEnvRow(key = '', val = '') {
   const row = document.createElement("div");
   row.className = "docker-env-row";
   row.innerHTML = `
-    <input type="text" class="form-input env-key-input" placeholder="NOM_VARIABLE" value="${escapeHtml(key)}" spellcheck="false" autocomplete="off">
+    <input type="text" class="form-input env-key-input" placeholder="NOM_VARIABLE" value="${escapeHtml(key)}" spellcheck="false" autocomplete="off" oninput="onDockerEnvKeyChange(this)">
     <span class="env-sep">=</span>
-    <input type="text" class="form-input env-val-input" placeholder="valeur" value="${escapeHtml(val)}" spellcheck="false" autocomplete="off">
+    <div class="env-val-wrapper" style="flex: 2; display: flex; width: 100%;">
+      ${buildEnvValueElement(key, val)}
+    </div>
     <button type="button" class="env-delete-btn" onclick="this.closest('.docker-env-row').remove()" title="Supprimer la variable">✕</button>
   `;
   container.appendChild(row);
+}
+
+function onDockerEnvKeyChange(keyInput) {
+  if (!keyInput) return;
+  const row = keyInput.closest(".docker-env-row");
+  if (!row) return;
+
+  const wrapper = row.querySelector(".env-val-wrapper");
+  const currentValEl = row.querySelector(".env-val-input");
+  const currentVal = currentValEl ? currentValEl.value : "";
+  const key = keyInput.value.trim();
+
+  const isTz = isTzEnvKey(key);
+  const isSelect = currentValEl && currentValEl.tagName === "SELECT";
+
+  if (isTz && !isSelect) {
+    if (wrapper) wrapper.innerHTML = buildTimezoneSelectHtml(currentVal || "Europe/Paris");
+  } else if (!isTz && isSelect) {
+    if (wrapper) wrapper.innerHTML = `<input type="text" class="form-input env-val-input" placeholder="valeur" value="${escapeHtml(currentVal)}" spellcheck="false" autocomplete="off">`;
+  }
 }
 
 function setOrAddDockerConfigEnvRow(key, val) {
@@ -12401,67 +12428,7 @@ function setOrAddDockerConfigEnvRow(key, val) {
 }
 
 function onSelectDockerEnvPreset(selectEl) {
-  if (!selectEl || !selectEl.value) return;
-  const val = selectEl.value;
-
-  const PRESETS = {
-    // Profils Complets
-    profile_standard_nas: [
-      { key: "TZ", val: "Europe/Paris" },
-      { key: "PUID", val: "1000" },
-      { key: "PGID", val: "100" },
-      { key: "UMASK", val: "002" }
-    ],
-    profile_immich_default: [
-      { key: "TZ", val: "Europe/Paris" },
-      { key: "DB_HOSTNAME", val: "immich_postgres" },
-      { key: "DB_USERNAME", val: "postgres" },
-      { key: "DB_PASSWORD", val: "postgres" },
-      { key: "DB_DATABASE_NAME", val: "immich" },
-      { key: "REDIS_HOSTNAME", val: "immich_redis" },
-      { key: "UPLOAD_LOCATION", val: "./data/library" }
-    ],
-    profile_gpu_intel: [
-      { key: "LIBVA_DRIVER_NAME", val: "iHD" }
-    ],
-    profile_gpu_nvidia: [
-      { key: "NVIDIA_VISIBLE_DEVICES", val: "all" },
-      { key: "NVIDIA_DRIVER_CAPABILITIES", val: "all" }
-    ],
-    // Variables Clés Individuelles
-    var_tz: [{ key: "TZ", val: "Europe/Paris" }],
-    var_puid: [{ key: "PUID", val: "1000" }],
-    var_pgid: [{ key: "PGID", val: "100" }],
-    var_umask: [{ key: "UMASK", val: "002" }],
-    var_immich_db_pass: [{ key: "DB_PASSWORD", val: "postgres" }],
-    var_immich_db_host: [{ key: "DB_HOSTNAME", val: "immich_postgres" }],
-    var_immich_db_user: [{ key: "DB_USERNAME", val: "postgres" }],
-    var_immich_db_name: [{ key: "DB_DATABASE_NAME", val: "immich" }],
-    var_immich_upload: [{ key: "UPLOAD_LOCATION", val: "./data/library" }],
-    var_log_level: [{ key: "LOG_LEVEL", val: "info" }]
-  };
-
-  if (val.startsWith("custom_single:")) {
-    const withoutPrefix = val.slice("custom_single:".length);
-    const sepIdx = withoutPrefix.indexOf(":");
-    if (sepIdx !== -1) {
-      const k = withoutPrefix.slice(0, sepIdx);
-      const v = withoutPrefix.slice(sepIdx + 1);
-      setOrAddDockerConfigEnvRow(k, v);
-      showToast(`Variable ajoutée : ${k}=${v}`, "info");
-    }
-  } else {
-    const toAdd = PRESETS[val];
-    if (toAdd && Array.isArray(toAdd)) {
-      toAdd.forEach(item => {
-        setOrAddDockerConfigEnvRow(item.key, item.val);
-      });
-      showToast(`Préréglage appliqué (${toAdd.length} variable(s))`, "info");
-    }
-  }
-
-  // Réinitialiser la liste déroulante sur l'intitulé
-  selectEl.selectedIndex = 0;
+  // Désactivé : aucun preset automatique
 }
 
 // ============================================================================
