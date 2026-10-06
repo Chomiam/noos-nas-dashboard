@@ -10357,6 +10357,7 @@ let dockerContainersSearch = "";
 let dockerContainersPerPage = 25;
 let dockerContainersCurrentPage = 1;
 let selectedDockerContainers = new Set();
+let expandedDockerStacks = new Set();
 
 async function loadDockerContainers() {
   const container = document.getElementById("containers-container");
@@ -10467,6 +10468,257 @@ function onContainersPerPageChange() {
   renderDockerContainersView();
 }
 
+function getContainerProjectKey(c) {
+  if (!c) return null;
+  const project = (c.compose_project || "").trim();
+  if (project) return project;
+  const storeId = (c.store_app_id || "").trim();
+  if (storeId) return storeId;
+  return null;
+}
+
+function toggleDockerStack(groupId, event) {
+  if (event) {
+    const target = event.target;
+    // Ne pas plier/déplier si l'utilisateur clique sur une action, un lien ou une case à cocher
+    if (target.closest(".btn-docker-action") ||
+        target.closest(".btn-docker-open") ||
+        target.closest("a") ||
+        target.closest("input") ||
+        target.closest(".badge-primary")) {
+      return;
+    }
+  }
+
+  const isCurrentlyExpanded = expandedDockerStacks.has(groupId);
+  if (isCurrentlyExpanded) {
+    expandedDockerStacks.delete(groupId);
+  } else {
+    expandedDockerStacks.add(groupId);
+  }
+
+  const newExpanded = !isCurrentlyExpanded;
+  const groupEl = document.getElementById(`docker-stack-${groupId}`);
+  const childrenEl = document.getElementById(`docker-stack-children-${groupId}`);
+  const toggleBtn = groupEl?.querySelector(".btn-docker-stack-toggle");
+  const arrowEl = groupEl?.querySelector(".docker-stack-arrow");
+
+  if (groupEl) {
+    groupEl.classList.toggle("is-expanded", newExpanded);
+    groupEl.classList.toggle("is-collapsed", !newExpanded);
+  }
+  if (childrenEl) {
+    childrenEl.classList.toggle("is-expanded", newExpanded);
+  }
+  if (toggleBtn) {
+    toggleBtn.classList.toggle("is-expanded", newExpanded);
+    toggleBtn.title = newExpanded ? "Replier le groupe" : "Dérouler le groupe";
+  }
+  if (arrowEl) {
+    arrowEl.classList.toggle("is-expanded", newExpanded);
+  }
+}
+
+function toggleSelectStack(groupId, isChecked) {
+  const stackContainers = allDockerContainers.filter(c => getContainerProjectKey(c) === groupId);
+  stackContainers.forEach(c => {
+    const cleanName = (c.name || "").replace(/^\//, "");
+    if (isChecked) {
+      selectedDockerContainers.add(cleanName);
+    } else {
+      selectedDockerContainers.delete(cleanName);
+    }
+    const row = document.getElementById(`docker-container-row-${cleanName}`);
+    if (row) row.classList.toggle("is-selected", isChecked);
+    const cb = row?.querySelector(".docker-container-select-cb");
+    if (cb) cb.checked = isChecked;
+  });
+
+  const stackCb = document.querySelector(`.docker-stack-select-cb[data-stack-id="${groupId}"]`);
+  if (stackCb) {
+    stackCb.checked = isChecked;
+    stackCb.indeterminate = false;
+  }
+
+  const pagedCheckboxes = document.querySelectorAll(".docker-container-select-cb");
+  const visibleNames = Array.from(pagedCheckboxes).map(cb => cb.value);
+  updateBulkActionsBarVisibleCheck(visibleNames);
+}
+
+function updateStackCheckboxState(groupId) {
+  if (!groupId) return;
+  const stackCb = document.querySelector(`.docker-stack-select-cb[data-stack-id="${groupId}"]`);
+  if (!stackCb) return;
+  const stackContainers = allDockerContainers.filter(c => getContainerProjectKey(c) === groupId);
+  const names = stackContainers.map(c => (c.name || "").replace(/^\//, ""));
+  const allSelected = names.length > 0 && names.every(n => selectedDockerContainers.has(n));
+  const someSelected = names.some(n => selectedDockerContainers.has(n));
+  stackCb.checked = allSelected;
+  stackCb.indeterminate = !allSelected && someSelected;
+}
+
+async function dockerStackAction(groupId, action) {
+  const stackContainers = allDockerContainers.filter(c => getContainerProjectKey(c) === groupId);
+  if (stackContainers.length === 0) return;
+  const names = stackContainers.map(c => (c.name || "").replace(/^\//, ""));
+  showToast(`Exécution de '${action}' sur la stack '${groupId}' (${names.length} conteneurs)...`, "info");
+
+  let successes = 0;
+  let failures = 0;
+
+  await Promise.all(names.map(async (name) => {
+    try {
+      const res = await fetch(`/api/docker/containers/${encodeURIComponent(name)}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action })
+      });
+      const json = await res.json();
+      if (json.success) successes++;
+      else failures++;
+    } catch {
+      failures++;
+    }
+  }));
+
+  if (failures === 0) {
+    showToast(`Stack '${groupId}' : action '${action}' appliquée avec succès !`, "success");
+  } else {
+    showToast(`Stack '${groupId}' : ${successes} réussi(s), ${failures} échec(s)`, "warning");
+  }
+  await loadDockerContainers();
+}
+
+function openDeleteDockerStackModal(groupId) {
+  const stackContainers = allDockerContainers.filter(c => getContainerProjectKey(c) === groupId);
+  if (stackContainers.length === 0) return;
+
+  const primary = stackContainers.find(c => c.is_store_app) || stackContainers[0];
+  const primaryName = (primary.name || "").replace(/^\//, "");
+  const storeAppId = primary.store_app_id || groupId;
+  const storeAppName = primary.store_app_name || groupId;
+  const storeIcon = primary.store_icon || "";
+
+  openDeleteDockerModal(primaryName, primary.image, storeAppId, `${storeAppName} (${stackContainers.length} conteneurs)`, storeIcon);
+
+  const nameEl = document.getElementById("delete-docker-name-display");
+  if (nameEl) {
+    nameEl.innerHTML = `<span style="color:var(--mauve); font-weight:700;">Stack Compose : ${escapeHtml(storeAppName)}</span> <span style="font-size:0.8rem; color:var(--subtext0);">(${stackContainers.length} conteneurs)</span>`;
+  }
+}
+
+function renderSingleContainerRowHtml(c, isChild = false, stackId = null) {
+  const host = window.location.hostname;
+  const cleanName = (c.name || "").replace(/^\//, "");
+  const shortId = (c.id || "").substring(0, 10);
+  const isRunning = Boolean(c.is_running);
+  const isUnhealthy = Boolean(c.status && c.status.toLowerCase().includes("unhealthy"));
+  const isStore = Boolean(c.is_store_app);
+  const appName = c.store_app_name || cleanName;
+  const appIcon = c.store_icon || "";
+  const storeAppId = (c.store_app_id || "").toLowerCase();
+  const isSelected = selectedDockerContainers.has(cleanName);
+
+  const openLink = c.web_port
+    ? `<a href="http://${host}:${c.web_port}" target="_blank" class="btn-docker-open" title="Ouvrir l'application Web (Port ${c.web_port})" onclick="event.stopPropagation()">
+         <span>🚀</span> Ouvrir :${c.web_port} ↗
+       </a>`
+    : "";
+
+  const portsBadge = c.ports && !c.web_port
+    ? `<span class="docker-line-ports" title="${escapeHtml(c.ports)}">🔌 ${escapeHtml(c.ports)}</span>`
+    : "";
+
+  const avatarHtml = (isStore && appIcon && !isChild)
+    ? `<img src="${escapeHtml(appIcon)}" alt="${escapeHtml(appName)}" class="docker-avatar-img" onerror="this.outerHTML='<div class=\\'docker-avatar-icon\\'>🐳</div>'">`
+    : `<div class="docker-avatar-icon">${isChild ? '⚙️' : '🐳'}</div>`;
+
+  const storeBadge = (!isChild && isStore)
+    ? `<span class="badge badge-primary" style="font-size:0.68rem; margin-left:6px; padding:2px 7px; vertical-align:middle; cursor:pointer;" onclick="event.stopPropagation(); openStoreAppModal('${escapeHtml(storeAppId)}')" title="Cliquer pour voir la fiche dans l'App Store">🛍️ ${escapeHtml(appName)}</span>`
+    : "";
+
+  const serviceTag = (isChild && c.compose_service)
+    ? `<span class="docker-child-service-badge" title="Service Docker Compose : ${escapeHtml(c.compose_service)}">⚙️ ${escapeHtml(c.compose_service)}</span>`
+    : "";
+
+  const storeBtn = (!isChild && isStore && storeAppId)
+    ? `<button type="button" class="btn-docker-action" onclick="openStoreAppModal('${escapeHtml(storeAppId)}')" title="Voir la fiche dans l'App Store">
+         <span>🛍️</span> Fiche Store
+       </button>`
+    : "";
+
+  const envBtn = (!isChild && c.env_file_path && c.env_file_path.trim().length > 0)
+    ? `<button type="button" class="btn-docker-action btn-docker-env" onclick="openNvimModal('${escapeHtml(c.env_file_path)}', '.env (${escapeHtml(cleanName)})')" title="Visualiser et modifier le fichier .env avec NeoVim">
+         <span>📝</span> .env
+       </button>`
+    : "";
+
+  const stateBadgeText = isUnhealthy ? "⚠️ Dégradé (Unhealthy)" : (isRunning ? "🟢 En cours" : "🟡 Arrêté");
+  const stateBadgeClass = isUnhealthy ? "state-unhealthy" : (isRunning ? "state-running" : "state-stopped");
+  const dotClass = isUnhealthy ? "dot-unhealthy" : (isRunning ? "dot-running" : "dot-stopped");
+
+  return `
+    <div class="docker-container-row ${isChild ? 'docker-stack-child' : ''} ${isRunning ? 'is-running' : 'is-stopped'} ${isUnhealthy ? 'is-unhealthy' : ''} ${isSelected ? 'is-selected' : ''}" id="docker-container-row-${escapeHtml(cleanName)}" data-store-app-id="${escapeHtml(storeAppId)}" data-container-id="${escapeHtml(c.id || '')}">
+      <div class="docker-row-select" onclick="event.stopPropagation()">
+        <input type="checkbox" class="docker-container-select-cb" value="${escapeHtml(cleanName)}" data-stack-id="${escapeHtml(stackId || '')}" ${isSelected ? 'checked' : ''} onchange="toggleSelectContainer('${escapeHtml(cleanName)}', this.checked, '${escapeHtml(stackId || '')}')">
+      </div>
+
+      <div class="docker-row-left">
+        <span class="docker-status-dot ${dotClass}" title="${isUnhealthy ? 'État dégradé / Unhealthy' : (isRunning ? 'En cours d\'exécution' : 'Arrêté')}"></span>
+        ${avatarHtml}
+        <div class="docker-row-identity">
+          <div class="docker-row-name" title="${escapeHtml(cleanName)}">
+            ${escapeHtml(cleanName)}
+            ${storeBadge}
+          </div>
+          <div class="docker-row-sub">
+            <span class="docker-row-id font-mono">${escapeHtml(shortId)}</span>
+            <span class="docker-badge-state ${stateBadgeClass}">
+              ${stateBadgeText}
+            </span>
+            ${serviceTag}
+          </div>
+        </div>
+      </div>
+
+      <div class="docker-row-middle">
+        <span class="docker-row-image font-mono" title="Image: ${escapeHtml(c.image)}">
+          📦 ${escapeHtml(c.image)}
+        </span>
+        ${openLink}
+        ${portsBadge}
+        <span class="docker-row-uptime" title="${escapeHtml(c.status)}">${escapeHtml(c.status)}</span>
+      </div>
+
+      <div class="docker-row-actions" onclick="event.stopPropagation()">
+        ${isRunning ? `
+          <button type="button" class="btn-docker-action btn-docker-restart" onclick="dockerContainerAction('${escapeHtml(cleanName)}', 'restart')" title="Redémarrer le conteneur">
+            <span>🔄</span> Redémarrer
+          </button>
+          <button type="button" class="btn-docker-action btn-docker-stop" onclick="dockerContainerAction('${escapeHtml(cleanName)}', 'stop')" title="Arrêter le conteneur">
+            <span>⏹</span> Arrêter
+          </button>
+        ` : `
+          <button type="button" class="btn-docker-action btn-docker-start" onclick="dockerContainerAction('${escapeHtml(cleanName)}', 'start')" title="Démarrer le conteneur">
+            <span>▶</span> Démarrer
+          </button>
+        `}
+        <button type="button" class="btn-docker-action" onclick="openDockerConfigModalForContainer('${escapeHtml(cleanName)}')" title="Modifier les variables d'environnement">
+          <span>⚙️</span> Variables
+        </button>
+        ${envBtn}
+        ${storeBtn}
+        <button type="button" class="btn-docker-action" onclick="openDockerLogsModal('${escapeHtml(cleanName)}')" title="Consulter les journaux Docker">
+          <span>📜</span> Logs
+        </button>
+        <button type="button" class="btn-docker-action btn-docker-delete" onclick="openDeleteDockerModal('${escapeHtml(cleanName)}', '${escapeHtml(c.image || '')}', '${escapeHtml(storeAppId)}', '${escapeHtml(appName)}', '${escapeHtml(appIcon)}')" title="Supprimer le conteneur">
+          <span>🗑️</span> Supprimer
+        </button>
+      </div>
+    </div>
+  `;
+}
+
 function renderDockerContainersView() {
   const container = document.getElementById("containers-container");
   const paginationBar = document.getElementById("containers-pagination-bar");
@@ -10488,34 +10740,111 @@ function renderDockerContainersView() {
     return;
   }
 
-  // 1. Filtrage
-  let filtered = allDockerContainers.filter(c => {
-    // Filtre d'état
-    if (dockerContainersStatusFilter === "running" && !c.is_running) return false;
-    if (dockerContainersStatusFilter === "unhealthy" && (!c.status || !c.status.toLowerCase().includes("unhealthy"))) return false;
-    if (dockerContainersStatusFilter === "stopped" && c.is_running) return false;
+  // 1. Groupement préalable des conteneurs par stack Docker Compose
+  const projectMap = new Map();
+  allDockerContainers.forEach(c => {
+    const pk = getContainerProjectKey(c);
+    if (pk) {
+      if (!projectMap.has(pk)) {
+        projectMap.set(pk, []);
+      }
+      projectMap.get(pk).push(c);
+    }
+  });
 
-    // Filtre de recherche
-    if (dockerContainersSearch) {
+  // Filtre unitaire pour conteneur individuel
+  function containerMatchesFilters(c, search, statusFilter) {
+    if (statusFilter === "running" && !c.is_running) return false;
+    if (statusFilter === "unhealthy" && (!c.status || !c.status.toLowerCase().includes("unhealthy"))) return false;
+    if (statusFilter === "stopped" && c.is_running) return false;
+
+    if (search) {
       const cleanName = (c.name || "").replace(/^\//, "").toLowerCase();
       const appName = (c.store_app_name || "").toLowerCase();
       const image = (c.image || "").toLowerCase();
       const ports = (c.ports || "").toLowerCase();
       const status = (c.status || "").toLowerCase();
-      const match = cleanName.includes(dockerContainersSearch) ||
-                    appName.includes(dockerContainersSearch) ||
-                    image.includes(dockerContainersSearch) ||
-                    ports.includes(dockerContainersSearch) ||
-                    status.includes(dockerContainersSearch);
+      const service = (c.compose_service || "").toLowerCase();
+      const project = (c.compose_project || "").toLowerCase();
+      const match = cleanName.includes(search) ||
+                    appName.includes(search) ||
+                    image.includes(search) ||
+                    ports.includes(search) ||
+                    status.includes(search) ||
+                    service.includes(search) ||
+                    project.includes(search);
       if (!match) return false;
     }
     return true;
-  });
+  }
 
-  // 2. Tri
-  filtered.sort((a, b) => {
-    const nameA = (a.store_app_name || a.name || "").replace(/^\//, "");
-    const nameB = (b.store_app_name || b.name || "").replace(/^\//, "");
+  // 2. Assemblage des éléments d'affichage (Stacks groupées vs Conteneurs uniques)
+  const displayItems = [];
+  const processedProjects = new Set();
+
+  for (const c of allDockerContainers) {
+    const pk = getContainerProjectKey(c);
+    const isMultiContainerCompose = pk && (projectMap.get(pk)?.length > 1);
+
+    if (isMultiContainerCompose) {
+      if (processedProjects.has(pk)) {
+        continue;
+      }
+      processedProjects.add(pk);
+
+      const stackAllContainers = projectMap.get(pk);
+      const stackNameMatch = dockerContainersSearch && (
+        pk.toLowerCase().includes(dockerContainersSearch) ||
+        stackAllContainers.some(sc => (sc.store_app_name || "").toLowerCase().includes(dockerContainersSearch))
+      );
+
+      const matchingContainers = stackAllContainers.filter(sc => {
+        if (stackNameMatch) {
+          if (dockerContainersStatusFilter === "running" && !sc.is_running) return false;
+          if (dockerContainersStatusFilter === "unhealthy" && (!sc.status || !sc.status.toLowerCase().includes("unhealthy"))) return false;
+          if (dockerContainersStatusFilter === "stopped" && sc.is_running) return false;
+          return true;
+        }
+        return containerMatchesFilters(sc, dockerContainersSearch, dockerContainersStatusFilter);
+      });
+
+      if (matchingContainers.length > 0) {
+        const primaryContainer = stackAllContainers.find(sc => sc.web_port) ||
+                                 stackAllContainers.find(sc => sc.is_store_app) ||
+                                 stackAllContainers[0];
+
+        displayItems.push({
+          type: "stack",
+          id: pk,
+          name: primaryContainer.store_app_name || pk,
+          icon: primaryContainer.store_icon || "",
+          is_store_app: stackAllContainers.some(sc => sc.is_store_app),
+          store_app_id: primaryContainer.store_app_id || pk,
+          web_port: stackAllContainers.find(sc => sc.web_port)?.web_port || null,
+          env_file_path: stackAllContainers.find(sc => sc.env_file_path)?.env_file_path || null,
+          allContainers: stackAllContainers,
+          visibleContainers: matchingContainers,
+          is_running: stackAllContainers.some(sc => sc.is_running),
+          primaryContainer: primaryContainer,
+        });
+      }
+    } else {
+      if (containerMatchesFilters(c, dockerContainersSearch, dockerContainersStatusFilter)) {
+        displayItems.push({
+          type: "single",
+          id: (c.name || "").replace(/^\//, ""),
+          container: c,
+          is_running: Boolean(c.is_running),
+          name: c.store_app_name || (c.name || "").replace(/^\//, ""),
+        });
+      }
+    }
+  }
+
+  // 3. Tri
+  displayItems.sort((a, b) => {
+    const nameA = (a.name || "").toLowerCase();
+    const nameB = (b.name || "").toLowerCase();
 
     switch (dockerContainersSort) {
       case "name_asc":
@@ -10531,8 +10860,8 @@ function renderDockerContainersView() {
     }
   });
 
-  // 3. Pagination
-  const total = filtered.length;
+  // 4. Pagination
+  const total = displayItems.length;
   const totalPages = Math.max(1, Math.ceil(total / dockerContainersPerPage));
   if (dockerContainersCurrentPage > totalPages) {
     dockerContainersCurrentPage = totalPages;
@@ -10543,10 +10872,10 @@ function renderDockerContainersView() {
 
   const startIndex = (dockerContainersCurrentPage - 1) * dockerContainersPerPage;
   const endIndex = Math.min(startIndex + dockerContainersPerPage, total);
-  const pagedItems = filtered.slice(startIndex, endIndex);
+  const pagedItems = displayItems.slice(startIndex, endIndex);
 
-  // 4. Rendu de la liste
-  if (filtered.length === 0) {
+  // 5. Rendu de la liste
+  if (displayItems.length === 0) {
     container.innerHTML = `
       <div style="background: var(--surface0); border: 1px dashed var(--surface1); border-radius: 12px; padding: 30px; text-align: center; color: var(--subtext0);">
         <div style="font-size: 2rem; margin-bottom: 6px;">🔍</div>
@@ -10561,118 +10890,141 @@ function renderDockerContainersView() {
   }
 
   const host = window.location.hostname;
-  container.innerHTML = pagedItems.map(c => {
-    const cleanName = (c.name || "").replace(/^\//, "");
-    const shortId = (c.id || "").substring(0, 10);
-    const isRunning = Boolean(c.is_running);
-    const isUnhealthy = Boolean(c.status && c.status.toLowerCase().includes("unhealthy"));
-    const isStore = Boolean(c.is_store_app);
-    const appName = c.store_app_name || cleanName;
-    const appIcon = c.store_icon || "";
-    const storeAppId = (c.store_app_id || "").toLowerCase();
-    const isSelected = selectedDockerContainers.has(cleanName);
+  container.innerHTML = pagedItems.map(item => {
+    if (item.type === "single") {
+      return renderSingleContainerRowHtml(item.container, false, null);
+    }
 
-    const openLink = c.web_port
-      ? `<a href="http://${host}:${c.web_port}" target="_blank" class="btn-docker-open" title="Ouvrir l'application Web (Port ${c.web_port})">
-           <span>🚀</span> Ouvrir :${c.web_port} ↗
+    // Stack multi-conteneurs Docker Compose
+    const totalCount = item.allContainers.length;
+    const runningCount = item.allContainers.filter(sc => sc.is_running).length;
+    const unhealthyCount = item.allContainers.filter(sc => sc.status && sc.status.toLowerCase().includes("unhealthy")).length;
+    const allRunning = runningCount === totalCount;
+    const allStopped = runningCount === 0;
+
+    let aggregateBadgeText = "";
+    let aggregateBadgeClass = "";
+    if (unhealthyCount > 0) {
+      aggregateBadgeText = `⚠️ ${runningCount}/${totalCount} en cours (${unhealthyCount} dégradé${unhealthyCount > 1 ? "s" : ""})`;
+      aggregateBadgeClass = "state-unhealthy";
+    } else if (allRunning) {
+      aggregateBadgeText = `🟢 ${runningCount}/${totalCount} en cours`;
+      aggregateBadgeClass = "state-running";
+    } else if (runningCount > 0) {
+      aggregateBadgeText = `🟡 ${runningCount}/${totalCount} en cours`;
+      aggregateBadgeClass = "state-stopped";
+    } else {
+      aggregateBadgeText = `🟡 Arrêté (0/${totalCount})`;
+      aggregateBadgeClass = "state-stopped";
+    }
+
+    const isAutoExpandedForSearch = Boolean(dockerContainersSearch);
+    const isExpanded = isAutoExpandedForSearch || expandedDockerStacks.has(item.id);
+
+    const stackChildNames = item.allContainers.map(sc => (sc.name || "").replace(/^\//, ""));
+    const isStackAllSelected = stackChildNames.length > 0 && stackChildNames.every(n => selectedDockerContainers.has(n));
+
+    const openLink = item.web_port
+      ? `<a href="http://${host}:${item.web_port}" target="_blank" class="btn-docker-open" title="Ouvrir l'application Web (Port ${item.web_port})" onclick="event.stopPropagation()">
+           <span>🚀</span> Ouvrir :${item.web_port} ↗
          </a>`
       : "";
 
-    const portsBadge = c.ports && !c.web_port
-      ? `<span class="docker-line-ports" title="${escapeHtml(c.ports)}">🔌 ${escapeHtml(c.ports)}</span>`
-      : "";
-
-    const avatarHtml = (isStore && appIcon)
-      ? `<img src="${escapeHtml(appIcon)}" alt="${escapeHtml(appName)}" class="docker-avatar-img" onerror="this.outerHTML='<div class=\\'docker-avatar-icon\\'>🐳</div>'">`
-      : `<div class="docker-avatar-icon">🐳</div>`;
-
-    const storeBadge = isStore
-      ? `<span class="badge badge-primary" style="font-size:0.68rem; margin-left:6px; padding:2px 7px; vertical-align:middle; cursor:pointer;" onclick="openStoreAppModal('${escapeHtml(storeAppId)}')" title="Cliquer pour voir la fiche dans l'App Store">🛍️ ${escapeHtml(appName)}</span>`
-      : "";
-
-    const storeBtn = (isStore && storeAppId)
-      ? `<button type="button" class="btn-docker-action" onclick="openStoreAppModal('${escapeHtml(storeAppId)}')" title="Voir la fiche dans l'App Store">
-           <span>🛍️</span> Fiche Store
-         </button>`
-      : "";
-
-    const envBtn = (c.env_file_path && c.env_file_path.trim().length > 0)
-      ? `<button type="button" class="btn-docker-action btn-docker-env" onclick="openNvimModal('${escapeHtml(c.env_file_path)}', '.env (${escapeHtml(cleanName)})')" title="Visualiser et modifier le fichier .env avec NeoVim">
+    const envBtn = (item.env_file_path && item.env_file_path.trim().length > 0)
+      ? `<button type="button" class="btn-docker-action btn-docker-env" onclick="event.stopPropagation(); openNvimModal('${escapeHtml(item.env_file_path)}', '.env (${escapeHtml(item.name)})')" title="Visualiser et modifier le fichier .env de la stack avec NeoVim">
            <span>📝</span> .env
          </button>`
       : "";
 
-    const stateBadgeText = isUnhealthy ? "⚠️ Dégradé (Unhealthy)" : (isRunning ? "🟢 En cours" : "🟡 Arrêté");
-    const stateBadgeClass = isUnhealthy ? "state-unhealthy" : (isRunning ? "state-running" : "state-stopped");
-    const dotClass = isUnhealthy ? "dot-unhealthy" : (isRunning ? "dot-running" : "dot-stopped");
+    const storeBtn = (item.is_store_app && item.store_app_id)
+      ? `<button type="button" class="btn-docker-action" onclick="event.stopPropagation(); openStoreAppModal('${escapeHtml(item.store_app_id)}')" title="Voir la fiche dans l'App Store">
+           <span>🛍️</span> Fiche Store
+         </button>`
+      : "";
+
+    const stackAvatarHtml = (item.is_store_app && item.icon)
+      ? `<img src="${escapeHtml(item.icon)}" alt="${escapeHtml(item.name)}" class="docker-avatar-img" onerror="this.outerHTML='<div class=\\'docker-avatar-icon\\'>📦</div>'">`
+      : `<div class="docker-avatar-icon">📦</div>`;
+
+    const storeBadge = item.is_store_app
+      ? `<span class="badge badge-primary" style="font-size:0.68rem; padding:2px 7px; vertical-align:middle; cursor:pointer;" onclick="event.stopPropagation(); openStoreAppModal('${escapeHtml(item.store_app_id)}')" title="Cliquer pour voir la fiche dans l'App Store">🛍️ ${escapeHtml(item.name)}</span>`
+      : "";
 
     return `
-      <div class="docker-container-row ${isRunning ? 'is-running' : 'is-stopped'} ${isUnhealthy ? 'is-unhealthy' : ''} ${isSelected ? 'is-selected' : ''}" id="docker-container-row-${escapeHtml(cleanName)}" data-store-app-id="${escapeHtml(storeAppId)}" data-container-id="${escapeHtml(c.id || '')}">
-        <div class="docker-row-select">
-          <input type="checkbox" class="docker-container-select-cb" value="${escapeHtml(cleanName)}" ${isSelected ? 'checked' : ''} onchange="toggleSelectContainer('${escapeHtml(cleanName)}', this.checked)">
-        </div>
+      <div class="docker-stack-group ${isExpanded ? 'is-expanded' : 'is-collapsed'}" id="docker-stack-${escapeHtml(item.id)}">
+        <div class="docker-stack-header" onclick="toggleDockerStack('${escapeHtml(item.id)}', event)">
+          <div class="docker-stack-header-left">
+            <button type="button" class="btn-docker-stack-toggle ${isExpanded ? 'is-expanded' : ''}" title="${isExpanded ? 'Replier le groupe' : 'Dérouler le groupe'}" aria-label="Dérouler ou replier le groupe" onclick="toggleDockerStack('${escapeHtml(item.id)}', event)">
+              <span class="docker-stack-arrow ${isExpanded ? 'is-expanded' : ''}">▶</span>
+            </button>
 
-        <div class="docker-row-left">
-          <span class="docker-status-dot ${dotClass}" title="${isUnhealthy ? 'État dégradé / Unhealthy' : (isRunning ? 'En cours d\'exécution' : 'Arrêté')}"></span>
-          ${avatarHtml}
-          <div class="docker-row-identity">
-            <div class="docker-row-name" title="${escapeHtml(cleanName)}">
-              ${escapeHtml(cleanName)}
-              ${storeBadge}
+            <div class="docker-row-select" onclick="event.stopPropagation()">
+              <input type="checkbox" class="docker-stack-select-cb" data-stack-id="${escapeHtml(item.id)}" ${isStackAllSelected ? 'checked' : ''} onchange="toggleSelectStack('${escapeHtml(item.id)}', this.checked)">
             </div>
-            <div class="docker-row-sub">
-              <span class="docker-row-id font-mono">${escapeHtml(shortId)}</span>
-              <span class="docker-badge-state ${stateBadgeClass}">
-                ${stateBadgeText}
-              </span>
+
+            <div class="docker-stack-avatar">
+              ${stackAvatarHtml}
             </div>
+
+            <div class="docker-stack-identity">
+              <div class="docker-stack-title-row">
+                <span class="docker-stack-title">${escapeHtml(item.name)}</span>
+                <span class="docker-stack-badge-compose">Docker Compose</span>
+                <span class="docker-stack-badge-count">📦 ${totalCount} conteneurs</span>
+                ${storeBadge}
+              </div>
+              <div class="docker-stack-sub">
+                <span class="docker-badge-state ${aggregateBadgeClass}">${aggregateBadgeText}</span>
+                <span class="docker-stack-project-name font-mono">Projet : ${escapeHtml(item.id)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="docker-stack-header-middle">
+            ${openLink}
+          </div>
+
+          <div class="docker-stack-header-actions" onclick="event.stopPropagation()">
+            ${allRunning ? `
+              <button type="button" class="btn-docker-action btn-docker-restart" onclick="dockerStackAction('${escapeHtml(item.id)}', 'restart')" title="Redémarrer tous les conteneurs de la stack">
+                <span>🔄</span> Redémarrer stack
+              </button>
+              <button type="button" class="btn-docker-action btn-docker-stop" onclick="dockerStackAction('${escapeHtml(item.id)}', 'stop')" title="Arrêter tous les conteneurs de la stack">
+                <span>⏹</span> Arrêter stack
+              </button>
+            ` : (allStopped ? `
+              <button type="button" class="btn-docker-action btn-docker-start" onclick="dockerStackAction('${escapeHtml(item.id)}', 'start')" title="Démarrer tous les conteneurs de la stack">
+                <span>▶</span> Démarrer stack
+              </button>
+            ` : `
+              <button type="button" class="btn-docker-action btn-docker-restart" onclick="dockerStackAction('${escapeHtml(item.id)}', 'restart')" title="Redémarrer toute la stack">
+                <span>🔄</span> Redémarrer
+              </button>
+              <button type="button" class="btn-docker-action btn-docker-stop" onclick="dockerStackAction('${escapeHtml(item.id)}', 'stop')" title="Arrêter toute la stack">
+                <span>⏹</span> Arrêter
+              </button>
+            `)}
+            ${envBtn}
+            ${storeBtn}
+            <button type="button" class="btn-docker-action btn-docker-delete" onclick="openDeleteDockerStackModal('${escapeHtml(item.id)}')" title="Supprimer toute la stack Compose">
+              <span>🗑️</span> Supprimer
+            </button>
           </div>
         </div>
 
-        <div class="docker-row-middle">
-          <span class="docker-row-image font-mono" title="Image: ${escapeHtml(c.image)}">
-            📦 ${escapeHtml(c.image)}
-          </span>
-          ${openLink}
-          ${portsBadge}
-          <span class="docker-row-uptime" title="${escapeHtml(c.status)}">${escapeHtml(c.status)}</span>
-        </div>
-
-        <div class="docker-row-actions">
-          ${isRunning ? `
-            <button type="button" class="btn-docker-action btn-docker-restart" onclick="dockerContainerAction('${escapeHtml(cleanName)}', 'restart')" title="Redémarrer le conteneur">
-              <span>🔄</span> Redémarrer
-            </button>
-            <button type="button" class="btn-docker-action btn-docker-stop" onclick="dockerContainerAction('${escapeHtml(cleanName)}', 'stop')" title="Arrêter le conteneur">
-              <span>⏹</span> Arrêter
-            </button>
-          ` : `
-            <button type="button" class="btn-docker-action btn-docker-start" onclick="dockerContainerAction('${escapeHtml(cleanName)}', 'start')" title="Démarrer le conteneur">
-              <span>▶</span> Démarrer
-            </button>
-          `}
-          <button type="button" class="btn-docker-action" onclick="openDockerConfigModalForContainer('${escapeHtml(cleanName)}')" title="Modifier les variables d'environnement">
-            <span>⚙️</span> Variables
-          </button>
-          ${envBtn}
-          ${storeBtn}
-          <button type="button" class="btn-docker-action" onclick="openDockerLogsModal('${escapeHtml(cleanName)}')" title="Consulter les journaux Docker">
-            <span>📜</span> Logs
-          </button>
-          <button type="button" class="btn-docker-action btn-docker-delete" onclick="openDeleteDockerModal('${escapeHtml(cleanName)}', '${escapeHtml(c.image || '')}', '${escapeHtml(storeAppId)}', '${escapeHtml(appName)}', '${escapeHtml(appIcon)}')" title="Supprimer le conteneur">
-            <span>🗑️</span> Supprimer
-          </button>
+        <div class="docker-stack-children ${isExpanded ? 'is-expanded' : ''}" id="docker-stack-children-${escapeHtml(item.id)}">
+          ${item.visibleContainers.map(child => renderSingleContainerRowHtml(child, true, item.id)).join("")}
         </div>
       </div>
     `;
   }).join("");
 
-  // 5. Rendu de la pagination
+  // 6. Rendu de la pagination
   if (paginationBar) {
     if (total > dockerContainersPerPage) {
       paginationBar.style.display = "flex";
       if (paginationInfo) {
-        paginationInfo.textContent = `Affichage de ${startIndex + 1} à ${endIndex} sur ${total} conteneur${total > 1 ? "s" : ""}`;
+        paginationInfo.textContent = `Affichage de ${startIndex + 1} à ${endIndex} sur ${total} élément${total > 1 ? "s" : ""}`;
       }
       if (paginationControls) {
         let controlsHtml = `
@@ -10705,7 +11057,7 @@ function renderDockerContainersView() {
     }
   }
 
-  // 6. Mise à jour de la barre d'actions groupées
+  // 7. Mise à jour de la barre d'actions groupées
   updateBulkActionsBar(pagedItems);
 }
 
@@ -10716,7 +11068,7 @@ function changeContainersPage(page) {
   if (pane) pane.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function toggleSelectContainer(cleanName, isChecked) {
+function toggleSelectContainer(cleanName, isChecked, stackId = null) {
   if (isChecked) {
     selectedDockerContainers.add(cleanName);
   } else {
@@ -10726,6 +11078,16 @@ function toggleSelectContainer(cleanName, isChecked) {
   const row = document.getElementById(`docker-container-row-${cleanName}`);
   if (row) {
     row.classList.toggle("is-selected", isChecked);
+  }
+
+  if (stackId) {
+    updateStackCheckboxState(stackId);
+  } else {
+    const parentStack = row?.closest(".docker-stack-group");
+    if (parentStack) {
+      const pId = parentStack.id.replace(/^docker-stack-/, "");
+      updateStackCheckboxState(pId);
+    }
   }
 
   const pagedCheckboxes = document.querySelectorAll(".docker-container-select-cb");
@@ -10747,6 +11109,11 @@ function toggleSelectAllContainers(isChecked) {
     if (row) row.classList.toggle("is-selected", isChecked);
   });
 
+  document.querySelectorAll(".docker-stack-select-cb").forEach(scb => {
+    scb.checked = isChecked;
+    scb.indeterminate = false;
+  });
+
   const visibleNames = Array.from(pagedCheckboxes).map(cb => cb.value);
   updateBulkActionsBarVisibleCheck(visibleNames);
 }
@@ -10755,6 +11122,10 @@ function clearSelectedContainers() {
   selectedDockerContainers.clear();
   document.querySelectorAll(".docker-container-select-cb").forEach(cb => {
     cb.checked = false;
+  });
+  document.querySelectorAll(".docker-stack-select-cb").forEach(cb => {
+    cb.checked = false;
+    cb.indeterminate = false;
   });
   document.querySelectorAll(".docker-container-row.is-selected").forEach(r => {
     r.classList.remove("is-selected");
@@ -10787,10 +11158,19 @@ function updateBulkActionsBarVisibleCheck(visibleNames) {
       selectAllCb.indeterminate = false;
     }
   }
+
+  // Synchroniser l'état des cases à cocher des stacks visibles
+  document.querySelectorAll(".docker-stack-select-cb").forEach(stackCb => {
+    const sId = stackCb.getAttribute("data-stack-id");
+    if (sId) {
+      updateStackCheckboxState(sId);
+    }
+  });
 }
 
 function updateBulkActionsBar(pagedItems) {
-  const visibleNames = pagedItems.map(c => (c.name || "").replace(/^\//, ""));
+  const pagedCheckboxes = document.querySelectorAll(".docker-container-select-cb");
+  const visibleNames = Array.from(pagedCheckboxes).map(cb => cb.value);
   updateBulkActionsBarVisibleCheck(visibleNames);
 }
 

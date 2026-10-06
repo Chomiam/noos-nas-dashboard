@@ -70,6 +70,10 @@ pub struct DockerContainer {
     pub is_store_app: bool,
     #[serde(default)]
     pub env_file_path: Option<String>,
+    #[serde(default)]
+    pub compose_project: Option<String>,
+    #[serde(default)]
+    pub compose_service: Option<String>,
 }
 
 pub fn get_services_overview() -> ServicesOverview {
@@ -254,6 +258,7 @@ pub fn get_docker_containers() -> Vec<DockerContainer> {
 
                 // Détection de lien avec Docker Compose et le Store Docker
                 let mut store_project = None;
+                let mut compose_service = None;
                 let mut compose_working_dir = None;
                 let mut compose_env_file = None;
                 let mut compose_config_files = None;
@@ -264,12 +269,34 @@ pub fn get_docker_containers() -> Vec<DockerContainer> {
                         let v_trim = v.trim();
                         if k_trim == "com.docker.compose.project" && !v_trim.is_empty() {
                             store_project = Some(v_trim.to_string());
+                        } else if k_trim == "com.docker.compose.service" && !v_trim.is_empty() {
+                            compose_service = Some(v_trim.to_string());
                         } else if k_trim == "com.docker.compose.project.working_dir" && !v_trim.is_empty() {
                             compose_working_dir = Some(v_trim.to_string());
                         } else if k_trim == "com.docker.compose.project.environment_file" && !v_trim.is_empty() {
                             compose_env_file = Some(v_trim.to_string());
                         } else if k_trim == "com.docker.compose.project.config_files" && !v_trim.is_empty() {
                             compose_config_files = Some(v_trim.to_string());
+                        }
+                    }
+                }
+
+                // Robustesse accrue : recherche par clé si le découpage par virgule a été perturbé par une description
+                if store_project.is_none() {
+                    if let Some(pos) = labels.find("com.docker.compose.project=") {
+                        let rest = &labels[pos + "com.docker.compose.project=".len()..];
+                        let val = rest.split(',').next().unwrap_or("").trim();
+                        if !val.is_empty() {
+                            store_project = Some(val.to_string());
+                        }
+                    }
+                }
+                if compose_service.is_none() {
+                    if let Some(pos) = labels.find("com.docker.compose.service=") {
+                        let rest = &labels[pos + "com.docker.compose.service=".len()..];
+                        let val = rest.split(',').next().unwrap_or("").trim();
+                        if !val.is_empty() {
+                            compose_service = Some(val.to_string());
                         }
                     }
                 }
@@ -350,6 +377,8 @@ pub fn get_docker_containers() -> Vec<DockerContainer> {
                     }
                 }
 
+                let compose_project = store_project.clone().or_else(|| store_app_id.clone());
+
                 containers.push(DockerContainer {
                     id,
                     name,
@@ -364,6 +393,8 @@ pub fn get_docker_containers() -> Vec<DockerContainer> {
                     store_icon,
                     is_store_app,
                     env_file_path,
+                    compose_project,
+                    compose_service,
                 });
             }
         }
