@@ -1883,17 +1883,14 @@ pub fn run_detached_update_process(force_packages: bool) {
     let config_dir = resolve_config_dir();
     let dir_str = config_dir.display().to_string();
 
-    let cached = get_cached_status();
+    // Si le cache est vide (ex: processus détaché lancé via systemd-run), exécuter immédiatement check_updates
+    let check_info = get_cached_status().unwrap_or_else(|| check_updates(true));
     let update_type = if force_packages {
         UpdateType::PackagesOnly
-    } else if let Some(ref c) = cached {
-        if c.update_type == UpdateType::None {
-            UpdateType::PackagesOnly
-        } else {
-            c.update_type.clone()
-        }
+    } else if check_info.update_type == UpdateType::None {
+        UpdateType::PackagesOnly
     } else {
-        UpdateType::Both
+        check_info.update_type.clone()
     };
 
     // --- Étape 1 : Git pull si nécessaire ---
@@ -1930,29 +1927,34 @@ pub fn run_detached_update_process(force_packages: bool) {
     save_update_progress(&state);
 
     // Synchronisation proactive du hash du Dashboard et de nixpkgs dans flake.lock
-    if cached.as_ref().map(|c| c.dashboard_update_available || c.package_updates_available).unwrap_or(false) || force_packages {
-        let current_ch = get_update_channel();
-        let target_branch = if current_ch == "testing" { "testing" } else { "stable" };
+    let current_ch = get_update_channel();
+    let target_branch = if current_ch == "testing" { "testing" } else { "stable" };
+    let should_sync_dashboard = check_info.dashboard_update_available
+        || update_type == UpdateType::Both
+        || force_packages;
+
+    if should_sync_dashboard {
         append_live_log(&format!("Synchronisation de l'entrée flake du Dashboard (noos-nas-dashboard, canal {})...\n", current_ch));
         let nix_bin = nix_binary();
         let _ = Command::new(&nix_bin)
             .args(["flake", "update", "noos-nas-dashboard", "--override-input", "noos-nas-dashboard", &format!("github:Chomiam/noos-nas-dashboard/{}", target_branch)])
             .current_dir(&config_dir)
             .output();
+    }
 
-        if force_packages || cached.as_ref().map(|c| c.package_updates_available).unwrap_or(false) {
-            append_live_log("Mise à jour proactive de l'entrée nixpkgs dans flake.lock...\n");
-            let _ = Command::new(&nix_bin)
-                .args(["flake", "update", "nixpkgs"])
-                .current_dir(&config_dir)
-                .output();
-        }
-
-        // Indexer immédiatement flake.lock dans Git pour que nixos-rebuild prenne en compte les nouveautés
-        let _ = git_cmd(&dir_str)
-            .args(["add", "flake.lock"])
+    if force_packages || check_info.package_updates_available || update_type == UpdateType::Both {
+        append_live_log("Mise à jour proactive de l'entrée nixpkgs dans flake.lock...\n");
+        let nix_bin = nix_binary();
+        let _ = Command::new(&nix_bin)
+            .args(["flake", "update", "nixpkgs"])
+            .current_dir(&config_dir)
             .output();
     }
+
+    // Indexer immédiatement flake.lock dans Git pour que nixos-rebuild prenne en compte les nouveautés
+    let _ = git_cmd(&dir_str)
+        .args(["add", "flake.lock"])
+        .output();
 
     let nixos_rebuild = nixos_rebuild_binary();
     let mut args = vec!["switch", "--flake", &dir_str];

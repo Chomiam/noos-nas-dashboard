@@ -19,6 +19,8 @@ if [[ -z "${NEW_VERSION}" ]]; then
   exit 1
 fi
 
+export PATH="$HOME/.cargo/bin:$PATH"
+
 echo "🚀 [1/6] Vérifications syntaxiques locales..."
 (cd "${DASHBOARD_DIR}" && cargo check --quiet)
 (cd "${DASHBOARD_DIR}" && node -c frontend/js/app.js)
@@ -56,11 +58,12 @@ if [[ -d "${NAS_DIR}" ]]; then
   for target_b in testing main; do
     if (cd "${NAS_DIR}" && git checkout "${target_b}" 2>/dev/null && git pull --ff-only origin "${target_b}" 2>/dev/null); then
       echo "Mise à jour de flake.lock sur la branche ${target_b} de noos-nas..."
-      (cd "${NAS_DIR}" && nix flake update noos-nas-dashboard)
-      (cd "${NAS_DIR}" && nix eval .#nixosConfigurations.nas.config.system.build.toplevel.drvPath >/dev/null 2>&1 || nix eval .#nixosConfigurations.default.config.system.build.toplevel.drvPath >/dev/null 2>&1)
-      (cd "${NAS_DIR}" && git add flake.lock)
-      (cd "${NAS_DIR}" && git commit -m "chore(flake): mise à jour de noos-nas-dashboard vers v${NEW_VERSION} (${COMMIT_MSG:-release})" || true)
-      (cd "${NAS_DIR}" && git push origin "${target_b}")
+      if [[ -x "${NAS_DIR}/scripts/bump-flake-inputs.sh" ]]; then
+        (cd "${NAS_DIR}" && "${NAS_DIR}/scripts/bump-flake-inputs.sh" noos-nas-dashboard) || true
+      elif command -v nix &>/dev/null; then
+        (cd "${NAS_DIR}" && nix flake update noos-nas-dashboard)
+        (cd "${NAS_DIR}" && git add flake.lock && git commit -m "chore(flake): mise à jour de noos-nas-dashboard vers v${NEW_VERSION} (${COMMIT_MSG:-release})" && git push origin "${target_b}") || true
+      fi
       echo "✅ Branche ${target_b} de noos-nas synchronisée avec flake.lock !"
     fi
   done
