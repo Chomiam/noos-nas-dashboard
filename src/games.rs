@@ -2244,8 +2244,18 @@ exec dotnet TaleWorlds.Starter.DotNetCore.Linux.dll _MODULES_*Native*Multiplayer
         let is_steam = egg.docker_image.contains("steamcmd")
             || egg.startup_cmd.contains("steamcmd")
             || egg.steam_app_id.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
+        let is_windows = egg.docker_image.contains("proton")
+            || egg.startup_cmd.contains("wine")
+            || egg.startup_cmd.to_lowercase().contains(".exe");
+
         let steam_setup = if is_steam {
-            r#"
+            let force_platform_str = if is_windows {
+                "+@sSteamCmdForcePlatformType windows "
+            } else {
+                ""
+            };
+            format!(
+                r#"
 mkdir -p /home/container/steamcmd /home/container/steamapps /home/container/logs
 if [ ! -f /home/container/steamcmd/steamcmd.sh ]; then
   echo "⚡ Téléchargement et initialisation de SteamCMD..."
@@ -2262,26 +2272,165 @@ export HOME=/home/container
 if [ -d "/usr/local/bin/files/bin" ]; then
   export PATH="/usr/local/bin/files/bin:$PATH"
 fi
-if [ -f "/usr/local/bin/proton" ]; then
-  mkdir -p /tmp/wineprefix /home/container/.steam/steam/steamapps/compatdata
-  export WINEPREFIX="${WINEPREFIX:-/tmp/wineprefix}"
-  export STEAM_COMPAT_CLIENT_INSTALL_PATH="/home/container/.steam/steam"
-  export STEAM_COMPAT_DATA_PATH="/home/container/.steam/steam/steamapps/compatdata/${STEAM_APP:-default}"
-fi
+export WINEPREFIX="${{WINEPREFIX:-/home/container/.wine}}"
+export WINEDEBUG="-all"
+mkdir -p "$WINEPREFIX"
 
 mkdir -p /home/container/.steam/sdk32 /home/container/.steam/sdk64
 cp -f /home/container/steamcmd/linux32/steamclient.so /home/container/.steam/sdk32/steamclient.so 2>/dev/null || true
 cp -f /home/container/steamcmd/linux64/steamclient.so /home/container/.steam/sdk64/steamclient.so 2>/dev/null || true
 
 # Téléchargement automatique de l'application Steam si APPID spécifié
-STEAM_APP="${SRCDS_APPID:-${STEAM_APP_ID:-${APP_ID:-${STEAMCMD_APP:-}}}}"
+STEAM_APP="${{SRCDS_APPID:-${{STEAM_APP_ID:-${{APP_ID:-${{STEAMCMD_APP:-}}}}}}}}"
 if [ -n "$STEAM_APP" ]; then
   echo "⚡ Téléchargement et validation de l'application Steam (App $STEAM_APP)..."
-  /home/container/steamcmd/steamcmd.sh +force_install_dir /home/container +login "${STEAM_USER:-anonymous}" "${STEAM_PASS:-}" +app_update "$STEAM_APP" validate +quit || true
+  /home/container/steamcmd/steamcmd.sh +force_install_dir /home/container {force_platform}+login "${{STEAM_USER:-anonymous}}" "${{STEAM_PASS:-}}" +app_update "$STEAM_APP" validate +quit || true
 fi
-"#
+"#,
+                force_platform = force_platform_str
+            )
         } else {
-            ""
+            "".to_string()
+        };
+
+        let game_setup = match egg.id.as_str() {
+            "mindustry" => r#"
+if [ ! -f /home/container/server.jar ]; then
+  echo "⚡ Téléchargement du serveur officiel Mindustry..."
+  curl -sSL -o /home/container/server.jar https://github.com/Anuken/Mindustry/releases/latest/download/server-release.jar
+fi
+"#,
+            "beamng-beammp" => r#"
+if [ ! -f /home/container/BeamMP-Server ]; then
+  echo "⚡ Téléchargement du serveur BeamMP..."
+  curl -sSL -o /home/container/BeamMP-Server https://github.com/BeamMP/BeamMP-Server/releases/download/v3.9.3/BeamMP-Server.debian.12.x86_64
+  chmod +x /home/container/BeamMP-Server
+fi
+if [ ! -f /home/container/ServerConfig.toml ]; then
+  cat << 'CFG_EOF' > /home/container/ServerConfig.toml
+[General]
+Name = 'Serveur BeamMP Noos NAS'
+Port = 8999
+AuthKey = ''
+LogChat = true
+Tags = 'Freeroam'
+Debug = false
+Private = false
+MaxCars = 1
+MaxPlayers = 8
+Map = '/levels/gridmap_v2/info.json'
+Description = 'BeamMP hébergé sur Noos NAS'
+ResourceFolder = 'Resources'
+[Misc]
+ImScaredOfUpdates = false
+SendErrorsShowMessage = true
+SendErrors = true
+CFG_EOF
+fi
+if [ -n "${AUTH_KEY:-}" ]; then
+  sed -i "s/AuthKey = .*/AuthKey = '${AUTH_KEY}'/" /home/container/ServerConfig.toml
+fi
+AUTH_CHECK=$(grep -E "^AuthKey = ''" /home/container/ServerConfig.toml 2>/dev/null || true)
+if [ -n "$AUTH_CHECK" ]; then
+  echo "=================================================================================="
+  echo "⚠️ CONFIGURATION BEAMMP : Clé d'authentification AuthKey manquante !"
+  echo "Pour afficher et connecter votre serveur BeamMP :"
+  echo "1. Rendez-vous sur https://keymaster.beammp.com/"
+  echo "2. Connectez-vous avec Discord et créez une clé de serveur (AuthKey)."
+  echo "3. Renseignez cette clé dans la variable AUTH_KEY de votre serveur sur Noos NAS."
+  echo "=================================================================================="
+  echo "Mise en pause sécurisée en attente de la clé (évite le redémarrage en boucle)..."
+  sleep infinity
+fi
+"#,
+            "spacestation-14" => r#"
+if [ ! -d "/home/container/dotnet" ] || [ ! -f "/home/container/dotnet/dotnet" ]; then
+  echo "⚡ Initialisation du runtime .NET 10 pour Space Station 14..."
+  curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+  bash /tmp/dotnet-install.sh --channel 10.0 --runtime dotnet --install-dir /home/container/dotnet >/dev/null 2>&1 || true
+  rm -f /tmp/dotnet-install.sh
+fi
+export PATH="/home/container/dotnet:$PATH"
+export DOTNET_ROOT="/home/container/dotnet"
+
+if [ ! -f /home/container/Robust.Server ]; then
+  echo "⚡ Téléchargement de Space Station 14 Dedicated Server..."
+  URL="https://wizards.cdn.spacestation14.com/fork/wizards"
+  V=$(curl -s "$URL" | grep -m1 -oP '<span[^>]*class="[^"]*\bversionNumber\b[^"]*"[^>]*>\K[^<]+' || true)
+  if [ -n "$V" ]; then
+    curl -sSL -o /tmp/ss14.zip "${URL}/version/${V}/file/SS14.Server_linux-x64.zip"
+    unzip -q -o /tmp/ss14.zip -d /home/container
+    rm -f /tmp/ss14.zip
+    chmod +x /home/container/Robust.Server
+  fi
+fi
+"#,
+            "veloren" => r#"
+if [ ! -f /home/container/veloren-server-cli ]; then
+  echo "⚡ Téléchargement du serveur Veloren..."
+  curl -sSL -o /tmp/veloren.zip https://download.veloren.net/latest/linux/x86_64/weekly
+  unzip -q -o /tmp/veloren.zip -d /home/container
+  rm -f /tmp/veloren.zip
+  chmod +x /home/container/veloren-server-cli
+fi
+mkdir -p /home/container/userdata/server/server_config/
+if [ ! -f /home/container/userdata/server/server_config/settings.ron ]; then
+  curl -sSL https://raw.githubusercontent.com/ptero-eggs/game-eggs/main/veloren/settings.ron -o /tmp/settings.ron 2>/dev/null || true
+  if [ -f /tmp/settings.ron ]; then
+    sed "s/14004/${SERVER_PORT:-14004}/g" /tmp/settings.ron > /home/container/userdata/server/server_config/settings.ron
+    rm -f /tmp/settings.ron
+  fi
+fi
+"#,
+            "arma-reforger" => r#"
+if [ ! -f /home/container/server.json ]; then
+  cat << 'CFG_EOF' > /home/container/server.json
+{
+  "dedicatedServerConfig": {
+    "gameHostBindAddress": "0.0.0.0",
+    "gameHostBindPort": 2001,
+    "hostPort": 2001,
+    "maxPlayers": 32,
+    "password": "",
+    "name": "Serveur Arma Reforger Noos NAS",
+    "scenarioId": "{595745F61B85D351}Missions/22_Conflict_Eden.conf",
+    "region": "europe",
+    "isPublic": true,
+    "gameProperties": {
+      "revive": 1,
+      "allowFriendlyFire": true,
+      "thirdPerson": true
+    }
+  }
+}
+CFG_EOF
+fi
+"#,
+            "wreckfest" => r#"
+if [ ! -f /home/container/server_config.cfg ]; then
+  if [ -f /home/container/initial_server_config.cfg ]; then
+    cp -f /home/container/initial_server_config.cfg /home/container/server_config.cfg
+  else
+    cat << 'CFG_EOF' > /home/container/server_config.cfg
+server_name=Serveur Wreckfest Noos NAS
+welcome_message=Bienvenue sur le serveur Noos NAS !
+password=
+max_players=24
+lan=0
+steam_port=27015
+game_port=33540
+query_port=27016
+track=gravel1_main_loop
+gamemode="racing"
+bots=12
+num_teams=2
+laps=3
+time_limit=5
+CFG_EOF
+  fi
+fi
+"#,
+            _ => "",
         };
 
         let mut final_startup_cmd = egg.startup_cmd.clone();
@@ -2291,13 +2440,27 @@ fi
 
         let entrypoint = format!(
             r#"#!/bin/bash
-set -e
 cd /home/container
-{}
+{steam_setup}
+{game_setup}
 echo "🚀 Démarrage du conteneur de jeu..."
-exec {}
+STARTUP_CMD="{final_startup_cmd}"
+eval "$STARTUP_CMD"
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -ne 0 ]; then
+  echo "=================================================================================="
+  echo "⚠️ Le processus du serveur s'est interrompu avec le code : $EXIT_CODE"
+  echo "Consultez les journaux ci-dessus pour identifier l'origine de l'anomalie."
+  echo "Mise en pause sécurisée du conteneur pour empêcher le redémarrage en boucle infinie."
+  echo "Une fois votre configuration ajustée, utilisez le bouton 'Redémarrer'."
+  echo "=================================================================================="
+  sleep infinity
+fi
 "#,
-            steam_setup, final_startup_cmd
+            steam_setup = steam_setup,
+            game_setup = game_setup,
+            final_startup_cmd = final_startup_cmd
         );
         let _ = fs::write(data_dir.join("entrypoint.sh"), entrypoint);
     }
