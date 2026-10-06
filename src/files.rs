@@ -1822,6 +1822,31 @@ pub fn format_duration(seconds: f64) -> String {
     }
 }
 
+/// Calcule et formate le ratio d'aspect géométrique d'une résolution (ex: "16:9", "16:10", "4:3", "21:9").
+pub fn calculate_aspect_ratio(w: u32, h: u32) -> Option<String> {
+    if w == 0 || h == 0 {
+        return None;
+    }
+    fn gcd(mut a: u32, mut b: u32) -> u32 {
+        while b != 0 {
+            let t = b;
+            b = a % b;
+            a = t;
+        }
+        a
+    }
+    let g = gcd(w, h);
+    let rw = w / g;
+    let rh = h / g;
+    if rw == 8 && rh == 5 {
+        Some("16:10".to_string())
+    } else if (rw == 64 && rh == 27) || (rw == 43 && rh == 18) {
+        Some("21:9".to_string())
+    } else {
+        Some(format!("{}:{}", rw, rh))
+    }
+}
+
 /// Analyse la sortie JSON générée par `ffprobe` pour extraire les caractéristiques audio/vidéo.
 pub fn parse_ffprobe_json(json_str: &str) -> Option<MediaMetadata> {
     let root: serde_json::Value = serde_json::from_str(json_str).ok()?;
@@ -1860,25 +1885,8 @@ pub fn parse_ffprobe_json(json_str: &str) -> Option<MediaMetadata> {
             let dar = vs.get("display_aspect_ratio").and_then(|v| v.as_str()).unwrap_or("");
             if !dar.is_empty() && dar != "0:1" && dar != "N/A" {
                 media.aspect_ratio = Some(dar.to_string());
-            } else if w > 0 && h > 0 {
-                fn gcd(mut a: u32, mut b: u32) -> u32 {
-                    while b != 0 {
-                        let t = b;
-                        b = a % b;
-                        a = t;
-                    }
-                    a
-                }
-                let g = gcd(w, h);
-                let rw = w / g;
-                let rh = h / g;
-                if rw == 8 && rh == 5 {
-                    media.aspect_ratio = Some("16:10".to_string());
-                } else if (rw == 64 && rh == 27) || (rw == 43 && rh == 18) {
-                    media.aspect_ratio = Some("21:9".to_string());
-                } else {
-                    media.aspect_ratio = Some(format!("{}:{}", rw, rh));
-                }
+            } else {
+                media.aspect_ratio = calculate_aspect_ratio(w, h);
             }
         }
 
@@ -2062,7 +2070,12 @@ pub fn extract_media_metadata(path: &Path) -> Option<MediaMetadata> {
 
 /// Récupère l'intégralité des métadonnées et attributs d'un élément unique (fichier ou dossier).
 pub fn get_file_properties(path_str: &str) -> Result<FilePropertiesResponse, String> {
-    let raw_path = PathBuf::from(path_str.trim());
+    let trimmed = path_str.trim();
+    if trimmed.starts_with("kdrive://") {
+        return crate::kdrive::get_kdrive_item_properties(trimmed);
+    }
+
+    let raw_path = PathBuf::from(trimmed);
     let p = normalize_user_path(raw_path);
 
     if !p.exists() {
@@ -2214,9 +2227,16 @@ pub fn start_selection_task(raw_paths: Vec<String>) -> SelectionStatsResponse {
 
     let mut direct_files = Vec::new();
     let mut direct_dirs = Vec::new();
+    let mut kdrive_paths = Vec::new();
 
     for raw in raw_paths {
-        let p = normalize_user_path(PathBuf::from(raw.trim()));
+        let trimmed = raw.trim();
+        if trimmed.starts_with("kdrive://") {
+            kdrive_paths.push(trimmed.to_string());
+            continue;
+        }
+
+        let p = normalize_user_path(PathBuf::from(trimmed));
         if let Ok(meta) = fs::symlink_metadata(&p) {
             if meta.file_type().is_symlink() {
                 if let Ok(target_meta) = fs::metadata(&p) {
@@ -2234,12 +2254,20 @@ pub fn start_selection_task(raw_paths: Vec<String>) -> SelectionStatsResponse {
         }
     }
 
-    let direct_files_count = direct_files.len();
-    let direct_dirs_count = direct_dirs.len();
+    let (kd_files, kd_dirs) = if !kdrive_paths.is_empty() {
+        crate::kdrive::resolve_kdrive_selection_direct_items(&kdrive_paths)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+
+    let direct_files_count = direct_files.len() + kd_files.len();
+    let direct_dirs_count = direct_dirs.len() + kd_dirs.len();
 
     // Fast-path instantané : si aucun dossier dans la sélection, résultat immédiat
     if direct_dirs_count == 0 {
-        let total_bytes: u64 = direct_files.iter().map(|(_, sz)| *sz).sum();
+        let local_bytes: u64 = direct_files.iter().map(|(_, sz)| *sz).sum();
+        let kd_bytes: u64 = kd_files.iter().map(|(_, sz)| *sz).sum();
+        let total_bytes = local_bytes + kd_bytes;
         let task_id = format!("sync_{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_millis());
         return SelectionStatsResponse {
             task_id,
@@ -2256,7 +2284,9 @@ pub fn start_selection_task(raw_paths: Vec<String>) -> SelectionStatsResponse {
     }
 
     let task_id = format!("sel_{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_micros());
-    let initial_bytes: u64 = direct_files.iter().map(|(_, sz)| *sz).sum();
+    let local_initial_bytes: u64 = direct_files.iter().map(|(_, sz)| *sz).sum();
+    let kd_initial_bytes: u64 = kd_files.iter().map(|(_, sz)| *sz).sum();
+    let initial_bytes = local_initial_bytes + kd_initial_bytes;
 
     let total_files = Arc::new(AtomicU64::new(direct_files_count as u64));
     let total_dirs = Arc::new(AtomicU64::new(direct_dirs_count as u64));
@@ -2285,47 +2315,56 @@ pub fn start_selection_task(raw_paths: Vec<String>) -> SelectionStatsResponse {
     }
 
     let dirs_to_crawl = direct_dirs;
+    let kd_dirs_to_crawl = kd_dirs;
+    let tf = Arc::clone(&total_files);
+    let td = Arc::clone(&total_dirs);
+    let tb = Arc::clone(&total_bytes);
+    let cp = Arc::clone(&current_path);
+    let ic = Arc::clone(&is_cancelled);
+    let id_done = Arc::clone(&is_done);
+    let err = Arc::clone(&error);
+
     tokio::spawn(async move {
-        let mut queue = dirs_to_crawl;
-        let mut batch_counter = 0usize;
+        // 1. Exploration des dossiers locaux si présents
+        if !dirs_to_crawl.is_empty() {
+            let mut queue = dirs_to_crawl;
+            let mut batch_counter = 0usize;
 
-        while let Some(dir) = queue.pop() {
-            if is_cancelled.load(Ordering::Relaxed) {
-                break;
-            }
+            while let Some(dir) = queue.pop() {
+                if ic.load(Ordering::Relaxed) {
+                    break;
+                }
 
-            if let Ok(mut cp) = current_path.lock() {
-                *cp = Some(dir.display().to_string());
-            }
+                if let Ok(mut c_p) = cp.lock() {
+                    *c_p = Some(dir.display().to_string());
+                }
 
-            if let Ok(entries) = fs::read_dir(&dir) {
-                for item in entries.flatten() {
-                    if is_cancelled.load(Ordering::Relaxed) {
-                        break;
-                    }
-
-                    batch_counter += 1;
-                    if batch_counter % 250 == 0 {
-                        // Lissage CPU & I/O sur le NAS : yield coopératif Tokio avec micro-pause
-                        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-                    }
-
-                    if let Ok(ft) = item.file_type() {
-                        if ft.is_symlink() {
-                            // Ne jamais suivre les liens symboliques en récursif pour prévenir boucles et fuite mémoire
-                            continue;
+                if let Ok(entries) = fs::read_dir(&dir) {
+                    for item in entries.flatten() {
+                        if ic.load(Ordering::Relaxed) {
+                            break;
                         }
 
-                        if ft.is_dir() {
-                            total_dirs.fetch_add(1, Ordering::Relaxed);
-                            // Queue bornée pour sanctuariser la RAM
-                            if queue.len() < 50_000 {
-                                queue.push(item.path());
+                        batch_counter += 1;
+                        if batch_counter % 250 == 0 {
+                            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                        }
+
+                        if let Ok(ft) = item.file_type() {
+                            if ft.is_symlink() {
+                                continue;
                             }
-                        } else if ft.is_file() {
-                            total_files.fetch_add(1, Ordering::Relaxed);
-                            if let Ok(meta) = item.metadata() {
-                                total_bytes.fetch_add(meta.len(), Ordering::Relaxed);
+
+                            if ft.is_dir() {
+                                td.fetch_add(1, Ordering::Relaxed);
+                                if queue.len() < 50_000 {
+                                    queue.push(item.path());
+                                }
+                            } else if ft.is_file() {
+                                tf.fetch_add(1, Ordering::Relaxed);
+                                if let Ok(meta) = item.metadata() {
+                                    tb.fetch_add(meta.len(), Ordering::Relaxed);
+                                }
                             }
                         }
                     }
@@ -2333,10 +2372,23 @@ pub fn start_selection_task(raw_paths: Vec<String>) -> SelectionStatsResponse {
             }
         }
 
-        if let Ok(mut cp) = current_path.lock() {
-            *cp = None;
+        // 2. Exploration des dossiers kDrive si présents (sécurisée anti-rate-limit)
+        if !kd_dirs_to_crawl.is_empty() && !ic.load(Ordering::Relaxed) {
+            crate::kdrive::crawl_kdrive_dirs(
+                kd_dirs_to_crawl,
+                tf,
+                td,
+                tb,
+                Arc::clone(&cp),
+                Arc::clone(&ic),
+                err,
+            ).await;
         }
-        is_done.store(true, Ordering::SeqCst);
+
+        if let Ok(mut c_p) = cp.lock() {
+            *c_p = None;
+        }
+        id_done.store(true, Ordering::SeqCst);
     });
 
     SelectionStatsResponse {

@@ -1045,11 +1045,38 @@ function renderUpdatesUI(status) {
   const dashTel = status.dashboard_telemetry || {};
   const runningVer = dashTel.running_version || "0.2.13";
   const targetVer = dashTel.target_version || runningVer;
-  const targetCommit = dashTel.target_commit || "--";
+  const dashLockedCommit = dashTel.target_commit || "--";
+  const dashRemoteCommit = dashTel.remote_commit || "--";
 
   if (dashRunningVerEl) dashRunningVerEl.textContent = `v${runningVer}`;
-  if (dashTargetVerEl) dashTargetVerEl.textContent = `v${targetVer}`;
-  if (dashTargetCommitEl) dashTargetCommitEl.textContent = targetCommit;
+
+  if (dashTargetVerEl) {
+    if (targetVer && targetVer !== runningVer) {
+      dashTargetVerEl.innerHTML = `<span style="color:var(--green); font-weight:700;">v${escapeHtml(targetVer)}</span> <span class="badge badge-accent" style="font-size:0.72rem; margin-left:6px;">Màj disponible</span>`;
+    } else {
+      dashTargetVerEl.textContent = `v${targetVer}`;
+    }
+  }
+
+  if (dashTargetCommitEl) {
+    if (dashLockedCommit !== "--" && dashRemoteCommit !== "--") {
+      if (dashLockedCommit === dashRemoteCommit) {
+        dashTargetCommitEl.innerHTML = `<code>${escapeHtml(dashLockedCommit)}</code> <span class="badge badge-success" style="font-size:0.72rem; margin-left:6px;">À jour</span>`;
+      } else {
+        dashTargetCommitEl.innerHTML = `
+          <span class="badge badge-secondary" style="font-family:monospace; font-size:0.75rem;" title="Commit actuellement verrouillé dans flake.lock">${escapeHtml(dashLockedCommit)} (local)</span>
+          <span style="color:var(--subtext0); margin:0 4px; font-weight:700;">➔</span>
+          <span class="badge badge-accent" style="font-family:monospace; font-size:0.75rem;" title="Commit disponible sur le dépôt GitHub">${escapeHtml(dashRemoteCommit)} (distant)</span>
+        `;
+      }
+    } else if (dashLockedCommit !== "--") {
+      dashTargetCommitEl.innerHTML = `<span class="badge badge-secondary" style="font-family:monospace; font-size:0.75rem;">${escapeHtml(dashLockedCommit)} (local)</span>`;
+    } else if (dashRemoteCommit !== "--") {
+      dashTargetCommitEl.innerHTML = `<span class="badge badge-accent" style="font-family:monospace; font-size:0.75rem;">${escapeHtml(dashRemoteCommit)} (distant)</span>`;
+    } else {
+      dashTargetCommitEl.textContent = "--";
+    }
+  }
 
   if (dashBadgeEl) {
     if (hasDashboardUpdate) {

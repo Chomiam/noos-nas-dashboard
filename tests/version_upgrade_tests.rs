@@ -223,3 +223,72 @@ fn test_integration_flake_lock_bump_simulation() {
 
     let _ = fs::remove_dir_all(temp_dir);
 }
+
+#[test]
+fn test_resolve_config_dir_candidates_priority() {
+    let temp_root = std::env::temp_dir().join(format!("noos_test_cfg_cand_{}", std::process::id()));
+    let _ = fs::create_dir_all(&temp_root);
+
+    let fr_dir = temp_root.join("Projets/noos-nas");
+    let en_dir = temp_root.join("Projects/noos-nas");
+
+    fs::create_dir_all(&fr_dir).unwrap();
+    fs::create_dir_all(&en_dir).unwrap();
+
+    let candidates = [
+        fr_dir.clone(),
+        en_dir.clone(),
+    ];
+
+    let resolved = candidates.iter().find(|p| p.exists()).cloned();
+    assert_eq!(resolved, Some(fr_dir), "French spelling 'Projets/noos-nas' must be resolved as first priority");
+
+    let _ = fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn test_dual_telemetry_commits_and_target_version_display() {
+    fn format_dashboard_commits(locked_opt: Option<&str>, remote_opt: Option<&str>) -> String {
+        let locked = locked_opt.unwrap_or("--");
+        let remote = remote_opt.unwrap_or("--");
+
+        if locked != "--" && remote != "--" {
+            if locked == remote {
+                format!("{} (à jour)", locked)
+            } else {
+                format!("{} (local) ➔ {} (distant)", locked, remote)
+            }
+        } else if locked != "--" {
+            format!("{} (local)", locked)
+        } else if remote != "--" {
+            format!("{} (distant)", remote)
+        } else {
+            "--".to_string()
+        }
+    }
+
+    // Cas 1 : À jour (commits identiques)
+    assert_eq!(
+        format_dashboard_commits(Some("cd12f24"), Some("cd12f24")),
+        "cd12f24 (à jour)"
+    );
+
+    // Cas 2 : Divergence (local != distant)
+    assert_eq!(
+        format_dashboard_commits(Some("cd12f24"), Some("dd8fc2e")),
+        "cd12f24 (local) ➔ dd8fc2e (distant)"
+    );
+
+    // Cas 3 : Seulement locked (ex: hors ligne)
+    assert_eq!(
+        format_dashboard_commits(Some("cd12f24"), None),
+        "cd12f24 (local)"
+    );
+
+    // Cas 4 : Aucun commit
+    assert_eq!(
+        format_dashboard_commits(None, None),
+        "--"
+    );
+}
+

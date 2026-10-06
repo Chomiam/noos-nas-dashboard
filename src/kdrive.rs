@@ -1,9 +1,42 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use crate::files::{categorize_file, format_size, FileEntry};
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Instant;
+use crate::files::{
+    calculate_aspect_ratio, categorize_file, format_duration, format_size, get_mime_type,
+    FileEntry, FilePropertiesResponse, MediaMetadata,
+};
+
+#[derive(Debug, Clone)]
+pub struct KdPropertiesCacheEntry {
+    pub instant: Instant,
+    pub data: FilePropertiesResponse,
+}
+
+static KDRIVE_PROPERTIES_CACHE: Mutex<Option<HashMap<String, KdPropertiesCacheEntry>>> = Mutex::new(None);
+static KDRIVE_CHILDREN_CACHE: Mutex<Option<HashMap<(String, u64), (Instant, Vec<FileEntry>)>>> = Mutex::new(None);
+static KDRIVE_LAST_REQUEST: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// Pacing anti-burst pour respecter les quotas stricts d'Infomaniak API (min_interval_ms par requête)
+pub fn pace_kdrive_request(min_interval_ms: u64) {
+    if let Ok(mut guard) = KDRIVE_LAST_REQUEST.lock() {
+        let now = Instant::now();
+        if let Some(last) = *guard {
+            let elapsed = now.duration_since(last);
+            let min_dur = std::time::Duration::from_millis(min_interval_ms);
+            if elapsed < min_dur {
+                let sleep_dur = min_dur - elapsed;
+                std::thread::sleep(sleep_dur);
+            }
+        }
+        *guard = Some(Instant::now());
+    }
+}
 
 // =========================================================================
 // STRUCTURES & CONFIGURATION : COMPTES KDRIVE INFOMANIAK
@@ -196,6 +229,8 @@ fn curl_secure_request(
     timeout_sec: u64,
     output_file: Option<&str>,
 ) -> Result<Vec<u8>, String> {
+    pace_kdrive_request(50);
+
     let mut args: Vec<String> = vec![
         "-s".into(),
         "-L".into(),
@@ -230,12 +265,14 @@ fn curl_secure_request(
 
     args.push(url.into());
 
-    let mut child = Command::new("curl")
-        .args(&args)
+    let mut cmd = Command::new("curl");
+    cmd.args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()
+        .env("PATH", "/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/run/wrappers/bin:/usr/local/bin:/usr/bin:/bin");
+
+    let mut child = cmd.spawn()
         .map_err(|e| format!("Erreur lancement curl : {}", e))?;
 
     if let Some(mut stdin) = child.stdin.take() {
@@ -663,6 +700,44 @@ pub fn list_kdrive_folder(account_id: &str, folder_id_opt: Option<u64>) -> Resul
 
             let virt_path = format!("kdrive://{}/{}", account.id, id);
 
+            let ext = Path::new(&name).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            let mime_type = if is_dir {
+                "inode/directory".to_string()
+            } else {
+                get_mime_type(&ext).to_string()
+            };
+
+            // Pré-alimentation du cache des propriétés pour éviter tout appel HTTP ultérieur
+            let cache_key = format!("{}:{}", account.id, id);
+            let item_props = FilePropertiesResponse {
+                name: name.clone(),
+                path: virt_path.clone(),
+                parent_path: Some(format!("kdrive://{}/{}", account.id, target_folder_id)),
+                is_dir,
+                is_symlink: false,
+                is_mount_point: false,
+                size_bytes: size,
+                size_human: if is_dir { "--".to_string() } else { format_size(size) },
+                category: category.clone(),
+                mime_type,
+                permissions_octal: if is_dir { "0755".to_string() } else { "0644".to_string() },
+                permissions_mode: if is_dir { "drwxr-xr-x".to_string() } else { "-rw-r--r--".to_string() },
+                owner: format!("kDrive ({})", account.name),
+                group: "cloud".to_string(),
+                modified: modified.clone(),
+                created: None,
+                accessed: None,
+                media_info: None,
+            };
+
+            if let Ok(mut guard) = KDRIVE_PROPERTIES_CACHE.lock() {
+                let map = guard.get_or_insert_with(HashMap::new);
+                map.insert(cache_key, KdPropertiesCacheEntry {
+                    instant: Instant::now(),
+                    data: item_props,
+                });
+            }
+
             entries.push(FileEntry {
                 name,
                 path: virt_path,
@@ -686,6 +761,12 @@ pub fn list_kdrive_folder(account_id: &str, folder_id_opt: Option<u64>) -> Resul
     });
 
     let total_items = entries.len();
+
+    // Mémoriser la liste des enfants dans le cache anti-flood
+    if let Ok(mut guard) = KDRIVE_CHILDREN_CACHE.lock() {
+        let map = guard.get_or_insert_with(HashMap::new);
+        map.insert((account.id.clone(), target_folder_id), (Instant::now(), entries.clone()));
+    }
 
     let listing = KDriveFolderListing {
         account_id: account.id.clone(),
@@ -988,3 +1069,315 @@ fn format_timestamp(sec: i64) -> String {
         .unwrap_or_else(|_| "Inconnue".to_string());
     output
 }
+
+// =========================================================================
+// ÉVALUATION DES PROPRIÉTÉS & CRAWLER KDRIVE AVEC PROTECTION ANTI-FLOOD
+// =========================================================================
+
+/// Extrait les propriétés complètes d'un élément kDrive (fichier ou dossier)
+/// avec mise en cache transparente et protection anti-rate-limit.
+pub fn get_kdrive_item_properties(kdrive_uri: &str) -> Result<FilePropertiesResponse, String> {
+    let clean = kdrive_uri.trim().strip_prefix("kdrive://")
+        .ok_or_else(|| format!("L'URI '{}' n'est pas un chemin kDrive valide.", kdrive_uri))?;
+    let parts: Vec<&str> = clean.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.is_empty() {
+        return Err("Identifiant de compte kDrive manquant.".to_string());
+    }
+    let account_id = parts[0];
+    let item_id: u64 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+
+    let cache_key = format!("{}:{}", account_id, item_id);
+    if let Ok(guard) = KDRIVE_PROPERTIES_CACHE.lock() {
+        if let Some(ref map) = *guard {
+            if let Some(entry) = map.get(&cache_key) {
+                if entry.instant.elapsed().as_secs() < 90 {
+                    return Ok(entry.data.clone());
+                }
+            }
+        }
+    }
+
+    let accounts = load_kdrive_accounts();
+    let account = accounts.iter().find(|a| a.id == account_id)
+        .ok_or_else(|| format!("Compte kDrive '{}' introuvable.", account_id))?;
+
+    // Cas Racine du kDrive
+    if item_id == 0 || item_id == 1 {
+        let props = FilePropertiesResponse {
+            name: account.drive_name.clone(),
+            path: format!("kdrive://{}/{}", account.id, item_id),
+            parent_path: None,
+            is_dir: true,
+            is_symlink: false,
+            is_mount_point: false,
+            size_bytes: account.used_size,
+            size_human: format_size(account.used_size),
+            category: "folder".to_string(),
+            mime_type: "inode/directory".to_string(),
+            permissions_octal: "0755".to_string(),
+            permissions_mode: "drwxr-xr-x".to_string(),
+            owner: format!("kDrive ({})", account.name),
+            group: "cloud".to_string(),
+            modified: account.created_at.clone(),
+            created: Some(account.created_at.clone()),
+            accessed: None,
+            media_info: None,
+        };
+
+        if let Ok(mut guard) = KDRIVE_PROPERTIES_CACHE.lock() {
+            let map = guard.get_or_insert_with(HashMap::new);
+            map.insert(cache_key, KdPropertiesCacheEntry {
+                instant: Instant::now(),
+                data: props.clone(),
+            });
+        }
+
+        return Ok(props);
+    }
+
+    // Récupération des métadonnées détaillées du fichier ou sous-dossier
+    let meta_url = format!("https://api.infomaniak.com/3/drive/{}/files/{}", account.drive_id, item_id);
+    let val = curl_api_get(&account.token, &meta_url)
+        .map_err(|e| format!("Impossible de lire les métadonnées de l'élément kDrive #{} : {}", item_id, e))?;
+
+    let data = val.get("data").ok_or_else(|| "Données kDrive introuvables.".to_string())?;
+
+    let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("Sans nom").to_string();
+    let is_dir = data.get("type").and_then(|v| v.as_str()).map(|t| t == "dir").unwrap_or(false)
+        || data.get("is_dir").and_then(|v| v.as_bool()).unwrap_or(false);
+    let size = data.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+    let parent_id = data.get("parent_id").and_then(|v| v.as_u64());
+    let parent_path = parent_id.map(|pid| format!("kdrive://{}/{}", account.id, pid));
+
+    let created_ts = data.get("created_at").and_then(|v| v.as_i64()).unwrap_or(0);
+    let mod_ts = data.get("modtime").or_else(|| data.get("updated_at")).and_then(|v| v.as_i64()).unwrap_or(0);
+    let modified = if mod_ts > 0 { format_timestamp(mod_ts) } else { "Inconnue".to_string() };
+    let created = if created_ts > 0 { Some(format_timestamp(created_ts)) } else { None };
+
+    let ext = Path::new(&name).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let category = if is_dir {
+        "folder".to_string()
+    } else {
+        categorize_file(&name)
+    };
+
+    let mime_type = if is_dir {
+        "inode/directory".to_string()
+    } else if let Some(m) = data.get("mimetype").and_then(|v| v.as_str()) {
+        if !m.is_empty() { m.to_string() } else { get_mime_type(&ext).to_string() }
+    } else {
+        get_mime_type(&ext).to_string()
+    };
+
+    let mut media_info = None;
+    if !is_dir && (category == "video" || category == "audio" || category == "image") {
+        let mut mi = MediaMetadata {
+            is_media: true,
+            media_type: category.clone(),
+            video_codec: data.get("video_codec").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            resolution: None,
+            width: None,
+            height: None,
+            aspect_ratio: None,
+            framerate: None,
+            video_bitrate: None,
+            pixel_format: None,
+            audio_codec: data.get("audio_codec").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            audio_channels: None,
+            sample_rate: None,
+            audio_bitrate: None,
+            duration_seconds: None,
+            duration_human: None,
+            overall_bitrate: None,
+            container_format: if !ext.is_empty() { Some(ext.to_uppercase()) } else { None },
+            title: None,
+            artist: None,
+            album: None,
+            year: None,
+            genre: None,
+            comment: None,
+        };
+
+        let w = data.get("width").and_then(|v| v.as_u64()).map(|v| v as u32).unwrap_or(0);
+        let h = data.get("height").and_then(|v| v.as_u64()).map(|v| v as u32).unwrap_or(0);
+        if w > 0 && h > 0 {
+            mi.width = Some(w);
+            mi.height = Some(h);
+            mi.resolution = Some(format!("{} × {}", w, h));
+            mi.aspect_ratio = calculate_aspect_ratio(w, h);
+        }
+
+        if let Some(dur_val) = data.get("duration").and_then(|v| v.as_f64()).or_else(|| data.get("duration").and_then(|v| v.as_u64()).map(|v| v as f64)) {
+            if dur_val > 0.0 {
+                mi.duration_seconds = Some(dur_val);
+                mi.duration_human = Some(format_duration(dur_val));
+            }
+        }
+
+        let has_media_data = mi.resolution.is_some() || mi.duration_seconds.is_some() || mi.video_codec.is_some() || mi.audio_codec.is_some();
+        if has_media_data {
+            media_info = Some(mi);
+        }
+    }
+
+    let props = FilePropertiesResponse {
+        name,
+        path: format!("kdrive://{}/{}", account.id, item_id),
+        parent_path,
+        is_dir,
+        is_symlink: false,
+        is_mount_point: false,
+        size_bytes: size,
+        size_human: if is_dir { "--".to_string() } else { format_size(size) },
+        category,
+        mime_type,
+        permissions_octal: if is_dir { "0755".to_string() } else { "0644".to_string() },
+        permissions_mode: if is_dir { "drwxr-xr-x".to_string() } else { "-rw-r--r--".to_string() },
+        owner: format!("kDrive ({})", account.name),
+        group: "cloud".to_string(),
+        modified,
+        created,
+        accessed: None,
+        media_info,
+    };
+
+    if let Ok(mut guard) = KDRIVE_PROPERTIES_CACHE.lock() {
+        let map = guard.get_or_insert_with(HashMap::new);
+        map.insert(cache_key, KdPropertiesCacheEntry {
+            instant: Instant::now(),
+            data: props.clone(),
+        });
+    }
+
+    Ok(props)
+}
+
+/// Résout instantanément les éléments directs d'une sélection kDrive (séparant fichiers et dossiers).
+pub fn resolve_kdrive_selection_direct_items(paths: &[String]) -> (Vec<(String, u64)>, Vec<(String, u64, String)>) {
+    let mut files = Vec::new();
+    let mut dirs = Vec::new();
+
+    for p in paths {
+        if let Ok(props) = get_kdrive_item_properties(p) {
+            let clean = p.trim().strip_prefix("kdrive://").unwrap_or("");
+            let parts: Vec<&str> = clean.split('/').collect();
+            let account_id = parts.first().unwrap_or(&"").to_string();
+            let item_id: u64 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+
+            if props.is_dir {
+                dirs.push((account_id, item_id, props.name));
+            } else {
+                files.push((props.name, props.size_bytes));
+            }
+        }
+    }
+
+    (files, dirs)
+}
+
+/// Explore récursivement les dossiers kDrive de manière asynchrone avec pacing anti-rate-limit,
+/// protection de mémoire et seuil d'appels API.
+pub async fn crawl_kdrive_dirs(
+    dirs: Vec<(String, u64, String)>,
+    total_files: Arc<AtomicU64>,
+    total_dirs: Arc<AtomicU64>,
+    total_bytes: Arc<AtomicU64>,
+    current_path: Arc<Mutex<Option<String>>>,
+    is_cancelled: Arc<AtomicBool>,
+    error: Arc<Mutex<Option<String>>>,
+) {
+    let mut queue = dirs.into_iter().map(|(acc, id, name)| (acc, id, name, 1usize)).collect::<Vec<_>>();
+    let mut api_calls_count = 0usize;
+    const MAX_API_CALLS: usize = 20;
+    const MAX_DEPTH: usize = 3;
+
+    while let Some((acc_id, f_id, f_name, depth)) = queue.pop() {
+        if is_cancelled.load(Ordering::Relaxed) {
+            break;
+        }
+
+        if let Ok(mut cp) = current_path.lock() {
+            *cp = Some(format!("kDrive: {}", f_name));
+        }
+
+        let cached_children = {
+            let guard = KDRIVE_CHILDREN_CACHE.lock().unwrap();
+            guard.as_ref().and_then(|m| m.get(&(acc_id.clone(), f_id)).cloned())
+        };
+
+        let entries_to_process = if let Some((instant, entries)) = cached_children {
+            if instant.elapsed().as_secs() < 120 {
+                Some(entries)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let entries = match entries_to_process {
+            Some(e) => e,
+            None => {
+                if api_calls_count >= MAX_API_CALLS {
+                    if let Ok(mut err_guard) = error.lock() {
+                        if err_guard.is_none() {
+                            *err_guard = Some("Quota API préservé : calcul limité aux 20 premiers sous-dossiers kDrive.".to_string());
+                        }
+                    }
+                    continue;
+                }
+
+                tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+                if is_cancelled.load(Ordering::Relaxed) {
+                    break;
+                }
+
+                api_calls_count += 1;
+                let acc_id_clone = acc_id.clone();
+                let list_res = tokio::task::spawn_blocking(move || {
+                    list_kdrive_folder(&acc_id_clone, Some(f_id))
+                }).await;
+
+                match list_res {
+                    Ok(Ok(listing)) => listing.entries,
+                    Ok(Err(e)) => {
+                        if e.contains("429") || e.to_lowercase().contains("too many requests") || e.to_lowercase().contains("rate limit") {
+                            if let Ok(mut err_guard) = error.lock() {
+                                *err_guard = Some("Limite de requêtes kDrive atteinte (HTTP 429). Pause de protection activée.".to_string());
+                            }
+                            break;
+                        }
+                        continue;
+                    }
+                    Err(_) => continue,
+                }
+            }
+        };
+
+        for item in entries {
+            if is_cancelled.load(Ordering::Relaxed) {
+                break;
+            }
+
+            if item.is_dir {
+                total_dirs.fetch_add(1, Ordering::Relaxed);
+                if depth < MAX_DEPTH {
+                    let child_id: u64 = item.path.replace("kdrive://", "")
+                        .split('/')
+                        .nth(1)
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(0);
+                    if child_id > 0 {
+                        queue.push((acc_id.clone(), child_id, item.name, depth + 1));
+                    }
+                }
+            } else {
+                total_files.fetch_add(1, Ordering::Relaxed);
+                total_bytes.fetch_add(item.size_bytes, Ordering::Relaxed);
+            }
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(15)).await;
+    }
+}
+

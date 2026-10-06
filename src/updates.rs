@@ -601,9 +601,19 @@ pub fn resolve_config_dir() -> PathBuf {
     }
 
     let user = target_user();
-    let candidate_noos = get_user_home(&user).join("Projects/noos-nas");
-    if candidate_noos.exists() {
-        return candidate_noos;
+    let candidates = [
+        get_user_home(&user).join("Projets/noos-nas"),
+        get_user_home(&user).join("Projects/noos-nas"),
+        PathBuf::from("/home/chomiam/Projets/noos-nas"),
+        PathBuf::from("/home/noos/Projets/noos-nas"),
+        PathBuf::from("/home/chomiam/Projects/noos-nas"),
+        PathBuf::from("/home/noos/Projects/noos-nas"),
+    ];
+
+    for cand in &candidates {
+        if cand.exists() {
+            return cand.clone();
+        }
     }
 
     PathBuf::from(".")
@@ -827,87 +837,145 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
     ];
 
     let preferred_dashboard_branch = if active_channel == "testing" { "testing" } else { "stable" };
-    let dashboard_target_ref = format!("refs/heads/{}", preferred_dashboard_branch);
-    for dashboard_git_url in &candidate_dashboard_urls {
-        let mut ls_out = Command::new(git_binary())
-            .args(["-c", "safe.directory=*", "ls-remote", dashboard_git_url, &dashboard_target_ref])
-            .output();
+    let candidate_refs = if preferred_dashboard_branch == "testing" {
+        vec!["refs/heads/testing", "refs/heads/stable", "refs/heads/main"]
+    } else {
+        vec!["refs/heads/stable", "refs/heads/testing", "refs/heads/main"]
+    };
 
-        if ls_out.as_ref().map(|o| !o.status.success() || String::from_utf8_lossy(&o.stdout).trim().is_empty()).unwrap_or(true) && preferred_dashboard_branch != "stable" {
-            ls_out = Command::new(git_binary())
-                .args(["-c", "safe.directory=*", "ls-remote", dashboard_git_url, "refs/heads/stable"])
+    for target_ref in &candidate_refs {
+        for dashboard_git_url in &candidate_dashboard_urls {
+            let ls_out = Command::new(git_binary())
+                .args(["-c", "safe.directory=*", "ls-remote", dashboard_git_url, target_ref])
                 .output();
-        }
 
-        if let Ok(res) = ls_out {
-            if res.status.success() {
-                let text = String::from_utf8_lossy(&res.stdout);
-                if let Some(sha) = text.split_whitespace().next() {
-                    dashboard_remote_commit_full = Some(sha.to_string());
-                    dashboard_remote_commit = Some(sha[..7.min(sha.len())].to_string());
+            if let Ok(res) = ls_out {
+                if res.status.success() {
+                    let text = String::from_utf8_lossy(&res.stdout);
+                    if let Some(sha) = text.split_whitespace().next() {
+                        dashboard_remote_commit_full = Some(sha.to_string());
+                        dashboard_remote_commit = Some(sha[..7.min(sha.len())].to_string());
+                        break;
+                    }
+                }
+            }
+        }
+        if dashboard_remote_commit_full.is_some() {
+            break;
+        }
+    }
+
+    let mut highest_tag_version: Option<String> = None;
+
+    // 1. Détection temps réel immédiate : tags git pointant sur le commit ou tags SemVer disponibles
+    for dashboard_git_url in &candidate_dashboard_urls {
+        if let Ok(tags_out) = Command::new(git_binary())
+            .args(["-c", "safe.directory=*", "ls-remote", "--tags", dashboard_git_url])
+            .output()
+        {
+            if tags_out.status.success() {
+                let text = String::from_utf8_lossy(&tags_out.stdout);
+                for line in text.lines() {
+                    let mut parts = line.split_whitespace();
+                    if let (Some(sha), Some(ref_str)) = (parts.next(), parts.next()) {
+                        if let Some(tag) = ref_str.strip_prefix("refs/tags/v").or_else(|| ref_str.strip_prefix("refs/tags/")) {
+                            let clean_tag = tag.trim_end_matches("^{}");
+                            if is_valid_semver(clean_tag) {
+                                if let Some(ref target_commit) = dashboard_remote_commit_full {
+                                    if sha == target_commit {
+                                        dashboard_remote_version = Some(clean_tag.to_string());
+                                    }
+                                }
+                                if let Some(ref cur) = highest_tag_version {
+                                    if compare_semver(clean_tag, cur) > 0 {
+                                        highest_tag_version = Some(clean_tag.to_string());
+                                    }
+                                } else {
+                                    highest_tag_version = Some(clean_tag.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                if dashboard_remote_version.is_some() {
                     break;
                 }
             }
         }
     }
 
-    // 1. Détection temps réel immédiate (0 seconde de cache) : tag git pointant sur le commit de preferred_branch
-    if let Some(ref target_commit) = dashboard_remote_commit_full {
-        for dashboard_git_url in &candidate_dashboard_urls {
-            if let Ok(tags_out) = Command::new(git_binary())
-                .args(["-c", "safe.directory=*", "ls-remote", "--tags", dashboard_git_url])
-                .output()
-            {
-                if tags_out.status.success() {
-                    let text = String::from_utf8_lossy(&tags_out.stdout);
-                    for line in text.lines() {
-                        let mut parts = line.split_whitespace();
-                        if let (Some(sha), Some(ref_str)) = (parts.next(), parts.next()) {
-                            if sha == target_commit {
-                                if let Some(tag) = ref_str.strip_prefix("refs/tags/v") {
-                                    let clean_tag = tag.trim_end_matches("^{}");
-                                    if is_valid_semver(clean_tag) {
-                                        dashboard_remote_version = Some(clean_tag.to_string());
-                                        break;
-                                    }
+    // 2. Requête directe sur Cargo.toml au commit exact de la branche (avec fallbacks)
+    if dashboard_remote_version.is_none() {
+        let mut candidate_cargo_refs = Vec::new();
+        if let Some(ref c) = dashboard_remote_commit_full {
+            candidate_cargo_refs.push(c.as_str());
+        }
+        candidate_cargo_refs.push(preferred_dashboard_branch);
+        candidate_cargo_refs.push("testing");
+        candidate_cargo_refs.push("stable");
+
+        for c_ref in candidate_cargo_refs {
+            let raw_cargo_url = format!(
+                "https://raw.githubusercontent.com/Chomiam/noos-nas-dashboard/{}/Cargo.toml",
+                c_ref
+            );
+            if let Ok(out) = create_user_command("curl", &["-s", "-L", "--max-time", "5", &raw_cargo_url]).output() {
+                if out.status.success() {
+                    let content = String::from_utf8_lossy(&out.stdout);
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("version = \"") {
+                            if let Some(v) = trimmed.strip_prefix("version = \"").and_then(|s| s.strip_suffix("\"")) {
+                                if is_valid_semver(v) {
+                                    dashboard_remote_version = Some(v.to_string());
+                                    break;
                                 }
                             }
                         }
                     }
-                    if dashboard_remote_version.is_some() {
-                        break;
-                    }
                 }
+            }
+            if dashboard_remote_version.is_some() {
+                break;
             }
         }
     }
 
-    // 2. Requête directe sur Cargo.toml au commit exact de la branche (contourne tout cache CDN)
+    // 3. Fallback sur le dépôt local de développement si accessible
     if dashboard_remote_version.is_none() {
-        let commit_ref = dashboard_remote_commit_full.as_deref().unwrap_or(preferred_branch);
-        let raw_cargo_url = format!(
-            "https://raw.githubusercontent.com/Chomiam/noos-nas-dashboard/{}/Cargo.toml",
-            commit_ref
-        );
-        if let Ok(out) = Command::new("curl")
-            .args(["-s", "-L", "--max-time", "4", &raw_cargo_url])
-            .output()
-        {
-            if out.status.success() {
-                let content = String::from_utf8_lossy(&out.stdout);
-                for line in content.lines() {
-                    let trimmed = line.trim();
-                    if trimmed.starts_with("version = \"") {
-                        if let Some(v) = trimmed.strip_prefix("version = \"").and_then(|s| s.strip_suffix("\"")) {
-                            if is_valid_semver(v) {
-                                dashboard_remote_version = Some(v.to_string());
-                                break;
+        let user = target_user();
+        let local_candidates = [
+            get_user_home(&user).join("Projets/noos-nas-dashboard"),
+            get_user_home(&user).join("Projects/noos-nas-dashboard"),
+            PathBuf::from("/home/chomiam/Projets/noos-nas-dashboard"),
+            PathBuf::from("."),
+        ];
+        for loc in &local_candidates {
+            let cargo_p = loc.join("Cargo.toml");
+            if cargo_p.exists() {
+                if let Ok(c) = fs::read_to_string(&cargo_p) {
+                    for line in c.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("version = \"") {
+                            if let Some(v) = trimmed.strip_prefix("version = \"").and_then(|s| s.strip_suffix("\"")) {
+                                if is_valid_semver(v) {
+                                    dashboard_remote_version = Some(v.to_string());
+                                    break;
+                                }
                             }
                         }
                     }
                 }
             }
+            if dashboard_remote_version.is_some() {
+                break;
+            }
         }
+    }
+
+    // 4. Dernier repli : tag le plus élevé découvert sur GitHub
+    if dashboard_remote_version.is_none() {
+        dashboard_remote_version = highest_tag_version;
     }
 
     // Vérification des paquets Nixpkgs & Entrées Flake dans flake.lock
