@@ -301,6 +301,7 @@ pub fn api_routes() -> Router {
         .route("/games/:id/action", post(handle_games_action))
         .route("/games/:id/delete", post(handle_games_delete))
         .route("/games/:id/logs", get(handle_games_logs))
+        .route("/games/:id/logs/clear", post(handle_games_logs_clear))
         .route("/games/:id/deploy-status", get(handle_games_deploy_status))
         .route("/games/:id/command", post(handle_games_command))
         .route("/games/eggs/import", post(handle_games_import_egg))
@@ -3075,6 +3076,30 @@ async fn handle_games_logs(
             success: true,
             data: Some(logs),
             message: None,
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
+        }),
+    }
+}
+
+/// Réinitialise l'historique de la console d'un serveur de jeu (nettoyage de l'affichage).
+async fn handle_games_logs_clear(
+    Path(id): Path<String>,
+) -> Json<ApiResponse<()>> {
+    let res = tokio::task::spawn_blocking(move || crate::games::clear_game_server_logs(&id)).await;
+    match res {
+        Ok(Ok(())) => Json(ApiResponse {
+            success: true,
+            data: Some(()),
+            message: Some("Historique de console réinitialisé.".into()),
         }),
         Ok(Err(err)) => Json(ApiResponse {
             success: false,

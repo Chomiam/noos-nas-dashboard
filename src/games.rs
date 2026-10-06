@@ -33,6 +33,9 @@ static DEPLOY_TRACKER: LazyLock<Mutex<HashMap<String, GameDeployProgress>>> =
 static STARTING_SERVERS: LazyLock<Mutex<HashMap<String, Instant>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+static CONSOLE_RESET_TIMESTAMPS: LazyLock<Mutex<HashMap<String, u64>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 static EGGS_CACHE: LazyLock<Mutex<Option<(Instant, Vec<Egg>)>>> =
     LazyLock::new(|| Mutex::new(None));
 
@@ -2140,8 +2143,103 @@ echo "🚀 Démarrage de 7 Days to Die Dedicated Server..."
 exec {}
 "#, final_cmd);
         let _ = fs::write(data_dir.join("entrypoint.sh"), entrypoint);
+    } else if egg.id == "mount-and-blade-bannerlord" || egg.startup_cmd.contains("TaleWorlds") {
+        let auth_token = env_map.get("AUTH_TOKEN").cloned().unwrap_or_default();
+        let s_port = target_port;
+        let s_name = env_map.get("SERVER_NAME").cloned().unwrap_or_else(|| "Serveur Bannerlord Noos NAS".into());
+        let max_players = env_map.get("MAX_PLAYERS").cloned().unwrap_or_else(|| "64".into());
+
+        let entrypoint = format!(r#"#!/bin/bash
+set -e
+cd /home/container
+
+# 1. Initialisation SteamCMD
+mkdir -p /home/container/steamcmd /home/container/steamapps /home/container/logs
+if [ ! -f /home/container/steamcmd/steamcmd.sh ]; then
+  echo "⚡ Téléchargement et initialisation de SteamCMD..."
+  curl -sSL -o /tmp/steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
+  tar -xzf /tmp/steamcmd.tar.gz -C /home/container/steamcmd
+  rm -f /tmp/steamcmd.tar.gz
+  chmod +x /home/container/steamcmd/steamcmd.sh /home/container/steamcmd/linux32/steamcmd 2>/dev/null || true
+  ln -sf /home/container/steamcmd/steamcmd.sh /home/container/steamcmd/steamcmd 2>/dev/null || true
+fi
+export PATH="/home/container/steamcmd:$PATH"
+export HOME=/home/container
+mkdir -p /home/container/.steam/sdk32 /home/container/.steam/sdk64
+cp -f /home/container/steamcmd/linux32/steamclient.so /home/container/.steam/sdk32/steamclient.so 2>/dev/null || true
+cp -f /home/container/steamcmd/linux64/steamclient.so /home/container/.steam/sdk64/steamclient.so 2>/dev/null || true
+
+# 2. Téléchargement ou validation de Mount & Blade II Dedicated Server (App 1863440)
+if [ ! -f /home/container/bin/Linux64_Shipping_Server/TaleWorlds.Starter.DotNetCore.Linux.dll ] || [ "${{AUTO_UPDATE}}" = "1" ]; then
+  echo "⚡ Téléchargement de Mount & Blade II: Bannerlord Dedicated Server (App 1863440)..."
+  /home/container/steamcmd/steamcmd.sh +force_install_dir /home/container +login anonymous +app_update 1863440 validate +quit || true
+fi
+
+# 3. Installation automatique du runtime Microsoft .NET 6 Core natif Linux si absent
+if [ ! -d "/home/container/dotnet" ] || [ ! -f "/home/container/dotnet/dotnet" ]; then
+  echo "⚡ Initialisation du runtime Microsoft .NET 6 pour Linux..."
+  curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+  bash /tmp/dotnet-install.sh --channel 6.0 --runtime aspnetcore --install-dir /home/container/dotnet >/dev/null 2>&1 || true
+  rm -f /tmp/dotnet-install.sh
+fi
+export PATH="/home/container/dotnet:$PATH"
+export LD_LIBRARY_PATH="/home/container/bin/Linux64_Shipping_Server:$LD_LIBRARY_PATH"
+
+# 4. Configuration par défaut ds_config.txt
+mkdir -p /home/container/Modules/Native
+if [ ! -f "/home/container/Modules/Native/ds_config.txt" ]; then
+  if [ -f "/home/container/Modules/Native/ds_config_sample_team_deathmatch.txt" ]; then
+    cp -f "/home/container/Modules/Native/ds_config_sample_team_deathmatch.txt" "/home/container/Modules/Native/ds_config.txt"
+  else
+    cat << 'CONFIG_EOF' > /home/container/Modules/Native/ds_config.txt
+ServerName {s_name}
+GameType TeamDeathmatch
+Map mp_tdm_map_003
+CultureTeam1 khuzait
+CultureTeam2 vlandia
+AllowPollsToKickPlayers False
+AllowPollsToBanPlayers False
+AllowPollsToChangeMaps False
+MapTimeLimit 30
+RespawnPeriodTeam1 5
+RespawnPeriodTeam1 5
+MinNumberOfPlayersForMatchStart 0
+MaxNumberOfPlayers {max_players}
+end_game_after_mission_is_over
+start_game_and_mission
+CONFIG_EOF
+  fi
+fi
+
+# 5. Vérification du jeton d'authentification TaleWorlds
+AUTH_ARG=""
+if [ -n "{auth_token}" ]; then
+  AUTH_ARG="/dedicatedcustomserverauthtoken \"{auth_token}\""
+else
+  echo "=================================================================================="
+  echo "⚠️ AVERTISSEMENT BANNERLORD : Aucun jeton TaleWorlds AUTH_TOKEN configuré."
+  echo "Pour afficher votre serveur dans le lobby public TaleWorlds et éviter l'arrêt :"
+  echo "1. Lancez Mount & Blade II: Bannerlord sur PC en mode multijoueur."
+  echo "2. Ouvrez la console (Alt + ~) et tapez : customserver.gettoken"
+  echo "3. Copiez le jeton dans Documents/Mount and Blade II Bannerlord/Tokens/..."
+  echo "4. Renseignez ce jeton dans la variable AUTH_TOKEN de votre serveur sur Noos NAS."
+  echo "=================================================================================="
+fi
+
+cd /home/container/bin/Linux64_Shipping_Server
+echo "🚀 Démarrage natif 64-bit de Mount & Blade II: Bannerlord Dedicated Server (Port {s_port})..."
+exec dotnet TaleWorlds.Starter.DotNetCore.Linux.dll _MODULES_*Native*Multiplayer*_MODULES_ /dedicatedcustomserverconfigfile ds_config.txt /dedicatedcustomserver {s_port} USER 0 $AUTH_ARG
+"#,
+            s_name = s_name,
+            max_players = max_players,
+            auth_token = auth_token,
+            s_port = s_port
+        );
+        let _ = fs::write(data_dir.join("entrypoint.sh"), entrypoint);
     } else {
-        let is_steam = egg.docker_image.contains("steamcmd") || egg.startup_cmd.contains("steamcmd");
+        let is_steam = egg.docker_image.contains("steamcmd")
+            || egg.startup_cmd.contains("steamcmd")
+            || egg.steam_app_id.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
         let steam_setup = if is_steam {
             r#"
 mkdir -p /home/container/steamcmd /home/container/steamapps /home/container/logs
@@ -2155,6 +2253,18 @@ if [ ! -f /home/container/steamcmd/steamcmd.sh ]; then
 fi
 export PATH="/home/container/steamcmd:$PATH"
 export HOME=/home/container
+
+# Prise en charge des environnements Proton / Wine
+if [ -d "/usr/local/bin/files/bin" ]; then
+  export PATH="/usr/local/bin/files/bin:$PATH"
+fi
+if [ -f "/usr/local/bin/proton" ]; then
+  mkdir -p /tmp/wineprefix /home/container/.steam/steam/steamapps/compatdata
+  export WINEPREFIX="${WINEPREFIX:-/tmp/wineprefix}"
+  export STEAM_COMPAT_CLIENT_INSTALL_PATH="/home/container/.steam/steam"
+  export STEAM_COMPAT_DATA_PATH="/home/container/.steam/steam/steamapps/compatdata/${STEAM_APP:-default}"
+fi
+
 mkdir -p /home/container/.steam/sdk32 /home/container/.steam/sdk64
 cp -f /home/container/steamcmd/linux32/steamclient.so /home/container/.steam/sdk32/steamclient.so 2>/dev/null || true
 cp -f /home/container/steamcmd/linux64/steamclient.so /home/container/.steam/sdk64/steamclient.so 2>/dev/null || true
@@ -2383,6 +2493,11 @@ pub fn control_game_server(id: &str, action: &str) -> Result<String, String> {
 
     if action == "start" || action == "restart" {
         STARTING_SERVERS.lock().unwrap().insert(id.to_string(), Instant::now());
+        let epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        CONSOLE_RESET_TIMESTAMPS.lock().unwrap().insert(id.to_string(), epoch);
     } else {
         STARTING_SERVERS.lock().unwrap().remove(id);
     }
@@ -2411,8 +2526,18 @@ pub fn control_game_server(id: &str, action: &str) -> Result<String, String> {
     }
 }
 
+pub fn clear_game_server_logs(id: &str) -> Result<(), String> {
+    let epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    CONSOLE_RESET_TIMESTAMPS.lock().unwrap().insert(id.to_string(), epoch);
+    Ok(())
+}
+
 pub fn delete_game_server(id: &str, delete_data: bool) -> Result<String, String> {
     STARTING_SERVERS.lock().unwrap().remove(id);
+    CONSOLE_RESET_TIMESTAMPS.lock().unwrap().remove(id);
     let mut servers = load_saved_servers();
     let container_name = resolve_game_container_name(id);
 
@@ -2463,10 +2588,16 @@ pub fn get_game_server_logs(id: &str, lines: usize) -> Result<String, String> {
         }
     });
 
+    let reset_ts = CONSOLE_RESET_TIMESTAMPS.lock().unwrap().get(id).copied();
     let container_name = resolve_game_container_name(id);
-    let output = Command::new("docker")
-        .args(["logs", "--tail", &lines.to_string(), &container_name])
-        .output();
+    let mut cmd = Command::new("docker");
+    cmd.arg("logs");
+    if let Some(ts) = reset_ts {
+        cmd.arg("--since").arg(ts.to_string());
+    }
+    cmd.arg("--tail").arg(lines.to_string());
+    cmd.arg(&container_name);
+    let output = cmd.output();
 
     match output {
         Ok(out) => {
@@ -2476,6 +2607,9 @@ pub fn get_game_server_logs(id: &str, lines: usize) -> Result<String, String> {
             if combined.trim().is_empty() {
                 if let Some(dlogs) = deploy_logs {
                     return Ok(dlogs);
+                }
+                if reset_ts.is_some() {
+                    return Ok("⚡ Console réinitialisée. En attente des nouveaux logs...\n".into());
                 }
             }
             Ok(combined)
@@ -2624,3 +2758,42 @@ pub fn delete_custom_egg(id: &str) -> Result<(), String> {
         Err(format!("Egg personnalisé '{}' introuvable", id))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_clear_game_server_logs_updates_timestamp() {
+        let server_id = "test-server-clear-logs";
+        assert!(CONSOLE_RESET_TIMESTAMPS.lock().unwrap().get(server_id).is_none());
+
+        let res = clear_game_server_logs(server_id);
+        assert!(res.is_ok());
+
+        let ts = CONSOLE_RESET_TIMESTAMPS.lock().unwrap().get(server_id).copied();
+        assert!(ts.is_some());
+        assert!(ts.unwrap() > 0);
+
+        // Cleanup
+        CONSOLE_RESET_TIMESTAMPS.lock().unwrap().remove(server_id);
+    }
+
+    #[test]
+    fn test_console_reset_timestamp_set_on_restart() {
+        let server_id = "test-server-restart-reset";
+        let epoch_before = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+
+        // Simulate restart
+        let _ = control_game_server(server_id, "restart");
+
+        let ts = CONSOLE_RESET_TIMESTAMPS.lock().unwrap().get(server_id).copied();
+        assert!(ts.is_some());
+        assert!(ts.unwrap() >= epoch_before);
+
+        // Cleanup
+        CONSOLE_RESET_TIMESTAMPS.lock().unwrap().remove(server_id);
+        STARTING_SERVERS.lock().unwrap().remove(server_id);
+    }
+}
+

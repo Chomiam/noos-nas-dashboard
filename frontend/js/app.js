@@ -19232,6 +19232,13 @@ async function controlGameServerAction(id, action) {
     target.status = "starting";
     target.status_detail = "Initialisation du conteneur...";
     renderGameServers();
+    if (id === activeConsoleServerId) {
+      clearGameTerminal(false);
+      const box = document.getElementById("game-terminal-output");
+      if (box) {
+        box.innerHTML = `<div class="game-term-line"><span class="game-term-num">1</span><span class="game-term-text log-term-info">⚡ ${action === 'restart' ? 'Redémarrage' : 'Démarrage'} du serveur en cours... Historique de la console réinitialisé.</span></div><div class="game-term-line"><span class="game-term-num"></span><span class="game-term-text"><span class="terminal-cursor"></span></span></div>`;
+      }
+    }
   }
   try {
     const res = await fetch(`/api/games/${id}/action`, {
@@ -19600,10 +19607,16 @@ function copyGameConsoleLogs() {
   });
 }
 
-function clearGameTerminal() {
+async function clearGameTerminal(notifyBackend = true) {
   const box = document.getElementById("game-terminal-output");
   if (box) {
     box.innerHTML = `<div class="game-term-line"><span class="game-term-num">1</span><span class="game-term-text" style="color:var(--subtext0);">Console effacée. En attente de nouveaux logs...</span></div><div class="game-term-line"><span class="game-term-num"></span><span class="game-term-text"><span class="terminal-cursor"></span></span></div>`;
+  }
+  lastGameConsoleRawMap = {};
+  if (notifyBackend && activeConsoleServerId) {
+    try {
+      await fetch(`/api/games/${encodeURIComponent(activeConsoleServerId)}/logs/clear`, { method: "POST" });
+    } catch (_) {}
   }
 }
 
@@ -19840,6 +19853,13 @@ async function sendGameTerminalCommand() {
 
 function actionCurrentConsoleServer(action) {
   if (activeConsoleServerId) {
+    if (action === "restart" || action === "start") {
+      clearGameTerminal(false);
+      const box = document.getElementById("game-terminal-output");
+      if (box) {
+        box.innerHTML = `<div class="game-term-line"><span class="game-term-num">1</span><span class="game-term-text log-term-info">⚡ ${action === 'restart' ? 'Redémarrage' : 'Démarrage'} du serveur en cours... Historique de la console réinitialisé.</span></div><div class="game-term-line"><span class="game-term-num"></span><span class="game-term-text"><span class="terminal-cursor"></span></span></div>`;
+      }
+    }
     controlGameServerAction(activeConsoleServerId, action);
   } else {
     showToast("Veuillez sélectionner un serveur de jeu.", "warning");
