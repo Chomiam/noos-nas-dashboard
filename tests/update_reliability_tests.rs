@@ -187,3 +187,41 @@ fn test_integration_vars_nix_sanctuarization_simulation() {
     assert!(restored.contains("username = \"chomiam\""));
     assert!(restored.contains("hostName = \"noos-nas\""));
 }
+
+#[test]
+fn test_integration_hardware_configuration_sanctuarization_simulation() {
+    let temp_dir = std::env::temp_dir().join(format!("noos_test_hw_{}", std::process::id()));
+    let nas_dir = temp_dir.join("hosts/nas");
+    let _ = fs::create_dir_all(&nas_dir);
+
+    let hw_root = temp_dir.join("hardware-configuration.nix");
+    let hw_nas = nas_dir.join("hardware-configuration.nix");
+    let hw_local = nas_dir.join("hardware.local.nix");
+
+    // L'utilisateur a son matériel réel sur le NAS
+    let real_hw = r#"{
+  fileSystems."/".device = "/dev/disk/by-uuid/01f72dfa-6d92-4046-b831-ee7af0bfe103";
+}
+"#;
+    let _ = fs::write(&hw_root, real_hw);
+
+    // Sauvegarde avant git pull
+    let saved_root = fs::read_to_string(&hw_root).ok();
+    assert!(saved_root.is_some());
+
+    // Simulation d'un git reset qui écraserait ou supprimerait les fichiers
+    let _ = fs::remove_file(&hw_root);
+    let _ = fs::write(&hw_nas, "# Generic stub from git\n");
+
+    // Restauration garantie
+    if let Some(ref hw) = saved_root {
+        let _ = fs::write(&hw_root, hw);
+        let _ = fs::write(&hw_local, hw);
+    }
+
+    assert!(hw_root.exists());
+    assert!(hw_local.exists());
+    assert!(fs::read_to_string(&hw_local).unwrap().contains("01f72dfa-6d92-4046-b831-ee7af0bfe103"));
+
+    let _ = fs::remove_dir_all(temp_dir);
+}

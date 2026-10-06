@@ -1421,9 +1421,12 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
 
     log.push_str(&format!("Point de restauration courant : {}\n", &current_sha[..8.min(current_sha.len())]));
 
-    // Sauvegarde en mémoire des fichiers d'état locaux déclaratifs s'ils existent
+    // Sauvegarde en mémoire des fichiers d'état locaux déclaratifs et de la configuration matérielle s'ils existent
     let saved_firewall_state = fs::read_to_string(config_dir.join("firewall-state.json")).ok();
     let saved_firewall_rules = fs::read_to_string(config_dir.join("firewall-rules.json")).ok();
+    let saved_hw_root = fs::read_to_string(config_dir.join("hardware-configuration.nix")).ok();
+    let saved_hw_nas = fs::read_to_string(config_dir.join("hosts/nas/hardware-configuration.nix")).ok();
+    let saved_hw_local = fs::read_to_string(config_dir.join("hosts/nas/hardware.local.nix")).ok();
 
     // 2. Détection de la branche locale courante
     let current_branch = git_cmd(&dir_str)
@@ -1522,6 +1525,20 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
         }
         let _ = fs::write(&vars_local_path, &final_content);
         let _ = fs::write(&vars_backup_path, &final_content);
+    }
+
+    // 4 ter. 🛡️ SANCTUARISATION ET RESTAURATION INCONDITIONNELLE DU MATÉRIEL LOCAL
+    if let Some(ref hw) = saved_hw_root {
+        let _ = fs::write(config_dir.join("hardware-configuration.nix"), hw);
+    }
+    if let Some(ref hw) = saved_hw_local {
+        let _ = fs::write(config_dir.join("hosts/nas/hardware.local.nix"), hw);
+    } else if let Some(ref hw) = saved_hw_nas {
+        // Si hardware.local.nix n'existait pas encore mais que le fichier local contenait des définitions spécifiques,
+        // sanctuariser vers hardware.local.nix (protégé par .gitignore)
+        if hw.contains("fileSystems") {
+            let _ = fs::write(config_dir.join("hosts/nas/hardware.local.nix"), hw);
+        }
     }
 
     // Nettoyer d'éventuels marqueurs de conflit résiduels sur vars.nix ou flake.lock
