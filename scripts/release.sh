@@ -32,11 +32,17 @@ sed -i "s/version = \".*\";/version = \"${NEW_VERSION}\";/" "${DASHBOARD_DIR}/de
 echo "📦 [3/6] Commit Git & Tagging v${NEW_VERSION}..."
 TAG_NAME="v${NEW_VERSION}"
 FULL_MSG="Release v${NEW_VERSION} : ${COMMIT_MSG:-Mise à jour du Dashboard}"
+CURRENT_BRANCH="$(cd "${DASHBOARD_DIR}" && git branch --show-current)"
 
 (cd "${DASHBOARD_DIR}" && git add Cargo.toml Cargo.lock default.nix frontend/ src/)
 (cd "${DASHBOARD_DIR}" && git commit -m "${FULL_MSG}") || true
-(cd "${DASHBOARD_DIR}" && git push origin "$(git branch --show-current)" --tags)
-echo "✅ Poussé sur GitHub (noos-nas-dashboard sur $(git branch --show-current))."
+(cd "${DASHBOARD_DIR}" && git tag -f -a "${TAG_NAME}" -m "${FULL_MSG}")
+(cd "${DASHBOARD_DIR}" && git push origin "${CURRENT_BRANCH}" --tags --force)
+if [[ "${CURRENT_BRANCH}" == "testing" ]]; then
+  echo "Alignement de la branche stable..."
+  (cd "${DASHBOARD_DIR}" && git checkout stable && git merge --ff-only testing && git push origin stable && git checkout testing) || true
+fi
+echo "✅ Poussé sur GitHub (noos-nas-dashboard sur ${CURRENT_BRANCH} et tag ${TAG_NAME})."
 
 echo "⏳ [4/6] Attente de la compilation GitHub Actions & injection Cachix..."
 sleep 5
@@ -47,16 +53,18 @@ echo "✅ Binaire compilé et injecté avec succès dans Cachix (steveos)."
 
 echo "🧬 [5/6] Propagation automatique dans le flake.lock de l'OS (noos-nas)..."
 if [[ -d "${NAS_DIR}" ]]; then
-  (cd "${NAS_DIR}" && git pull --ff-only origin main)
-  (cd "${NAS_DIR}" && nix flake lock --update-input noos-nas-dashboard)
-  
-  echo "🔍 Validation déclarative NixOS..."
-  (cd "${NAS_DIR}" && nix eval .#nixosConfigurations.noos-nas.config.system.build.toplevel.drvPath >/dev/null)
-  
-  (cd "${NAS_DIR}" && git add flake.lock)
-  (cd "${NAS_DIR}" && git commit -m "chore(flake): mise à jour de noos-nas-dashboard vers v${NEW_VERSION} (${COMMIT_MSG:-release})" || true)
-  (cd "${NAS_DIR}" && git push origin main)
-  echo "✅ flake.lock de l'OS mis à jour et poussé sur GitHub (noos-nas) !"
+  for target_b in testing main; do
+    if (cd "${NAS_DIR}" && git checkout "${target_b}" 2>/dev/null && git pull --ff-only origin "${target_b}" 2>/dev/null); then
+      echo "Mise à jour de flake.lock sur la branche ${target_b} de noos-nas..."
+      (cd "${NAS_DIR}" && nix flake update noos-nas-dashboard)
+      (cd "${NAS_DIR}" && nix eval .#nixosConfigurations.nas.config.system.build.toplevel.drvPath >/dev/null 2>&1 || nix eval .#nixosConfigurations.default.config.system.build.toplevel.drvPath >/dev/null 2>&1)
+      (cd "${NAS_DIR}" && git add flake.lock)
+      (cd "${NAS_DIR}" && git commit -m "chore(flake): mise à jour de noos-nas-dashboard vers v${NEW_VERSION} (${COMMIT_MSG:-release})" || true)
+      (cd "${NAS_DIR}" && git push origin "${target_b}")
+      echo "✅ Branche ${target_b} de noos-nas synchronisée avec flake.lock !"
+    fi
+  done
+  (cd "${NAS_DIR}" && git checkout "${CURRENT_BRANCH}" 2>/dev/null || git checkout main 2>/dev/null || true)
 else
   echo "⚠️ Répertoire ../noos-nas introuvable, propagation flake.lock ignorée."
 fi
