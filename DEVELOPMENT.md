@@ -1,7 +1,7 @@
-# 📋 Directives de Développement & Cycle CI/CD — STEvE_OS Dashboard
+# 📋 Directives de Développement & Cycle CI/CD — Noos NAS Dashboard
 
 > **CONSIGNE IMPÉRATIVE POUR L'AGENT IA ET TOUT DÉVELOPPEUR :**
-> À chaque modification du projet `steveos-nas-dashboard`, respecter scrupuleusement les 3 règles fondamentales suivantes.
+> À chaque modification du projet `noos-nas-dashboard`, respecter scrupuleusement les 3 règles fondamentales suivantes.
 
 ---
 

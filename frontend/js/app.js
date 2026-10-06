@@ -610,7 +610,7 @@ async function loadSystem() {
 }
 
 // --------------------------------------------------------------------------
-// MISES À JOUR INTELLIGENTES (STEvE_OS RESILIENT UPDATE ENGINE)
+// MISES À JOUR INTELLIGENTES (Noos NAS RESILIENT UPDATE ENGINE)
 // --------------------------------------------------------------------------
 let updatePollingTimer = null;
 let updateSubtabCurrent = 'commits';
@@ -10479,7 +10479,7 @@ function renderDockerContainersView() {
       <div style="background: var(--surface0); border: 1px dashed var(--surface1); border-radius: 14px; padding: 36px 20px; text-align: center;">
         <div style="font-size: 2.4rem; margin-bottom: 8px;">🐳</div>
         <div style="font-weight: 700; color: var(--text); font-size: 1.05rem;">Aucun conteneur applicatif actif</div>
-        <div style="font-size: 0.85rem; color: var(--subtext0); margin: 6px 0 18px 0;">Découvrez et déployez vos applications en 1-clic depuis le Store officiel STEvE_OS.</div>
+        <div style="font-size: 0.85rem; color: var(--subtext0); margin: 6px 0 18px 0;">Découvrez et déployez vos applications en 1-clic depuis le Store officiel Noos NAS.</div>
         <button type="button" class="btn btn-primary btn-sm" onclick="switchDockerSubTab('store')">🛍️ Parcourir la Boutique d'Applications</button>
       </div>
     `;
@@ -11461,7 +11461,7 @@ async function checkModalFirewallStatus(justOpened = false) {
 
       if (justOpened) {
         if (title) title.innerHTML = `<span style="color:var(--green); font-weight:700;">✅ Port ${port} (TCP) ouvert et vérifié avec succès !</span>`;
-        if (desc) desc.textContent = `Le pare-feu STEvE_OS autorise désormais le trafic sur le port ${port}. L'application sera accessible immédiatement sur votre réseau local.`;
+        if (desc) desc.textContent = `Le pare-feu Noos NAS autorise désormais le trafic sur le port ${port}. L'application sera accessible immédiatement sur votre réseau local.`;
       } else {
         if (title) title.innerHTML = `<span style="color:var(--green); font-weight:700;">Pare-feu Noos : Port ${port} (TCP) Ouvert</span>`;
         if (desc) desc.textContent = `Ce port est déjà autorisé dans le pare-feu. Vos appareils du réseau local pourront y accéder sans blocage.`;
@@ -12543,7 +12543,7 @@ async function syncActiveDockerDeploymentsWithBackend() {
               clientDep.status = "success";
               clientDep.step = 4;
               clientDep.progressPercent = 100;
-              clientDep.subtitle = clientDep.port ? `Conteneur actif sur le port ${clientDep.port}` : "Conteneur actif sur votre NAS STEvE_OS";
+              clientDep.subtitle = clientDep.port ? `Conteneur actif sur le port ${clientDep.port}` : "Conteneur actif sur votre NAS Noos";
               clientDep.badgeText = "🟢 Prêt (100%)";
               clientDep.badgeClass = "badge-success";
               clientDep.errorMessage = null;
@@ -12633,7 +12633,7 @@ async function syncActiveDockerDeploymentsWithBackend() {
               dep.status = "success";
               dep.step = 4;
               dep.progressPercent = 100;
-              dep.subtitle = dep.port ? `Conteneur actif sur le port ${dep.port}` : "Conteneur actif sur votre NAS STEvE_OS";
+              dep.subtitle = dep.port ? `Conteneur actif sur le port ${dep.port}` : "Conteneur actif sur votre NAS Noos";
               dep.badgeText = "🟢 Prêt (100%)";
               dep.badgeClass = "badge-success";
               dep.errorMessage = null;
@@ -13116,7 +13116,7 @@ async function startDockerAppDeploy(item) {
         activeDockerDeployments[cleanId].status = "success";
         activeDockerDeployments[cleanId].step = 4;
         activeDockerDeployments[cleanId].progressPercent = 100;
-        activeDockerDeployments[cleanId].subtitle = port ? `Conteneur actif sur le port ${port}` : "Conteneur actif sur votre NAS STEvE_OS";
+        activeDockerDeployments[cleanId].subtitle = port ? `Conteneur actif sur le port ${port}` : "Conteneur actif sur votre NAS Noos";
         activeDockerDeployments[cleanId].badgeText = "🟢 Prêt (100%)";
         activeDockerDeployments[cleanId].badgeClass = "badge-success";
         activeDockerDeployments[cleanId].completedAt = Date.now();
@@ -13167,7 +13167,7 @@ async function startDockerAppDeploy(item) {
             activeDockerDeployments[cleanId].status = "success";
             activeDockerDeployments[cleanId].step = 4;
             activeDockerDeployments[cleanId].progressPercent = 100;
-            activeDockerDeployments[cleanId].subtitle = port ? `Conteneur actif sur le port ${port}` : "Conteneur actif sur votre NAS STEvE_OS";
+            activeDockerDeployments[cleanId].subtitle = port ? `Conteneur actif sur le port ${port}` : "Conteneur actif sur votre NAS Noos";
             activeDockerDeployments[cleanId].badgeText = "🟢 Prêt (100%)";
             activeDockerDeployments[cleanId].badgeClass = "badge-success";
             activeDockerDeployments[cleanId].errorMessage = null;
@@ -13956,7 +13956,7 @@ async function loadNetwork(showFeedback = false) {
 }
 
 // =========================================================================
-// 🛡️ CONTRÔLEUR DE PORTS & PARE-FEU STEvE_OS
+// 🛡️ CONTRÔLEUR DE PORTS & PARE-FEU Noos NAS
 // =========================================================================
 
 window.firewallFilter = "all";
@@ -18558,7 +18558,7 @@ async function confirmPruneDockerImages() {
 }
 
 // ==========================================================================
-// 👥 GESTION DES UTILISATEURS, GROUPES ET SÉCURITÉ (STEvE_OS NAS)
+// 👥 GESTION DES UTILISATEURS, GROUPES ET SÉCURITÉ (Noos NAS NAS)
 // ==========================================================================
 
 let usersData = [];
@@ -20938,7 +20938,7 @@ async function checkActiveStorageJobOnLoad() {
 
 
 // =========================================================================
-// 🗄️ GESTIONNAIRE COMPLET SAMBA (SMB / CIFS) — STEvE_OS CATPPUCCIN MOCHA
+// 🗄️ GESTIONNAIRE COMPLET SAMBA (SMB / CIFS) — Noos NAS CATPPUCCIN MOCHA
 // =========================================================================
 
 let currentSambaData = null;
@@ -21633,7 +21633,7 @@ async function disconnectSambaSession(pid) {
 
 
 // =========================================================================
-// 🚀 GESTIONNAIRE COMPLET sFTP (SSH / CHROOT) — STEvE_OS CATPPUCCIN MOCHA
+// 🚀 GESTIONNAIRE COMPLET sFTP (SSH / CHROOT) — Noos NAS CATPPUCCIN MOCHA
 // =========================================================================
 
 let currentSftpData = null;

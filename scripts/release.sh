@@ -8,7 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DASHBOARD_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-NAS_DIR="$(cd "${DASHBOARD_DIR}/../steveos-nas" && pwd)"
+NAS_DIR="$(cd "${DASHBOARD_DIR}/../noos-nas" && pwd)"
 
 NEW_VERSION="${1:-}"
 COMMIT_MSG="${2:-}"
@@ -58,7 +58,7 @@ if [[ -d "${NAS_DIR}" ]]; then
   (cd "${NAS_DIR}" && git push origin main)
   echo "✅ flake.lock de l'OS mis à jour et poussé sur GitHub (noos-nas) !"
 else
-  echo "⚠️ Répertoire ../steveos-nas introuvable, propagation flake.lock ignorée."
+  echo "⚠️ Répertoire ../noos-nas introuvable, propagation flake.lock ignorée."
 fi
 
 echo "🎉 [6/6] TERMINÉ AVEC SUCCÈS ! La mise à jour v${NEW_VERSION} est instantanément déployable sur le NAS."
