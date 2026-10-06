@@ -96,6 +96,10 @@ pub struct UpdateCheckStatus {
     pub system_generations_count: u32,
     #[serde(default = "default_channel")]
     pub channel: String,
+    #[serde(default)]
+    pub updates_locked: bool,
+    #[serde(default)]
+    pub updates_lock_reason: Option<String>,
 }
 
 fn default_channel() -> String {
@@ -1234,6 +1238,12 @@ pub fn check_updates(force_refresh: bool) -> UpdateCheckStatus {
         system_generation: get_current_system_generation(),
         system_generations_count: get_system_generations_count(),
         channel: active_channel,
+        updates_locked: crate::immich_go::is_importing(),
+        updates_lock_reason: if crate::immich_go::is_importing() {
+            Some("Une importation Immich-Go est en cours d'exécution. Les mises à jour du système sont temporairement verrouillées.".to_string())
+        } else {
+            None
+        },
     };
 
     if let Ok(mut guard) = UPDATE_CACHE.lock() {
@@ -1718,6 +1728,15 @@ pub fn execute_secure_git_pull(config_dir: &Path, log: &mut String) -> Result<()
 }
 
 pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
+    if crate::immich_go::is_importing() {
+        return ApplyUpdateResult {
+            success: false,
+            steps_executed: vec![],
+            output_log: "Opération bloquée : Une importation Immich-Go est en cours d'exécution. Les mises à jour du système sont temporairement verrouillées pour éviter tout risque de corruption ou d'interruption.".into(),
+            error: Some("Mise à jour verrouillée : Importation Immich-Go en cours".into()),
+        };
+    }
+
     if IS_UPDATING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
         return ApplyUpdateResult {
             success: false,
@@ -1924,6 +1943,8 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
             system_generation: get_current_system_generation(),
             system_generations_count: get_system_generations_count(),
             channel: get_update_channel(),
+            updates_locked: false,
+            updates_lock_reason: None,
         };
         *guard = Some((Instant::now(), clean_status));
     }
@@ -1937,6 +1958,10 @@ pub fn apply_intelligent_update(force_packages: bool) -> ApplyUpdateResult {
 }
 
 pub fn start_detached_update(force_packages: bool) -> Result<(), String> {
+    if crate::immich_go::is_importing() {
+        return Err("Opération bloquée : Une importation Immich-Go est en cours d'exécution. Les mises à jour du système sont temporairement verrouillées pour éviter toute interruption intempestive.".to_string());
+    }
+
     let current_state = get_update_progress();
     if current_state.is_running {
         return Err("Une mise à jour est déjà en cours d'exécution.".to_string());
@@ -2872,6 +2897,20 @@ these 2 paths will be fetched:
         let raw = "Progress 10%\rProgress 50%\rProgress 100%\nDone";
         let cleaned = sanitize_terminal_output(raw);
         assert_eq!(cleaned, "Progress 100%\nDone");
+    }
+
+    #[test]
+    fn test_updates_blocked_when_immich_import_active() {
+        crate::immich_go::set_importing_for_test(true);
+        let res_apply = apply_intelligent_update(false);
+        assert!(!res_apply.success);
+        assert!(res_apply.error.unwrap().contains("Immich-Go"));
+
+        let res_start = start_detached_update(false);
+        assert!(res_start.is_err());
+        assert!(res_start.unwrap_err().contains("Immich-Go"));
+
+        crate::immich_go::set_importing_for_test(false);
     }
 }
 

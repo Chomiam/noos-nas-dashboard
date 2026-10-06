@@ -75,6 +75,11 @@ use crate::youtube::{
     cancel_youtube_job, clear_youtube_jobs, get_job_status, get_youtube_info, list_jobs,
     start_youtube_download, YoutubeDownloadRequest, YoutubeInfoRequest, YoutubeJobStatus, YoutubeVideoInfo,
 };
+use crate::immich_go::{
+    cancel_import, get_current_job_status, get_public_config, install_immich_go_binary,
+    load_immich_config, retry_failed_items, save_immich_config, start_import_job,
+    test_immich_connection, ImmichConfigPublic, ImmichImportRequest, ImmichJobStatus,
+};
 use crate::trash::{
     delete_trash_item, empty_trash, get_trash_overview, restore_trash_item,
     TrashActionRequest, TrashOverview,
@@ -423,6 +428,18 @@ pub fn api_routes() -> Router {
         .route("/youtube/jobs", get(handle_youtube_jobs))
         .route("/youtube/cancel/:job_id", post(handle_youtube_cancel))
         .route("/youtube/clear", post(handle_youtube_clear))
+
+        // --------------------------------------------------------------------
+        // 14bis. IMPORTATION IMMICH (IMMICH-GO)
+        // --------------------------------------------------------------------
+        .route("/immich/config", get(handle_immich_get_config).post(handle_immich_set_config))
+        .route("/immich/check", post(handle_immich_check_connection))
+        .route("/immich/install", post(handle_immich_install_bin))
+        .route("/immich/import", post(handle_immich_start_import))
+        .route("/immich/status", get(handle_immich_latest_status))
+        .route("/immich/status/:job_id", get(handle_immich_job_status))
+        .route("/immich/cancel/:job_id", post(handle_immich_cancel_import))
+        .route("/immich/retry/:job_id", post(handle_immich_retry_failed))
 
         // --------------------------------------------------------------------
         // 15. PRÉVISUALISATION DE DOCUMENTS (PDF / BUREAUTIQUE)
@@ -1075,6 +1092,187 @@ async fn handle_youtube_clear() -> Json<ApiResponse<()>> {
         data: Some(()),
         message: Some("Historique nettoyé.".into()),
     })
+}
+
+// ============================================================================
+// CONTRÔLEURS : IMPORTATION MULTIMÉDIA IMMICH (IMMICH-GO)
+// ============================================================================
+
+/// Retourne la configuration actuelle d'Immich (URL, clé masquée, disponibilité binaire).
+async fn handle_immich_get_config() -> Json<ApiResponse<ImmichConfigPublic>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(get_public_config()),
+        message: None,
+    })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImmichSaveConfigRequest {
+    pub server_url: String,
+    pub api_key: Option<String>,
+    pub default_album: Option<String>,
+}
+
+/// Enregistre la configuration Immich.
+async fn handle_immich_set_config(
+    headers: HeaderMap,
+    Json(payload): Json<ImmichSaveConfigRequest>,
+) -> Json<ApiResponse<ImmichConfigPublic>> {
+    require_admin_or_err!(headers);
+    let mut cfg = load_immich_config();
+    cfg.server_url = payload.server_url.trim().to_string();
+    if let Some(k) = payload.api_key {
+        if !k.trim().is_empty() && !k.contains('•') {
+            cfg.api_key = k.trim().to_string();
+        }
+    }
+    cfg.default_album = payload.default_album.map(|a| a.trim().to_string());
+
+    if let Err(e) = save_immich_config(&cfg) {
+        return Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur lors de la sauvegarde : {}", e)),
+        });
+    }
+
+    Json(ApiResponse {
+        success: true,
+        data: Some(get_public_config()),
+        message: Some("Configuration Immich mise à jour avec succès.".to_string()),
+    })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImmichCheckRequest {
+    pub server_url: Option<String>,
+    pub api_key: Option<String>,
+}
+
+/// Teste la connectivité avec le serveur Immich.
+async fn handle_immich_check_connection(
+    Json(payload): Json<ImmichCheckRequest>,
+) -> Json<ApiResponse<String>> {
+    let cfg = load_immich_config();
+    let url = payload.server_url.unwrap_or(cfg.server_url);
+    let key = payload.api_key.unwrap_or(cfg.api_key);
+
+    let res = tokio::task::spawn_blocking(move || {
+        test_immich_connection(&url, &key)
+    }).await.unwrap_or_else(|e| Err(e.to_string()));
+
+    match res {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg.clone()),
+            message: Some(msg),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+    }
+}
+
+/// Télécharge et installe automatiquement le binaire officiel immich-go.
+async fn handle_immich_install_bin(headers: HeaderMap) -> Json<ApiResponse<String>> {
+    require_admin_or_err!(headers);
+    let res = tokio::task::spawn_blocking(install_immich_go_binary)
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()));
+
+    match res {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg.clone()),
+            message: Some(msg),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e),
+        }),
+    }
+}
+
+/// Démarre une tâche d'importation Immich-Go.
+async fn handle_immich_start_import(
+    headers: HeaderMap,
+    Json(payload): Json<ImmichImportRequest>,
+) -> Json<ApiResponse<String>> {
+    require_admin_or_err!(headers);
+    match start_import_job(payload) {
+        Ok(job_id) => Json(ApiResponse {
+            success: true,
+            data: Some(job_id.clone()),
+            message: Some("Importation Immich démarrée avec succès.".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+/// Retourne l'état de la tâche d'importation en cours ou la plus récente.
+async fn handle_immich_latest_status() -> Json<ApiResponse<Option<ImmichJobStatus>>> {
+    let status = get_current_job_status(None);
+    Json(ApiResponse {
+        success: true,
+        data: Some(status),
+        message: None,
+    })
+}
+
+/// Retourne l'état d'une tâche d'importation spécifique par son ID.
+async fn handle_immich_job_status(
+    Path(job_id): Path<String>,
+) -> Json<ApiResponse<Option<ImmichJobStatus>>> {
+    let status = get_current_job_status(Some(&job_id));
+    Json(ApiResponse {
+        success: true,
+        data: Some(status),
+        message: None,
+    })
+}
+
+/// Interrompt et annule une tâche d'importation active.
+async fn handle_immich_cancel_import(
+    Path(job_id): Path<String>,
+) -> Json<ApiResponse<()>> {
+    match cancel_import(&job_id) {
+        Ok(_) => Json(ApiResponse {
+            success: true,
+            data: Some(()),
+            message: Some("Importation Immich annulée avec succès.".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+/// Relance les fichiers en échec d'une tâche précédente.
+async fn handle_immich_retry_failed(
+    Path(job_id): Path<String>,
+) -> Json<ApiResponse<String>> {
+    match retry_failed_items(&job_id) {
+        Ok(new_id) => Json(ApiResponse {
+            success: true,
+            data: Some(new_id),
+            message: Some("Nouvelle tentative lancée pour les fichiers en échec.".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
 }
 
 // ============================================================================

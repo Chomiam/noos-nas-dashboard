@@ -963,12 +963,19 @@ function renderUpdatesUI(status) {
   }
 
   if (btnSingleUpdate) {
-    btnSingleUpdate.disabled = status.is_updating;
-    if (status.is_updating) {
-      if (btnSingleUpdateIcon) btnSingleUpdateIcon.textContent = "⏳";
-      if (btnSingleUpdateText) btnSingleUpdateText.textContent = "Mise à jour en cours...";
+    if (status.updates_locked) {
+      btnSingleUpdate.disabled = true;
+      btnSingleUpdate.title = status.updates_lock_reason || "Mises à jour temporairement verrouillées pendant l'importation Immich-Go";
+      if (btnSingleUpdateIcon) btnSingleUpdateIcon.textContent = "🔒";
+      if (btnSingleUpdateText) btnSingleUpdateText.textContent = "Mises à jour verrouillées (Import Immich en cours)";
       if (btnSingleUpdateBadge) btnSingleUpdateBadge.style.display = "none";
-    } else if (hasAnyUpdate) {
+    } else {
+      btnSingleUpdate.disabled = status.is_updating;
+      if (status.is_updating) {
+        if (btnSingleUpdateIcon) btnSingleUpdateIcon.textContent = "⏳";
+        if (btnSingleUpdateText) btnSingleUpdateText.textContent = "Mise à jour en cours...";
+        if (btnSingleUpdateBadge) btnSingleUpdateBadge.style.display = "none";
+      } else if (hasAnyUpdate) {
       if (btnSingleUpdateIcon) btnSingleUpdateIcon.textContent = "🚀";
       let targetLabel = "";
       if (hasConfigUpdate && status.config_remote_commit && status.config_remote_commit !== status.config_local_commit) {
@@ -990,6 +997,7 @@ function renderUpdatesUI(status) {
       if (btnSingleUpdateText) btnSingleUpdateText.textContent = "Réinstaller / Synchroniser le système";
       if (btnSingleUpdateBadge) btnSingleUpdateBadge.style.display = "none";
     }
+  }
   }
 
   // 4. Double Télémétrie : Carte 1 - Configuration OS NixOS
@@ -10823,8 +10831,572 @@ async function clearYoutubeJobsHistory() {
   }
 }
 
+// ==========================================================================
+// OUTIL : PASSERELLE D'IMPORTATION IMMICH & PHOTOS (IMMICH-GO)
+// ==========================================================================
+let currentImmichSourceTab = "takeout";
+let immichPollInterval = null;
+let currentImmichJob = null;
+let isImmichConfigDrawerOpen = false;
 
+function toggleImmichConfigDrawer() {
+  const drawer = document.getElementById("immich-config-drawer");
+  if (!drawer) return;
+  isImmichConfigDrawerOpen = !isImmichConfigDrawerOpen;
+  drawer.style.display = isImmichConfigDrawerOpen ? "block" : "none";
+  if (isImmichConfigDrawerOpen) {
+    loadImmichConfig();
+  }
+}
 
+function toggleImmichCardCollapse() {
+  const body = document.getElementById("immich-importer-body");
+  const btn = document.getElementById("btn-immich-collapse");
+  if (!body) return;
+  const isHidden = body.style.display === "none";
+  body.style.display = isHidden ? "block" : "none";
+  if (btn) btn.innerHTML = isHidden ? '<span style="font-size:1.1rem; line-height:1; font-weight:700;">−</span>' : '<span style="font-size:1.1rem; line-height:1; font-weight:700;">+</span>';
+}
+
+function toggleTakeoutGuide() {
+  const content = document.getElementById("takeout-guide-content");
+  const icon = document.getElementById("takeout-guide-toggle-icon");
+  if (!content) return;
+  const isHidden = content.style.display === "none";
+  content.style.display = isHidden ? "block" : "none";
+  if (icon) icon.textContent = isHidden ? "▲ Replier le guide" : "▼ Déplier le guide";
+}
+
+function selectImmichSourceTab(tab) {
+  currentImmichSourceTab = tab;
+
+  const tabs = ["takeout", "kdrive", "nas"];
+  tabs.forEach(t => {
+    const btn = document.getElementById(`tab-btn-${t}`);
+    const panel = document.getElementById(`immich-panel-${t}`);
+    if (btn) {
+      if (t === tab) {
+        btn.classList.add("active");
+        btn.style.borderColor = "var(--mauve)";
+        btn.style.background = "rgba(203,166,247,0.12)";
+      } else {
+        btn.classList.remove("active");
+        btn.style.borderColor = "rgba(255,255,255,0.08)";
+        btn.style.background = "rgba(255,255,255,0.02)";
+      }
+    }
+    if (panel) {
+      panel.style.display = t === tab ? "block" : "none";
+    }
+  });
+
+  if (tab === "kdrive") {
+    populateImmichKdriveAccounts();
+  }
+}
+
+function setImmichTakeoutPath(p) {
+  const input = document.getElementById("immich-takeout-path-input");
+  if (input) input.value = p || "";
+}
+
+function setImmichNasPath(p) {
+  const input = document.getElementById("immich-nas-path-input");
+  if (input) input.value = p || "";
+}
+
+function toggleImmichApiKeyVisibility() {
+  const input = document.getElementById("immich-api-key-input");
+  if (!input) return;
+  input.type = input.type === "password" ? "text" : "password";
+}
+
+async function loadImmichConfig() {
+  try {
+    const res = await fetch("/api/immich/config");
+    if (!res.ok) return;
+    const json = await res.json();
+    if (!json.success || !json.data) return;
+
+    const data = json.data;
+    const urlInput = document.getElementById("immich-server-url-input");
+    const keyInput = document.getElementById("immich-api-key-input");
+    const binBadge = document.getElementById("immich-bin-status-badge");
+    const btnInstall = document.getElementById("btn-install-immich-go");
+
+    if (urlInput && data.server_url) urlInput.value = data.server_url;
+    if (keyInput && data.api_key_masked) keyInput.placeholder = data.api_key_masked;
+
+    if (binBadge) {
+      if (data.binary_available) {
+        binBadge.className = "badge badge-success";
+        binBadge.textContent = data.binary_version ? `✓ ${data.binary_version}` : "✓ immich-go prêt";
+        if (btnInstall) btnInstall.style.display = "none";
+      } else {
+        binBadge.className = "badge badge-warning";
+        binBadge.textContent = "⚠️ immich-go non installé";
+        if (btnInstall) btnInstall.style.display = "inline-block";
+      }
+    }
+  } catch (err) {
+    console.error("Erreur chargement config Immich :", err);
+  }
+}
+
+async function saveImmichConfigAction() {
+  const urlInput = document.getElementById("immich-server-url-input");
+  const keyInput = document.getElementById("immich-api-key-input");
+  const albumInput = document.getElementById("immich-album-input");
+
+  const server_url = urlInput ? urlInput.value.trim() : "http://localhost:2283";
+  const api_key = keyInput ? keyInput.value.trim() : "";
+  const default_album = albumInput ? albumInput.value.trim() : "";
+
+  try {
+    const res = await fetch("/api/immich/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        server_url,
+        api_key: api_key || null,
+        default_album: default_album || null
+      })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast("Configuration Immich enregistrée avec succès !", "success");
+      loadImmichConfig();
+    } else {
+      showToast("Erreur : " + (json.message || "Échec de l'enregistrement"), "error");
+    }
+  } catch (err) {
+    showToast("Erreur sauvegarde : " + err, "error");
+  }
+}
+
+async function testImmichConnectionAction() {
+  const statusEl = document.getElementById("immich-test-status");
+  const urlInput = document.getElementById("immich-server-url-input");
+  const keyInput = document.getElementById("immich-api-key-input");
+
+  if (statusEl) {
+    statusEl.innerHTML = '<span style="color:var(--yellow);">⏳ Test de connexion en cours...</span>';
+  }
+
+  try {
+    const res = await fetch("/api/immich/check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        server_url: urlInput ? urlInput.value.trim() : null,
+        api_key: keyInput ? keyInput.value.trim() : null
+      })
+    });
+    const json = await res.json();
+    if (json.success) {
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--green);">🟢 ${escapeHtml(json.message || json.data || 'Connecté')}</span>`;
+      showToast("Connexion à Immich établie avec succès !", "success");
+    } else {
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--red);">🔴 ${escapeHtml(json.message || 'Échec')}</span>`;
+      showToast("Impossible de joindre Immich : " + json.message, "error");
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--red);">🔴 Erreur réseau</span>`;
+    showToast("Erreur test connexion : " + err, "error");
+  }
+}
+
+async function installImmichBinaryAction() {
+  const btn = document.getElementById("btn-install-immich-go");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "⏳ Téléchargement et installation...";
+  }
+
+  try {
+    const res = await fetch("/api/immich/install", { method: "POST" });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.message || "immich-go installé avec succès !", "success");
+      await loadImmichConfig();
+    } else {
+      showToast("Échec de l'installation : " + (json.message || "Erreur"), "error");
+    }
+  } catch (err) {
+    showToast("Erreur installation : " + err, "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "📥 Installer immich-go";
+    }
+  }
+}
+
+async function populateImmichKdriveAccounts() {
+  const select = document.getElementById("immich-kdrive-account-select");
+  if (!select) return;
+
+  try {
+    const res = await fetch("/api/kdrive/accounts");
+    if (!res.ok) return;
+    const json = await res.json();
+    if (!json.success || !Array.isArray(json.data)) return;
+
+    if (json.data.length === 0) {
+      select.innerHTML = '<option value="">Aucun compte kDrive configuré (ajoutez-en un dans kDrive)</option>';
+      return;
+    }
+
+    select.innerHTML = json.data.map(acc => `<option value="${escapeHtml(acc.id)}">${escapeHtml(acc.name)} (${escapeHtml(acc.drive_name || 'Drive')})</option>`).join("");
+  } catch (err) {
+    console.error("Erreur chargement comptes kDrive pour Immich :", err);
+  }
+}
+
+function onImmichKdriveAccountChange() {}
+
+async function launchImmichImportAction() {
+  const btn = document.getElementById("btn-start-immich-import");
+  const btnText = document.getElementById("btn-start-immich-text");
+  const albumInput = document.getElementById("immich-album-input");
+  const album = albumInput ? albumInput.value.trim() : null;
+
+  let payload = {
+    source_type: currentImmichSourceTab,
+    album: album || null,
+  };
+
+  if (currentImmichSourceTab === "takeout") {
+    const pathInput = document.getElementById("immich-takeout-path-input");
+    const path = pathInput ? pathInput.value.trim() : "";
+    if (!path) {
+      showToast("Veuillez indiquer le chemin de l'archive ZIP ou du dossier Google Takeout.", "error");
+      return;
+    }
+    payload.path = path;
+  } else if (currentImmichSourceTab === "kdrive") {
+    const accSelect = document.getElementById("immich-kdrive-account-select");
+    const folderInput = document.getElementById("immich-kdrive-folder-input");
+    const account_id = accSelect ? accSelect.value : "";
+    const folder_id = folderInput ? parseInt(folderInput.value, 10) : 1;
+
+    if (!account_id) {
+      showToast("Veuillez sélectionner un compte kDrive valide.", "error");
+      return;
+    }
+    payload.kdrive_account_id = account_id;
+    payload.kdrive_folder_id = isNaN(folder_id) ? 1 : folder_id;
+  } else if (currentImmichSourceTab === "nas") {
+    const pathInput = document.getElementById("immich-nas-path-input");
+    const path = pathInput ? pathInput.value.trim() : "";
+    if (!path) {
+      showToast("Veuillez spécifier le dossier source du NAS à importer.", "error");
+      return;
+    }
+    payload.path = path;
+  }
+
+  if (btn) btn.disabled = true;
+  if (btnText) btnText.textContent = "⏳ Démarrage de l'import...";
+
+  try {
+    const res = await fetch("/api/immich/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      throw new Error(json.message || "Échec du démarrage de l'importation");
+    }
+
+    currentImmichJob = { id: json.data };
+    showToast("Importation Immich-Go lancée en tâche de fond !", "success");
+
+    const tray = document.getElementById("immich-floating-tray");
+    if (tray) {
+      tray.style.display = "block";
+      tray.classList.remove("minimized");
+      updateFloatingDockLayout();
+    }
+
+    startImmichStatusPolling();
+    await pollImmichStatus();
+  } catch (err) {
+    showToast("Erreur lors du lancement Immich : " + (err.message || err), "error");
+  } finally {
+    if (btn) btn.disabled = false;
+    if (btnText) btnText.textContent = "Lancer l'importation Immich";
+  }
+}
+
+function startImmichStatusPolling() {
+  if (immichPollInterval) clearInterval(immichPollInterval);
+  immichPollInterval = setInterval(pollImmichStatus, 1500);
+}
+
+function stopImmichStatusPolling() {
+  if (immichPollInterval) {
+    clearInterval(immichPollInterval);
+    immichPollInterval = null;
+  }
+}
+
+async function pollImmichStatus() {
+  try {
+    const res = await fetch("/api/immich/status");
+    if (!res.ok) return;
+    const json = await res.json();
+    if (!json.success || !json.data) return;
+
+    currentImmichJob = json.data;
+    renderImmichTray(currentImmichJob);
+
+    const reportModal = document.getElementById("modal-immich-report");
+    if (reportModal && reportModal.style.display !== "none") {
+      renderImmichReportContent(currentImmichJob);
+    }
+
+    if (currentImmichJob.status !== "running") {
+      stopImmichStatusPolling();
+      const reportBtn = document.getElementById("btn-immich-tray-report");
+      if (reportBtn) reportBtn.style.display = "inline-block";
+    }
+  } catch (err) {
+    console.error("Erreur lors de la vérification du statut Immich :", err);
+  }
+}
+
+function renderImmichTray(job) {
+  const tray = document.getElementById("immich-floating-tray");
+  if (!tray) return;
+
+  if (!job || job.status === "idle") {
+    tray.style.display = "none";
+    updateFloatingDockLayout();
+    return;
+  }
+
+  tray.style.display = "block";
+
+  const titleEl = document.getElementById("immich-tray-title");
+  const subtitleEl = document.getElementById("immich-tray-subtitle");
+  const badgeEl = document.getElementById("immich-tray-badge");
+  const sourceEl = document.getElementById("immich-tray-source");
+  const countEl = document.getElementById("immich-tray-count");
+  const progressBar = document.getElementById("immich-tray-progress-bar");
+  const currentFileEl = document.getElementById("immich-tray-current-file");
+  const succBadge = document.getElementById("immich-tray-success-badge");
+  const dupBadge = document.getElementById("immich-tray-dup-badge");
+  const failBadge = document.getElementById("immich-tray-fail-badge");
+  const cancelBtn = document.getElementById("btn-immich-tray-cancel");
+  const reportBtn = document.getElementById("btn-immich-tray-report");
+
+  const pct = Math.round(job.progress_percent || 0);
+
+  if (titleEl) titleEl.textContent = `Import Immich (${(job.source_type || 'auto').toUpperCase()})`;
+  if (sourceEl) sourceEl.textContent = job.source_label || "Source";
+  if (countEl) countEl.textContent = `${job.processed_files} / ${job.total_files || '...'}`;
+  if (progressBar) progressBar.style.width = `${pct}%`;
+  if (currentFileEl) currentFileEl.textContent = job.current_file || "Traitement...";
+
+  if (succBadge) succBadge.textContent = `✓ ${job.success_count || 0}`;
+  if (dupBadge) dupBadge.textContent = `⏭ ${job.duplicate_count || 0}`;
+  if (failBadge) failBadge.textContent = `✕ ${job.failed_count || 0}`;
+
+  if (job.status === "running") {
+    if (subtitleEl) subtitleEl.textContent = "Synchronisation en cours...";
+    if (badgeEl) {
+      badgeEl.className = "badge badge-accent";
+      badgeEl.textContent = `${pct}%`;
+    }
+    if (cancelBtn) cancelBtn.style.display = "inline-block";
+    if (reportBtn) reportBtn.style.display = "inline-block";
+  } else if (job.status === "completed") {
+    if (subtitleEl) subtitleEl.textContent = "Terminé avec succès";
+    if (badgeEl) {
+      badgeEl.className = "badge badge-success";
+      badgeEl.textContent = "✓ Terminé";
+    }
+    if (cancelBtn) cancelBtn.style.display = "none";
+    if (reportBtn) reportBtn.style.display = "inline-block";
+  } else if (job.status === "cancelled") {
+    if (subtitleEl) subtitleEl.textContent = "Opération annulée";
+    if (badgeEl) {
+      badgeEl.className = "badge badge-warning";
+      badgeEl.textContent = "⚠️ Annulé";
+    }
+    if (cancelBtn) cancelBtn.style.display = "none";
+    if (reportBtn) reportBtn.style.display = "inline-block";
+  } else if (job.status === "error") {
+    if (subtitleEl) subtitleEl.textContent = "Erreur survenue";
+    if (badgeEl) {
+      badgeEl.className = "badge badge-danger";
+      badgeEl.textContent = "✕ Erreur";
+    }
+    if (cancelBtn) cancelBtn.style.display = "none";
+    if (reportBtn) reportBtn.style.display = "inline-block";
+  }
+
+  updateFloatingDockLayout();
+}
+
+function closeImmichTray() {
+  const tray = document.getElementById("immich-floating-tray");
+  if (tray) {
+    tray.style.display = "none";
+    updateFloatingDockLayout();
+  }
+}
+
+function openImmichReportModal() {
+  const modal = document.getElementById("modal-immich-report");
+  if (!modal) return;
+  modal.style.display = "flex";
+  if (currentImmichJob) {
+    renderImmichReportContent(currentImmichJob);
+  } else {
+    pollImmichStatus();
+  }
+}
+
+function closeImmichReportModal() {
+  const modal = document.getElementById("modal-immich-report");
+  if (modal) modal.style.display = "none";
+}
+
+function renderImmichReportContent(job) {
+  if (!job) return;
+
+  const totalEl = document.getElementById("immich-stat-total");
+  const successEl = document.getElementById("immich-stat-success");
+  const dupEl = document.getElementById("immich-stat-duplicates");
+  const failedEl = document.getElementById("immich-stat-failed");
+  const titleEl = document.getElementById("immich-report-modal-title");
+  const badgeEl = document.getElementById("immich-report-modal-badge");
+  const failSection = document.getElementById("immich-failures-section");
+  const failTbody = document.getElementById("immich-failed-items-tbody");
+  const logsArea = document.getElementById("immich-report-logs-textarea");
+
+  if (totalEl) totalEl.textContent = job.total_files || job.processed_files || 0;
+  if (successEl) successEl.textContent = job.success_count || 0;
+  if (dupEl) dupEl.textContent = job.duplicate_count || 0;
+  if (failedEl) failedEl.textContent = job.failed_count || 0;
+
+  if (titleEl) titleEl.textContent = `Bilan : ${job.source_label || 'Importation Immich'}`;
+  if (badgeEl) {
+    if (job.status === "completed") {
+      badgeEl.className = "badge badge-success";
+      badgeEl.textContent = "TERMINÉ AVEC SUCCÈS";
+    } else if (job.status === "cancelled") {
+      badgeEl.className = "badge badge-warning";
+      badgeEl.textContent = "ANNULÉ";
+    } else if (job.status === "error") {
+      badgeEl.className = "badge badge-danger";
+      badgeEl.textContent = "ÉCHEC PARTIEL";
+    } else {
+      badgeEl.className = "badge badge-purple";
+      badgeEl.textContent = "EN COURS D'IMPORTATION";
+    }
+  }
+
+  if (failSection && failTbody) {
+    if (Array.isArray(job.failed_items) && job.failed_items.length > 0) {
+      failSection.style.display = "block";
+      failTbody.innerHTML = job.failed_items.map(item => `
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+          <td style="padding:6px; font-weight:600; color:var(--text);">${escapeHtml(item.filename)}</td>
+          <td style="padding:6px; color:var(--subtext0); font-family:var(--font-mono); font-size:0.72rem;">${escapeHtml(item.path_or_uri)}</td>
+          <td style="padding:6px; color:var(--red);">${escapeHtml(item.reason)}</td>
+        </tr>
+      `).join("");
+    } else {
+      failSection.style.display = "none";
+      failTbody.innerHTML = "";
+    }
+  }
+
+  if (logsArea && Array.isArray(job.logs)) {
+    logsArea.value = job.logs.join("\n");
+    logsArea.scrollTop = logsArea.scrollHeight;
+  }
+}
+
+function copyImmichReportLogs() {
+  const logsArea = document.getElementById("immich-report-logs-textarea");
+  if (!logsArea) return;
+  navigator.clipboard.writeText(logsArea.value).then(() => {
+    showToast("Logs d'importation copiés dans le presse-papier !", "success");
+  }).catch(() => {
+    showToast("Impossible de copier dans le presse-papier", "error");
+  });
+}
+
+async function cancelImmichImportAction() {
+  if (!currentImmichJob || !currentImmichJob.id) {
+    showToast("Aucune importation active à annuler.", "warning");
+    return;
+  }
+
+  if (!confirm("Voulez-vous vraiment annuler l'importation Immich en cours ?")) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/immich/cancel/${encodeURIComponent(currentImmichJob.id)}`, {
+      method: "POST"
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast("Importation annulée.", "info");
+      await pollImmichStatus();
+    } else {
+      showToast("Erreur annulation : " + (json.message || "Échec"), "error");
+    }
+  } catch (err) {
+    showToast("Erreur annulation : " + err, "error");
+  }
+}
+
+async function retryImmichFailedItemsAction() {
+  if (!currentImmichJob || !currentImmichJob.id) {
+    showToast("Tâche introuvable pour la relance.", "error");
+    return;
+  }
+
+  const btn = document.getElementById("btn-immich-retry-failed");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "⏳ Relance en cours...";
+  }
+
+  try {
+    const res = await fetch(`/api/immich/retry/${encodeURIComponent(currentImmichJob.id)}`, {
+      method: "POST"
+    });
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      throw new Error(json.message || "Impossible de relancer les fichiers en échec");
+    }
+
+    showToast("Nouvelle tentative lancée pour les fichiers en échec !", "success");
+    currentImmichJob = { id: json.data };
+    startImmichStatusPolling();
+    await pollImmichStatus();
+  } catch (err) {
+    showToast("Erreur lors de la nouvelle tentative : " + (err.message || err), "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = "<span>🔄</span> Réessayer les fichiers en échec";
+    }
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  loadImmichConfig();
+  pollImmichStatus();
+});
 
 // ==========================================================================
 // VISUALISEUR UNIVERSEL DE DOCUMENTS BUREAUTIQUES & PDF

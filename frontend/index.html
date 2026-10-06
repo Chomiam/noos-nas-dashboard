@@ -1110,6 +1110,178 @@
         </div>
       </div>
 
+      <!-- ================= OUTIL : IMPORTATEUR IMMICH (IMMICH-GO) ================= -->
+      <div class="immich-importer-card" id="immich-importer-card" style="margin-top: 20px; background: var(--mantle); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 14px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); overflow: hidden;">
+        <div class="immich-header" style="padding: 16px 20px; background: #181825; border-bottom: 1px solid rgba(255, 255, 255, 0.06); display: flex; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span class="immich-badge" style="background: var(--mauve); color: #11111b; font-weight: 800; font-size: 0.72rem; letter-spacing: 0.05em; padding: 4px 8px; border-radius: 6px; box-shadow: 0 0 10px rgba(203, 166, 247, 0.4);">📸 IMMICH-GO</span>
+            <div>
+              <h3 style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--text);">Passerelle d'Importation Photos & Vidéos Immich</h3>
+              <p style="margin: 2px 0 0 0; font-size: 0.78rem; color: var(--subtext0);">Importez et consolidez vos médiathèques depuis Google Photos (Takeout), kDrive Infomaniak ou vos dossiers NAS locaux avec détection intelligente des doublons</p>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <button type="button" class="files-btn" onclick="toggleImmichConfigDrawer()" id="btn-immich-config-toggle" title="Paramètres du serveur Immich (URL, Clé API)">
+              <span>⚙️ Paramètres Immich</span>
+            </button>
+            <button type="button" class="files-btn files-btn-icon-only" onclick="toggleImmichCardCollapse()" id="btn-immich-collapse" title="Réduire / Agrandir">
+              <span style="font-size:1.1rem; line-height:1; font-weight:700;">−</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="immich-body" id="immich-importer-body" style="padding: 20px;">
+          <!-- Tiroir de configuration Immich (rétractable) -->
+          <div id="immich-config-drawer" style="display:none; background:rgba(0,0,0,0.25); border:1px solid rgba(203, 166, 247, 0.2); border-radius:10px; padding:16px; margin-bottom:20px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+              <div style="font-weight:700; font-size:0.9rem; color:var(--mauve); display:flex; align-items:center; gap:6px;">
+                <span>⚙️</span> Configuration de l'instance Immich
+              </div>
+              <div id="immich-bin-status-badge" class="badge badge-warning" style="font-size:0.75rem;">Vérification immich-go...</div>
+            </div>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin-bottom:12px;">
+              <div>
+                <label class="form-label" style="font-size:0.8rem; font-weight:600;">URL du serveur Immich :</label>
+                <input type="text" id="immich-server-url-input" class="form-control font-mono" placeholder="http://localhost:2283 ou http://IP_NAS:2283" value="http://localhost:2283">
+              </div>
+              <div>
+                <label class="form-label" style="font-size:0.8rem; font-weight:600;">Clé API Immich :</label>
+                <div style="position:relative;">
+                  <input type="password" id="immich-api-key-input" class="form-control font-mono" placeholder="••••••••" style="padding-right:40px;">
+                  <button type="button" class="files-btn files-btn-icon-only" style="position:absolute; right:4px; top:50%; transform:translateY(-50%); border:none; background:transparent;" onclick="toggleImmichApiKeyVisibility()" title="Afficher/Masquer">👁️</button>
+                </div>
+              </div>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+              <div style="display:flex; gap:8px;">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="saveImmichConfigAction()">💾 Enregistrer la configuration</button>
+                <button type="button" class="btn btn-info btn-sm" onclick="testImmichConnectionAction()">🔌 Tester la connexion</button>
+                <button type="button" class="btn btn-warning btn-sm" id="btn-install-immich-go" onclick="installImmichBinaryAction()" style="display:none;">📥 Installer immich-go</button>
+              </div>
+              <div id="immich-test-status" style="font-size:0.8rem; font-weight:600;"></div>
+            </div>
+          </div>
+
+          <!-- Onglets de sélection du cas d'usage -->
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px; margin-bottom:20px;">
+            <!-- Option 1 : Google Photos Takeout -->
+            <button type="button" class="btn-immich-source-tab active" id="tab-btn-takeout" onclick="selectImmichSourceTab('takeout')" style="padding:14px; border-radius:10px; border:1px solid var(--mauve); background:rgba(203,166,247,0.12); text-align:left; cursor:pointer; color:var(--text); transition:all 0.2s ease;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                <span style="font-size:1.3rem;">📦</span>
+                <strong style="color:var(--mauve); font-size:0.92rem;">Google Takeout</strong>
+              </div>
+              <div style="font-size:0.75rem; color:var(--subtext0);">Archives ZIP/TAR de Google Photos avec métadonnées JSON intégrées</div>
+            </button>
+
+            <!-- Option 2 : kDrive Infomaniak -->
+            <button type="button" class="btn-immich-source-tab" id="tab-btn-kdrive" onclick="selectImmichSourceTab('kdrive')" style="padding:14px; border-radius:10px; border:1px solid rgba(255,255,255,0.08); background:rgba(255,255,255,0.02); text-align:left; cursor:pointer; color:var(--text); transition:all 0.2s ease;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                <span style="font-size:1.3rem;">☁️</span>
+                <strong style="font-size:0.92rem;">kDrive Infomaniak</strong>
+              </div>
+              <div style="font-size:0.75rem; color:var(--subtext0);">Dossier cloud complet avec sous-dossiers récursifs et respect de l'API</div>
+            </button>
+
+            <!-- Option 3 : Dossier local NAS -->
+            <button type="button" class="btn-immich-source-tab" id="tab-btn-nas" onclick="selectImmichSourceTab('nas')" style="padding:14px; border-radius:10px; border:1px solid rgba(255,255,255,0.08); background:rgba(255,255,255,0.02); text-align:left; cursor:pointer; color:var(--text); transition:all 0.2s ease;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                <span style="font-size:1.3rem;">🖥️</span>
+                <strong style="font-size:0.92rem;">Dossier local NAS</strong>
+              </div>
+              <div style="font-size:0.75rem; color:var(--subtext0);">Répertoire existant sur les disques ou partages montés du NAS</div>
+            </button>
+          </div>
+
+          <!-- PANNEAU 1 : GOOGLE PHOTOS TAKEOUT -->
+          <div id="immich-panel-takeout" class="immich-source-panel">
+            <!-- Guide explicatif Google Takeout -->
+            <div style="background:rgba(137, 180, 250, 0.08); border:1px solid rgba(137, 180, 250, 0.25); border-radius:10px; padding:14px 16px; margin-bottom:16px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleTakeoutGuide()">
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span style="font-size:1.1rem;">💡</span>
+                  <strong style="color:var(--blue); font-size:0.88rem;">Comment obtenir et préparer vos archives Google Takeout ?</strong>
+                </div>
+                <span id="takeout-guide-toggle-icon" style="color:var(--subtext0); font-size:0.8rem;">▼ Déplier le guide</span>
+              </div>
+              <div id="takeout-guide-content" style="display:none; margin-top:12px; font-size:0.8rem; color:var(--subtext1); line-height:1.6; border-top:1px dashed rgba(137,180,250,0.2); padding-top:10px;">
+                <ol style="margin:0; padding-left:20px;">
+                  <li>Rendez-vous sur <strong><a href="https://takeout.google.com" target="_blank" style="color:var(--blue); text-decoration:underline;">takeout.google.com</a></strong> avec votre compte Google.</li>
+                  <li>Cliquez sur <strong>"Tout désélectionner"</strong> en haut de la liste, puis descendez cocher uniquement <strong>"Google Photos"</strong>.</li>
+                  <li>Cliquez sur <em>Étape suivante</em>. Choisissez le type de fichier <strong>.zip</strong> et la taille d'archive souhaitée (ex: <strong>10 Go ou 50 Go</strong> par fichier pour limiter le nombre de volumes).</li>
+                  <li>Une fois le lien Google reçu par e-mail, téléchargez vos archives ZIP et déposez-les sur votre NAS (ou téléversez-les dans vos fichiers).</li>
+                  <li><strong>Pas besoin de décompresser !</strong> Indiquez directement ci-dessous le fichier ZIP ou le dossier contenant vos ZIPs. Immich-Go lit l'archive à la volée et associe automatiquement les métadonnées JSON (dates de prise de vue, coordonnées GPS, descriptions d'albums).</li>
+                </ol>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom:14px;">
+              <label class="form-label" style="font-weight:700;">Chemin de l'archive ZIP ou du dossier Takeout :</label>
+              <div class="input-with-icon">
+                <input type="text" id="immich-takeout-path-input" class="form-control font-mono" placeholder="Ex: /home/chomiam/takeout-2026.zip ou ~/takeout">
+              </div>
+              <div class="youtube-dir-presets" style="margin-top:6px;">
+                <span style="font-size:0.75rem; color:var(--subtext0);">Raccourcis :</span>
+                <button type="button" class="btn-dir-preset" onclick="setImmichTakeoutPath(currentFolderPath)">📂 dossier actuel</button>
+                <button type="button" class="btn-dir-preset" onclick="setImmichTakeoutPath(getUserHome() + '/telechargements')">📥 telechargements</button>
+                <button type="button" class="btn-dir-preset" onclick="setImmichTakeoutPath(getUserHome())">🏠 dossier personnel</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- PANNEAU 2 : KDRIVE INFOMANIAK -->
+          <div id="immich-panel-kdrive" class="immich-source-panel" style="display:none;">
+            <div style="background:rgba(166, 227, 161, 0.08); border:1px solid rgba(166, 227, 161, 0.25); border-radius:10px; padding:12px 16px; margin-bottom:16px; font-size:0.8rem; color:var(--subtext1); line-height:1.5;">
+              <div style="font-weight:700; color:var(--green); margin-bottom:4px; display:flex; align-items:center; gap:6px;">
+                <span>🛡️</span> Respect rigoureux des quotas & API Infomaniak
+              </div>
+              <div>Le dossier sélectionné sera exploré récursivement avec tous ses sous-dossiers. Les requêtes sont régulées par un pacer anti-flood (50ms) pour garantir une tolérance zéro bannissement et une absorption fluide sans saturer la bande passante.</div>
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin-bottom:14px;">
+              <div class="form-group">
+                <label class="form-label" style="font-weight:700;">Compte kDrive source :</label>
+                <select id="immich-kdrive-account-select" class="form-control" onchange="onImmichKdriveAccountChange()">
+                  <option value="">Chargement des comptes...</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" style="font-weight:700;">ID du dossier kDrive (1 = Racine) :</label>
+                <input type="number" id="immich-kdrive-folder-input" class="form-control font-mono" value="1" placeholder="1 pour la racine ou ID du dossier">
+              </div>
+            </div>
+          </div>
+
+          <!-- PANNEAU 3 : DOSSIER LOCAL NAS -->
+          <div id="immich-panel-nas" class="immich-source-panel" style="display:none;">
+            <div class="form-group" style="margin-bottom:14px;">
+              <label class="form-label" style="font-weight:700;">Dossier local source sur le NAS :</label>
+              <div class="input-with-icon">
+                <input type="text" id="immich-nas-path-input" class="form-control font-mono" placeholder="Ex: /home/chomiam/Photos ou /mnt/data/photos">
+              </div>
+              <div class="youtube-dir-presets" style="margin-top:6px;">
+                <span style="font-size:0.75rem; color:var(--subtext0);">Raccourcis :</span>
+                <button type="button" class="btn-dir-preset" onclick="setImmichNasPath(currentFolderPath)">📂 dossier actuel</button>
+                <button type="button" class="btn-dir-preset" onclick="setImmichNasPath(getUserHome() + '/images')">🖼️ ~/images</button>
+                <button type="button" class="btn-dir-preset" onclick="setImmichNasPath(getUserHome() + '/photos')">📸 ~/photos</button>
+                <button type="button" class="btn-dir-preset" onclick="setImmichNasPath(getUserHome())">🏠 dossier personnel</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Album cible et bouton d'action principal -->
+          <div style="display:flex; gap:14px; align-items:flex-end; border-top:1px solid rgba(255,255,255,0.06); padding-top:16px;">
+            <div style="flex:1; max-width:320px;">
+              <label class="form-label" style="font-size:0.8rem; font-weight:700;">Album Immich cible (optionnel) :</label>
+              <input type="text" id="immich-album-input" class="form-control" placeholder="Ex: Voyage 2026 ou laissons vide">
+            </div>
+            <button type="button" class="files-btn files-btn-accent" style="padding:10px 24px; font-size:0.92rem; font-weight:700;" id="btn-start-immich-import" onclick="launchImmichImportAction()">
+              <span style="font-size:1.1rem;">🚀</span>
+              <span id="btn-start-immich-text">Lancer l'importation Immich</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
     </div>
 
         <!-- ================= ONGLET 2 : MISES À JOUR INTELLIGENTES ================= -->
@@ -6895,6 +7067,45 @@
           </div>
         </div>
       </div>
+
+      <!-- 5. POPUP FLOTTANTE : PROGRESSION IMPORTATION IMMICH-GO -->
+      <div class="floating-task-card immich-floating-tray" id="immich-floating-tray" style="display:none;">
+        <div class="floating-card-header">
+          <div class="floating-card-header-left">
+            <span class="floating-card-icon" id="immich-tray-icon">📸</span>
+            <div class="floating-card-titles">
+              <div class="floating-card-title" id="immich-tray-title">Importation Immich</div>
+              <div class="floating-card-subtitle" id="immich-tray-subtitle">Initialisation...</div>
+            </div>
+          </div>
+          <div class="floating-card-header-right">
+            <span class="badge badge-accent" id="immich-tray-badge">0%</span>
+            <button type="button" class="floating-card-action-btn" onclick="toggleFloatingCardMinimize('immich-floating-tray')" id="immich-tray-min-btn" title="Minimiser / Dérouler">_</button>
+            <button type="button" class="floating-card-action-btn btn-close" onclick="closeImmichTray()" title="Masquer la notification">✕</button>
+          </div>
+        </div>
+        <div class="floating-card-body" id="immich-tray-body">
+          <div class="floating-card-meta-row">
+            <span class="floating-card-path" id="immich-tray-source" title="Source d'import">📦 Source...</span>
+            <span class="floating-card-count" id="immich-tray-count">0 / 0</span>
+          </div>
+          <div class="floating-card-progress-wrap">
+            <div class="floating-card-progress-bar" id="immich-tray-progress-bar" style="width: 0%;"></div>
+          </div>
+          <div class="floating-card-status-row" style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+            <span class="floating-card-item-name" id="immich-tray-current-file" style="max-width:65%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.75rem;">En attente...</span>
+            <div style="display:flex; gap:4px; font-size:0.7rem;">
+              <span class="badge badge-success" id="immich-tray-success-badge" title="Importés avec succès">✓ 0</span>
+              <span class="badge badge-info" id="immich-tray-dup-badge" title="Doublons ignorés">⏭ 0</span>
+              <span class="badge badge-danger" id="immich-tray-fail-badge" title="Échecs">✕ 0</span>
+            </div>
+          </div>
+          <div style="margin-top:8px; display:flex; justify-content:space-between; align-items:center;">
+            <button type="button" class="btn btn-secondary btn-xs" onclick="openImmichReportModal()" id="btn-immich-tray-report" style="font-size:0.75rem;">📊 Rapport détaillé</button>
+            <button type="button" class="btn btn-danger btn-xs" onclick="cancelImmichImportAction()" id="btn-immich-tray-cancel" style="font-size:0.75rem;">⛔ Annuler l'import</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -6936,6 +7147,82 @@
           <span id="docker-error-copied-feedback" style="display:none; color:var(--green); font-size:0.8rem; font-weight:600;">✓ Copié dans le presse-papier !</span>
         </div>
         <button type="button" class="btn btn-primary btn-sm" onclick="closeDockerDeployErrorModal()">
+          <span>✕</span> Fermer
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL : RAPPORT DÉTAILLÉ D'IMPORTATION IMMICH (CENTRÉ) -->
+  <div class="file-modal-overlay" id="modal-immich-report" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-immich-report')">
+    <div class="file-modal-window" style="max-width: 820px; width: 94%; border-color: rgba(203, 166, 247, 0.4); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.75), 0 0 30px rgba(203, 166, 247, 0.15);">
+      <div class="file-modal-header" style="border-bottom: 1px solid rgba(203, 166, 247, 0.25); display: flex; justify-content: space-between; align-items: center;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-purple" style="font-size:0.75rem; font-weight:800;" id="immich-report-modal-badge">RAPPORT IMMICH</span>
+          <span class="file-modal-title" id="immich-report-modal-title">Bilan de l'importation Immich-Go</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeImmichReportModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:22px;">
+        <!-- Statistiques synthétiques -->
+        <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:18px;">
+          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:12px; text-align:center;">
+            <div style="font-size:0.72rem; color:var(--subtext0); text-transform:uppercase;">Total Analysés</div>
+            <div style="font-size:1.4rem; font-weight:800; color:var(--text); margin-top:2px;" id="immich-stat-total">0</div>
+          </div>
+          <div style="background:rgba(166,227,161,0.08); border:1px solid rgba(166,227,161,0.25); border-radius:8px; padding:12px; text-align:center;">
+            <div style="font-size:0.72rem; color:var(--green); text-transform:uppercase;">✓ Importés</div>
+            <div style="font-size:1.4rem; font-weight:800; color:var(--green); margin-top:2px;" id="immich-stat-success">0</div>
+          </div>
+          <div style="background:rgba(137,180,250,0.08); border:1px solid rgba(137,180,250,0.25); border-radius:8px; padding:12px; text-align:center;">
+            <div style="font-size:0.72rem; color:var(--blue); text-transform:uppercase;">⏭ Doublons</div>
+            <div style="font-size:1.4rem; font-weight:800; color:var(--blue); margin-top:2px;" id="immich-stat-duplicates">0</div>
+          </div>
+          <div style="background:rgba(243,139,168,0.08); border:1px solid rgba(243,139,168,0.25); border-radius:8px; padding:12px; text-align:center;">
+            <div style="font-size:0.72rem; color:var(--red); text-transform:uppercase;">✕ Échecs</div>
+            <div style="font-size:1.4rem; font-weight:800; color:var(--red); margin-top:2px;" id="immich-stat-failed">0</div>
+          </div>
+        </div>
+
+        <!-- Section des échecs et bouton de relance -->
+        <div id="immich-failures-section" style="display:none; margin-bottom:18px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div style="font-weight:700; color:var(--red); font-size:0.88rem; display:flex; align-items:center; gap:6px;">
+              <span>⚠️</span> Fichiers en échec nécessitant une tentative de résolution
+            </div>
+            <button type="button" class="btn btn-danger btn-sm" id="btn-immich-retry-failed" onclick="retryImmichFailedItemsAction()">
+              <span>🔄</span> Réessayer les fichiers en échec
+            </button>
+          </div>
+          <div style="max-height:180px; overflow-y:auto; background:#11111b; border:1px solid rgba(243,139,168,0.25); border-radius:8px; padding:10px;">
+            <table style="width:100%; font-size:0.78rem; border-collapse:collapse;" id="immich-failed-items-table">
+              <thead>
+                <tr style="color:var(--subtext0); border-bottom:1px solid rgba(255,255,255,0.08); text-align:left;">
+                  <th style="padding:4px 6px;">Fichier</th>
+                  <th style="padding:4px 6px;">Source</th>
+                  <th style="padding:4px 6px;">Motif de l'erreur</th>
+                </tr>
+              </thead>
+              <tbody id="immich-failed-items-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Journal de logs Immich en direct -->
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <label class="form-label" style="font-weight:600; margin-bottom:0; font-size:0.82rem; color:var(--text);">
+              <span>📋</span> Journal d'exécution Immich-Go :
+            </label>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="copyImmichReportLogs()">Copier les logs</button>
+          </div>
+          <textarea id="immich-report-logs-textarea" class="form-input" readonly style="height:180px; font-family:var(--font-mono); font-size:0.75rem; background:#11111b; color:var(--text); border:1px solid rgba(255,255,255,0.1); border-radius:8px; line-height:1.5; padding:10px; white-space:pre; resize:vertical; width:100%; box-sizing:border-box;"></textarea>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 22px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end; align-items:center;">
+        <button type="button" class="btn btn-primary btn-sm" onclick="closeImmichReportModal()">
           <span>✕</span> Fermer
         </button>
       </div>
