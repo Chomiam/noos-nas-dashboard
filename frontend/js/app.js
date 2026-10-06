@@ -10838,6 +10838,10 @@ let currentImmichSourceTab = "takeout";
 let immichPollInterval = null;
 let currentImmichJob = null;
 let isImmichConfigDrawerOpen = false;
+let selectedTakeoutFiles = [];
+let takeoutDiskSpaceEvaluation = null;
+let takeoutUploadXhr = null;
+let uploadedTakeoutArchivePaths = [];
 
 function toggleImmichConfigDrawer() {
   const drawer = document.getElementById("immich-config-drawer");
@@ -10898,6 +10902,310 @@ function selectImmichSourceTab(tab) {
 function setImmichTakeoutPath(p) {
   const input = document.getElementById("immich-takeout-path-input");
   if (input) input.value = p || "";
+}
+
+function handleTakeoutDragOver(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const dz = document.getElementById("immich-takeout-dropzone");
+  if (dz) {
+    dz.style.borderColor = "var(--mauve)";
+    dz.style.background = "rgba(203, 166, 247, 0.12)";
+  }
+}
+
+function handleTakeoutDragLeave(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const dz = document.getElementById("immich-takeout-dropzone");
+  if (dz) {
+    dz.style.borderColor = "rgba(137, 180, 250, 0.45)";
+    dz.style.background = "rgba(137, 180, 250, 0.04)";
+  }
+}
+
+function handleTakeoutDrop(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  handleTakeoutDragLeave(e);
+
+  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    handleTakeoutFilesSelected(e.dataTransfer.files);
+  }
+}
+
+function handleTakeoutFilesSelected(files) {
+  if (!files || files.length === 0) return;
+
+  const validFiles = Array.from(files).filter(f => {
+    const lower = f.name.toLowerCase();
+    return lower.endsWith(".zip") || lower.endsWith(".tgz") || lower.endsWith(".tar.gz") || lower.endsWith(".tar");
+  });
+
+  if (validFiles.length === 0) {
+    showToast("Veuillez sélectionner des archives valides (.zip, .tgz, .tar.gz)", "warning");
+    return;
+  }
+
+  selectedTakeoutFiles = validFiles;
+
+  const container = document.getElementById("takeout-selected-container");
+  const countLabel = document.getElementById("takeout-selected-count-label");
+  const listEl = document.getElementById("takeout-selected-list");
+
+  if (container) container.style.display = "block";
+  if (countLabel) countLabel.textContent = `${validFiles.length} archive(s) prête(s) au téléversement`;
+
+  let totalBytes = 0;
+  if (listEl) {
+    listEl.innerHTML = validFiles.map(f => {
+      totalBytes += f.size;
+      return `<div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
+        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:70%; color:var(--text);">📦 ${escapeHtml(f.name)}</span>
+        <span style="color:var(--subtext0);">${formatFileSize(f.size)}</span>
+      </div>`;
+    }).join("");
+  }
+
+  checkTakeoutDiskSpaceAction(totalBytes);
+}
+
+function clearTakeoutSelectedFiles() {
+  selectedTakeoutFiles = [];
+  takeoutDiskSpaceEvaluation = null;
+  const fileInput = document.getElementById("immich-takeout-file-input");
+  if (fileInput) fileInput.value = "";
+  const container = document.getElementById("takeout-selected-container");
+  if (container) container.style.display = "none";
+  const uploadCard = document.getElementById("takeout-upload-card");
+  if (uploadCard) uploadCard.style.display = "none";
+}
+
+async function checkTakeoutDiskSpaceAction(archiveBytes) {
+  const card = document.getElementById("takeout-disk-space-card");
+  const badge = document.getElementById("takeout-disk-space-badge");
+  const details = document.getElementById("takeout-disk-space-details");
+  const btnUpload = document.getElementById("btn-start-takeout-upload");
+
+  if (badge) {
+    badge.className = "badge badge-accent";
+    badge.textContent = "Calcul en cours...";
+  }
+  if (details) {
+    details.textContent = "Interrogation de l'espace disque disponible sur la partition...";
+  }
+
+  try {
+    const res = await fetch("/api/immich/takeout/check-space", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        target_dir: null,
+        archive_bytes: archiveBytes
+      })
+    });
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      throw new Error(json.message || "Impossible de vérifier l'espace disque");
+    }
+
+    const data = json.data;
+    takeoutDiskSpaceEvaluation = data;
+
+    if (data.is_sufficient) {
+      if (card) {
+        card.style.borderColor = "rgba(166, 227, 161, 0.4)";
+        card.style.background = "rgba(166, 227, 161, 0.08)";
+      }
+      if (badge) {
+        badge.className = "badge badge-success";
+        badge.textContent = "✓ Espace suffisant";
+      }
+      if (details) {
+        details.innerHTML = `
+          <div style="color:var(--green); font-weight:600; margin-bottom:4px;">${escapeHtml(data.message)}</div>
+          <div style="font-size:0.75rem; color:var(--subtext0);">Partition : <code>${escapeHtml(data.target_dir)}</code> &bull; Espace disponible : <strong>${escapeHtml(data.available_human)}</strong></div>
+        `;
+      }
+      if (btnUpload) btnUpload.disabled = false;
+    } else {
+      if (card) {
+        card.style.borderColor = "rgba(243, 139, 168, 0.5)";
+        card.style.background = "rgba(243, 139, 168, 0.1)";
+      }
+      if (badge) {
+        badge.className = "badge badge-danger";
+        badge.textContent = "⚠️ Espace insuffisant";
+      }
+      if (details) {
+        details.innerHTML = `
+          <div style="color:var(--red); font-weight:600; margin-bottom:4px;">${escapeHtml(data.message)}</div>
+          <div style="font-size:0.75rem; color:var(--subtext0);">Partition : <code>${escapeHtml(data.target_dir)}</code> &bull; Disponible : <strong>${escapeHtml(data.available_human)}</strong></div>
+        `;
+      }
+      if (btnUpload) btnUpload.disabled = false;
+    }
+  } catch (err) {
+    if (badge) {
+      badge.className = "badge badge-warning";
+      badge.textContent = "Erreur vérification";
+    }
+    if (details) {
+      details.textContent = "Impossible d'interroger la commande df : " + err;
+    }
+  }
+}
+
+function startTakeoutUploadAction() {
+  if (!selectedTakeoutFiles || selectedTakeoutFiles.length === 0) {
+    showToast("Aucune archive Google Takeout sélectionnée.", "warning");
+    return;
+  }
+
+  if (takeoutDiskSpaceEvaluation && !takeoutDiskSpaceEvaluation.is_sufficient) {
+    if (!confirm("Attention : L'espace disque estimé est insuffisant pour accueillir l'archive et la décompression complète des photos. Voulez-vous tout de même continuer le téléversement ?")) {
+      return;
+    }
+  }
+
+  const container = document.getElementById("takeout-selected-container");
+  const uploadCard = document.getElementById("takeout-upload-card");
+  const progressBar = document.getElementById("takeout-upload-progress-bar");
+  const percentBadge = document.getElementById("takeout-upload-progress-percent");
+  const bytesText = document.getElementById("takeout-upload-bytes-text");
+  const speedText = document.getElementById("takeout-upload-speed-text");
+  const etaText = document.getElementById("takeout-upload-eta-text");
+
+  if (container) container.style.display = "none";
+  if (uploadCard) uploadCard.style.display = "block";
+
+  if (progressBar) progressBar.style.width = "0%";
+  if (percentBadge) percentBadge.textContent = "0%";
+  if (bytesText) bytesText.textContent = "0 / 0 Mo";
+  if (speedText) speedText.textContent = "0 Mo/s";
+  if (etaText) etaText.textContent = "ETA : --:--";
+
+  const formData = new FormData();
+  selectedTakeoutFiles.forEach(file => {
+    formData.append("files", file);
+  });
+
+  const startTime = Date.now();
+  let lastLoaded = 0;
+  let lastTime = startTime;
+
+  const targetDir = getUserHome() + "/takeout";
+  const xhr = new XMLHttpRequest();
+  takeoutUploadXhr = xhr;
+
+  xhr.open("POST", `/api/files/upload?dir=${encodeURIComponent(targetDir)}`);
+
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) {
+      const percent = Math.round((e.loaded / e.total) * 100);
+      if (progressBar) progressBar.style.width = `${percent}%`;
+      if (percentBadge) percentBadge.textContent = `${percent}%`;
+
+      const now = Date.now();
+      const timeDiff = (now - lastTime) / 1000;
+      if (timeDiff >= 0.4) {
+        const bytesDiff = e.loaded - lastLoaded;
+        const speed = bytesDiff / timeDiff;
+        if (speedText) speedText.textContent = `${formatSpeed(speed)}`;
+        const remainingBytes = e.total - e.loaded;
+        if (speed > 0) {
+          const etaSecs = Math.round(remainingBytes / speed);
+          const mins = Math.floor(etaSecs / 60);
+          const secs = etaSecs % 60;
+          if (etaText) etaText.textContent = `ETA : ${mins}m ${secs < 10 ? '0' : ''}${secs}s`;
+        }
+        lastLoaded = e.loaded;
+        lastTime = now;
+      }
+
+      if (bytesText) {
+        bytesText.textContent = `${formatFileSize(e.loaded)} / ${formatFileSize(e.total)}`;
+      }
+    }
+  };
+
+  xhr.onload = () => {
+    takeoutUploadXhr = null;
+    if (xhr.status >= 200 && xhr.status < 300) {
+      if (progressBar) progressBar.style.width = "100%";
+      if (percentBadge) percentBadge.textContent = "100%";
+      showToast("Archives Google Takeout téléversées avec succès sur le NAS !", "success");
+
+      // Enregistrer les chemins des archives sur le NAS
+      uploadedTakeoutArchivePaths = selectedTakeoutFiles.map(f => `${targetDir}/${f.name}`);
+
+      // Mettre à jour l'input de chemin avec le dossier contenant les archives
+      setImmichTakeoutPath(targetDir);
+
+      if (uploadCard) uploadCard.style.display = "none";
+      const dropzone = document.getElementById("immich-takeout-dropzone");
+      if (dropzone) {
+        dropzone.innerHTML = `
+          <div style="font-size:2rem; margin-bottom:6px; color:var(--green);">✓</div>
+          <div style="font-weight:700; color:var(--green); font-size:0.92rem; margin-bottom:4px;">
+            ${selectedTakeoutFiles.length} archive(s) téléversée(s) dans ${escapeHtml(targetDir)}
+          </div>
+          <div style="font-size:0.78rem; color:var(--subtext0); margin-bottom:10px;">
+            Le dossier est configuré ci-dessous. Vous pouvez maintenant lancer l'importation Immich.
+          </div>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); resetTakeoutDropzone();">
+            <span>🔄</span> Téléverser d'autres archives
+          </button>
+        `;
+      }
+    } else {
+      showToast("Erreur lors du téléversement : " + (xhr.responseText || xhr.statusText), "error");
+      if (uploadCard) uploadCard.style.display = "none";
+      if (container) container.style.display = "block";
+    }
+  };
+
+  xhr.onerror = () => {
+    takeoutUploadXhr = null;
+    showToast("Erreur réseau pendant le téléversement des archives", "error");
+    if (uploadCard) uploadCard.style.display = "none";
+    if (container) container.style.display = "block";
+  };
+
+  xhr.onabort = () => {
+    takeoutUploadXhr = null;
+    showToast("Téléversement des archives annulé.", "info");
+    if (uploadCard) uploadCard.style.display = "none";
+    if (container) container.style.display = "block";
+  };
+
+  xhr.send(formData);
+}
+
+function cancelTakeoutUploadAction() {
+  if (takeoutUploadXhr) {
+    takeoutUploadXhr.abort();
+    takeoutUploadXhr = null;
+  }
+}
+
+function resetTakeoutDropzone() {
+  const dropzone = document.getElementById("immich-takeout-dropzone");
+  if (!dropzone) return;
+  dropzone.innerHTML = `
+    <input type="file" id="immich-takeout-file-input" multiple accept=".zip,.tgz,.tar.gz,.tar" style="display:none;" onchange="handleTakeoutFilesSelected(this.files)">
+    <div style="font-size:2rem; margin-bottom:6px;">📦</div>
+    <div style="font-weight:700; color:var(--text); font-size:0.92rem; margin-bottom:4px;">
+      Glissez-déposez vos archives Google Takeout ici
+    </div>
+    <div style="font-size:0.78rem; color:var(--subtext0); margin-bottom:10px;">
+      Prend en charge les archives <code>.zip</code>, <code>.tgz</code>, <code>.tar.gz</code> (multi-volumes supportés)
+    </div>
+    <button type="button" class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); document.getElementById('immich-takeout-file-input').click();">
+      <span>📁</span> Sélectionner depuis l'ordinateur
+    </button>
+  `;
+  clearTakeoutSelectedFiles();
 }
 
 function setImmichNasPath(p) {
@@ -11074,6 +11382,9 @@ async function launchImmichImportAction() {
       return;
     }
     payload.path = path;
+    if (Array.isArray(uploadedTakeoutArchivePaths) && uploadedTakeoutArchivePaths.length > 0) {
+      payload.uploaded_archives = uploadedTakeoutArchivePaths;
+    }
   } else if (currentImmichSourceTab === "kdrive") {
     const accSelect = document.getElementById("immich-kdrive-account-select");
     const folderInput = document.getElementById("immich-kdrive-folder-input");
@@ -11320,6 +11631,38 @@ function renderImmichReportContent(job) {
     logsArea.value = job.logs.join("\n");
     logsArea.scrollTop = logsArea.scrollHeight;
   }
+
+  const cleanupContainer = document.getElementById("immich-takeout-cleanup-container");
+  const cleanupFileList = document.getElementById("immich-takeout-cleanup-filelist");
+  const cleanupDesc = document.getElementById("immich-takeout-cleanup-desc");
+  const deleteBtn = document.getElementById("btn-delete-takeout-archives");
+  const confirmChk = document.getElementById("chk-confirm-delete-takeout");
+  const feedbackEl = document.getElementById("takeout-delete-status-feedback");
+
+  if (cleanupContainer) {
+    if (Array.isArray(job.uploaded_archives) && job.uploaded_archives.length > 0) {
+      cleanupContainer.style.display = "block";
+      if (cleanupDesc) {
+        cleanupDesc.textContent = `L'importation est terminée. ${job.uploaded_archives.length} archive(s) d'origine peuvent être supprimées pour libérer de l'espace sur votre NAS.`;
+      }
+      if (cleanupFileList) {
+        cleanupFileList.innerHTML = job.uploaded_archives.map(p => `<div>📦 ${escapeHtml(p)}</div>`).join("");
+      }
+      if (confirmChk) {
+        confirmChk.checked = false;
+        confirmChk.disabled = false;
+      }
+      if (deleteBtn) {
+        deleteBtn.disabled = true;
+        deleteBtn.innerHTML = "<span>🗑️</span> Supprimer définitivement les archives";
+      }
+      if (feedbackEl) {
+        feedbackEl.style.display = "none";
+      }
+    } else {
+      cleanupContainer.style.display = "none";
+    }
+  }
 }
 
 function copyImmichReportLogs() {
@@ -11389,6 +11732,77 @@ async function retryImmichFailedItemsAction() {
     if (btn) {
       btn.disabled = false;
       btn.innerHTML = "<span>🔄</span> Réessayer les fichiers en échec";
+    }
+  }
+}
+
+function toggleTakeoutDeleteButton(checked) {
+  const btn = document.getElementById("btn-delete-takeout-archives");
+  if (btn) btn.disabled = !checked;
+}
+
+async function deleteTakeoutArchivesAction() {
+  const chk = document.getElementById("chk-confirm-delete-takeout");
+  if (!chk || !chk.checked) {
+    showToast("Veuillez cocher la case de confirmation avant de supprimer les archives.", "warning");
+    return;
+  }
+
+  const archives = currentImmichJob ? currentImmichJob.uploaded_archives : [];
+  if (!archives || archives.length === 0) {
+    showToast("Aucune archive à supprimer.", "info");
+    return;
+  }
+
+  if (!confirm(`Attention : Confirmez-vous la suppression irréversible de ${archives.length} archive(s) Google Takeout du NAS ?`)) {
+    return;
+  }
+
+  const btn = document.getElementById("btn-delete-takeout-archives");
+  const feedback = document.getElementById("takeout-delete-status-feedback");
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = "<span>⏳</span> Suppression en cours...";
+  }
+
+  try {
+    const res = await fetch("/api/immich/takeout/delete-archives", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paths: archives })
+    });
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      throw new Error(json.message || "Échec de la suppression");
+    }
+
+    const data = json.data;
+    showToast(`Archives supprimées : ${data.freed_human} libérés sur le NAS !`, "success");
+
+    if (feedback) {
+      feedback.style.display = "inline";
+      feedback.style.color = "var(--green)";
+      feedback.textContent = `✓ ${data.freed_human} libérés (${data.deleted_files.length} fichier(s) supprimé(s))`;
+    }
+
+    if (chk) {
+      chk.checked = false;
+      chk.disabled = true;
+    }
+    if (btn) {
+      btn.innerHTML = "<span>✓</span> Archives nettoyées";
+      btn.disabled = true;
+    }
+
+    if (currentImmichJob) {
+      currentImmichJob.uploaded_archives = [];
+    }
+    uploadedTakeoutArchivePaths = [];
+  } catch (err) {
+    showToast("Erreur lors de la suppression : " + (err.message || err), "error");
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = "<span>🗑️</span> Supprimer définitivement les archives";
     }
   }
 }

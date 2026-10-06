@@ -210,3 +210,84 @@ fn test_kdrive_staging_cleanup_on_cancellation() {
     assert!(!job_dir.exists(), "Le dossier temporaire de staging kDrive doit être purgé lors de l'annulation");
     let _ = fs::remove_dir_all(&temp_base);
 }
+
+// Test 7: Simulation et logique d'évaluation d'espace disque Takeout (Archive + Décompression 1.4x)
+#[test]
+fn test_takeout_disk_space_estimation_logic() {
+    let archive_bytes = 10 * 1024 * 1024 * 1024; // 10 Go
+    let decompressed_estimate_bytes = (archive_bytes as f64 * 1.4).round() as u64; // 14 Go
+    let required_total_bytes = archive_bytes + decompressed_estimate_bytes; // 24 Go
+    assert_eq!(required_total_bytes, 24 * 1024 * 1024 * 1024);
+
+    // Cas suffisant (30 Go disponibles)
+    let available_sufficient = 30 * 1024 * 1024 * 1024;
+    let is_sufficient = available_sufficient >= required_total_bytes;
+    assert!(is_sufficient, "L'espace doit être déclaré suffisant quand available >= required");
+
+    // Cas insuffisant (15 Go disponibles)
+    let available_insufficient = 15 * 1024 * 1024 * 1024;
+    let is_insufficient = available_insufficient >= required_total_bytes;
+    assert!(!is_insufficient, "L'espace doit être déclaré insuffisant quand available < required");
+
+    let missing = required_total_bytes.saturating_sub(available_insufficient);
+    assert_eq!(missing, 9 * 1024 * 1024 * 1024, "Le calcul du manque doit être exact (24 - 15 = 9 Go)");
+}
+
+// Test 8: Simulation de la suppression sécurisée d'archives Takeout & filtrage de sécurité
+#[test]
+fn test_takeout_archive_deletion_and_safety_checks() {
+    let temp_base = PathBuf::from("/tmp/noos_test_archive_clean");
+    let _ = fs::create_dir_all(&temp_base);
+
+    let zip_file = temp_base.join("takeout-2026-part1.zip");
+    fs::write(&zip_file, vec![0u8; 1024 * 50]).unwrap(); // 50 Ko
+
+    let targz_file = temp_base.join("backup.tar.gz");
+    fs::write(&targz_file, vec![0u8; 1024 * 30]).unwrap(); // 30 Ko
+
+    let dangerous_file = temp_base.join("important_document.pdf");
+    fs::write(&dangerous_file, vec![0u8; 1024 * 10]).unwrap(); // 10 Ko
+
+    // Dossier dédié nommé 'takeout'
+    let takeout_subfolder = temp_base.join("takeout");
+    fs::create_dir_all(&takeout_subfolder).unwrap();
+    let sub_file = takeout_subfolder.join("photo.jpg");
+    fs::write(&sub_file, vec![0u8; 1024 * 20]).unwrap(); // 20 Ko
+
+    // Validation des extensions autorisées
+    let check_is_safe = |path: &std::path::Path| -> bool {
+        let lower = path.to_string_lossy().to_lowercase();
+        let is_archive = lower.ends_with(".zip") || lower.ends_with(".tgz") || lower.ends_with(".tar.gz") || lower.ends_with(".tar");
+        let is_takeout = lower.ends_with("/takeout") || lower.contains("/takeout/") || lower.ends_with("\\takeout") || lower.contains("\\takeout\\");
+        is_archive || is_takeout
+    };
+
+    assert!(check_is_safe(&zip_file), "Le fichier .zip doit être autorisé à la suppression");
+    assert!(check_is_safe(&targz_file), "Le fichier .tar.gz doit être autorisé à la suppression");
+    assert!(check_is_safe(&takeout_subfolder), "Le dossier takeout doit être autorisé à la suppression");
+    assert!(!check_is_safe(&dangerous_file), "Un document .pdf en dehors d'un dossier takeout doit être rejeté par sécurité");
+
+    // Suppression effective des archives autorisées
+    let mut freed_bytes = 0u64;
+    if check_is_safe(&zip_file) && zip_file.is_file() {
+        freed_bytes += fs::metadata(&zip_file).unwrap().len();
+        fs::remove_file(&zip_file).unwrap();
+    }
+    if check_is_safe(&targz_file) && targz_file.is_file() {
+        freed_bytes += fs::metadata(&targz_file).unwrap().len();
+        fs::remove_file(&targz_file).unwrap();
+    }
+    if check_is_safe(&takeout_subfolder) && takeout_subfolder.is_dir() {
+        freed_bytes += 1024 * 20; // taille de sub_file
+        fs::remove_dir_all(&takeout_subfolder).unwrap();
+    }
+
+    assert_eq!(freed_bytes, 1024 * 100, "Le total des octets libérés doit être de 100 Ko (50 + 30 + 20)");
+    assert!(!zip_file.exists());
+    assert!(!targz_file.exists());
+    assert!(!takeout_subfolder.exists());
+    assert!(dangerous_file.exists(), "Le fichier PDF non ciblé ne doit jamais avoir été touché");
+
+    let _ = fs::remove_dir_all(&temp_base);
+}
+

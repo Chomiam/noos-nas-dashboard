@@ -76,9 +76,11 @@ use crate::youtube::{
     start_youtube_download, YoutubeDownloadRequest, YoutubeInfoRequest, YoutubeJobStatus, YoutubeVideoInfo,
 };
 use crate::immich_go::{
-    cancel_import, get_current_job_status, get_public_config, install_immich_go_binary,
-    load_immich_config, retry_failed_items, save_immich_config, start_import_job,
-    test_immich_connection, ImmichConfigPublic, ImmichImportRequest, ImmichJobStatus,
+    cancel_import, check_takeout_disk_space, delete_takeout_archives, get_current_job_status,
+    get_public_config, install_immich_go_binary, load_immich_config, retry_failed_items,
+    save_immich_config, start_import_job, test_immich_connection, DeleteTakeoutArchivesRequest,
+    DeleteTakeoutArchivesResult, ImmichConfigPublic, ImmichImportRequest, ImmichJobStatus,
+    TakeoutDiskSpaceInfo,
 };
 use crate::trash::{
     delete_trash_item, empty_trash, get_trash_overview, restore_trash_item,
@@ -440,6 +442,8 @@ pub fn api_routes() -> Router {
         .route("/immich/status/:job_id", get(handle_immich_job_status))
         .route("/immich/cancel/:job_id", post(handle_immich_cancel_import))
         .route("/immich/retry/:job_id", post(handle_immich_retry_failed))
+        .route("/immich/takeout/check-space", post(handle_immich_takeout_check_space))
+        .route("/immich/takeout/delete-archives", post(handle_immich_takeout_delete_archives))
 
         // --------------------------------------------------------------------
         // 15. PRÉVISUALISATION DE DOCUMENTS (PDF / BUREAUTIQUE)
@@ -1275,6 +1279,58 @@ async fn handle_immich_retry_failed(
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ImmichCheckSpaceRequest {
+    pub target_dir: Option<String>,
+    pub archive_bytes: u64,
+}
+
+/// Évalue l'espace disque disponible sur la partition cible par rapport aux archives et photos extraites.
+async fn handle_immich_takeout_check_space(
+    Json(payload): Json<ImmichCheckSpaceRequest>,
+) -> Json<ApiResponse<TakeoutDiskSpaceInfo>> {
+    let res = tokio::task::spawn_blocking(move || {
+        check_takeout_disk_space(payload.target_dir.as_deref(), payload.archive_bytes)
+    }).await.unwrap_or_else(|e| Err(e.to_string()));
+
+    match res {
+        Ok(info) => Json(ApiResponse {
+            success: true,
+            data: Some(info),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+/// Supprime définitivement les archives Takeout spécifiées après validation de l'utilisateur.
+async fn handle_immich_takeout_delete_archives(
+    headers: HeaderMap,
+    Json(payload): Json<DeleteTakeoutArchivesRequest>,
+) -> Json<ApiResponse<DeleteTakeoutArchivesResult>> {
+    require_admin_or_err!(headers);
+    let res = tokio::task::spawn_blocking(move || {
+        delete_takeout_archives(&payload.paths)
+    }).await.unwrap_or_else(|e| Err(e.to_string()));
+
+    match res {
+        Ok(result) => Json(ApiResponse {
+            success: true,
+            data: Some(result),
+            message: Some("Archives Takeout supprimées avec succès.".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
 // ============================================================================
 // CONTRÔLEURS : OPÉRATIONS SUR FICHIERS (CRUD & DÉPLACEMENTS)
 // ============================================================================
@@ -1774,11 +1830,13 @@ async fn handle_files_upload(
         params.dir.unwrap_or_else(|| crate::updates::get_user_home(&crate::updates::target_user()).to_string_lossy().to_string())
     ));
     if !target_dir.is_dir() {
-        return Json(ApiResponse {
-            success: false,
-            data: None,
-            message: Some("Dossier de destination introuvable.".into()),
-        });
+        if let Err(e) = tokio::fs::create_dir_all(&target_dir).await {
+            return Json(ApiResponse {
+                success: false,
+                data: None,
+                message: Some(format!("Dossier de destination introuvable et impossible à créer : {}", e)),
+            });
+        }
     }
 
     let mut uploaded = Vec::new();

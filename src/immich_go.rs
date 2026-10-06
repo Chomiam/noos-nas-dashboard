@@ -273,6 +273,8 @@ pub struct ImmichJobStatus {
     pub error_message: Option<String>,
     pub failed_items: Vec<ImmichFailedItem>,
     pub logs: Vec<String>,
+    #[serde(default)]
+    pub uploaded_archives: Vec<String>,
     pub start_time: u64,
     pub end_time: Option<u64>,
 }
@@ -286,6 +288,8 @@ pub struct ImmichImportRequest {
     pub album: Option<String>,
     #[allow(dead_code)]
     pub delete_after_import: Option<bool>,
+    #[serde(default)]
+    pub uploaded_archives: Option<Vec<String>>,
 }
 
 static IMMICH_IMPORT_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -399,6 +403,14 @@ pub fn start_import_job(req: ImmichImportRequest) -> Result<String, String> {
         other => format!("Source inconnue ({})", other),
     };
 
+    let uploaded_archives = req.uploaded_archives.clone().unwrap_or_else(|| {
+        if req.source_type == "takeout" {
+            req.path.clone().into_iter().collect()
+        } else {
+            Vec::new()
+        }
+    });
+
     let initial_status = ImmichJobStatus {
         id: job_id.clone(),
         source_type: req.source_type.clone(),
@@ -414,6 +426,7 @@ pub fn start_import_job(req: ImmichImportRequest) -> Result<String, String> {
         error_message: None,
         failed_items: Vec::new(),
         logs: vec![format!("🚀 Démarrage de l'importation Immich-Go (ID: {})", job_id)],
+        uploaded_archives,
         start_time: current_timestamp_secs(),
         end_time: None,
     };
@@ -916,13 +929,13 @@ async fn simulate_or_mock_immich_go(
 // =========================================================================
 
 pub fn retry_failed_items(job_id: &str) -> Result<String, String> {
-    let failed_items = {
+    let (failed_items, prev_archives) = {
         let guard = ACTIVE_JOB.lock().map_err(|e| e.to_string())?;
         let job = guard.as_ref().ok_or("Aucune tâche précédente trouvée.")?;
         if job.id != job_id {
             return Err("Identifiant de tâche non correspondant.".to_string());
         }
-        job.failed_items.clone()
+        (job.failed_items.clone(), job.uploaded_archives.clone())
     };
 
     if failed_items.is_empty() {
@@ -946,6 +959,7 @@ pub fn retry_failed_items(job_id: &str) -> Result<String, String> {
         error_message: None,
         failed_items: Vec::new(),
         logs: vec![format!("🔄 Relance de l'importation pour {} fichier(s) en échec...", failed_items.len())],
+        uploaded_archives: prev_archives,
         start_time: current_timestamp_secs(),
         end_time: None,
     };
@@ -995,4 +1009,199 @@ pub fn retry_failed_items(job_id: &str) -> Result<String, String> {
     });
 
     Ok(retry_job_id)
+}
+
+// =========================================================================
+// 9. ÉVALUATION D'ESPACE DISQUE & GESTION DES ARCHIVES GOOGLE TAKEOUT
+// =========================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TakeoutDiskSpaceInfo {
+    pub target_dir: String,
+    pub available_bytes: u64,
+    pub available_human: String,
+    pub archive_bytes: u64,
+    pub archive_human: String,
+    pub decompressed_estimate_bytes: u64,
+    pub decompressed_estimate_human: String,
+    pub required_total_bytes: u64,
+    pub required_total_human: String,
+    pub is_sufficient: bool,
+    pub message: String,
+}
+
+pub fn check_takeout_disk_space(target_dir_opt: Option<&str>, archive_bytes: u64) -> Result<TakeoutDiskSpaceInfo, String> {
+    let target_dir = match target_dir_opt {
+        Some(d) if !d.trim().is_empty() => {
+            crate::files::normalize_user_path(PathBuf::from(d.trim()))
+        }
+        _ => {
+            let u = crate::updates::target_user();
+            let home = crate::updates::get_user_home(&u);
+            home.join("takeout")
+        }
+    };
+
+    let check_path = if target_dir.exists() {
+        target_dir.clone()
+    } else if let Some(parent) = target_dir.parent() {
+        if parent.exists() {
+            parent.to_path_buf()
+        } else {
+            PathBuf::from("/")
+        }
+    } else {
+        PathBuf::from("/")
+    };
+
+    let check_path_str = check_path.to_string_lossy().to_string();
+    let out = std::process::Command::new("df")
+        .args(["-Pk", &check_path_str])
+        .output()
+        .map_err(|e| format!("Impossible de vérifier l'espace disque (df) : {}", e))?;
+
+    let mut avail_bytes = 0u64;
+    if out.status.success() {
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut lines = text.lines();
+        lines.next();
+        if let Some(line) = lines.next() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 4 {
+                if let Ok(avail_kb) = parts[3].parse::<u64>() {
+                    avail_bytes = avail_kb * 1024;
+                }
+            }
+        }
+    } else {
+        avail_bytes = 50 * 1024 * 1024 * 1024;
+    }
+
+    // Google Photos Takeout:
+    // Ratio d'expansion estimé : photos/vidéos + JSONs associés ~ 1.4x de l'archive ZIP
+    // Espace de crête requis : archive stockée + photos extraites lors du traitement = archive * 2.4
+    let decompressed_estimate_bytes = (archive_bytes as f64 * 1.4).round() as u64;
+    let required_total_bytes = archive_bytes + decompressed_estimate_bytes;
+    let is_sufficient = avail_bytes >= required_total_bytes;
+
+    let message = if is_sufficient {
+        format!(
+            "Espace suffisant : {} disponibles pour {} requis (Archives {} + Extraction photos ~{})",
+            crate::files::format_size(avail_bytes),
+            crate::files::format_size(required_total_bytes),
+            crate::files::format_size(archive_bytes),
+            crate::files::format_size(decompressed_estimate_bytes)
+        )
+    } else {
+        let missing = required_total_bytes.saturating_sub(avail_bytes);
+        format!(
+            "Espace disque insuffisant sur la partition : {} disponibles alors que {} sont requis pour stocker l'archive et décompresser les photos. Il manque au moins {}.",
+            crate::files::format_size(avail_bytes),
+            crate::files::format_size(required_total_bytes),
+            crate::files::format_size(missing)
+        )
+    };
+
+    Ok(TakeoutDiskSpaceInfo {
+        target_dir: target_dir.to_string_lossy().to_string(),
+        available_bytes: avail_bytes,
+        available_human: crate::files::format_size(avail_bytes),
+        archive_bytes,
+        archive_human: crate::files::format_size(archive_bytes),
+        decompressed_estimate_bytes,
+        decompressed_estimate_human: crate::files::format_size(decompressed_estimate_bytes),
+        required_total_bytes,
+        required_total_human: crate::files::format_size(required_total_bytes),
+        is_sufficient,
+        message,
+    })
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeleteTakeoutArchivesRequest {
+    pub paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DeleteTakeoutArchivesResult {
+    pub deleted_files: Vec<String>,
+    pub freed_bytes: u64,
+    pub freed_human: String,
+    pub errors: Vec<String>,
+}
+
+pub fn delete_takeout_archives(paths: &[String]) -> Result<DeleteTakeoutArchivesResult, String> {
+    if paths.is_empty() {
+        return Err("Aucun chemin d'archive spécifié pour la suppression.".to_string());
+    }
+
+    let mut deleted = Vec::new();
+    let mut freed_bytes = 0u64;
+    let mut errors = Vec::new();
+
+    for p_str in paths {
+        let trimmed = p_str.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let p = crate::files::normalize_user_path(PathBuf::from(trimmed));
+        if !p.exists() {
+            errors.push(format!("Fichier introuvable : {}", trimmed));
+            continue;
+        }
+
+        let lower = p.to_string_lossy().to_lowercase();
+        let is_archive = lower.ends_with(".zip") || lower.ends_with(".tgz") || lower.ends_with(".tar.gz") || lower.ends_with(".tar");
+        let is_takeout_staging = lower.ends_with("/takeout") || lower.contains("/takeout/") || lower.ends_with("\\takeout") || lower.contains("\\takeout\\");
+
+        if !is_archive && !is_takeout_staging {
+            errors.push(format!("Suppression refusée par sécurité : {} n'est pas un fichier archive ou dossier Takeout reconnu.", trimmed));
+            continue;
+        }
+
+        if p.is_file() {
+            if let Ok(meta) = fs::metadata(&p) {
+                let sz = meta.len();
+                if fs::remove_file(&p).is_ok() {
+                    freed_bytes += sz;
+                    deleted.push(trimmed.to_string());
+                } else {
+                    errors.push(format!("Impossible de supprimer le fichier : {}", trimmed));
+                }
+            }
+        } else if p.is_dir() {
+            let dir_size = calculate_dir_size(&p);
+            if fs::remove_dir_all(&p).is_ok() {
+                freed_bytes += dir_size;
+                deleted.push(trimmed.to_string());
+            } else {
+                errors.push(format!("Impossible de supprimer le répertoire : {}", trimmed));
+            }
+        }
+    }
+
+    Ok(DeleteTakeoutArchivesResult {
+        deleted_files: deleted,
+        freed_bytes,
+        freed_human: crate::files::format_size(freed_bytes),
+        errors,
+    })
+}
+
+fn calculate_dir_size(dir: &Path) -> u64 {
+    let mut total = 0u64;
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_file() {
+                if let Ok(meta) = p.metadata() {
+                    total += meta.len();
+                }
+            } else if p.is_dir() {
+                total += calculate_dir_size(&p);
+            }
+        }
+    }
+    total
 }

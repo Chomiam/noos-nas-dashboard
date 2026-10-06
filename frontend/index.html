@@ -1214,14 +1214,88 @@
               </div>
             </div>
 
+            <!-- Zone de dépôt d'archives Google Takeout (Dropzone) -->
+            <div id="immich-takeout-dropzone" style="margin-bottom:14px; border:2px dashed rgba(137, 180, 250, 0.45); border-radius:12px; padding:20px 16px; text-align:center; background:rgba(137, 180, 250, 0.04); cursor:pointer; transition:all 0.2s ease;"
+                 ondragover="handleTakeoutDragOver(event)" ondragleave="handleTakeoutDragLeave(event)" ondrop="handleTakeoutDrop(event)" onclick="document.getElementById('immich-takeout-file-input').click()">
+              <input type="file" id="immich-takeout-file-input" multiple accept=".zip,.tgz,.tar.gz,.tar" style="display:none;" onchange="handleTakeoutFilesSelected(this.files)">
+              <div style="font-size:2rem; margin-bottom:6px;">📦</div>
+              <div style="font-weight:700; color:var(--text); font-size:0.92rem; margin-bottom:4px;">
+                Glissez-déposez vos archives Google Takeout ici
+              </div>
+              <div style="font-size:0.78rem; color:var(--subtext0); margin-bottom:10px;">
+                Prend en charge les archives <code>.zip</code>, <code>.tgz</code>, <code>.tar.gz</code> (multi-volumes supportés)
+              </div>
+              <button type="button" class="btn btn-secondary btn-xs" onclick="event.stopPropagation(); document.getElementById('immich-takeout-file-input').click();">
+                <span>📁</span> Sélectionner depuis l'ordinateur
+              </button>
+            </div>
+
+            <!-- Conteneur des archives sélectionnées & Évaluation de l'espace disque -->
+            <div id="takeout-selected-container" style="display:none; margin-bottom:16px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:14px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <div style="font-weight:700; font-size:0.86rem; color:var(--text); display:flex; align-items:center; gap:6px;">
+                  <span>📑</span> <span id="takeout-selected-count-label">0 archive(s) prête(s) au téléversement</span>
+                </div>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="clearTakeoutSelectedFiles()">✕ Annuler la sélection</button>
+              </div>
+
+              <!-- Liste des archives sélectionnées -->
+              <div id="takeout-selected-list" style="max-height:120px; overflow-y:auto; font-size:0.78rem; font-family:var(--font-mono); margin-bottom:12px; background:#11111b; border-radius:6px; padding:8px; border:1px solid rgba(255,255,255,0.06);"></div>
+
+              <!-- Évaluation espace disque -->
+              <div id="takeout-disk-space-card" style="border-radius:8px; padding:12px; margin-bottom:12px; border:1px solid rgba(137, 180, 250, 0.25); background:rgba(137, 180, 250, 0.05);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <span style="font-weight:700; font-size:0.82rem; color:var(--text);" id="takeout-disk-space-title">
+                    <span>💾</span> Évaluation de l'espace disque requis
+                  </span>
+                  <span class="badge badge-accent" id="takeout-disk-space-badge" style="font-size:0.74rem;">Calcul en cours...</span>
+                </div>
+                <div style="font-size:0.78rem; line-height:1.55; color:var(--subtext1);" id="takeout-disk-space-details">
+                  Vérification de la partition de stockage pour accueillir les archives et la décompression des photos...
+                </div>
+              </div>
+
+              <!-- Bouton de téléversement -->
+              <div style="display:flex; justify-content:flex-end;">
+                <button type="button" class="btn btn-primary btn-sm" id="btn-start-takeout-upload" onclick="startTakeoutUploadAction()">
+                  <span>⬆️</span> Téléverser les archives sur le NAS
+                </button>
+              </div>
+            </div>
+
+            <!-- Carte de progression du téléversement en direct -->
+            <div id="takeout-upload-card" style="display:none; margin-bottom:16px; background:rgba(137,180,250,0.08); border:1px solid rgba(137,180,250,0.3); border-radius:10px; padding:14px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <div style="font-weight:700; font-size:0.85rem; color:var(--blue); display:flex; align-items:center; gap:8px;">
+                  <span class="spinner" style="width:13px; height:13px; border-width:2px; display:inline-block; vertical-align:middle;"></span>
+                  <span>Téléversement des archives Takeout vers le NAS...</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span class="badge badge-accent" id="takeout-upload-progress-percent">0%</span>
+                  <button type="button" class="btn btn-danger btn-xs" id="btn-cancel-takeout-upload" onclick="cancelTakeoutUploadAction()">Annuler</button>
+                </div>
+              </div>
+
+              <div class="progress-bar-container" style="height:8px; border-radius:4px; background:rgba(255,255,255,0.08); overflow:hidden; margin-bottom:8px;">
+                <div id="takeout-upload-progress-bar" style="height:100%; width:0%; background:linear-gradient(90deg, var(--blue), var(--mauve)); transition:width 0.2s ease;"></div>
+              </div>
+
+              <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--subtext0); font-family:var(--font-mono);">
+                <span id="takeout-upload-bytes-text">0 / 0 Mo</span>
+                <span id="takeout-upload-speed-text">0 Mo/s</span>
+                <span id="takeout-upload-eta-text">ETA : --:--</span>
+              </div>
+            </div>
+
             <div class="form-group" style="margin-bottom:14px;">
-              <label class="form-label" style="font-weight:700;">Chemin de l'archive ZIP ou du dossier Takeout :</label>
+              <label class="form-label" style="font-weight:700;">Chemin de l'archive ZIP ou du dossier Takeout sur le NAS :</label>
               <div class="input-with-icon">
                 <input type="text" id="immich-takeout-path-input" class="form-control font-mono" placeholder="Ex: /home/chomiam/takeout-2026.zip ou ~/takeout">
               </div>
               <div class="youtube-dir-presets" style="margin-top:6px;">
                 <span style="font-size:0.75rem; color:var(--subtext0);">Raccourcis :</span>
                 <button type="button" class="btn-dir-preset" onclick="setImmichTakeoutPath(currentFolderPath)">📂 dossier actuel</button>
+                <button type="button" class="btn-dir-preset" onclick="setImmichTakeoutPath(getUserHome() + '/takeout')">📦 dossier takeout</button>
                 <button type="button" class="btn-dir-preset" onclick="setImmichTakeoutPath(getUserHome() + '/telechargements')">📥 telechargements</button>
                 <button type="button" class="btn-dir-preset" onclick="setImmichTakeoutPath(getUserHome())">🏠 dossier personnel</button>
               </div>
@@ -7218,6 +7292,35 @@
             <button type="button" class="btn btn-secondary btn-xs" onclick="copyImmichReportLogs()">Copier les logs</button>
           </div>
           <textarea id="immich-report-logs-textarea" class="form-input" readonly style="height:180px; font-family:var(--font-mono); font-size:0.75rem; background:#11111b; color:var(--text); border:1px solid rgba(255,255,255,0.1); border-radius:8px; line-height:1.5; padding:10px; white-space:pre; resize:vertical; width:100%; box-sizing:border-box;"></textarea>
+        </div>
+
+        <!-- Section de nettoyage des archives Google Takeout après import -->
+        <div id="immich-takeout-cleanup-container" style="display:none; margin-top:18px; background:rgba(249, 226, 175, 0.08); border:1px solid rgba(249, 226, 175, 0.3); border-radius:10px; padding:14px;">
+          <div style="display:flex; align-items:flex-start; gap:10px; margin-bottom:10px;">
+            <span style="font-size:1.3rem; line-height:1;">🧹</span>
+            <div style="flex:1;">
+              <div style="font-weight:700; color:var(--yellow); font-size:0.88rem; margin-bottom:4px;">
+                Nettoyage des archives Google Takeout d'origine
+              </div>
+              <div style="font-size:0.78rem; color:var(--subtext1); line-height:1.5;" id="immich-takeout-cleanup-desc">
+                L'importation est terminée. Les archives Google Takeout ne sont plus nécessaires et peuvent être supprimées pour récupérer de l'espace disque sur votre NAS.
+              </div>
+              <div id="immich-takeout-cleanup-filelist" style="margin-top:6px; font-family:var(--font-mono); font-size:0.75rem; color:var(--subtext0); max-height:80px; overflow-y:auto; background:#11111b; padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06);"></div>
+            </div>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:10px; border-top:1px dashed rgba(249,226,175,0.25); padding-top:10px;">
+            <label style="display:flex; align-items:center; gap:8px; font-size:0.8rem; color:var(--text); cursor:pointer;">
+              <input type="checkbox" id="chk-confirm-delete-takeout" onchange="toggleTakeoutDeleteButton(this.checked)">
+              <span>Je confirme vouloir supprimer définitivement ces archives du NAS.</span>
+            </label>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span id="takeout-delete-status-feedback" style="font-size:0.78rem; font-weight:600;"></span>
+              <button type="button" class="btn btn-danger btn-sm" id="btn-delete-takeout-archives" disabled onclick="deleteTakeoutArchivesAction()">
+                <span>🗑️</span> Supprimer définitivement les archives
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
