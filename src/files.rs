@@ -588,6 +588,18 @@ pub fn create_directory(base_dir: &str, dir_name: &str) -> Result<String, String
     fs::create_dir_all(&p)
         .map_err(|e| format!("Impossible de créer le dossier : {}", e))?;
 
+    #[cfg(unix)]
+    {
+        let u = crate::updates::target_user();
+        let p_str = p.to_string_lossy().to_string();
+        let _ = std::process::Command::new("chown")
+            .args([&format!("{}:storage", u), &p_str])
+            .output();
+        let _ = std::process::Command::new("chmod")
+            .args(["2775", &p_str])
+            .output();
+    }
+
     Ok(format!("Dossier '{}' créé avec succès.", name))
 }
 

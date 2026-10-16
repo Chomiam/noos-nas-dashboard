@@ -750,13 +750,21 @@
                     </svg>
                     <span>Nouveau Dossier</span>
                   </button>
-                  <button type="button" class="files-btn files-btn-accent" onclick="document.getElementById('files-upload-input').click()" title="Téléverser des fichiers de votre ordinateur vers ce dossier">
+                  <button type="button" class="files-btn files-btn-accent" onclick="document.getElementById('files-upload-input').click()" title="Téléverser un ou plusieurs fichiers de votre ordinateur vers ce dossier">
                     <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                       <polyline points="17 8 12 3 7 8"></polyline>
                       <line x1="12" y1="3" x2="12" y2="15"></line>
                     </svg>
                     <span>Téléverser</span>
+                  </button>
+                  <button type="button" class="files-btn files-btn-accent" onclick="document.getElementById('files-upload-folder-input').click()" title="Téléverser un dossier complet (avec ses sous-dossiers) de votre ordinateur vers ce dossier">
+                    <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                      <polyline points="15 13 12 10 9 13"></polyline>
+                      <line x1="12" y1="10" x2="12" y2="17"></line>
+                    </svg>
+                    <span>Téléverser Dossier</span>
                   </button>
                   <button type="button" class="files-btn files-btn-mauve" id="btn-kdrive-import-nas" style="display:none;" onclick="openImportFromNasToKDriveModal()" title="Importer un fichier depuis le disque local du NAS vers ce dossier kDrive">
                     <svg class="files-btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -789,6 +797,7 @@
                 </div>
 
                 <input type="file" id="files-upload-input" multiple style="display:none;" onchange="handleFileSelect(event)">
+                <input type="file" id="files-upload-folder-input" webkitdirectory directory multiple style="display:none;" onchange="handleFolderSelect(event)">
               </div>
 
               <!-- GAUCHE : BARRE CORBEILLE (QUAND ACTIVE) -->
@@ -883,7 +892,7 @@
             <div class="files-drop-overlay" id="files-drop-overlay" style="display:none;">
               <div class="drop-overlay-box">
                 <div class="drop-icon-animated">📥</div>
-                <div class="drop-title">Déposez vos fichiers ici</div>
+                <div class="drop-title">Déposez vos fichiers ou dossiers ici</div>
                 <div class="drop-subtitle" id="drop-target-path-text">Transfert direct vers le NAS</div>
               </div>
             </div>
@@ -4003,6 +4012,12 @@
     <div class="context-menu-divider"></div>
     <div class="context-menu-item" onclick="triggerFileAction('new-folder')" id="ctx-new-folder">
       <span>➕</span> Nouveau dossier
+    </div>
+    <div class="context-menu-item" onclick="triggerFileAction('upload-files')" id="ctx-upload-files">
+      <span>📤</span> Téléverser des fichiers...
+    </div>
+    <div class="context-menu-item" onclick="triggerFileAction('upload-folder')" id="ctx-upload-folder">
+      <span>📁</span> Téléverser un dossier...
     </div>
     <div class="context-menu-item" onclick="triggerFileAction('properties')" id="ctx-properties">
       <span>ℹ️</span> Propriétés
@@ -8192,18 +8207,29 @@
               </div>
             </label>
 
-            <!-- Option 2 : Lecture Seule -->
+            <!-- Option 2 : Autoriser l'Écriture (Lecture / Écriture) -->
             <label class="samba-toggle-card">
               <div class="samba-toggle-left">
-                <input type="checkbox" id="samba-opt-readonly">
+                <input type="checkbox" id="samba-opt-writable" checked onchange="onSambaWritableToggle('writable')">
                 <div>
-                  <div class="samba-toggle-name">🔒 Lecture Seule (Read Only)</div>
-                  <div class="samba-toggle-desc">Empêche les écritures et suppressions de fichiers.</div>
+                  <div class="samba-toggle-name">✏️ Autoriser l'Écriture (Lecture / Écriture)</div>
+                  <div class="samba-toggle-desc">Permet de créer, modifier, téléverser et supprimer des fichiers et dossiers.</div>
                 </div>
               </div>
             </label>
 
-            <!-- Option 3 : Accès Invité -->
+            <!-- Option 3 : Lecture Seule -->
+            <label class="samba-toggle-card">
+              <div class="samba-toggle-left">
+                <input type="checkbox" id="samba-opt-readonly" onchange="onSambaWritableToggle('readonly')">
+                <div>
+                  <div class="samba-toggle-name">🔒 Lecture Seule (Read Only)</div>
+                  <div class="samba-toggle-desc">Empêche les écritures et suppressions de fichiers sur l'ensemble du partage.</div>
+                </div>
+              </div>
+            </label>
+
+            <!-- Option 4 : Accès Invité -->
             <label class="samba-toggle-card">
               <div class="samba-toggle-left">
                 <input type="checkbox" id="samba-opt-guest">
@@ -8214,7 +8240,7 @@
               </div>
             </label>
 
-            <!-- Option 4 : Corbeille Réseau (.recycle) -->
+            <!-- Option 5 : Corbeille Réseau (.recycle) -->
             <label class="samba-toggle-card">
               <div class="samba-toggle-left">
                 <input type="checkbox" id="samba-opt-recycle" checked>
@@ -8225,7 +8251,7 @@
               </div>
             </label>
 
-            <!-- Option 5 : Apple Time Machine -->
+            <!-- Option 6 : Apple Time Machine -->
             <label class="samba-toggle-card">
               <div class="samba-toggle-left">
                 <input type="checkbox" id="samba-opt-timemachine" onchange="onSambaTimeMachineToggle()">
@@ -8236,7 +8262,7 @@
               </div>
             </label>
 
-            <!-- Option 6 : Clichés Instantanés VSS -->
+            <!-- Option 7 : Clichés Instantanés VSS -->
             <label class="samba-toggle-card">
               <div class="samba-toggle-left">
                 <input type="checkbox" id="samba-opt-shadowcopy" checked>
@@ -8247,7 +8273,7 @@
               </div>
             </label>
 
-            <!-- Option 7 : Chiffrement Forcé SMB3 -->
+            <!-- Option 8 : Chiffrement Forcé SMB3 -->
             <label class="samba-toggle-card">
               <div class="samba-toggle-left">
                 <input type="checkbox" id="samba-opt-encrypt">
@@ -8264,7 +8290,7 @@
         <div class="samba-users-panel">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
             <label class="form-label" style="font-weight:700; color:var(--sapphire); margin-bottom:0; display:flex; align-items:center; gap:8px;">
-              <span>👥</span> Autorisations Utilisateurs
+              <span>👥</span> Autorisations Utilisateurs (Lecture & Écriture)
             </label>
             <span style="font-size:0.75rem; color:var(--subtext0);">
               💡 Comptes gérés dans l'onglet <a href="#" onclick="closeSambaShareModal(); switchTab('tab-users');" style="color:var(--mauve); font-weight:700;">Utilisateurs & Groupes</a>
@@ -8273,9 +8299,9 @@
 
           <div style="background:var(--mantle); border:1px solid rgba(255,255,255,0.06); border-radius:var(--radius-md); padding:14px;">
             <div style="font-size:0.8rem; color:var(--subtext1); margin-bottom:10px;">
-              Cochez les utilisateurs autorisés à accéder à ce partage en écriture ou lecture seule :
+              Sélectionnez pour chaque utilisateur les droits de <strong>📖 Lecture</strong> et d'<strong>✏️ Écriture</strong> sur ce partage :
             </div>
-            <div id="samba-share-users-checkboxes" class="samba-users-checkboxes-grid">
+            <div id="samba-share-users-checkboxes" class="samba-users-checkboxes-grid" style="grid-template-columns: 1fr;">
               <div style="color:var(--subtext0); font-size:0.8rem;">Chargement des utilisateurs du NAS...</div>
             </div>
           </div>

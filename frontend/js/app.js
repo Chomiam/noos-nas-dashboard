@@ -4944,6 +4944,11 @@ function handleItemContextMenu(e, path) {
     ctxTransferKDrive.style.display = (!isKDriveView && selectedFileItem && !selectedFileItem.is_dir && kdriveAccountsList && kdriveAccountsList.length > 0) ? "flex" : "none";
   }
 
+  const ctxUploadFiles = document.getElementById("ctx-upload-files");
+  const ctxUploadFolder = document.getElementById("ctx-upload-folder");
+  if (ctxUploadFiles) ctxUploadFiles.style.display = "none";
+  if (ctxUploadFolder) ctxUploadFolder.style.display = "none";
+
   const ctxProperties = document.getElementById("ctx-properties");
   if (ctxProperties) {
     ctxProperties.style.display = "flex";
@@ -4992,6 +4997,11 @@ function handleBackgroundContextMenu(e) {
     ctxPaste.style.display = "flex";
     ctxPaste.classList.toggle("disabled", !fileClipboard);
   }
+
+  const ctxUploadFiles = document.getElementById("ctx-upload-files");
+  const ctxUploadFolder = document.getElementById("ctx-upload-folder");
+  if (ctxUploadFiles) ctxUploadFiles.style.display = "flex";
+  if (ctxUploadFolder) ctxUploadFolder.style.display = "flex";
 
   const ctxProperties = document.getElementById("ctx-properties");
   if (ctxProperties) {
@@ -5074,6 +5084,20 @@ async function triggerFileAction(action) {
 
     case "new-folder":
       promptCreateFolder();
+      break;
+
+    case "upload-files":
+      {
+        const inp = document.getElementById("files-upload-input");
+        if (inp) inp.click();
+      }
+      break;
+
+    case "upload-folder":
+      {
+        const inp = document.getElementById("files-upload-folder-input");
+        if (inp) inp.click();
+      }
       break;
 
     case "edit-nvim":
@@ -6398,8 +6422,79 @@ async function triggerSpeedtest() {
 
 
 // --------------------------------------------------------------------------
-// GLISSER-DÉPOSER & GESTIONNAIRE DE TÉLÉVERSEMENT (UPLOAD)
+// GLISSER-DÉPOSER & GESTIONNAIRE DE TÉLÉVERSEMENT (UPLOAD FICHIERS & DOSSIERS)
 // --------------------------------------------------------------------------
+
+/**
+ * Lit l'intégralité des entrées d'un DirectoryReader par lots successifs
+ * (la spécification File and Directory Entries limite readEntries() à 100 éléments par appel).
+ */
+function readAllDirectoryEntries(dirReader) {
+  return new Promise((resolve, reject) => {
+    const allEntries = [];
+    const readBatch = () => {
+      dirReader.readEntries(
+        (batch) => {
+          if (!batch || batch.length === 0) {
+            resolve(allEntries);
+          } else {
+            allEntries.push(...batch);
+            readBatch();
+          }
+        },
+        (err) => reject(err)
+      );
+    };
+    readBatch();
+  });
+}
+
+/**
+ * Parcourt récursivement une liste d'entrées FileSystemEntry (fichiers et dossiers)
+ * issues d'un glisser-déposer et retourne { files: [{ file, relativePath }], emptyDirs: [string] }.
+ */
+async function extractDroppedEntries(entries) {
+  const collectedFiles = [];
+  const emptyDirs = [];
+
+  async function traverseEntry(entry, parentRelPath) {
+    if (!entry) return;
+    const currentRelPath = parentRelPath ? `${parentRelPath}/${entry.name}` : entry.name;
+
+    if (entry.isFile) {
+      try {
+        const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+        collectedFiles.push({
+          file: file,
+          relativePath: currentRelPath
+        });
+      } catch (err) {
+        console.warn("Impossible de lire le fichier déposé :", currentRelPath, err);
+      }
+    } else if (entry.isDirectory) {
+      try {
+        const reader = entry.createReader();
+        const children = await readAllDirectoryEntries(reader);
+        if (!children || children.length === 0) {
+          emptyDirs.push(currentRelPath);
+        } else {
+          for (const child of children) {
+            await traverseEntry(child, currentRelPath);
+          }
+        }
+      } catch (err) {
+        console.warn("Impossible de parcourir le dossier déposé :", currentRelPath, err);
+      }
+    }
+  }
+
+  for (const rootEntry of entries) {
+    await traverseEntry(rootEntry, "");
+  }
+
+  return { files: collectedFiles, emptyDirs: emptyDirs };
+}
+
 function initDragAndDrop() {
   const container = document.getElementById("files-view-container");
   const overlay = document.getElementById("files-drop-overlay");
@@ -6434,23 +6529,51 @@ function initDragAndDrop() {
     }
   });
 
-  container.addEventListener("drop", (e) => {
+  container.addEventListener("drop", async (e) => {
     e.preventDefault();
     e.stopPropagation();
     dragCounter = 0;
     overlay.style.display = "none";
 
-    const files = e.dataTransfer ? e.dataTransfer.files : null;
-    if (files && files.length > 0) {
-      let targetPath = currentFolderPath;
-      const targetCard = e.target.closest(".file-card, tr");
-      if (targetCard) {
-        const itemPath = targetCard.getAttribute("data-path");
-        const item = currentEntries.find(i => i.path === itemPath);
-        if (item && item.is_dir) {
-          targetPath = item.path;
+    let targetPath = currentFolderPath;
+    const targetCard = e.target.closest(".file-card, tr");
+    if (targetCard) {
+      const itemPath = targetCard.getAttribute("data-path");
+      const item = currentEntries.find(i => i.path === itemPath);
+      if (item && item.is_dir) {
+        targetPath = item.path;
+      }
+    }
+
+    const dt = e.dataTransfer;
+    if (!dt) return;
+
+    // Capture synchrone des FileSystemEntry avant toute opération asynchrone
+    const webkitEntries = [];
+    if (dt.items && dt.items.length > 0) {
+      for (let i = 0; i < dt.items.length; i++) {
+        const item = dt.items[i];
+        if (item.kind === "file") {
+          const entry = typeof item.webkitGetAsEntry === "function"
+            ? item.webkitGetAsEntry()
+            : (typeof item.getAsEntry === "function" ? item.getAsEntry() : null);
+          if (entry) {
+            webkitEntries.push(entry);
+          }
         }
       }
+    }
+
+    if (webkitEntries.length > 0) {
+      const { files, emptyDirs } = await extractDroppedEntries(webkitEntries);
+      if (files.length > 0 || emptyDirs.length > 0) {
+        uploadFiles(files, targetPath, emptyDirs);
+      }
+      return;
+    }
+
+    const files = dt.files;
+    if (files && files.length > 0) {
       uploadFiles(files, targetPath);
     }
   });
@@ -6464,8 +6587,40 @@ function handleFileSelect(e) {
   e.target.value = "";
 }
 
-function uploadFiles(fileList, targetDir) {
-  if (!fileList || fileList.length === 0) return;
+function handleFolderSelect(e) {
+  const files = e.target.files;
+  if (files && files.length > 0) {
+    const items = Array.from(files).map(file => ({
+      file: file,
+      relativePath: (file.webkitRelativePath && file.webkitRelativePath.trim() !== "")
+        ? file.webkitRelativePath
+        : file.name
+    }));
+    uploadFiles(items, currentFolderPath);
+  }
+  e.target.value = "";
+}
+
+function uploadFiles(fileList, targetDir, emptyDirs = []) {
+  const rawItems = fileList ? Array.from(fileList) : [];
+  const normalizedItems = rawItems.map(item => {
+    if (item && item.file instanceof File) {
+      return {
+        file: item.file,
+        relativePath: (item.relativePath || item.file.webkitRelativePath || item.file.name).replace(/\\/g, "/")
+      };
+    }
+    return {
+      file: item,
+      relativePath: ((item && item.webkitRelativePath) || (item && item.name) || "fichier").replace(/\\/g, "/")
+    };
+  }).filter(it => it.file);
+
+  const normalizedEmptyDirs = Array.isArray(emptyDirs)
+    ? emptyDirs.map(d => String(d).replace(/\\/g, "/")).filter(Boolean)
+    : [];
+
+  if (normalizedItems.length === 0 && normalizedEmptyDirs.length === 0) return;
 
   const tray = document.getElementById("upload-tray");
   const summary = document.getElementById("upload-tray-summary");
@@ -6483,16 +6638,22 @@ function uploadFiles(fileList, targetDir) {
   if (progressBar) progressBar.style.width = "0%";
   if (speedBadge) speedBadge.textContent = "Calcul...";
 
-  const totalFiles = fileList.length;
-  if (summary) summary.textContent = `Téléversement (${totalFiles} fichier${totalFiles > 1 ? "s" : ""})`;
+  const totalFiles = normalizedItems.length;
+  const totalEmptyDirs = normalizedEmptyDirs.length;
+  const labelCount = totalFiles > 0
+    ? `${totalFiles} fichier${totalFiles > 1 ? "s" : ""}`
+    : `${totalEmptyDirs} dossier${totalEmptyDirs > 1 ? "s" : ""}`;
+  if (summary) summary.textContent = `Téléversement (${labelCount})`;
 
   if (filesListEl) {
     filesListEl.innerHTML = "";
-    Array.from(fileList).forEach(file => {
+    const maxPreviewRows = 150;
+    normalizedItems.slice(0, maxPreviewRows).forEach(({ file, relativePath }) => {
       const row = document.createElement("div");
       row.className = "upload-file-row";
+      const iconChar = relativePath.includes("/") ? "📁" : "📄";
       row.innerHTML = `
-        <span class="upload-file-name" title="${escapeHtml(file.name)}">📄 ${escapeHtml(file.name)}</span>
+        <span class="upload-file-name" title="${escapeHtml(relativePath)}">${iconChar} ${escapeHtml(relativePath)}</span>
         <div class="upload-file-meta">
           <span>${formatFileSize(file.size)}</span>
           <span class="status-indicator">⏳ 0%</span>
@@ -6500,11 +6661,38 @@ function uploadFiles(fileList, targetDir) {
       `;
       filesListEl.appendChild(row);
     });
+    if (normalizedItems.length > maxPreviewRows) {
+      const moreRow = document.createElement("div");
+      moreRow.className = "upload-file-row";
+      moreRow.innerHTML = `
+        <span class="upload-file-name">➕ ... et ${normalizedItems.length - maxPreviewRows} autre(s) fichier(s)</span>
+        <div class="upload-file-meta"><span class="status-indicator">⏳</span></div>
+      `;
+      filesListEl.appendChild(moreRow);
+    }
+    if (totalFiles === 0 && totalEmptyDirs > 0) {
+      normalizedEmptyDirs.slice(0, maxPreviewRows).forEach(dirRel => {
+        const row = document.createElement("div");
+        row.className = "upload-file-row";
+        row.innerHTML = `
+          <span class="upload-file-name" title="${escapeHtml(dirRel)}">📁 ${escapeHtml(dirRel)}</span>
+          <div class="upload-file-meta">
+            <span>Dossier vide</span>
+            <span class="status-indicator">⏳ 0%</span>
+          </div>
+        `;
+        filesListEl.appendChild(row);
+      });
+    }
   }
 
   const formData = new FormData();
-  Array.from(fileList).forEach(file => {
-    formData.append("files", file);
+  normalizedEmptyDirs.forEach(dirRel => {
+    formData.append("empty_dir", dirRel);
+  });
+  normalizedItems.forEach(({ file, relativePath }) => {
+    formData.append("file_path", relativePath);
+    formData.append("files", file, relativePath);
   });
 
   const startTime = Date.now();
@@ -6552,10 +6740,15 @@ function uploadFiles(fileList, targetDir) {
   };
 
   xhr.onload = () => {
-    if (xhr.status >= 200 && xhr.status < 300) {
+    let apiResp = null;
+    try {
+      apiResp = JSON.parse(xhr.responseText);
+    } catch (_) {}
+
+    if (xhr.status >= 200 && xhr.status < 300 && (!apiResp || apiResp.success !== false)) {
       if (progressBar) progressBar.style.width = "100%";
       if (icon) icon.textContent = "✔";
-      if (summary) summary.textContent = `Transfert terminé (${totalFiles} fichier${totalFiles > 1 ? "s" : ""})`;
+      if (summary) summary.textContent = `Transfert terminé (${labelCount})`;
       if (speedBadge) speedBadge.textContent = "Terminé";
 
       if (filesListEl) {
@@ -6567,17 +6760,18 @@ function uploadFiles(fileList, targetDir) {
       }
 
       if (isKDrive && currentKDriveAccountId) {
-        showToast(`✓ Téléversement de ${totalFiles} fichier(s) réussi sur kDrive !`, "success");
+        showToast(`✓ Téléversement de ${labelCount} réussi sur kDrive !`, "success");
         navigateToKDrive(currentKDriveAccountId, currentKDriveFolderId);
       } else {
-        showToast(`Téléversement de ${totalFiles} fichier(s) réussi !`, "success");
+        showToast(`Téléversement de ${labelCount} réussi !`, "success");
         navigateToPath(currentFolderPath);
       }
     } else {
       if (icon) icon.textContent = "❌";
       if (summary) summary.textContent = "Échec du téléversement";
       if (speedBadge) speedBadge.textContent = "Erreur";
-      showToast("Erreur lors du transfert : " + (xhr.responseText || xhr.statusText), "error");
+      const errMsg = (apiResp && apiResp.message) ? apiResp.message : (xhr.responseText || xhr.statusText);
+      showToast("Erreur lors du transfert : " + errMsg, "error");
     }
   };
 
@@ -23158,7 +23352,8 @@ function renderSambaSharesList(shares, availableUsers) {
     // Choix de l'icône contextuelle
     let icon = "📂";
     let cardClass = "";
-    if (share.time_machine) {
+    const isTimeMachine = !!(share.is_time_machine || share.time_machine);
+    if (isTimeMachine) {
       icon = "🍏";
       cardClass = "timemachine";
     } else if (share.read_only) {
@@ -23175,7 +23370,7 @@ function renderSambaSharesList(shares, availableUsers) {
     if (share.read_only) {
       badges.push(`<span class="badge badge-warning" title="Lecture seule forcée">🔒 Lecture Seule</span>`);
     } else {
-      badges.push(`<span class="badge badge-success" title="Accès en écriture autorisé">✏️ Lecture / Écriture</span>`);
+      badges.push(`<span class="badge badge-success" title="Accès en lecture et écriture autorisé">✏️ Lecture / Écriture</span>`);
     }
 
     if (share.guest_ok) {
@@ -23188,7 +23383,7 @@ function renderSambaSharesList(shares, availableUsers) {
       badges.push(`<span class="badge" style="background:rgba(166,227,161,0.15); color:var(--green); border:1px solid rgba(166,227,161,0.3);" title="Corbeille réseau active (.recycle)">♻️ Corbeille</span>`);
     }
 
-    if (share.time_machine) {
+    if (isTimeMachine) {
       badges.push(`<span class="badge" style="background:rgba(148,226,213,0.15); color:var(--teal); border:1px solid rgba(148,226,213,0.3);" title="Cible de sauvegarde macOS Time Machine">🍏 Time Machine</span>`);
     }
 
@@ -23204,15 +23399,24 @@ function renderSambaSharesList(shares, availableUsers) {
       badges.push(`<span class="badge badge-secondary" title="Partage masqué sur le réseau">👁️‍🗨️ Masqué</span>`);
     }
 
-    // Formater utilisateurs autorisés
-    let usersDisplay = `<span style="color:var(--subtext0); font-style:italic;">Tous les utilisateurs authentifiés</span>`;
-    if (share.write_list && share.write_list.length > 0) {
-      usersDisplay = share.write_list.map(u => `<span class="badge badge-primary" style="font-size:0.75rem;">👤 ${escapeHtml(u)}</span>`).join(" ");
-    } else if (share.valid_users && share.valid_users.length > 0) {
-      usersDisplay = share.valid_users.map(u => `<span class="badge badge-secondary" style="font-size:0.75rem;">👤 ${escapeHtml(u)}</span>`).join(" ");
+    // Formater utilisateurs autorisés avec indicateur Lecture / Écriture
+    const validUsers = Array.isArray(share.valid_users) ? share.valid_users : [];
+    const writeUsers = Array.isArray(share.write_list) ? share.write_list : [];
+    const readUsers = Array.isArray(share.read_list) ? share.read_list : [];
+    const allConfiguredUsers = Array.from(new Set([...validUsers, ...writeUsers, ...readUsers]));
+
+    let usersDisplay = `<span style="color:var(--subtext0); font-style:italic;">Tous les utilisateurs authentifiés (${share.read_only ? "Lecture seule" : "Lecture / Écriture"})</span>`;
+    if (allConfiguredUsers.length > 0) {
+      usersDisplay = allConfiguredUsers.map(u => {
+        const canWrite = !share.read_only && (writeUsers.includes(u) || (writeUsers.length === 0 && !readUsers.includes(u)));
+        if (canWrite) {
+          return `<span class="badge badge-success" style="font-size:0.75rem;" title="Accès Lecture et Écriture autorisé">👤 ${escapeHtml(u)} (Lecture / Écriture)</span>`;
+        }
+        return `<span class="badge badge-secondary" style="font-size:0.75rem;" title="Accès en Lecture Seule">👤 ${escapeHtml(u)} (Lecture seule)</span>`;
+      }).join(" ");
     }
 
-    const uncPath = `\\${primaryIp}\${share.name}`;
+    const uncPath = `\\\\${primaryIp}\\${share.name}`;
 
     return `
       <div class="samba-share-card ${cardClass}" id="samba-card-${escapeHtml(share.id)}">
@@ -23352,6 +23556,8 @@ function openCreateSambaShareModal() {
   document.getElementById("samba-share-path").value = "/mnt/raid/shares/";
 
   document.getElementById("samba-opt-browseable").checked = true;
+  const writableEl = document.getElementById("samba-opt-writable");
+  if (writableEl) writableEl.checked = true;
   document.getElementById("samba-opt-readonly").checked = false;
   document.getElementById("samba-opt-guest").checked = false;
   document.getElementById("samba-opt-recycle").checked = true;
@@ -23359,7 +23565,13 @@ function openCreateSambaShareModal() {
   document.getElementById("samba-opt-shadowcopy").checked = true;
   document.getElementById("samba-opt-encrypt").checked = false;
 
-  renderSambaUsersCheckboxes([]);
+  renderSambaUsersCheckboxes({
+    isNew: true,
+    validUsers: [],
+    writeUsers: [],
+    readUsers: [],
+    readOnly: false
+  });
 
   document.getElementById("modal-samba-share").style.display = "flex";
 }
@@ -23379,16 +23591,24 @@ function openEditSambaShareModal(shareId) {
   document.getElementById("samba-share-comment").value = share.comment || "";
   document.getElementById("samba-share-path").value = share.path || "";
 
+  const isReadOnly = !!share.read_only;
   document.getElementById("samba-opt-browseable").checked = share.browseable !== false;
-  document.getElementById("samba-opt-readonly").checked = !!share.read_only;
+  const writableEl = document.getElementById("samba-opt-writable");
+  if (writableEl) writableEl.checked = !isReadOnly;
+  document.getElementById("samba-opt-readonly").checked = isReadOnly;
   document.getElementById("samba-opt-guest").checked = !!share.guest_ok;
   document.getElementById("samba-opt-recycle").checked = !!share.recycle_bin;
-  document.getElementById("samba-opt-timemachine").checked = !!share.time_machine;
+  document.getElementById("samba-opt-timemachine").checked = !!(share.is_time_machine || share.time_machine);
   document.getElementById("samba-opt-shadowcopy").checked = !!share.shadow_copy;
   document.getElementById("samba-opt-encrypt").checked = !!share.smb_encrypt;
 
-  const selectedUsers = share.write_list && share.write_list.length > 0 ? share.write_list : (share.valid_users || []);
-  renderSambaUsersCheckboxes(selectedUsers);
+  renderSambaUsersCheckboxes({
+    isNew: false,
+    validUsers: Array.isArray(share.valid_users) ? share.valid_users : [],
+    writeUsers: Array.isArray(share.write_list) ? share.write_list : [],
+    readUsers: Array.isArray(share.read_list) ? share.read_list : [],
+    readOnly: isReadOnly
+  });
 
   document.getElementById("modal-samba-share").style.display = "flex";
 }
@@ -23415,12 +23635,83 @@ function onSambaTimeMachineToggle() {
     if (commentInput && !commentInput.value) {
       commentInput.value = "Sauvegardes Apple Time Machine macOS";
     }
+    // Time Machine nécessite l'accès en écriture
+    const writableEl = document.getElementById("samba-opt-writable");
+    const readonlyEl = document.getElementById("samba-opt-readonly");
+    if (writableEl) writableEl.checked = true;
+    if (readonlyEl) readonlyEl.checked = false;
+    onSambaWritableToggle("writable");
   }
 }
 
-function renderSambaUsersCheckboxes(selectedUsers = []) {
+function onSambaWritableToggle(source) {
+  const writableEl = document.getElementById("samba-opt-writable");
+  const readonlyEl = document.getElementById("samba-opt-readonly");
+  if (!writableEl || !readonlyEl) return;
+
+  if (source === "writable") {
+    readonlyEl.checked = !writableEl.checked;
+  } else if (source === "readonly") {
+    writableEl.checked = !readonlyEl.checked;
+  }
+
+  const isWritable = writableEl.checked;
+  const writeCbs = document.querySelectorAll('input[name="samba-user-write"]');
+  writeCbs.forEach(wCb => {
+    const user = wCb.value;
+    const rCb = document.querySelector(`input[name="samba-user-read"][value="${CSS.escape(user)}"]`);
+    if (!isWritable) {
+      wCb.checked = false;
+      wCb.disabled = true;
+    } else {
+      wCb.disabled = false;
+      // Si l'utilisateur a la lecture activée, activer aussi l'écriture lorsqu'on réactive "Autoriser l'Écriture"
+      if (rCb && rCb.checked) {
+        wCb.checked = true;
+      }
+    }
+  });
+}
+
+function onSambaUserPermChange(user, permType) {
+  const rCb = document.querySelector(`input[name="samba-user-read"][value="${CSS.escape(user)}"]`);
+  const wCb = document.querySelector(`input[name="samba-user-write"][value="${CSS.escape(user)}"]`);
+  const writableEl = document.getElementById("samba-opt-writable");
+  const readonlyEl = document.getElementById("samba-opt-readonly");
+
+  if (permType === "write" && wCb) {
+    if (wCb.checked) {
+      // Cocher l'écriture coche automatiquement la lecture et active l'écriture globale sur le partage
+      if (rCb) rCb.checked = true;
+      if (writableEl) writableEl.checked = true;
+      if (readonlyEl) readonlyEl.checked = false;
+      document.querySelectorAll('input[name="samba-user-write"]').forEach(cb => {
+        cb.disabled = false;
+      });
+    }
+  } else if (permType === "read" && rCb) {
+    if (!rCb.checked && wCb) {
+      // Décocher la lecture retire aussi l'écriture pour cet utilisateur
+      wCb.checked = false;
+    }
+  }
+}
+
+function renderSambaUsersCheckboxes(permState = {}) {
   const container = document.getElementById("samba-share-users-checkboxes");
   if (!container) return;
+
+  // Compatibilité ascendante si un tableau simple est passé
+  let state = permState;
+  if (Array.isArray(permState)) {
+    state = {
+      isNew: permState.length === 0,
+      validUsers: permState,
+      writeUsers: permState,
+      readUsers: [],
+      readOnly: document.getElementById("samba-opt-readonly")?.checked || false
+    };
+  }
 
   const currentU = getCurrentDashboardUsername();
   const users = currentSambaData?.available_users || [currentU];
@@ -23430,20 +23721,45 @@ function renderSambaUsersCheckboxes(selectedUsers = []) {
     return;
   }
 
+  const validUsers = state.validUsers || [];
+  const writeUsers = state.writeUsers || [];
+  const readUsers = state.readUsers || [];
+  const isReadOnly = !!state.readOnly;
+  const hasAnyConfigured = validUsers.length > 0 || writeUsers.length > 0 || readUsers.length > 0;
+
   container.innerHTML = users.map(user => {
-    const isChecked = selectedUsers.includes(user) || (selectedUsers.length === 0 && user === currentU);
+    const defaultCheck = !hasAnyConfigured && (state.isNew ? user === currentU : true);
+    const canRead = validUsers.includes(user) || writeUsers.includes(user) || readUsers.includes(user) || defaultCheck;
+    const canWrite = !isReadOnly && (
+      writeUsers.includes(user) ||
+      (writeUsers.length === 0 && !readUsers.includes(user) && canRead)
+    );
+
     const hasSamba = smbUsers.includes(user);
     const statusBadge = hasSamba
       ? `<span style="font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; background: rgba(166, 227, 161, 0.15); color: #a6e3a1; border: 1px solid rgba(166, 227, 161, 0.3); margin-left: 6px;">Samba OK</span>`
       : `<span style="font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; background: rgba(250, 179, 135, 0.15); color: #fab387; border: 1px solid rgba(250, 179, 135, 0.3); margin-left: 6px;" title="Cet utilisateur n'a pas encore configuré de mot de passe Samba réseau">⚠️ Mot de passe SMB requis</span>`;
+
+    const escapedUser = escapeHtml(user);
+    const jsUser = user.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+
     return `
-      <label class="samba-user-checkbox-item">
-        <input type="checkbox" name="samba-user-perm" value="${escapeHtml(user)}" ${isChecked ? "checked" : ""}>
-        <div style="display:inline-flex; align-items:center; gap:4px;">
-          <span><strong>${escapeHtml(user)}</strong></span>
+      <div class="samba-user-checkbox-item" style="display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; padding:8px 12px;">
+        <div style="display:inline-flex; align-items:center; gap:4px; flex-wrap:wrap;">
+          <span><strong>👤 ${escapedUser}</strong></span>
           ${statusBadge}
         </div>
-      </label>
+        <div style="display:inline-flex; align-items:center; gap:14px; flex-shrink:0;">
+          <label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer; font-size:0.82rem; color:var(--text);" title="Autoriser la lecture des fichiers et dossiers pour ${escapedUser}">
+            <input type="checkbox" name="samba-user-read" value="${escapedUser}" ${canRead ? "checked" : ""} onchange="onSambaUserPermChange('${jsUser}', 'read')">
+            <span>📖 Lecture</span>
+          </label>
+          <label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer; font-size:0.82rem; color:var(--green); font-weight:600;" title="Autoriser l'écriture, la création, le renommage et la suppression dans ce partage pour ${escapedUser}">
+            <input type="checkbox" name="samba-user-write" value="${escapedUser}" ${canWrite ? "checked" : ""} ${isReadOnly ? "disabled" : ""} onchange="onSambaUserPermChange('${jsUser}', 'write')">
+            <span>✏️ Écriture</span>
+          </label>
+        </div>
+      </div>
     `;
   }).join("");
 }
@@ -23463,27 +23779,48 @@ async function submitSambaShareForm() {
     return;
   }
 
-  // Utilisateurs sélectionnés
-  const checkedUsers = [];
-  document.querySelectorAll('input[name="samba-user-perm"]:checked').forEach(cb => {
-    checkedUsers.push(cb.value);
+  // Permissions Lecture & Écriture par utilisateur
+  const readUsers = [];
+  document.querySelectorAll('input[name="samba-user-read"]:checked').forEach(cb => {
+    readUsers.push(cb.value);
   });
+
+  const writeUsers = [];
+  document.querySelectorAll('input[name="samba-user-write"]:checked').forEach(cb => {
+    writeUsers.push(cb.value);
+  });
+
+  const writableEl = document.getElementById("samba-opt-writable");
+  const readonlyEl = document.getElementById("samba-opt-readonly");
+  let isReadOnly = readonlyEl ? readonlyEl.checked : false;
+  if (writableEl && !writableEl.checked) {
+    isReadOnly = true;
+  }
+
+  // Union des utilisateurs ayant au moins la lecture ou l'écriture
+  const validUsers = Array.from(new Set([...readUsers, ...writeUsers]));
+  const effectiveWriteList = isReadOnly ? [] : writeUsers;
+  const effectiveReadList = isReadOnly
+    ? validUsers
+    : validUsers.filter(u => !effectiveWriteList.includes(u));
 
   const payload = {
     id: id || name,
     name: name,
     path: path,
     comment: comment,
-    read_only: document.getElementById("samba-opt-readonly").checked,
+    read_only: isReadOnly,
+    writable: !isReadOnly,
     browseable: document.getElementById("samba-opt-browseable").checked,
     guest_ok: document.getElementById("samba-opt-guest").checked,
     recycle_bin: document.getElementById("samba-opt-recycle").checked,
+    is_time_machine: document.getElementById("samba-opt-timemachine").checked,
     time_machine: document.getElementById("samba-opt-timemachine").checked,
     shadow_copy: document.getElementById("samba-opt-shadowcopy").checked,
     smb_encrypt: document.getElementById("samba-opt-encrypt").checked,
-    valid_users: checkedUsers,
-    write_list: document.getElementById("samba-opt-readonly").checked ? [] : checkedUsers,
-    read_list: document.getElementById("samba-opt-readonly").checked ? checkedUsers : [],
+    valid_users: validUsers,
+    write_list: effectiveWriteList,
+    read_list: effectiveReadList,
     create_mask: "0664",
     directory_mask: "0775"
   };
@@ -23494,16 +23831,20 @@ async function submitSambaShareForm() {
   btn.innerHTML = `<span>⏳</span> Application...`;
 
   try {
-    const res = await fetch("/api/samba/shares", {
-      method: "POST",
+    const isEdit = Boolean(id);
+    const url = isEdit
+      ? `/api/samba/shares/${encodeURIComponent(id)}`
+      : "/api/samba/shares";
+    const res = await fetch(url, {
+      method: isEdit ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
 
     const json = await res.json();
-    if (!json.success) throw new Error(json.error || "Échec de l'enregistrement");
+    if (!json.success) throw new Error(json.message || json.error || "Échec de l'enregistrement");
 
-    showToast(id ? "Partage Samba mis à jour avec succès !" : "Nouveau partage Samba créé !", "success");
+    showToast(isEdit ? "Partage Samba mis à jour avec succès !" : "Nouveau partage Samba créé !", "success");
     closeSambaShareModal();
     await loadSambaData();
   } catch (err) {

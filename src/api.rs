@@ -1819,12 +1819,37 @@ pub struct UploadedFileItem {
     pub bytes: u64,
 }
 
-/// Réceptionne un flux multipart pour téléverser un ou plusieurs fichiers dans un dossier cible.
+/// Nettoie et valide un chemin relatif envoyé lors d'un téléversement de fichier ou de dossier.
+/// Rejette toute tentative de traversée de répertoire (`..`), les chemins vides ou contenant des octets nuls.
+fn sanitize_relative_upload_path(raw: &str) -> Option<std::path::PathBuf> {
+    if raw.contains('\0') {
+        return None;
+    }
+    let normalized = raw.replace('\\', "/");
+    let mut clean = std::path::PathBuf::new();
+    for part in normalized.split('/') {
+        let trimmed = part.trim();
+        if trimmed.is_empty() || trimmed == "." {
+            continue;
+        }
+        if trimmed == ".." {
+            return None;
+        }
+        clean.push(trimmed);
+    }
+    if clean.as_os_str().is_empty() {
+        None
+    } else {
+        Some(clean)
+    }
+}
+
+/// Réceptionne un flux multipart pour téléverser un ou plusieurs fichiers ou dossiers complets dans un répertoire cible.
 async fn handle_files_upload(
     Query(params): Query<UploadQuery>,
     mut multipart: axum::extract::Multipart,
 ) -> Json<ApiResponse<Vec<UploadedFileItem>>> {
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use tokio::io::AsyncWriteExt;
 
     let target_dir = crate::files::normalize_user_path(PathBuf::from(
@@ -1841,27 +1866,79 @@ async fn handle_files_upload(
     }
 
     let mut uploaded = Vec::new();
+    let mut pending_rel_path: Option<String> = None;
 
     while let Ok(Some(mut field)) = multipart.next_field().await {
-        let raw_name = field.file_name().unwrap_or("fichier_sans_nom").to_string();
-        let safe_name = Path::new(&raw_name)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("fichier")
-            .to_string();
+        let field_name = field.name().unwrap_or("").to_string();
 
-        if safe_name.is_empty() || safe_name == "." || safe_name == ".." {
+        // Création explicite d'un dossier ou sous-dossier (notamment pour les dossiers vides)
+        if field_name == "empty_dir" {
+            if let Ok(dir_rel) = field.text().await {
+                if let Some(safe_rel_dir) = sanitize_relative_upload_path(&dir_rel) {
+                    let full_dir = target_dir.join(&safe_rel_dir);
+                    if let Err(e) = tokio::fs::create_dir_all(&full_dir).await {
+                        return Json(ApiResponse {
+                            success: false,
+                            data: Some(uploaded),
+                            message: Some(format!(
+                                "Impossible de créer le dossier '{}' : {}",
+                                safe_rel_dir.display(),
+                                e
+                            )),
+                        });
+                    }
+                }
+            }
             continue;
         }
 
-        let dest_path = target_dir.join(&safe_name);
+        // Chemin relatif explicite accompagnant le fichier suivant dans le flux multipart
+        if field_name == "file_path" {
+            if let Ok(rel_text) = field.text().await {
+                let trimmed = rel_text.trim().to_string();
+                if !trimmed.is_empty() {
+                    pending_rel_path = Some(trimmed);
+                }
+            }
+            continue;
+        }
+
+        let raw_name = pending_rel_path
+            .take()
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| field.file_name().map(|s| s.to_string()))
+            .unwrap_or_else(|| "fichier_sans_nom".to_string());
+
+        let safe_rel_path = match sanitize_relative_upload_path(&raw_name) {
+            Some(p) => p,
+            None => continue,
+        };
+
+        let display_name = safe_rel_path.to_string_lossy().replace('\\', "/");
+        let dest_path = target_dir.join(&safe_rel_path);
+
+        if let Some(parent) = dest_path.parent() {
+            if !parent.exists() {
+                if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                    return Json(ApiResponse {
+                        success: false,
+                        data: Some(uploaded),
+                        message: Some(format!(
+                            "Impossible de créer l'arborescence pour '{}' : {}",
+                            display_name, e
+                        )),
+                    });
+                }
+            }
+        }
+
         let mut file = match tokio::fs::File::create(&dest_path).await {
             Ok(f) => f,
             Err(e) => {
                 return Json(ApiResponse {
                     success: false,
                     data: Some(uploaded),
-                    message: Some(format!("Impossible de créer le fichier '{}' : {}", safe_name, e)),
+                    message: Some(format!("Impossible de créer le fichier '{}' : {}", display_name, e)),
                 });
             }
         };
@@ -1872,7 +1949,7 @@ async fn handle_files_upload(
                 return Json(ApiResponse {
                     success: false,
                     data: Some(uploaded),
-                    message: Some(format!("Erreur lors de l'écriture de '{}' : {}", safe_name, e)),
+                    message: Some(format!("Erreur lors de l'écriture de '{}' : {}", display_name, e)),
                 });
             }
             bytes_written += chunk.len() as u64;
@@ -1881,7 +1958,7 @@ async fn handle_files_upload(
         let _ = file.flush().await;
 
         uploaded.push(UploadedFileItem {
-            name: safe_name,
+            name: display_name,
             bytes: bytes_written,
         });
     }
@@ -4098,7 +4175,7 @@ async fn handle_kdrive_upload_from_nas(
     }
 }
 
-/// Téléversement direct multipart d'un fichier depuis le navigateur vers un dossier kDrive.
+/// Téléversement direct multipart d'un ou plusieurs fichiers depuis le navigateur vers un dossier kDrive.
 async fn handle_kdrive_upload_file(
     axum::extract::Path(id): axum::extract::Path<String>,
     Query(params): Query<crate::kdrive::KDriveListQuery>,
@@ -4110,9 +4187,33 @@ async fn handle_kdrive_upload_file(
     let temp_dir = std::path::PathBuf::from("/tmp/noos_kdrive_browser_uploads");
     let _ = std::fs::create_dir_all(&temp_dir);
 
-    while let Ok(Some(field)) = multipart.next_field().await {
-        let file_name = field.file_name().unwrap_or("upload.bin").to_string();
-        let sanitized = std::path::Path::new(&file_name)
+    let mut pending_rel_path: Option<String> = None;
+    let mut last_entry: Option<crate::files::FileEntry> = None;
+    let mut uploaded_count = 0usize;
+
+    while let Ok(Some(mut field)) = multipart.next_field().await {
+        let field_name = field.name().unwrap_or("").to_string();
+        if field_name == "empty_dir" {
+            let _ = field.text().await;
+            continue;
+        }
+        if field_name == "file_path" {
+            if let Ok(rel_text) = field.text().await {
+                let trimmed = rel_text.trim().to_string();
+                if !trimmed.is_empty() {
+                    pending_rel_path = Some(trimmed);
+                }
+            }
+            continue;
+        }
+
+        let raw_name = pending_rel_path
+            .take()
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| field.file_name().map(|s| s.to_string()))
+            .unwrap_or_else(|| "upload.bin".to_string());
+
+        let sanitized = std::path::Path::new(&raw_name.replace('\\', "/"))
             .file_name()
             .map(|f| f.to_string_lossy().to_string())
             .unwrap_or_else(|| "upload.bin".to_string());
@@ -4121,20 +4222,24 @@ async fn handle_kdrive_upload_file(
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis())
             .unwrap_or(0);
-        let temp_path = temp_dir.join(format!("{}_{}", now_millis, sanitized));
+        let slot_dir = temp_dir.join(format!("up_{}_{}", now_millis, uploaded_count));
+        let _ = std::fs::create_dir_all(&slot_dir);
+        let temp_path = slot_dir.join(&sanitized);
 
         let mut file = match std::fs::File::create(&temp_path) {
             Ok(f) => f,
-            Err(e) => return Json(ApiResponse {
-                success: false,
-                data: None,
-                message: Some(format!("Erreur création fichier temporaire : {}", e)),
-            }),
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&slot_dir);
+                return Json(ApiResponse {
+                    success: false,
+                    data: None,
+                    message: Some(format!("Erreur création fichier temporaire : {}", e)),
+                });
+            }
         };
 
-        let mut stream = field;
         let mut write_err = None;
-        while let Ok(Some(chunk)) = stream.chunk().await {
+        while let Ok(Some(chunk)) = field.chunk().await {
             use std::io::Write;
             if let Err(e) = file.write_all(&chunk) {
                 write_err = Some(e.to_string());
@@ -4143,7 +4248,7 @@ async fn handle_kdrive_upload_file(
         }
 
         if let Some(e) = write_err {
-            let _ = std::fs::remove_file(&temp_path);
+            let _ = std::fs::remove_dir_all(&slot_dir);
             return Json(ApiResponse {
                 success: false,
                 data: None,
@@ -4152,20 +4257,20 @@ async fn handle_kdrive_upload_file(
         }
 
         let temp_path_str = temp_path.display().to_string();
+        let slot_dir_clone = slot_dir.clone();
         let id_for_task = id_clone.clone();
 
         let upload_res = tokio::task::spawn_blocking(move || {
             let res = crate::kdrive::upload_nas_file_to_kdrive(&id_for_task, &temp_path_str, folder_id);
-            let _ = std::fs::remove_file(&temp_path_str);
+            let _ = std::fs::remove_dir_all(&slot_dir_clone);
             res
         }).await;
 
         match upload_res {
-            Ok(Ok(entry)) => return Json(ApiResponse {
-                success: true,
-                data: Some(entry),
-                message: Some("Fichier téléversé sur kDrive avec succès.".into()),
-            }),
+            Ok(Ok(entry)) => {
+                uploaded_count += 1;
+                last_entry = Some(entry);
+            }
             Ok(Err(e)) => return Json(ApiResponse {
                 success: false,
                 data: None,
@@ -4177,6 +4282,14 @@ async fn handle_kdrive_upload_file(
                 message: Some(format!("Erreur d'exécution de la tâche : {}", e)),
             }),
         }
+    }
+
+    if let Some(entry) = last_entry {
+        return Json(ApiResponse {
+            success: true,
+            data: Some(entry),
+            message: Some(format!("{} fichier(s) téléversé(s) sur kDrive avec succès.", uploaded_count)),
+        });
     }
 
     Json(ApiResponse {

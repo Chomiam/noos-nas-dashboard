@@ -850,11 +850,14 @@ pub fn execute_mount(cfg: &RemoteMountConfig) -> Result<(), String> {
         let target = format!("//{}/{}", cfg.host, cfg.remote_path.trim_start_matches('/'));
 
         let (opts, temp_cred_path) = if let Some(pwd) = &cfg.password {
-            use std::os::unix::fs::PermissionsExt;
             let cred_filename = format!("/run/noos-cifs-{}-{}.cred", cfg.id, std::process::id());
             let cred_content = format!("username={}\npassword={}\n", cfg.username, pwd);
             let _ = fs::write(&cred_filename, &cred_content);
-            let _ = fs::set_permissions(&cred_filename, fs::Permissions::from_mode(0o600));
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&cred_filename, fs::Permissions::from_mode(0o600));
+            }
             (format!("vers=3.0,iocharset=utf8,credentials={}", cred_filename), Some(cred_filename))
         } else if !cfg.username.is_empty() {
             (format!("vers=3.0,iocharset=utf8,username={}", cfg.username), None)

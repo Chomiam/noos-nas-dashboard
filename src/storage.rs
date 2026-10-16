@@ -953,12 +953,30 @@ fn scan_physical_disks(logical_raids: &[LogicalRaidInfo]) -> Vec<PhysicalDiskInf
                             let mut part_is_sys = false;
 
                             if let Some(mounts) = child.get("mountpoints").and_then(|m| m.as_array()) {
+                                let mut best_prio = usize::MAX;
                                 for m_val in mounts {
                                     if let Some(m0) = m_val.as_str() {
-                                        if part_mount.is_none() {
+                                        if m0.is_empty() {
+                                            continue;
+                                        }
+                                        let prio = if m0 == "/" {
+                                            0
+                                        } else if m0 == "/boot" || m0 == "/boot/efi" {
+                                            1
+                                        } else if m0.starts_with("/mnt/") || m0 == "/mnt" || m0.starts_with("/storage") {
+                                            2
+                                        } else if m0 == "/home" {
+                                            3
+                                        } else if !m0.starts_with("/.") && !m0.starts_with("/nix") {
+                                            4
+                                        } else {
+                                            5
+                                        };
+                                        if prio < best_prio {
+                                            best_prio = prio;
                                             part_mount = Some(m0.to_string());
                                         }
-                                        if m0 == "/" || m0 == "/boot" || m0.starts_with("/nix") {
+                                        if m0 == "/" || m0 == "/boot" || m0.starts_with("/nix") || m0 == "/.snapshots" {
                                             part_is_sys = true;
                                         }
                                     }
@@ -2099,11 +2117,17 @@ fn get_storage_gid() -> Option<u32> {
 }
 
 pub fn check_path_permissions(path: &str, target_user: &str) -> (String, String, String, bool, bool) {
-    use std::os::unix::fs::MetadataExt;
     if let Ok(meta) = std::fs::metadata(path) {
-        let uid = meta.uid();
-        let gid = meta.gid();
-        let mode = meta.mode() & 0o7777;
+        #[cfg(unix)]
+        let (uid, gid, mode) = {
+            use std::os::unix::fs::MetadataExt;
+            (meta.uid(), meta.gid(), meta.mode() & 0o7777)
+        };
+        #[cfg(not(unix))]
+        let (uid, gid, mode) = {
+            let _ = &meta;
+            (1000u32, 100u32, 0o755u32)
+        };
         let mode_str = format!("{:04o}", mode);
 
         // Récupérer le nom utilisateur et groupe

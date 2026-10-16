@@ -36,6 +36,7 @@ pub struct SambaShare {
     pub valid_users: Vec<String>,
     pub write_list: Vec<String>,
     pub read_list: Vec<String>,
+    #[serde(alias = "time_machine")]
     pub is_time_machine: bool,
     pub time_machine_max_size_gb: Option<u64>,
     pub recycle_bin: bool,
@@ -96,11 +97,13 @@ pub struct CreateShareRequest {
     pub path: String,
     pub comment: Option<String>,
     pub read_only: Option<bool>,
+    pub writable: Option<bool>,
     pub browseable: Option<bool>,
     pub guest_ok: Option<bool>,
     pub valid_users: Option<Vec<String>>,
     pub write_list: Option<Vec<String>>,
     pub read_list: Option<Vec<String>>,
+    #[serde(alias = "time_machine")]
     pub is_time_machine: Option<bool>,
     pub time_machine_max_size_gb: Option<u64>,
     pub recycle_bin: Option<bool>,
@@ -116,11 +119,13 @@ pub struct UpdateShareRequest {
     pub path: Option<String>,
     pub comment: Option<String>,
     pub read_only: Option<bool>,
+    pub writable: Option<bool>,
     pub browseable: Option<bool>,
     pub guest_ok: Option<bool>,
     pub valid_users: Option<Vec<String>>,
     pub write_list: Option<Vec<String>>,
     pub read_list: Option<Vec<String>>,
+    #[serde(alias = "time_machine")]
     pub is_time_machine: Option<bool>,
     pub time_machine_max_size_gb: Option<u64>,
     pub recycle_bin: Option<bool>,
@@ -295,21 +300,40 @@ pub fn generate_smb_shares_conf(shares: &[SambaShare]) -> String {
     out.push_str("# =========================================================================\n\n");
 
     for s in shares {
-        out.push_str(&format!("[{}]\n", s.name));
-        out.push_str(&format!("   comment = {}\n", s.comment));
-        out.push_str(&format!("   path = {}\n", s.path));
+        let safe_name = s.name.replace(['\r', '\n', '[', ']'], "");
+        let safe_comment = s.comment.replace(['\r', '\n'], " ");
+        let safe_path = s.path.replace(['\r', '\n'], "");
+        let create_mask = if !s.create_mask.is_empty() { s.create_mask.as_str() } else { "0664" };
+        let dir_mask = if !s.directory_mask.is_empty() { s.directory_mask.as_str() } else { "0775" };
+
+        out.push_str(&format!("[{}]\n", safe_name));
+        out.push_str(&format!("   comment = {}\n", safe_comment));
+        out.push_str(&format!("   path = {}\n", safe_path));
         out.push_str(&format!("   browseable = {}\n", if s.browseable { "yes" } else { "no" }));
         out.push_str(&format!("   read only = {}\n", if s.read_only { "yes" } else { "no" }));
+        out.push_str(&format!("   writable = {}\n", if s.read_only { "no" } else { "yes" }));
         out.push_str(&format!("   guest ok = {}\n", if s.guest_ok { "yes" } else { "no" }));
-        out.push_str(&format!("   create mask = {}\n", if !s.create_mask.is_empty() { &s.create_mask } else { "0664" }));
-        out.push_str(&format!("   directory mask = {}\n", if !s.directory_mask.is_empty() { &s.directory_mask } else { "0775" }));
+        out.push_str(&format!("   create mask = {}\n", create_mask));
+        out.push_str(&format!("   force create mode = {}\n", create_mask));
+        out.push_str(&format!("   directory mask = {}\n", dir_mask));
+        out.push_str("   force directory mode = 2775\n");
 
-        if !s.valid_users.is_empty() {
+        if !s.read_only {
+            out.push_str("   force group = storage\n");
+        }
+
+        if !s.guest_ok && !s.valid_users.is_empty() {
             out.push_str(&format!("   valid users = {}\n", s.valid_users.join(" ")));
         }
-        if !s.write_list.is_empty() {
-            out.push_str(&format!("   write list = {}\n", s.write_list.join(" ")));
+
+        if !s.read_only {
+            if !s.write_list.is_empty() {
+                out.push_str(&format!("   write list = {}\n", s.write_list.join(" ")));
+            } else if !s.valid_users.is_empty() && s.read_list.is_empty() {
+                out.push_str(&format!("   write list = {}\n", s.valid_users.join(" ")));
+            }
         }
+
         if !s.read_list.is_empty() {
             out.push_str(&format!("   read list = {}\n", s.read_list.join(" ")));
         }
@@ -551,6 +575,64 @@ pub fn get_detailed_smb_locks() -> Vec<SambaLockedFile> {
 // OPÉRATIONS CRUD SUR LES PARTAGES
 // --------------------------------------------------------------------------
 
+/// Vérifie qu'un chemin n'est pas une racine critique du système d'exploitation avant d'ajuster ses permissions.
+fn is_safe_share_path(path: &str) -> bool {
+    let trimmed = path.trim_end_matches('/');
+    if trimmed.is_empty() {
+        return false;
+    }
+    const FORBIDDEN_ROOTS: &[&str] = &[
+        "/", "/bin", "/boot", "/dev", "/etc", "/lib", "/lib64",
+        "/nix", "/proc", "/root", "/run", "/sbin", "/sys", "/usr", "/var",
+    ];
+    !FORBIDDEN_ROOTS.contains(&trimmed)
+}
+
+/// Crée le dossier partagé s'il n'existe pas et ajuste systématiquement ses permissions POSIX (`2775`, groupe `storage`)
+/// afin que les utilisateurs autorisés en écriture puissent effectivement créer/modifier des fichiers via Samba.
+fn ensure_samba_share_directory_permissions(
+    clean_path: &str,
+    read_only: bool,
+    valid_users: &[String],
+    write_list: &[String],
+) {
+    if !is_safe_share_path(clean_path) {
+        return;
+    }
+
+    let _ = fs::create_dir_all(clean_path);
+    let _ = Command::new("groupadd").args(["-f", "storage"]).output();
+
+    let default_user = target_user();
+    let owner = write_list
+        .first()
+        .or_else(|| valid_users.first())
+        .map(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&default_user);
+
+    // S'assurer que le propriétaire et tous les utilisateurs autorisés appartiennent au groupe 'storage'
+    let mut users_to_group: Vec<&str> = vec![&default_user, owner];
+    for u in valid_users.iter().chain(write_list.iter()) {
+        if !u.is_empty() && !users_to_group.contains(&u.as_str()) {
+            users_to_group.push(u.as_str());
+        }
+    }
+    for u in users_to_group {
+        let _ = Command::new("usermod").args(["-aG", "storage", u]).output();
+    }
+
+    let _ = Command::new("chown")
+        .args(["-R", &format!("{}:storage", owner), clean_path])
+        .output();
+
+    if !read_only {
+        let _ = Command::new("chmod").args(["-R", "2775", clean_path]).output();
+    } else {
+        let _ = Command::new("chmod").args(["2775", clean_path]).output();
+    }
+}
+
 pub fn create_samba_share(req: CreateShareRequest) -> Result<SambaShare, String> {
     let clean_name = req.name.trim().to_lowercase().replace(' ', "-").replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "");
     if clean_name.is_empty() {
@@ -567,25 +649,33 @@ pub fn create_samba_share(req: CreateShareRequest) -> Result<SambaShare, String>
         return Err("Veuillez renseigner un chemin absolu valide (ex: /storage/data).".into());
     }
 
-    // Création automatique du dossier cible si inexistant
-    if !std::path::Path::new(&clean_path).exists() {
-        let _ = fs::create_dir_all(&clean_path);
-        let u = target_user();
-        let _ = Command::new("chown").args(["-R", &format!("{}:storage", u), &clean_path]).output();
-        let _ = Command::new("chmod").args(["2775", &clean_path]).output();
+    let is_read_only = match (req.read_only, req.writable) {
+        (Some(ro), _) => ro,
+        (None, Some(w)) => !w,
+        (None, None) => false,
+    };
+
+    let valid_users = req.valid_users.unwrap_or_default();
+    let mut write_list = req.write_list.unwrap_or_default();
+    let read_list = req.read_list.unwrap_or_default();
+
+    if !is_read_only && write_list.is_empty() && !valid_users.is_empty() && read_list.is_empty() {
+        write_list = valid_users.clone();
     }
+
+    ensure_samba_share_directory_permissions(&clean_path, is_read_only, &valid_users, &write_list);
 
     let share = SambaShare {
         id: clean_name.clone(),
         name: clean_name,
         path: clean_path.clone(),
         comment: req.comment.unwrap_or_else(|| "Partage réseau Noos".into()),
-        read_only: req.read_only.unwrap_or(false),
+        read_only: is_read_only,
         browseable: req.browseable.unwrap_or(true),
         guest_ok: req.guest_ok.unwrap_or(false),
-        valid_users: req.valid_users.unwrap_or_default(),
-        write_list: req.write_list.unwrap_or_default(),
-        read_list: req.read_list.unwrap_or_default(),
+        valid_users,
+        write_list,
+        read_list,
         is_time_machine: req.is_time_machine.unwrap_or(false),
         time_machine_max_size_gb: req.time_machine_max_size_gb,
         recycle_bin: req.recycle_bin.unwrap_or(true),
@@ -626,6 +716,8 @@ pub fn update_samba_share(id: &str, req: UpdateShareRequest) -> Result<SambaShar
     }
     if let Some(ro) = req.read_only {
         shares[idx].read_only = ro;
+    } else if let Some(w) = req.writable {
+        shares[idx].read_only = !w;
     }
     if let Some(br) = req.browseable {
         shares[idx].browseable = br;
@@ -663,6 +755,13 @@ pub fn update_samba_share(id: &str, req: UpdateShareRequest) -> Result<SambaShar
     if let Some(dm) = req.directory_mask {
         shares[idx].directory_mask = dm;
     }
+
+    ensure_samba_share_directory_permissions(
+        &shares[idx].path,
+        shares[idx].read_only,
+        &shares[idx].valid_users,
+        &shares[idx].write_list,
+    );
 
     shares[idx].exists = std::path::Path::new(&shares[idx].path).exists();
     let updated = shares[idx].clone();
