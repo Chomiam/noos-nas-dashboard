@@ -4318,6 +4318,7 @@ function updateSidebarNavActive(path) {
     [`${normHome}/documents`]: "fnav-docs",
     [`${normHome}/images`]: "fnav-pics",
     [`${normHome}/videos`]: "fnav-vids",
+    [`${normHome}/musiques`]: "fnav-music",
     [`${normHome}/musique`]: "fnav-music",
     [`${normHome}/telechargements`]: "fnav-dl",
     [`${normHome}/downloads`]: "fnav-dl",
@@ -10664,8 +10665,8 @@ function setYoutubeFormat(fmt) {
   const destInput = document.getElementById("yt-dest-dir-input");
   if (destInput) {
     if (fmt === "mp3" && destInput.value === (getUserHome() + "/videos")) {
-      destInput.value = getUserHome() + "/musique";
-    } else if (fmt === "mp4" && destInput.value === (getUserHome() + "/musique")) {
+      destInput.value = getUserHome() + "/musiques";
+    } else if (fmt === "mp4" && (destInput.value === (getUserHome() + "/musiques") || destInput.value === (getUserHome() + "/musique"))) {
       destInput.value = getUserHome() + "/videos";
     }
   }
@@ -10796,8 +10797,8 @@ async function fetchYoutubePreview() {
 
     // Default dest dir according to format
     const destInput = document.getElementById("yt-dest-dir-input");
-    if (destInput && (!destInput.value || destInput.value === (getUserHome() + "/videos") || destInput.value === (getUserHome() + "/musique"))) {
-      destInput.value = currentYoutubeFormat === "mp3" ? (getUserHome() + "/musique") : (getUserHome() + "/videos");
+    if (destInput && (!destInput.value || destInput.value === (getUserHome() + "/videos") || destInput.value === (getUserHome() + "/musiques") || destInput.value === (getUserHome() + "/musique"))) {
+      destInput.value = currentYoutubeFormat === "mp3" ? (getUserHome() + "/musiques") : (getUserHome() + "/videos");
     }
 
     if (previewBox) {
@@ -10829,7 +10830,7 @@ async function startYoutubeDownload() {
     return;
   }
 
-  const dest_dir = destInput ? destInput.value.trim() : (currentYoutubeFormat === "mp3" ? (getUserHome() + "/musique") : (getUserHome() + "/videos"));
+  const dest_dir = destInput ? destInput.value.trim() : (currentYoutubeFormat === "mp3" ? (getUserHome() + "/musiques") : (getUserHome() + "/videos"));
   const custom_name = filenameInput ? filenameInput.value.trim() : "";
 
   if (downloadBtn) downloadBtn.disabled = true;

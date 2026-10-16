@@ -211,7 +211,7 @@ pub fn start_youtube_download(req: YoutubeDownloadRequest) -> Result<String, Str
 
     let u = crate::updates::target_user();
     let home = crate::updates::get_user_home(&u);
-    let default_dir = if is_mp3 { home.join("musique").to_string_lossy().to_string() } else { home.join("videos").to_string_lossy().to_string() };
+    let default_dir = if is_mp3 { home.join("musiques").to_string_lossy().to_string() } else { home.join("videos").to_string_lossy().to_string() };
     let out_dir_raw = req.output_dir.unwrap_or(default_dir);
     let norm_dir = crate::files::normalize_user_path(PathBuf::from(out_dir_raw.trim()));
     if !norm_dir.exists() {

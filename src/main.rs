@@ -163,7 +163,8 @@ async fn main() {
     println!("╚════════════════════════════════════════════════════════════╝");
     println!("\x1b[0m");
 
-    // 7. Lancement des tâches d'arrière-plan périodiques et auto-guérison SSH
+    // 7. Lancement des tâches d'arrière-plan périodiques et auto-guérison SSH / dossiers utilisateurs
+    files::ensure_standard_user_folders(); // Création et migration automatique des dossiers standards (musiques, etc.)
     let _ = sftp::heal_sshd_config();    // Déblocage automatique garanti de tout accès SSH administrateur résiduel
     updates::start_background_checker(); // Vérification des mises à jour NixOS
     trash::start_background_pruner();    // Purge automatique des fichiers expirés de la corbeille

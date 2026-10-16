@@ -386,16 +386,34 @@ pub fn normalize_user_path(target: PathBuf) -> PathBuf {
         .replace("/Images", "/images")
         .replace("/Vidéos", "/videos")
         .replace("/Videos", "/videos")
-        .replace("/Musique", "/musique")
-        .replace("/Music", "/musique")
+        .replace("/Musiques", "/musiques")
+        .replace("/Musique", "/musiques")
+        .replace("/musique", "/musiques")
+        .replace("/Music", "/musiques")
+        .replace("/music", "/musiques")
         .replace("/Téléchargements", "/telechargements")
         .replace("/Telechargements", "/telechargements")
-        .replace("/Downloads", "/telechargements").replace("/downloads", "/telechargements")
+        .replace("/Downloads", "/telechargements")
+        .replace("/downloads", "/telechargements")
         .replace("/Pictures", "/images");
 
     let p_lower = PathBuf::from(&lower_variant);
     if p_lower.exists() {
         return p_lower;
+    }
+
+    // 1b. Si la cible demandée est '.../musiques' et que l'ancien dossier '.../musique' existe encore,
+    // effectuer la migration automatique sur le champ vers 'musiques'
+    if p_lower.file_name().map(|n| n == "musiques").unwrap_or(false) {
+        if let Some(parent) = p_lower.parent() {
+            let legacy_musique = parent.join("musique");
+            if legacy_musique.is_dir() {
+                let _ = fs::rename(&legacy_musique, &p_lower);
+                if p_lower.exists() {
+                    return p_lower;
+                }
+            }
+        }
     }
 
     // 2. Recherche insensible à la casse et sans accents dans le dossier parent
@@ -425,6 +443,67 @@ pub fn normalize_user_path(target: PathBuf) -> PathBuf {
     }
 
     target
+}
+
+/// Garantit la présence des 5 dossiers standards (`documents`, `images`, `videos`, `musiques`, `telechargements`)
+/// pour un utilisateur donné et migre automatiquement l'ancien dossier `musique` (singulier) vers `musiques` (pluriel).
+pub fn ensure_user_folders_for(username: &str, home_dir: &Path) {
+    if !home_dir.is_dir() {
+        return;
+    }
+
+    let legacy_musique = home_dir.join("musique");
+    let target_musiques = home_dir.join("musiques");
+
+    // Migration automatique de 'musique' -> 'musiques'
+    if legacy_musique.is_dir() {
+        if !target_musiques.exists() {
+            let _ = fs::rename(&legacy_musique, &target_musiques);
+        } else {
+            // Déplacer le contenu éventuel de 'musique' vers 'musiques' puis supprimer 'musique'
+            if let Ok(entries) = fs::read_dir(&legacy_musique) {
+                for entry in entries.flatten() {
+                    let dest = target_musiques.join(entry.file_name());
+                    if !dest.exists() {
+                        let _ = fs::rename(entry.path(), &dest);
+                    }
+                }
+            }
+            let _ = fs::remove_dir(&legacy_musique);
+        }
+    }
+
+    let chown_bin = crate::users::find_bin("chown");
+    let chmod_bin = crate::users::find_bin("chmod");
+    let owner_spec = format!("{}:users", username);
+
+    for folder in &[
+        "documents",
+        "images",
+        "videos",
+        "musiques",
+        "telechargements",
+    ] {
+        let dir_path = home_dir.join(folder);
+        if !dir_path.exists() {
+            if fs::create_dir_all(&dir_path).is_ok() {
+                let path_str = dir_path.to_string_lossy().to_string();
+                let _ = std::process::Command::new(&chown_bin)
+                    .args([&owner_spec, &path_str])
+                    .status();
+                let _ = std::process::Command::new(&chmod_bin).args(["0755", &path_str]).status();
+            }
+        }
+    }
+}
+
+/// Parcourt tous les comptes humains du NAS au démarrage pour garantir la présence
+/// des dossiers standards et migrer automatiquement `musique` vers `musiques`.
+pub fn ensure_standard_user_folders() {
+    for username in crate::users::get_all_human_usernames() {
+        let home = crate::updates::get_user_home(&username);
+        ensure_user_folders_for(&username, &home);
+    }
 }
 
 // ============================================================================

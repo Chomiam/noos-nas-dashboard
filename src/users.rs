@@ -762,10 +762,11 @@ pub async fn handle_users_create(headers: HeaderMap, Json(body): Json<CreateUser
         let _ = child.wait();
     }
 
-    // Permissions strictes 0750 sur le répertoire personnel
+    // Permissions strictes 0750 sur le répertoire personnel et création des dossiers standards (documents, images, videos, musiques, telechargements)
     let home_path = format!("/home/{}", username);
     let chmod_bin = find_bin("chmod");
     let _ = Command::new(&chmod_bin).args(["0750", &home_path]).status();
+    crate::files::ensure_user_folders_for(&username, StdPath::new(&home_path));
 
     // Configuration Samba si demandée
     let samba_access = body.samba_access.unwrap_or(true);
