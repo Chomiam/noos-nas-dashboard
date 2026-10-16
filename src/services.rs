@@ -74,6 +74,14 @@ pub struct DockerContainer {
     pub compose_project: Option<String>,
     #[serde(default)]
     pub compose_service: Option<String>,
+    #[serde(default)]
+    pub compose_file_path: Option<String>,
+    #[serde(default)]
+    pub has_update: bool,
+    #[serde(default)]
+    pub local_digest: Option<String>,
+    #[serde(default)]
+    pub remote_digest: Option<String>,
 }
 
 pub fn get_services_overview() -> ServicesOverview {
@@ -379,6 +387,65 @@ pub fn get_docker_containers() -> Vec<DockerContainer> {
 
                 let compose_project = store_project.clone().or_else(|| store_app_id.clone());
 
+                // Recherche du fichier compose.yaml / docker-compose.yml associé
+                let mut compose_file_path = None;
+                if let Some(ref cfg_f) = compose_config_files {
+                    for f in cfg_f.split(|c| c == ';' || c == ',') {
+                        let p_cfg = std::path::Path::new(f.trim());
+                        if p_cfg.is_file() {
+                            compose_file_path = Some(p_cfg.to_string_lossy().to_string());
+                            break;
+                        }
+                    }
+                }
+                if compose_file_path.is_none() {
+                    if let Some(ref wd) = compose_working_dir {
+                        for filename in ["compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml"] {
+                            let p = std::path::Path::new(wd).join(filename);
+                            if p.is_file() {
+                                compose_file_path = Some(p.to_string_lossy().to_string());
+                                break;
+                            }
+                        }
+                    }
+                }
+                if compose_file_path.is_none() {
+                    let user = crate::updates::target_user();
+                    let candidates = [
+                        lookup_key,
+                        store_app_id.as_deref().unwrap_or(""),
+                    ];
+                    for candidate_app in candidates {
+                        if candidate_app.is_empty() {
+                            continue;
+                        }
+                        for base_dir in [
+                            format!("/home/{}/docker/{}", user, candidate_app),
+                            format!("/mnt/storage/docker/apps/{}", candidate_app),
+                        ] {
+                            for filename in ["compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml"] {
+                                let p = std::path::PathBuf::from(&base_dir).join(filename);
+                                if p.is_file() {
+                                    compose_file_path = Some(p.to_string_lossy().to_string());
+                                    break;
+                                }
+                            }
+                            if compose_file_path.is_some() {
+                                break;
+                            }
+                        }
+                        if compose_file_path.is_some() {
+                            break;
+                        }
+                    }
+                }
+
+                let cached_update = crate::docker_store::get_cached_container_update(&name);
+                let (has_update, local_digest, remote_digest) = match cached_update {
+                    Some(u) => (u.has_update, u.local_digest, u.remote_digest),
+                    None => (false, None, None),
+                };
+
                 containers.push(DockerContainer {
                     id,
                     name,
@@ -395,6 +462,10 @@ pub fn get_docker_containers() -> Vec<DockerContainer> {
                     env_file_path,
                     compose_project,
                     compose_service,
+                    compose_file_path,
+                    has_update,
+                    local_digest,
+                    remote_digest,
                 });
             }
         }

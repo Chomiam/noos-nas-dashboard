@@ -12295,16 +12295,58 @@ function updateContainersFilterCounts() {
   const running = allDockerContainers.filter(c => c.is_running).length;
   const unhealthy = allDockerContainers.filter(c => c.status && c.status.toLowerCase().includes("unhealthy")).length;
   const stopped = allDockerContainers.filter(c => !c.is_running).length;
+  const updates = allDockerContainers.filter(c => Boolean(c.has_update)).length;
 
   const countAll = document.getElementById("count-filter-all");
   const countRunning = document.getElementById("count-filter-running");
   const countUnhealthy = document.getElementById("count-filter-unhealthy");
   const countStopped = document.getElementById("count-filter-stopped");
+  const countUpdates = document.getElementById("count-filter-updates");
+  const pillUpdates = document.getElementById("pill-filter-updates");
+  const btnUpdateAll = document.getElementById("btn-update-all-docker-compose");
+  const countUpdateAll = document.getElementById("docker-update-all-count");
+  const bannerUpdates = document.getElementById("docker-updates-banner");
+  const bannerTitle = document.getElementById("docker-updates-banner-title");
+  const bannerSub = document.getElementById("docker-updates-banner-sub");
 
   if (countAll) countAll.textContent = total;
   if (countRunning) countRunning.textContent = running;
   if (countUnhealthy) countUnhealthy.textContent = unhealthy;
   if (countStopped) countStopped.textContent = stopped;
+  if (countUpdates) countUpdates.textContent = updates;
+  if (countUpdateAll) countUpdateAll.textContent = updates;
+
+  // Afficher le bouton global et la pastille de filtre uniquement si des mises à jour sont disponibles
+  if (btnUpdateAll) {
+    btnUpdateAll.style.display = updates > 0 ? "inline-flex" : "none";
+  }
+  if (pillUpdates) {
+    pillUpdates.style.display = updates > 0 ? "inline-flex" : "none";
+  }
+  if (updates === 0 && dockerContainersStatusFilter === "updates") {
+    dockerContainersStatusFilter = "all";
+    document.querySelectorAll(".docker-status-filter-pills .docker-pill-btn").forEach(btn => {
+      btn.classList.toggle("active", btn.id === "pill-filter-all");
+    });
+  }
+
+  if (bannerUpdates) {
+    if (updates > 0) {
+      const updatedStacks = new Set();
+      allDockerContainers.filter(c => c.has_update).forEach(c => {
+        updatedStacks.add(getContainerProjectKey(c) || (c.name || "").replace(/^\//, ""));
+      });
+      bannerUpdates.style.display = "flex";
+      if (bannerTitle) {
+        bannerTitle.textContent = `${updates} mise${updates > 1 ? "s" : ""} à jour d'image${updates > 1 ? "s" : ""} Docker disponible${updates > 1 ? "s" : ""} (${updatedStacks.size} service${updatedStacks.size > 1 ? "s" : ""} / Docker Compose)`;
+      }
+      if (bannerSub) {
+        bannerSub.textContent = "Cliquez sur la pastille orange ⬆️ d'un conteneur pour le mettre à jour individuellement, ou utilisez le bouton global pour tout mettre à jour.";
+      }
+    } else {
+      bannerUpdates.style.display = "none";
+    }
+  }
 }
 
 function setContainersStatusFilter(filterKey) {
@@ -12368,9 +12410,10 @@ function getContainerProjectKey(c) {
 function toggleDockerStack(groupId, event) {
   if (event) {
     const target = event.target;
-    // Ne pas plier/déplier si l'utilisateur clique sur une action, un lien ou une case à cocher
+    // Ne pas plier/déplier si l'utilisateur clique sur une action, un lien, une pastille de MAJ ou une case à cocher
     if (target.closest(".btn-docker-action") ||
         target.closest(".btn-docker-open") ||
+        target.closest(".docker-update-pill") ||
         target.closest("a") ||
         target.closest("input") ||
         target.closest(".badge-primary")) {
@@ -12502,6 +12545,7 @@ function renderSingleContainerRowHtml(c, isChild = false, stackId = null) {
   const isRunning = Boolean(c.is_running);
   const isUnhealthy = Boolean(c.status && c.status.toLowerCase().includes("unhealthy"));
   const isStore = Boolean(c.is_store_app);
+  const hasUpdate = Boolean(c.has_update);
   const appName = c.store_app_name || cleanName;
   const appIcon = c.store_icon || "";
   const storeAppId = (c.store_app_id || "").toLowerCase();
@@ -12523,6 +12567,18 @@ function renderSingleContainerRowHtml(c, isChild = false, stackId = null) {
 
   const storeBadge = (!isChild && isStore)
     ? `<span class="badge badge-primary" style="font-size:0.68rem; margin-left:6px; padding:2px 7px; vertical-align:middle; cursor:pointer;" onclick="event.stopPropagation(); openStoreAppModal('${escapeHtml(storeAppId)}')" title="Cliquer pour voir la fiche dans l'App Store">🛍️ ${escapeHtml(appName)}</span>`
+    : "";
+
+  const updatePillHtml = hasUpdate
+    ? `<button type="button" class="docker-update-pill" onclick="event.stopPropagation(); openSingleDockerUpdateModal('container', '${escapeHtml(cleanName)}')" title="Une nouvelle version de l'image '${escapeHtml(c.image)}' est disponible — Cliquez pour mettre à jour">
+         <span class="docker-update-pill-arrow">⬆️</span> Mise à jour dispo
+       </button>`
+    : "";
+
+  const updateActionBtnHtml = hasUpdate
+    ? `<button type="button" class="btn-docker-action btn-docker-update-action" onclick="openSingleDockerUpdateModal('container', '${escapeHtml(cleanName)}')" title="Télécharger la nouvelle image et mettre à jour ce conteneur">
+         <span>⬆️</span> Mettre à jour
+       </button>`
     : "";
 
   const serviceTag = (isChild && c.compose_service)
@@ -12558,6 +12614,7 @@ function renderSingleContainerRowHtml(c, isChild = false, stackId = null) {
           <div class="docker-row-name" title="${escapeHtml(cleanName)}">
             ${escapeHtml(cleanName)}
             ${storeBadge}
+            ${updatePillHtml}
           </div>
           <div class="docker-row-sub">
             <span class="docker-row-id font-mono">${escapeHtml(shortId)}</span>
@@ -12579,6 +12636,7 @@ function renderSingleContainerRowHtml(c, isChild = false, stackId = null) {
       </div>
 
       <div class="docker-row-actions" onclick="event.stopPropagation()">
+        ${updateActionBtnHtml}
         ${isRunning ? `
           <button type="button" class="btn-docker-action btn-docker-restart" onclick="dockerContainerAction('${escapeHtml(cleanName)}', 'restart')" title="Redémarrer le conteneur">
             <span>🔄</span> Redémarrer
@@ -12645,6 +12703,7 @@ function renderDockerContainersView() {
     if (statusFilter === "running" && !c.is_running) return false;
     if (statusFilter === "unhealthy" && (!c.status || !c.status.toLowerCase().includes("unhealthy"))) return false;
     if (statusFilter === "stopped" && c.is_running) return false;
+    if (statusFilter === "updates" && !c.has_update) return false;
 
     if (search) {
       const cleanName = (c.name || "").replace(/^\//, "").toLowerCase();
@@ -12691,6 +12750,7 @@ function renderDockerContainersView() {
           if (dockerContainersStatusFilter === "running" && !sc.is_running) return false;
           if (dockerContainersStatusFilter === "unhealthy" && (!sc.status || !sc.status.toLowerCase().includes("unhealthy"))) return false;
           if (dockerContainersStatusFilter === "stopped" && sc.is_running) return false;
+          if (dockerContainersStatusFilter === "updates" && !sc.has_update) return false;
           return true;
         }
         return containerMatchesFilters(sc, dockerContainersSearch, dockerContainersStatusFilter);
@@ -12787,6 +12847,7 @@ function renderDockerContainersView() {
     const totalCount = item.allContainers.length;
     const runningCount = item.allContainers.filter(sc => sc.is_running).length;
     const unhealthyCount = item.allContainers.filter(sc => sc.status && sc.status.toLowerCase().includes("unhealthy")).length;
+    const stackUpdatesCount = item.allContainers.filter(sc => Boolean(sc.has_update)).length;
     const allRunning = runningCount === totalCount;
     const allStopped = runningCount === 0;
 
@@ -12806,7 +12867,7 @@ function renderDockerContainersView() {
       aggregateBadgeClass = "state-stopped";
     }
 
-    const isAutoExpandedForSearch = Boolean(dockerContainersSearch);
+    const isAutoExpandedForSearch = Boolean(dockerContainersSearch) || dockerContainersStatusFilter === "updates";
     const isExpanded = isAutoExpandedForSearch || expandedDockerStacks.has(item.id);
 
     const stackChildNames = item.allContainers.map(sc => (sc.name || "").replace(/^\//, ""));
@@ -12838,6 +12899,18 @@ function renderDockerContainersView() {
       ? `<span class="badge badge-primary" style="font-size:0.68rem; padding:2px 7px; vertical-align:middle; cursor:pointer;" onclick="event.stopPropagation(); openStoreAppModal('${escapeHtml(item.store_app_id)}')" title="Cliquer pour voir la fiche dans l'App Store">🛍️ ${escapeHtml(item.name)}</span>`
       : "";
 
+    const stackUpdatePillHtml = stackUpdatesCount > 0
+      ? `<button type="button" class="docker-update-pill" onclick="event.stopPropagation(); openSingleDockerUpdateModal('stack', '${escapeHtml(item.id)}')" title="${stackUpdatesCount} mise(s) à jour d'image disponible(s) pour cette pile Docker Compose — Cliquez pour mettre à jour">
+           <span class="docker-update-pill-arrow">⬆️</span> ${stackUpdatesCount > 1 ? `${stackUpdatesCount} MAJ dispo` : 'Mise à jour dispo'}
+         </button>`
+      : "";
+
+    const stackUpdateActionBtnHtml = stackUpdatesCount > 0
+      ? `<button type="button" class="btn-docker-action btn-docker-update-action" onclick="openSingleDockerUpdateModal('stack', '${escapeHtml(item.id)}')" title="Mettre à jour la pile Docker Compose '${escapeHtml(item.name)}'">
+           <span>⬆️</span> Mettre à jour stack
+         </button>`
+      : "";
+
     return `
       <div class="docker-stack-group ${isExpanded ? 'is-expanded' : 'is-collapsed'}" id="docker-stack-${escapeHtml(item.id)}">
         <div class="docker-stack-header" onclick="toggleDockerStack('${escapeHtml(item.id)}', event)">
@@ -12860,6 +12933,7 @@ function renderDockerContainersView() {
                 <span class="docker-stack-badge-compose">Docker Compose</span>
                 <span class="docker-stack-badge-count">📦 ${totalCount} conteneurs</span>
                 ${storeBadge}
+                ${stackUpdatePillHtml}
               </div>
               <div class="docker-stack-sub">
                 <span class="docker-badge-state ${aggregateBadgeClass}">${aggregateBadgeText}</span>
@@ -12873,6 +12947,7 @@ function renderDockerContainersView() {
           </div>
 
           <div class="docker-stack-header-actions" onclick="event.stopPropagation()">
+            ${stackUpdateActionBtnHtml}
             ${allRunning ? `
               <button type="button" class="btn-docker-action btn-docker-restart" onclick="dockerStackAction('${escapeHtml(item.id)}', 'restart')" title="Redémarrer tous les conteneurs de la stack">
                 <span>🔄</span> Redémarrer stack
@@ -12947,6 +13022,325 @@ function renderDockerContainersView() {
 
   // 7. Mise à jour de la barre d'actions groupées
   updateBulkActionsBar(pagedItems);
+}
+
+// --------------------------------------------------------------------------
+// VÉRIFICATION ET APPLICATION DES MISES À JOUR D'IMAGES DOCKER / COMPOSE
+// --------------------------------------------------------------------------
+let isCheckingDockerUpdates = false;
+let isApplyingDockerUpdate = false;
+let pendingDockerUpdateContext = null; // { mode: 'single' | 'all', targetType: 'container' | 'stack', target: string }
+
+async function checkDockerImageUpdates() {
+  if (isCheckingDockerUpdates) return;
+  isCheckingDockerUpdates = true;
+
+  const btn = document.getElementById("btn-check-docker-updates");
+  const iconEl = document.getElementById("btn-check-docker-updates-icon");
+  const labelEl = document.getElementById("btn-check-docker-updates-label");
+
+  if (btn) btn.disabled = true;
+  if (iconEl) iconEl.textContent = "⏳";
+  if (labelEl) labelEl.textContent = "Vérification en cours...";
+
+  showToast("Vérification des mises à jour d'images Docker auprès des registres distants...", "info");
+
+  try {
+    const res = await fetch("/api/docker/updates/check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
+    });
+    const json = await res.json();
+
+    if (!json.success || !json.data) {
+      showToast(json.message || "Erreur lors de la vérification des mises à jour Docker.", "error");
+      return;
+    }
+
+    const data = json.data;
+    await loadDockerContainers();
+
+    if (data.updates_available > 0) {
+      showToast(
+        `⬆️ ${data.updates_available} mise(s) à jour d'image disponible(s) sur ${data.total_checked} conteneur(s) vérifié(s) !`,
+        "warning"
+      );
+    } else {
+      showToast(
+        `✅ Toutes vos images Docker (${data.total_checked} conteneur${data.total_checked > 1 ? "s" : ""}) sont à jour !`,
+        "success"
+      );
+    }
+  } catch (err) {
+    console.error("Erreur checkDockerImageUpdates:", err);
+    showToast("Erreur réseau lors de la vérification des mises à jour Docker.", "error");
+  } finally {
+    isCheckingDockerUpdates = false;
+    if (btn) btn.disabled = false;
+    if (iconEl) iconEl.textContent = "🔍";
+    if (labelEl) labelEl.textContent = "Vérifier les mises à jour";
+  }
+}
+
+function renderDockerUpdateTargetCardHtml(c) {
+  const cleanName = (c.name || "").replace(/^\//, "");
+  const displayName = c.store_app_name ? `${c.store_app_name} (${cleanName})` : cleanName;
+  const localDigest = c.local_digest || "actuelle";
+  const remoteDigest = c.remote_digest || "nouvelle version";
+
+  return `
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 10px; border-radius:8px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); margin-bottom:6px;">
+      <div style="min-width:0; flex:1;">
+        <div style="font-weight:700; font-size:0.84rem; color:var(--text); display:flex; align-items:center; gap:6px;">
+          <span>🐳</span>
+          <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(displayName)}</span>
+        </div>
+        <div style="font-size:0.74rem; color:var(--subtext0); font-family:monospace; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+          📦 ${escapeHtml(c.image || "")}
+        </div>
+      </div>
+      <div style="text-align:right; font-family:monospace; font-size:0.72rem; flex-shrink:0;">
+        <span style="color:var(--subtext0);">${escapeHtml(localDigest)}</span>
+        <span style="color:#fab387; font-weight:800; margin:0 4px;">➔</span>
+        <span style="color:var(--green); font-weight:700;">${escapeHtml(remoteDigest)}</span>
+      </div>
+    </div>
+  `;
+}
+
+function openSingleDockerUpdateModal(targetType, targetName) {
+  if (isApplyingDockerUpdate) return;
+
+  const modal = document.getElementById("modal-docker-update");
+  const titleEl = document.getElementById("docker-update-modal-title");
+  const descEl = document.getElementById("docker-update-modal-desc");
+  const targetsBox = document.getElementById("docker-update-targets-box");
+  const progressWrap = document.getElementById("docker-update-progress-wrap");
+  const confirmBtn = document.getElementById("btn-confirm-docker-update");
+  const cancelBtn = document.getElementById("btn-cancel-docker-update");
+
+  if (!modal) return;
+
+  let affectedContainers = [];
+  if (targetType === "stack") {
+    affectedContainers = allDockerContainers.filter(c => {
+      const pk = getContainerProjectKey(c) || (c.name || "").replace(/^\//, "");
+      return pk.toLowerCase() === targetName.toLowerCase();
+    });
+  } else {
+    affectedContainers = allDockerContainers.filter(c => {
+      const cleanName = (c.name || "").replace(/^\//, "");
+      return cleanName.toLowerCase() === targetName.toLowerCase();
+    });
+  }
+
+  if (affectedContainers.length === 0) {
+    showToast("Conteneur ou stack introuvable.", "error");
+    return;
+  }
+
+  const containersToDisplay = affectedContainers.filter(c => c.has_update).length > 0
+    ? affectedContainers.filter(c => c.has_update)
+    : affectedContainers;
+
+  const primary = affectedContainers.find(c => c.store_app_name) || affectedContainers[0];
+  const friendlyName = targetType === "stack"
+    ? (primary.store_app_name || targetName)
+    : ((primary.name || "").replace(/^\//, ""));
+
+  pendingDockerUpdateContext = {
+    mode: "single",
+    targetType,
+    target: targetName,
+    friendlyName
+  };
+
+  if (titleEl) {
+    titleEl.textContent = targetType === "stack"
+      ? `Mettre à jour la stack « ${friendlyName} »`
+      : `Mettre à jour « ${friendlyName} »`;
+  }
+
+  if (descEl) {
+    descEl.innerHTML = targetType === "stack"
+      ? `Une nouvelle version d'image est disponible pour la pile Docker Compose <strong>${escapeHtml(friendlyName)}</strong>. Voulez-vous télécharger la mise à jour et relancer la pile maintenant ?`
+      : `Une nouvelle version de l'image Docker est disponible pour le conteneur <strong>${escapeHtml(friendlyName)}</strong>. Voulez-vous appliquer cette mise à jour maintenant ?`;
+  }
+
+  if (targetsBox) {
+    targetsBox.innerHTML = containersToDisplay.map(renderDockerUpdateTargetCardHtml).join("");
+  }
+
+  if (progressWrap) progressWrap.style.display = "none";
+  if (confirmBtn) {
+    confirmBtn.disabled = false;
+    confirmBtn.innerHTML = `<span>⬆️ Appliquer la mise à jour</span>`;
+  }
+  if (cancelBtn) {
+    cancelBtn.disabled = false;
+    cancelBtn.textContent = "Annuler";
+  }
+
+  modal.style.display = "flex";
+}
+
+function openGlobalDockerUpdateModal() {
+  if (isApplyingDockerUpdate) return;
+
+  const containersWithUpdates = allDockerContainers.filter(c => Boolean(c.has_update));
+  if (containersWithUpdates.length === 0) {
+    showToast("Aucune mise à jour d'image Docker n'est en attente.", "info");
+    return;
+  }
+
+  const modal = document.getElementById("modal-docker-update");
+  const titleEl = document.getElementById("docker-update-modal-title");
+  const descEl = document.getElementById("docker-update-modal-desc");
+  const targetsBox = document.getElementById("docker-update-targets-box");
+  const progressWrap = document.getElementById("docker-update-progress-wrap");
+  const confirmBtn = document.getElementById("btn-confirm-docker-update");
+  const cancelBtn = document.getElementById("btn-cancel-docker-update");
+
+  if (!modal) return;
+
+  const uniqueStacks = new Set();
+  containersWithUpdates.forEach(c => {
+    uniqueStacks.add(getContainerProjectKey(c) || (c.name || "").replace(/^\//, ""));
+  });
+
+  pendingDockerUpdateContext = {
+    mode: "all",
+    targetType: "all",
+    target: "all",
+    friendlyName: `Tous les conteneurs (${containersWithUpdates.length})`
+  };
+
+  if (titleEl) {
+    titleEl.textContent = `Tout mettre à jour (${containersWithUpdates.length} conteneur${containersWithUpdates.length > 1 ? "s" : ""})`;
+  }
+
+  if (descEl) {
+    descEl.innerHTML = `Vous êtes sur le point de mettre à jour <strong>${containersWithUpdates.length} conteneur${containersWithUpdates.length > 1 ? "s" : ""}</strong> réparti${containersWithUpdates.length > 1 ? "s" : ""} sur <strong>${uniqueStacks.size} pile${uniqueStacks.size > 1 ? "s" : ""} Docker Compose</strong>.`;
+  }
+
+  if (targetsBox) {
+    targetsBox.innerHTML = containersWithUpdates.map(renderDockerUpdateTargetCardHtml).join("");
+  }
+
+  if (progressWrap) progressWrap.style.display = "none";
+  if (confirmBtn) {
+    confirmBtn.disabled = false;
+    confirmBtn.innerHTML = `<span>⬆️ Tout mettre à jour (${containersWithUpdates.length})</span>`;
+  }
+  if (cancelBtn) {
+    cancelBtn.disabled = false;
+    cancelBtn.textContent = "Annuler";
+  }
+
+  modal.style.display = "flex";
+}
+
+function closeDockerUpdateModal() {
+  if (isApplyingDockerUpdate) return;
+  const modal = document.getElementById("modal-docker-update");
+  if (modal) modal.style.display = "none";
+  pendingDockerUpdateContext = null;
+}
+
+async function confirmApplyDockerUpdate() {
+  if (isApplyingDockerUpdate || !pendingDockerUpdateContext) return;
+  isApplyingDockerUpdate = true;
+
+  const pruneCb = document.getElementById("docker-update-prune-checkbox");
+  const pruneOldImages = pruneCb ? Boolean(pruneCb.checked) : true;
+
+  const progressWrap = document.getElementById("docker-update-progress-wrap");
+  const progressStatus = document.getElementById("docker-update-progress-status");
+  const progressPct = document.getElementById("docker-update-progress-pct");
+  const progressBar = document.getElementById("docker-update-progress-bar");
+  const progressLogs = document.getElementById("docker-update-progress-logs");
+  const confirmBtn = document.getElementById("btn-confirm-docker-update");
+  const cancelBtn = document.getElementById("btn-cancel-docker-update");
+  const closeBtn = document.getElementById("btn-close-docker-update-modal");
+
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = `<span>⏳ Mise à jour en cours...</span>`;
+  }
+  if (cancelBtn) cancelBtn.disabled = true;
+  if (closeBtn) closeBtn.disabled = true;
+
+  if (progressWrap) progressWrap.style.display = "block";
+  if (progressStatus) progressStatus.textContent = "⏳ Téléchargement des nouvelles images et recréation des conteneurs...";
+  if (progressPct) progressPct.textContent = "En cours";
+  if (progressBar) progressBar.style.width = "45%";
+  if (progressLogs) progressLogs.textContent = "Exécution de docker compose pull & docker compose up -d...";
+
+  try {
+    const endpoint = pendingDockerUpdateContext.mode === "all"
+      ? "/api/docker/updates/apply-all"
+      : "/api/docker/updates/apply";
+
+    const payload = pendingDockerUpdateContext.mode === "all"
+      ? { prune_old_images: pruneOldImages }
+      : {
+          target_type: pendingDockerUpdateContext.targetType,
+          target: pendingDockerUpdateContext.target,
+          prune_old_images: pruneOldImages
+        };
+
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+
+    if (!json.success) {
+      if (progressStatus) progressStatus.textContent = "❌ Échec de la mise à jour";
+      if (progressPct) progressPct.textContent = "Erreur";
+      if (progressBar) progressBar.style.width = "100%";
+      if (progressLogs) progressLogs.textContent = json.message || "Erreur lors de l'application de la mise à jour.";
+      showToast(json.message || "Échec de la mise à jour Docker.", "error");
+      return;
+    }
+
+    const resultData = json.data || {};
+    if (progressStatus) progressStatus.textContent = "✅ Mise à jour terminée avec succès !";
+    if (progressPct) progressPct.textContent = "100%";
+    if (progressBar) progressBar.style.width = "100%";
+    if (progressLogs && Array.isArray(resultData.logs)) {
+      progressLogs.textContent = resultData.logs.join("\n");
+    }
+
+    showToast(resultData.summary || "Mise à jour Docker appliquée avec succès !", "success");
+
+    await loadDockerContainers();
+    if (activeDockerSubTab === "images") {
+      await loadDockerImages();
+    }
+
+    setTimeout(() => {
+      isApplyingDockerUpdate = false;
+      if (closeBtn) closeBtn.disabled = false;
+      closeDockerUpdateModal();
+    }, 900);
+    return;
+  } catch (err) {
+    console.error("Erreur confirmApplyDockerUpdate:", err);
+    if (progressStatus) progressStatus.textContent = "❌ Erreur de communication avec le serveur";
+    showToast("Erreur réseau lors de l'application de la mise à jour Docker.", "error");
+  } finally {
+    if (isApplyingDockerUpdate) {
+      isApplyingDockerUpdate = false;
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = `<span>⬆️ Réessayer la mise à jour</span>`;
+      }
+      if (cancelBtn) cancelBtn.disabled = false;
+      if (closeBtn) closeBtn.disabled = false;
+    }
+  }
 }
 
 function changeContainersPage(page) {

@@ -2916,7 +2916,13 @@
               <div class="section-subtitle">Déploiements déclaratifs NixOS avec données unifiées dans ~/docker</div>
             </div>
           </div>
-          <div style="display:flex; gap:10px; align-items:center;">
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <button type="button" class="btn btn-sm" id="btn-update-all-docker-compose" onclick="openGlobalDockerUpdateModal()" style="display:none; background:linear-gradient(135deg, #fab387, #fe640b); color:#11111b; font-weight:800; border:1px solid rgba(250, 179, 135, 0.6); box-shadow:0 4px 14px rgba(250, 179, 135, 0.25);">
+              <span>⬆️</span> Tout mettre à jour (<span id="docker-update-all-count">0</span>)
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-check-docker-updates" onclick="checkDockerImageUpdates()" title="Vérifier sur les registres distants si de nouvelles versions d'images Docker sont disponibles">
+              <span id="btn-check-docker-updates-icon">🔍</span> <span id="btn-check-docker-updates-label">Vérifier les mises à jour</span>
+            </button>
             <a href="#" onclick="window.open('http://' + (window.location.hostname || 'localhost') + ':3552', '_blank'); return false;" class="btn btn-primary btn-sm" id="btn-open-arcane" style="text-decoration:none;">
               <span>⚡</span> Ouvrir Arcane (Port 3552) ↗
             </a>
@@ -2963,6 +2969,9 @@
                 </button>
                 <button type="button" class="docker-pill-btn" id="pill-filter-stopped" onclick="setContainersStatusFilter('stopped')">
                   <span class="status-dot dot-stopped"></span> Hors ligne (<span id="count-filter-stopped">0</span>)
+                </button>
+                <button type="button" class="docker-pill-btn" id="pill-filter-updates" onclick="setContainersStatusFilter('updates')" style="display:none; border-color:rgba(250, 179, 135, 0.55); color:#fab387; background:rgba(250, 179, 135, 0.12);">
+                  <span>⬆️</span> Mises à jour (<span id="count-filter-updates">0</span>)
                 </button>
               </div>
 
@@ -3015,6 +3024,31 @@
                   ✕ Annuler
                 </button>
               </div>
+            </div>
+          </div>
+
+          <!-- BANNIÈRE D'ÉTAT DES MISES À JOUR DOCKER -->
+          <div id="docker-updates-banner" style="display:none; margin-bottom:14px; padding:12px 16px; border-radius:10px; background:rgba(250, 179, 135, 0.10); border:1px solid rgba(250, 179, 135, 0.35); align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <div style="width:36px; height:36px; border-radius:8px; background:rgba(250, 179, 135, 0.2); border:1px solid rgba(250, 179, 135, 0.45); display:flex; align-items:center; justify-content:center; font-size:1.15rem; flex-shrink:0;">
+                ⬆️
+              </div>
+              <div>
+                <div id="docker-updates-banner-title" style="font-weight:700; font-size:0.9rem; color:#fab387;">
+                  Mises à jour d'images Docker disponibles
+                </div>
+                <div id="docker-updates-banner-sub" style="font-size:0.78rem; color:var(--subtext0); margin-top:2px;">
+                  Cliquez sur la pastille orange ⬆️ d'un conteneur ou mettez à jour tous vos Docker Compose en un clic.
+                </div>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <button type="button" class="btn btn-secondary btn-xs" onclick="setContainersStatusFilter('updates')" id="btn-banner-filter-updates">
+                🔍 Afficher uniquement les mises à jour
+              </button>
+              <button type="button" class="btn btn-xs" onclick="openGlobalDockerUpdateModal()" style="background:linear-gradient(135deg, #fab387, #fe640b); color:#11111b; font-weight:800; border:none; padding:6px 12px;">
+                ⬆️ Tout mettre à jour maintenant
+              </button>
             </div>
           </div>
 
@@ -9344,9 +9378,68 @@
     </div>
   </div>
 
+  <!-- ================= MODALE : CONFIRMATION DE MISE À JOUR DOCKER / COMPOSE ================= -->
+  <div class="file-modal-overlay" id="modal-docker-update" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-docker-update')">
+    <div class="file-modal-window" style="max-width: 580px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(250, 179, 135, 0.35);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge" style="background:rgba(250, 179, 135, 0.18); color:#fab387; border:1px solid rgba(250, 179, 135, 0.45); font-size:0.75rem; font-weight:800;">⬆️ MISE À JOUR DOCKER</span>
+          <span class="file-modal-title" id="docker-update-modal-title">Mettre à jour le conteneur</span>
+        </div>
+        <button type="button" class="btn-close-modal" id="btn-close-docker-update-modal" onclick="closeDockerUpdateModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:20px;">
+        <!-- Description et résumé -->
+        <div id="docker-update-modal-desc" style="font-size:0.88rem; color:var(--text); line-height:1.5; margin-bottom:16px;">
+          Voulez-vous télécharger la dernière image et mettre à jour ce conteneur maintenant ?
+        </div>
+
+        <!-- Liste des conteneurs / images concernés -->
+        <div id="docker-update-targets-box" style="background:rgba(17, 17, 27, 0.55); border:1px solid rgba(255, 255, 255, 0.08); border-radius:10px; padding:12px 14px; margin-bottom:16px; max-height:220px; overflow-y:auto;">
+        </div>
+
+        <!-- Garanties de sécurité (user-friendly) -->
+        <div style="background:rgba(166, 227, 161, 0.08); border:1px solid rgba(166, 227, 161, 0.28); border-radius:10px; padding:12px 14px; margin-bottom:16px; font-size:0.8rem; color:var(--subtext1); line-height:1.45;">
+          <div style="font-weight:700; color:var(--green); margin-bottom:4px;">🛡️ Vos données et configurations sont protégées :</div>
+          <ul style="margin:0; padding-left:18px; color:var(--subtext0);">
+            <li>Vos volumes de données persistants (<code>~/docker/...</code> et <code>/mnt/storage/...</code>) sont intégralement conservés.</li>
+            <li>Vos variables d'environnement (<code>.env</code>), ports et paramètres réseau restent inchangés.</li>
+            <li>Le service sera brièvement redémarré sur la nouvelle version de l'image.</li>
+          </ul>
+        </div>
+
+        <!-- Option de nettoyage automatique -->
+        <label style="display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:8px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); cursor:pointer; margin-bottom:16px; font-size:0.83rem; color:var(--text);">
+          <input type="checkbox" id="docker-update-prune-checkbox" checked style="width:16px; height:16px; accent-color:#fab387;">
+          <span>🧹 Nettoyer automatiquement les anciennes versions d'images inutilisées après la mise à jour (libère de l'espace disque)</span>
+        </label>
+
+        <!-- Zone de progression en direct (affichée pendant ou après la mise à jour) -->
+        <div id="docker-update-progress-wrap" style="display:none; margin-bottom:16px; padding:14px; border-radius:10px; background:rgba(250, 179, 135, 0.08); border:1px solid rgba(250, 179, 135, 0.3);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <span id="docker-update-progress-status" style="font-size:0.84rem; font-weight:700; color:#fab387;">⏳ Téléchargement de la nouvelle image en cours...</span>
+            <span id="docker-update-progress-pct" style="font-size:0.78rem; font-family:monospace; color:var(--subtext0);">...</span>
+          </div>
+          <div style="width:100%; height:7px; background:rgba(255,255,255,0.08); border-radius:999px; overflow:hidden; margin-bottom:10px;">
+            <div id="docker-update-progress-bar" style="width:35%; height:100%; background:linear-gradient(90deg, #fab387, #fe640b); border-radius:999px; transition:width 0.35s ease;"></div>
+          </div>
+          <div id="docker-update-progress-logs" style="font-family:monospace; font-size:0.74rem; color:var(--subtext0); max-height:110px; overflow-y:auto; white-space:pre-wrap; line-height:1.4;"></div>
+        </div>
+
+        <div class="file-modal-footer" style="padding-top:14px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-docker-update" onclick="closeDockerUpdateModal()">Annuler</button>
+          <button type="button" class="btn" id="btn-confirm-docker-update" onclick="confirmApplyDockerUpdate()" style="background:linear-gradient(135deg, #fab387, #fe640b); color:#11111b; font-weight:800; border:none;">
+            <span>⬆️ Appliquer la mise à jour</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /#app-shell -->
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20261001_19"></script>
+  <script src="/js/app.js?v=20261016_01"></script>
 </body>
 </html>

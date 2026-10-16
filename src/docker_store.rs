@@ -1432,6 +1432,597 @@ pub async fn remove_docker_container(
     ))
 }
 
+// ============================================================================
+// VÉRIFICATION ET APPLICATION DES MISES À JOUR D'IMAGES DOCKER / COMPOSE
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerUpdateInfo {
+    pub container_name: String,
+    pub container_id: String,
+    pub image: String,
+    pub compose_project: Option<String>,
+    pub compose_service: Option<String>,
+    pub compose_file_path: Option<String>,
+    pub has_update: bool,
+    pub local_digest: Option<String>,
+    pub remote_digest: Option<String>,
+    pub checked_at: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DockerUpdatesCheckResult {
+    pub checked_at: String,
+    pub total_checked: usize,
+    pub updates_available: usize,
+    pub stacks_with_updates: usize,
+    pub containers: Vec<ContainerUpdateInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApplyDockerUpdateRequest {
+    /// "container" ou "stack"
+    #[serde(default = "default_update_target_type")]
+    pub target_type: String,
+    /// Nom du conteneur ou nom du projet/stack Compose
+    pub target: String,
+    #[serde(default = "default_true_flag")]
+    pub prune_old_images: bool,
+}
+
+fn default_update_target_type() -> String {
+    "container".to_string()
+}
+
+fn default_true_flag() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApplyAllDockerUpdatesRequest {
+    #[serde(default = "default_true_flag")]
+    pub prune_old_images: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplyDockerUpdateResult {
+    pub updated_targets: Vec<String>,
+    pub logs: Vec<String>,
+    pub summary: String,
+}
+
+static DOCKER_IMAGE_UPDATES_CACHE: LazyLock<Mutex<HashMap<String, ContainerUpdateInfo>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+static DOCKER_LAST_CHECK_TIME: LazyLock<Mutex<Option<String>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+/// Retourne le statut de mise à jour mis en cache pour un conteneur donné.
+pub fn get_cached_container_update(container_name: &str) -> Option<ContainerUpdateInfo> {
+    if let Ok(cache) = DOCKER_IMAGE_UPDATES_CACHE.lock() {
+        cache.get(container_name).cloned()
+    } else {
+        None
+    }
+}
+
+/// Retourne l'état actuel du cache des mises à jour Docker sans interroger les registres distants.
+pub fn get_docker_updates_status() -> DockerUpdatesCheckResult {
+    let checked_at = DOCKER_LAST_CHECK_TIME
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .unwrap_or_default();
+
+    let mut containers: Vec<ContainerUpdateInfo> = Vec::new();
+    if let Ok(cache) = DOCKER_IMAGE_UPDATES_CACHE.lock() {
+        containers = cache.values().cloned().collect();
+    }
+    containers.sort_by(|a, b| a.container_name.cmp(&b.container_name));
+
+    let updates_available = containers.iter().filter(|c| c.has_update).count();
+    let mut updated_stacks = std::collections::HashSet::new();
+    for c in containers.iter().filter(|c| c.has_update) {
+        let key = c
+            .compose_project
+            .clone()
+            .unwrap_or_else(|| c.container_name.clone());
+        updated_stacks.insert(key);
+    }
+
+    DockerUpdatesCheckResult {
+        checked_at,
+        total_checked: containers.len(),
+        updates_available,
+        stacks_with_updates: updated_stacks.len(),
+        containers,
+    }
+}
+
+fn shorten_sha256(digest: &str) -> String {
+    let clean = digest.trim();
+    if let Some(pos) = clean.find("sha256:") {
+        let hex = &clean[pos + 7..];
+        let short_hex: String = hex.chars().take_while(|c| c.is_ascii_hexdigit()).take(12).collect();
+        if !short_hex.is_empty() {
+            return format!("sha256:{}", short_hex);
+        }
+    }
+    clean.chars().take(19).collect()
+}
+
+fn extract_remote_short_digest(manifest_out: &str) -> Option<String> {
+    // Cherche d'abord un digest proche de "amd64" ou le premier digest sha256 valide dans le manifeste
+    if let Some(amd64_pos) = manifest_out.find("\"amd64\"") {
+        let window_start = amd64_pos.saturating_sub(600);
+        let window_end = (amd64_pos + 600).min(manifest_out.len());
+        let slice = &manifest_out[window_start..window_end];
+        if let Some(sha_pos) = slice.find("sha256:") {
+            let rest = &slice[sha_pos..];
+            let hex: String = rest[7..].chars().take_while(|c| c.is_ascii_hexdigit()).take(12).collect();
+            if hex.len() >= 12 {
+                return Some(format!("sha256:{}", hex));
+            }
+        }
+    }
+    if let Some(sha_pos) = manifest_out.find("sha256:") {
+        let rest = &manifest_out[sha_pos..];
+        let hex: String = rest[7..].chars().take_while(|c| c.is_ascii_hexdigit()).take(12).collect();
+        if hex.len() >= 12 {
+            return Some(format!("sha256:{}", hex));
+        }
+    }
+    None
+}
+
+/// Vérifie si le conteneur dispose d'une image plus récente sur le registre distant.
+fn check_single_container_image(
+    container_name: &str,
+    image: &str,
+) -> (bool, Option<String>, Option<String>, Option<String>) {
+    // 1. Récupérer l'ID d'image actuellement exécuté par le conteneur
+    let container_img_id = match Command::new("docker")
+        .args(["inspect", "--format", "{{.Image}}", container_name])
+        .output()
+    {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        _ => String::new(),
+    };
+
+    if container_img_id.is_empty() {
+        return (
+            false,
+            None,
+            None,
+            Some("Impossible d'inspecter l'image du conteneur.".into()),
+        );
+    }
+
+    // 2. Récupérer les RepoDigests de l'image actuelle du conteneur
+    let mut local_hashes: Vec<String> = vec![container_img_id.clone()];
+    let mut primary_local_digest = shorten_sha256(&container_img_id);
+
+    if let Ok(out) = Command::new("docker")
+        .args([
+            "image",
+            "inspect",
+            "--format",
+            "{{range .RepoDigests}}{{.}};{{end}}",
+            &container_img_id,
+        ])
+        .output()
+    {
+        if out.status.success() {
+            let digests_raw = String::from_utf8_lossy(&out.stdout);
+            for part in digests_raw.split(';') {
+                let p = part.trim();
+                if let Some(at_pos) = p.find("@sha256:") {
+                    let sha = p[at_pos + 1..].trim().to_string();
+                    if !sha.is_empty() {
+                        if primary_local_digest == shorten_sha256(&container_img_id) {
+                            primary_local_digest = shorten_sha256(&sha);
+                        }
+                        local_hashes.push(sha);
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Vérifier si le tag local pointe déjà vers une image plus récente que celle du conteneur
+    if let Ok(out) = Command::new("docker")
+        .args(["image", "inspect", "--format", "{{.Id}}", image])
+        .output()
+    {
+        if out.status.success() {
+            let tag_img_id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !tag_img_id.is_empty() && tag_img_id != container_img_id {
+                return (
+                    true,
+                    Some(primary_local_digest),
+                    Some(shorten_sha256(&tag_img_id)),
+                    None,
+                );
+            }
+        }
+    }
+
+    // 4. Interroger le registre distant via `docker manifest inspect -v <image>` (sans télécharger les couches)
+    if let Ok(out) = Command::new("docker")
+        .args(["manifest", "inspect", "-v", image])
+        .output()
+    {
+        if out.status.success() {
+            let manifest_stdout = String::from_utf8_lossy(&out.stdout);
+            if manifest_stdout.contains("sha256:") {
+                let matches_local = local_hashes
+                    .iter()
+                    .any(|h| !h.is_empty() && manifest_stdout.contains(h));
+
+                let remote_short = extract_remote_short_digest(&manifest_stdout);
+                if matches_local {
+                    return (
+                        false,
+                        Some(primary_local_digest.clone()),
+                        remote_short.or(Some(primary_local_digest)),
+                        None,
+                    );
+                } else {
+                    return (
+                        true,
+                        Some(primary_local_digest),
+                        remote_short,
+                        None,
+                    );
+                }
+            }
+        }
+    }
+
+    // 5. Fallback : `docker pull -q <image>` puis comparaison de l'ID d'image
+    if let Ok(pull_out) = Command::new("docker").args(["pull", "-q", image]).output() {
+        if pull_out.status.success() {
+            if let Ok(inspect_out) = Command::new("docker")
+                .args(["image", "inspect", "--format", "{{.Id}}", image])
+                .output()
+            {
+                if inspect_out.status.success() {
+                    let new_img_id = String::from_utf8_lossy(&inspect_out.stdout).trim().to_string();
+                    let has_upd = !new_img_id.is_empty() && new_img_id != container_img_id;
+                    return (
+                        has_upd,
+                        Some(primary_local_digest),
+                        Some(shorten_sha256(&new_img_id)),
+                        None,
+                    );
+                }
+            }
+        }
+    }
+
+    (
+        false,
+        Some(primary_local_digest),
+        None,
+        Some("Impossible de vérifier le registre distant pour cette image.".into()),
+    )
+}
+
+/// Vérifie en parallèle les mises à jour disponibles pour tous les conteneurs Docker (hors serveurs de jeux).
+pub fn check_docker_updates() -> Result<DockerUpdatesCheckResult, String> {
+    let all_containers: Vec<crate::services::DockerContainer> = crate::services::get_docker_containers()
+        .into_iter()
+        .filter(|c| !c.name.starts_with("noos-game"))
+        .collect();
+
+    let now_str = Command::new("date")
+        .arg("+%d/%m/%Y %H:%M:%S")
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "Récent".to_string());
+
+    let results: Vec<ContainerUpdateInfo> = std::thread::scope(|s| {
+        let mut handles = Vec::new();
+        for c in &all_containers {
+            handles.push(s.spawn({
+                let now_ref = &now_str;
+                move || {
+                    let (has_update, local_digest, remote_digest, error) =
+                        check_single_container_image(&c.name, &c.image);
+                    ContainerUpdateInfo {
+                        container_name: c.name.clone(),
+                        container_id: c.id.clone(),
+                        image: c.image.clone(),
+                        compose_project: c.compose_project.clone(),
+                        compose_service: c.compose_service.clone(),
+                        compose_file_path: c.compose_file_path.clone(),
+                        has_update,
+                        local_digest,
+                        remote_digest,
+                        checked_at: now_ref.clone(),
+                        error,
+                    }
+                }
+            }));
+        }
+
+        let mut collected = Vec::with_capacity(handles.len());
+        for h in handles {
+            if let Ok(info) = h.join() {
+                collected.push(info);
+            }
+        }
+        collected
+    });
+
+    if let Ok(mut cache) = DOCKER_IMAGE_UPDATES_CACHE.lock() {
+        cache.clear();
+        for info in &results {
+            cache.insert(info.container_name.clone(), info.clone());
+        }
+    }
+    if let Ok(mut last_check) = DOCKER_LAST_CHECK_TIME.lock() {
+        *last_check = Some(now_str.clone());
+    }
+
+    Ok(get_docker_updates_status())
+}
+
+/// Applique la mise à jour d'un conteneur individuel ou d'une pile Docker Compose complète.
+pub fn apply_docker_update(req: &ApplyDockerUpdateRequest) -> Result<ApplyDockerUpdateResult, String> {
+    let target = req.target.trim();
+    if target.is_empty() {
+        return Err("Cible de mise à jour invalide.".into());
+    }
+
+    let all_containers: Vec<crate::services::DockerContainer> = crate::services::get_docker_containers()
+        .into_iter()
+        .filter(|c| !c.name.starts_with("noos-game"))
+        .collect();
+
+    let matching_containers: Vec<crate::services::DockerContainer> = if req.target_type == "stack" {
+        all_containers
+            .into_iter()
+            .filter(|c| {
+                let stack_key = c
+                    .compose_project
+                    .as_deref()
+                    .or(c.store_app_id.as_deref())
+                    .unwrap_or(&c.name);
+                stack_key.eq_ignore_ascii_case(target) || c.name.eq_ignore_ascii_case(target)
+            })
+            .collect()
+    } else {
+        all_containers
+            .into_iter()
+            .filter(|c| c.name.eq_ignore_ascii_case(target) || c.id == target)
+            .collect()
+    };
+
+    if matching_containers.is_empty() {
+        return Err(format!("Aucun conteneur ou projet trouvé pour '{}'.", target));
+    }
+
+    let mut logs = Vec::new();
+    let mut updated_targets = Vec::new();
+
+    // Déterminer si un fichier Docker Compose est disponible pour ce groupe
+    let compose_file = matching_containers
+        .iter()
+        .find_map(|c| c.compose_file_path.clone());
+
+    if let Some(cp) = compose_file {
+        let cp_path = PathBuf::from(&cp);
+        let work_dir = cp_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("/tmp"));
+
+        // Si on met à jour un seul conteneur au sein d'une stack multi-services et qu'il a un compose_service
+        let single_service = if req.target_type == "container" && matching_containers.len() == 1 {
+            matching_containers[0].compose_service.clone()
+        } else {
+            None
+        };
+
+        logs.push(format!("📦 Fichier Compose détecté : {}", cp));
+
+        // 1. docker compose pull
+        let mut pull_cmd = Command::new("docker");
+        pull_cmd.current_dir(&work_dir).args(["compose", "-f", &cp, "pull"]);
+        if let Some(ref svc) = single_service {
+            pull_cmd.arg(svc);
+        }
+
+        let pull_out = pull_cmd
+            .output()
+            .map_err(|e| format!("Erreur lors de l'exécution de docker compose pull : {}", e))?;
+
+        if !pull_out.status.success() {
+            let err_txt = String::from_utf8_lossy(&pull_out.stderr).trim().to_string();
+            return Err(format!("Échec du téléchargement de la nouvelle image (docker compose pull) : {}", err_txt));
+        }
+        logs.push("⬇️ Téléchargement des nouvelles images terminé avec succès.".into());
+
+        // 2. docker compose up -d
+        let mut up_cmd = Command::new("docker");
+        up_cmd.current_dir(&work_dir).args(["compose", "-f", &cp, "up", "-d", "--remove-orphans"]);
+        if let Some(ref svc) = single_service {
+            up_cmd.arg(svc);
+        }
+
+        let up_out = up_cmd
+            .output()
+            .map_err(|e| format!("Erreur lors de la recréation du conteneur (docker compose up -d) : {}", e))?;
+
+        if !up_out.status.success() {
+            let err_txt = String::from_utf8_lossy(&up_out.stderr).trim().to_string();
+            return Err(format!("Échec de l'application de la mise à jour (docker compose up -d) : {}", err_txt));
+        }
+        logs.push("🚀 Conteneur(s) recréé(s) et redémarré(s) avec la nouvelle version (volumes et .env préservés).".into());
+
+        for c in &matching_containers {
+            updated_targets.push(c.name.clone());
+        }
+    } else {
+        // Conteneur autonome sans fichier compose.yaml détecté
+        for c in &matching_containers {
+            logs.push(format!("⬇️ Téléchargement de l'image '{}' pour '{}'...", c.image, c.name));
+            let pull_out = Command::new("docker")
+                .args(["pull", &c.image])
+                .output()
+                .map_err(|e| format!("Erreur lors de docker pull {} : {}", c.image, e))?;
+
+            if !pull_out.status.success() {
+                let err_txt = String::from_utf8_lossy(&pull_out.stderr).trim().to_string();
+                return Err(format!("Échec du téléchargement de '{}' : {}", c.image, err_txt));
+            }
+
+            // Vérifier si géré par un service systemd NixOS (ex: docker-<name>.service)
+            let clean_name = c.name.strip_prefix("docker-").unwrap_or(&c.name);
+            let unit_name = format!("docker-{}.service", clean_name);
+            let unit_exists = Command::new("systemctl")
+                .args(["cat", &unit_name])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+
+            if unit_exists {
+                let _ = Command::new("systemctl").args(["restart", &unit_name]).output();
+                logs.push(format!("🔄 Service systemd '{}' redémarré avec la nouvelle image.", unit_name));
+            } else {
+                let _ = Command::new("docker").args(["restart", &c.name]).output();
+                logs.push(format!("🔄 Image téléchargée et conteneur '{}' redémarré.", c.name));
+            }
+            updated_targets.push(c.name.clone());
+        }
+    }
+
+    // 3. Nettoyage optionnel des anciennes couches d'images (dangling images)
+    if req.prune_old_images {
+        if let Ok(reclaimed) = prune_docker_images(false) {
+            logs.push(format!("🧹 Nettoyage des anciennes images : {}", reclaimed));
+        }
+    }
+
+    // 4. Mettre à jour le cache pour retirer la pastille orange sur les conteneurs mis à jour
+    if let Ok(mut cache) = DOCKER_IMAGE_UPDATES_CACHE.lock() {
+        for name in &updated_targets {
+            if let Some(entry) = cache.get_mut(name) {
+                entry.has_update = false;
+                if let Some(ref rem) = entry.remote_digest {
+                    entry.local_digest = Some(rem.clone());
+                }
+            }
+        }
+    }
+
+    let summary = if updated_targets.len() == 1 {
+        format!("Mise à jour de '{}' appliquée avec succès.", updated_targets[0])
+    } else {
+        format!("{} conteneurs mis à jour avec succès.", updated_targets.len())
+    };
+
+    Ok(ApplyDockerUpdateResult {
+        updated_targets,
+        logs,
+        summary,
+    })
+}
+
+/// Met à jour globalement toutes les piles Docker Compose et conteneurs ayant une mise à jour disponible.
+pub fn apply_all_docker_updates(prune_old_images: bool) -> Result<ApplyDockerUpdateResult, String> {
+    let all_containers: Vec<crate::services::DockerContainer> = crate::services::get_docker_containers()
+        .into_iter()
+        .filter(|c| !c.name.starts_with("noos-game") && c.has_update)
+        .collect();
+
+    if all_containers.is_empty() {
+        return Err("Aucune mise à jour en attente n'a été trouvée.".into());
+    }
+
+    // Regrouper par pile Compose (ou nom de conteneur si autonome) pour éviter de relancer plusieurs fois le même compose.yaml
+    let mut targets_to_update: Vec<(String, String)> = Vec::new();
+    let mut seen_keys = std::collections::HashSet::new();
+
+    for c in &all_containers {
+        if let Some(ref proj) = c.compose_project {
+            let key = format!("stack:{}", proj.to_lowercase());
+            if seen_keys.insert(key) {
+                targets_to_update.push(("stack".to_string(), proj.clone()));
+            }
+        } else {
+            let key = format!("container:{}", c.name.to_lowercase());
+            if seen_keys.insert(key) {
+                targets_to_update.push(("container".to_string(), c.name.clone()));
+            }
+        }
+    }
+
+    let mut all_updated = Vec::new();
+    let mut all_logs = Vec::new();
+    let mut errors = Vec::new();
+
+    for (target_type, target) in targets_to_update {
+        let req = ApplyDockerUpdateRequest {
+            target_type,
+            target: target.clone(),
+            prune_old_images: false, // On fait le prune une seule fois à la fin
+        };
+        match apply_docker_update(&req) {
+            Ok(res) => {
+                for u in res.updated_targets {
+                    if !all_updated.contains(&u) {
+                        all_updated.push(u);
+                    }
+                }
+                all_logs.extend(res.logs);
+            }
+            Err(e) => {
+                errors.push(format!("{} : {}", target, e));
+                all_logs.push(format!("❌ Erreur sur '{}' : {}", target, e));
+            }
+        }
+    }
+
+    if prune_old_images {
+        if let Ok(reclaimed) = prune_docker_images(false) {
+            all_logs.push(format!("🧹 Nettoyage global des anciennes images : {}", reclaimed));
+        }
+    }
+
+    if all_updated.is_empty() && !errors.is_empty() {
+        return Err(format!("Échec de la mise à jour globale : {}", errors.join(" | ")));
+    }
+
+    let summary = if errors.is_empty() {
+        format!(
+            "Mise à jour globale terminée avec succès ({} conteneur(s) mis à jour).",
+            all_updated.len()
+        )
+    } else {
+        format!(
+            "{} conteneur(s) mis à jour, {} erreur(s) rencontrée(s).",
+            all_updated.len(),
+            errors.len()
+        )
+    };
+
+    Ok(ApplyDockerUpdateResult {
+        updated_targets: all_updated,
+        logs: all_logs,
+        summary,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

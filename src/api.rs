@@ -64,11 +64,14 @@ use crate::wireguard::{
 use crate::documents::{get_document_info, get_document_pdf_path, DocumentInfoResponse};
 use crate::dns::{get_dns_overview, update_dns, DnsOverview, UpdateDnsRequest};
 use crate::docker_store::{
-    control_docker_container, delete_docker_image, get_docker_logs, get_store_catalog,
-    get_all_store_deployments, get_store_deployment_status, install_store_app,
-    list_docker_images, prune_docker_images, uninstall_store_app, remove_docker_container,
-    ContainerActionRequest, DockerImagesOverview, DockerStoreDeployStatus, InstallAppRequest,
-    StoreCatalog, UninstallAppRequest,
+    apply_all_docker_updates, apply_docker_update, check_docker_updates,
+    control_docker_container, delete_docker_image, get_all_store_deployments,
+    get_docker_logs, get_docker_updates_status, get_store_catalog,
+    get_store_deployment_status, install_store_app, list_docker_images,
+    prune_docker_images, remove_docker_container, uninstall_store_app,
+    ApplyAllDockerUpdatesRequest, ApplyDockerUpdateRequest, ApplyDockerUpdateResult,
+    ContainerActionRequest, DockerImagesOverview, DockerStoreDeployStatus,
+    DockerUpdatesCheckResult, InstallAppRequest, StoreCatalog, UninstallAppRequest,
 };
 use crate::services::{get_docker_containers, DockerContainer};
 use crate::youtube::{
@@ -290,6 +293,10 @@ pub fn api_routes() -> Router {
         .route("/docker/images", get(handle_docker_images))
         .route("/docker/images/prune", post(handle_docker_images_prune))
         .route("/docker/images/:id", delete(handle_delete_docker_image))
+        .route("/docker/updates", get(handle_docker_updates_status))
+        .route("/docker/updates/check", post(handle_docker_updates_check))
+        .route("/docker/updates/apply", post(handle_docker_updates_apply))
+        .route("/docker/updates/apply-all", post(handle_docker_updates_apply_all))
 
         // --------------------------------------------------------------------
         // 6. SERVEURS DE JEUX & GESTIONNAIRE D'EGGS (PTERODACTYL)
@@ -2525,6 +2532,95 @@ async fn handle_docker_store_deployment_status(
         data: st,
         message: None,
     })
+}
+
+/// Retourne l'état en cache des mises à jour disponibles pour les images Docker.
+async fn handle_docker_updates_status() -> Json<ApiResponse<DockerUpdatesCheckResult>> {
+    let status = tokio::task::spawn_blocking(get_docker_updates_status)
+        .await
+        .unwrap_or_else(|_| get_docker_updates_status());
+    Json(ApiResponse {
+        success: true,
+        data: Some(status),
+        message: None,
+    })
+}
+
+/// Vérifie auprès des registres distants si des mises à jour d'images Docker sont disponibles.
+async fn handle_docker_updates_check() -> Json<ApiResponse<DockerUpdatesCheckResult>> {
+    let res = tokio::task::spawn_blocking(check_docker_updates).await;
+    match res {
+        Ok(Ok(data)) => Json(ApiResponse {
+            success: true,
+            data: Some(data),
+            message: None,
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur d'exécution de la vérification : {}", err)),
+        }),
+    }
+}
+
+/// Applique la mise à jour d'un conteneur ou d'une pile Docker Compose.
+async fn handle_docker_updates_apply(
+    Json(payload): Json<ApplyDockerUpdateRequest>,
+) -> Json<ApiResponse<ApplyDockerUpdateResult>> {
+    let res = tokio::task::spawn_blocking(move || apply_docker_update(&payload)).await;
+    match res {
+        Ok(Ok(data)) => {
+            let msg = data.summary.clone();
+            Json(ApiResponse {
+                success: true,
+                data: Some(data),
+                message: Some(msg),
+            })
+        }
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur d'exécution de la mise à jour : {}", err)),
+        }),
+    }
+}
+
+/// Met à jour globalement toutes les piles Docker Compose / conteneurs ayant une mise à jour disponible.
+async fn handle_docker_updates_apply_all(
+    Json(payload): Json<ApplyAllDockerUpdatesRequest>,
+) -> Json<ApiResponse<ApplyDockerUpdateResult>> {
+    let prune = payload.prune_old_images;
+    let res = tokio::task::spawn_blocking(move || apply_all_docker_updates(prune)).await;
+    match res {
+        Ok(Ok(data)) => {
+            let msg = data.summary.clone();
+            Json(ApiResponse {
+                success: true,
+                data: Some(data),
+                message: Some(msg),
+            })
+        }
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(format!("Erreur d'exécution de la mise à jour globale : {}", err)),
+        }),
+    }
 }
 
 // ============================================================================
