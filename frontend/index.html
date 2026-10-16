@@ -8177,17 +8177,75 @@
           </div>
         </div>
 
-        <!-- Chemin Unix -->
+        <!-- Chemin Unix avec Mini Explorateur de Dossiers Déroulant -->
         <div class="form-group" style="margin-bottom:18px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-            <label class="form-label" style="font-weight:600; color:var(--text); margin-bottom:0;">Chemin Absolu sur le Disque / RAID <span style="color:var(--red);">*</span></label>
-            <div style="display:flex; gap:6px;">
-              <button type="button" class="btn btn-secondary btn-xs" onclick="setSambaSharePathPreset('/mnt/raid/shares/')">📁 /mnt/raid/shares/</button>
-              <button type="button" class="btn btn-secondary btn-xs" onclick="setSambaSharePathPreset('/srv/storage/')">📁 /srv/storage/</button>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; gap:8px; flex-wrap:wrap;">
+            <label class="form-label" style="font-weight:600; color:var(--text); margin-bottom:0;">
+              Dossier à Partager sur le NAS <span style="color:var(--red);">*</span>
+            </label>
+            <button type="button" id="btn-toggle-samba-folder-picker" class="btn btn-secondary btn-xs" onclick="toggleSambaFolderPicker()" style="display:inline-flex; align-items:center; gap:6px; border-color:rgba(203,166,247,0.35); color:var(--mauve); font-weight:600;">
+              <span>📂</span>
+              <span id="samba-folder-picker-toggle-label">Parcourir les dossiers</span>
+              <span id="samba-folder-picker-chevron">▾</span>
+            </button>
+          </div>
+
+          <!-- Barre de sélection du chemin (cliquable pour dérouler l'explorateur ou saisir) -->
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="position:relative; flex:1; display:flex; align-items:center;">
+              <span style="position:absolute; left:12px; font-size:1rem; pointer-events:none;">📁</span>
+              <input type="text" id="samba-share-path" class="form-input" style="padding-left:36px; padding-right:34px; font-family:var(--font-mono); font-size:0.86rem; cursor:pointer;" placeholder="Cliquez pour parcourir et sélectionner un dossier..." onclick="openSambaFolderPickerIfClosed()" required>
+              <button type="button" onclick="toggleSambaFolderPicker()" title="Afficher / masquer le mini explorateur de dossiers" style="position:absolute; right:8px; background:transparent; border:none; color:var(--subtext0); cursor:pointer; font-size:0.9rem; padding:4px;">▾</button>
             </div>
           </div>
-          <input type="text" id="samba-share-path" class="form-input" placeholder="/mnt/raid/shares/mon_dossier" required>
-          <div style="font-size:0.75rem; color:var(--subtext0); margin-top:4px;">Le dossier sera créé automatiquement s'il n'existe pas encore.</div>
+
+          <!-- Mini Explorateur de Dossiers Déroulant -->
+          <div id="samba-folder-picker-dropdown" style="display:none; margin-top:8px; background:var(--mantle); border:1px solid rgba(203, 166, 247, 0.3); border-radius:var(--radius-md); overflow:hidden; box-shadow:0 8px 24px rgba(0,0,0,0.3);">
+            <!-- 1. Raccourcis Rapides & Volumes Montés -->
+            <div id="samba-picker-shortcuts" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:8px 12px; background:rgba(0,0,0,0.22); border-bottom:1px solid rgba(255,255,255,0.06);">
+              <span style="font-size:0.72rem; color:var(--subtext0); font-weight:600; margin-right:2px;">Accès rapide :</span>
+            </div>
+
+            <!-- 2. Barre d'outils & Fil d'Ariane du dossier courant -->
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; padding:8px 12px; background:rgba(255,255,255,0.02); border-bottom:1px solid rgba(255,255,255,0.06);">
+              <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1;">
+                <button type="button" id="samba-picker-btn-up" class="btn btn-secondary btn-xs" onclick="sambaPickerNavigateUp()" title="Remonter au dossier parent" style="padding:3px 8px; flex-shrink:0;">
+                  ⬆️ Parent
+                </button>
+                <div id="samba-picker-breadcrumbs" style="display:flex; align-items:center; gap:4px; overflow-x:auto; white-space:nowrap; font-family:var(--font-mono); font-size:0.78rem; color:var(--text); padding:2px 0;">
+                  <span>/</span>
+                </div>
+              </div>
+
+              <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+                <label style="display:inline-flex; align-items:center; gap:4px; font-size:0.73rem; color:var(--subtext0); cursor:pointer;" title="Afficher ou masquer les dossiers cachés commençant par un point (.)">
+                  <input type="checkbox" id="samba-picker-show-hidden" onchange="renderSambaPickerEntries()">
+                  <span>Dossiers cachés</span>
+                </label>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="sambaPickerCreateFolder()" title="Créer un nouveau sous-dossier ici" style="padding:3px 8px; font-size:0.74rem;">
+                  ➕ Nouveau dossier
+                </button>
+                <button type="button" class="btn btn-primary btn-xs" onclick="sambaPickerConfirmCurrent()" title="Sélectionner le dossier actuellement ouvert et fermer l'explorateur" style="padding:3px 10px; font-size:0.74rem;">
+                  ✓ Sélectionner ce dossier
+                </button>
+              </div>
+            </div>
+
+            <!-- 3. Liste déroulante des sous-dossiers -->
+            <div id="samba-picker-list" style="max-height:220px; overflow-y:auto; padding:6px;">
+              <div style="padding:18px; text-align:center; color:var(--subtext0); font-size:0.82rem;">Chargement des dossiers...</div>
+            </div>
+
+            <!-- 4. Pied de page d'état -->
+            <div id="samba-picker-footer" style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 12px; background:rgba(0,0,0,0.2); border-top:1px solid rgba(255,255,255,0.05); font-size:0.74rem; color:var(--subtext0);">
+              <span id="samba-picker-status-text">Cliquez sur un dossier pour l'ouvrir et le sélectionner</span>
+              <span style="color:var(--mauve);">Astuce : cliquez sur « ✓ Choisir » pour valider directement</span>
+            </div>
+          </div>
+
+          <div style="font-size:0.75rem; color:var(--subtext0); margin-top:4px;">
+            Sélectionnez un dossier existant dans le mini explorateur ci-dessus (ou créez-en un nouveau avec « ➕ Nouveau dossier »).
+          </div>
         </div>
 
         <!-- GRILLE D'OPTIONS VFS & PROTOCOLES AVANCÉS (TOGGLES CATPPUCCIN) -->

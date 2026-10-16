@@ -23547,13 +23547,20 @@ function renderSambaLocksTable(locks) {
 // MODALE PARTAGE SAMBA (CRÉATION / MODIFICATION)
 // =========================================================================
 
+// État du mini explorateur de dossiers déroulant Samba
+let sambaPickerCurrentPath = "";
+let sambaPickerParentPath = null;
+let sambaPickerEntries = [];
+let sambaPickerIsOpen = false;
+
 function openCreateSambaShareModal() {
+  const defaultDir = getUserHome() || "/";
   document.getElementById("modal-samba-share-title").textContent = "Nouveau Partage Réseau Samba";
   document.getElementById("samba-share-id").value = "";
   document.getElementById("samba-share-name").value = "";
   document.getElementById("samba-share-name").readOnly = false;
   document.getElementById("samba-share-comment").value = "";
-  document.getElementById("samba-share-path").value = "/mnt/raid/shares/";
+  document.getElementById("samba-share-path").value = defaultDir;
 
   document.getElementById("samba-opt-browseable").checked = true;
   const writableEl = document.getElementById("samba-opt-writable");
@@ -23574,6 +23581,10 @@ function openCreateSambaShareModal() {
   });
 
   document.getElementById("modal-samba-share").style.display = "flex";
+
+  // Ouvrir et charger directement le mini explorateur déroulant pour faciliter la sélection sans saisie
+  sambaPickerCurrentPath = defaultDir;
+  toggleSambaFolderPicker(true, false);
 }
 
 function openEditSambaShareModal(shareId) {
@@ -23610,21 +23621,303 @@ function openEditSambaShareModal(shareId) {
     readOnly: isReadOnly
   });
 
+  sambaPickerCurrentPath = share.path || getUserHome() || "/";
+  toggleSambaFolderPicker(false);
+
   document.getElementById("modal-samba-share").style.display = "flex";
 }
 
 function closeSambaShareModal() {
+  toggleSambaFolderPicker(false);
   document.getElementById("modal-samba-share").style.display = "none";
 }
 
 function setSambaSharePathPreset(presetPath) {
   const input = document.getElementById("samba-share-path");
-  const nameInput = document.getElementById("samba-share-name");
-  const name = nameInput.value.trim();
-  if (name) {
-    input.value = `${presetPath}${name}`;
+  if (input) input.value = presetPath;
+  loadSambaPickerDirectory(presetPath, true);
+}
+
+function openSambaFolderPickerIfClosed() {
+  if (!sambaPickerIsOpen) {
+    toggleSambaFolderPicker(true, false);
+  }
+}
+
+function toggleSambaFolderPicker(forceState, updateInputOnLoad = false) {
+  const dropdown = document.getElementById("samba-folder-picker-dropdown");
+  const chevron = document.getElementById("samba-folder-picker-chevron");
+  const label = document.getElementById("samba-folder-picker-toggle-label");
+  if (!dropdown) return;
+
+  sambaPickerIsOpen = typeof forceState === "boolean" ? forceState : !sambaPickerIsOpen;
+  dropdown.style.display = sambaPickerIsOpen ? "block" : "none";
+  if (chevron) chevron.textContent = sambaPickerIsOpen ? "▴" : "▾";
+  if (label) label.textContent = sambaPickerIsOpen ? "Masquer l'explorateur" : "Parcourir les dossiers";
+
+  if (sambaPickerIsOpen) {
+    renderSambaPickerShortcuts();
+    const currentInputVal = (document.getElementById("samba-share-path")?.value || "").trim();
+    const startPath = currentInputVal && currentInputVal.startsWith("/")
+      ? currentInputVal
+      : (sambaPickerCurrentPath || getUserHome() || "/");
+    loadSambaPickerDirectory(startPath, updateInputOnLoad);
+  }
+}
+
+async function renderSambaPickerShortcuts() {
+  const container = document.getElementById("samba-picker-shortcuts");
+  if (!container) return;
+
+  const homePath = getUserHome() || "/home";
+  const shortcuts = [
+    { label: "🏠 Dossier Personnel", path: homePath },
+    { label: "🖴 Racine (/)", path: "/" },
+    { label: "💾 /mnt", path: "/mnt" }
+  ];
+
+  // Ajouter les volumes montés connus s'ils sont disponibles
+  const seenPaths = new Set(shortcuts.map(s => s.path));
+  const addMountShortcut = (name, mountPath) => {
+    if (!mountPath || seenPaths.has(mountPath)) return;
+    seenPaths.add(mountPath);
+    shortcuts.push({
+      label: `🖴 ${name || mountPath}`,
+      path: mountPath
+    });
+  };
+
+  if (Array.isArray(pinnedMountsList) && pinnedMountsList.length > 0) {
+    pinnedMountsList.forEach(m => addMountShortcut(m.name || m.mount_point, m.mount_point || m.path));
   } else {
-    input.value = presetPath;
+    try {
+      const res = await fetch("/api/mounts");
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        pinnedMountsList = json.data;
+        pinnedMountsList.forEach(m => addMountShortcut(m.name || m.mount_point, m.mount_point || m.path));
+      }
+    } catch (_) {}
+  }
+
+  container.innerHTML = `
+    <span style="font-size:0.72rem; color:var(--subtext0); font-weight:600; margin-right:2px;">Accès rapide :</span>
+    ${shortcuts.map(s => {
+      const jsPath = s.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+      return `
+        <button type="button" class="btn btn-secondary btn-xs" onclick="loadSambaPickerDirectory('${jsPath}', true)" style="padding:2px 8px; font-size:0.73rem;" title="Aller vers ${escapeHtml(s.path)}">
+          ${escapeHtml(s.label)}
+        </button>
+      `;
+    }).join("")}
+  `;
+}
+
+async function loadSambaPickerDirectory(targetPath, updateInput = true) {
+  const listEl = document.getElementById("samba-picker-list");
+  const statusEl = document.getElementById("samba-picker-status-text");
+  if (listEl) {
+    listEl.innerHTML = `<div style="padding:16px; text-align:center; color:var(--subtext0); font-size:0.8rem;">⏳ Chargement des dossiers...</div>`;
+  }
+
+  const requested = (targetPath || getUserHome() || "/").trim();
+
+  try {
+    const res = await fetch(`/api/files/list?path=${encodeURIComponent(requested)}`);
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      throw new Error(json.message || "Dossier inaccessible");
+    }
+
+    const data = json.data;
+    sambaPickerCurrentPath = data.current_path || "/";
+    sambaPickerParentPath = data.parent_path || null;
+    sambaPickerEntries = Array.isArray(data.entries) ? data.entries : [];
+
+    if (updateInput) {
+      const pathInput = document.getElementById("samba-share-path");
+      if (pathInput) pathInput.value = sambaPickerCurrentPath;
+      maybeSuggestSambaShareNameFromPath(sambaPickerCurrentPath);
+    }
+
+    const upBtn = document.getElementById("samba-picker-btn-up");
+    if (upBtn) {
+      upBtn.disabled = !sambaPickerParentPath || sambaPickerCurrentPath === "/";
+    }
+
+    renderSambaPickerBreadcrumbs(sambaPickerCurrentPath);
+    renderSambaPickerEntries();
+  } catch (err) {
+    if (listEl) {
+      listEl.innerHTML = `<div style="padding:16px; text-align:center; color:var(--red); font-size:0.8rem;">⚠️ ${escapeHtml(err.message || String(err))}</div>`;
+    }
+    if (statusEl) {
+      statusEl.textContent = "Impossible d'ouvrir ce répertoire.";
+    }
+  }
+}
+
+function renderSambaPickerBreadcrumbs(path) {
+  const bcContainer = document.getElementById("samba-picker-breadcrumbs");
+  if (!bcContainer) return;
+
+  const cleanPath = (path || "/").replace(/\/+$/, "") || "/";
+  const parts = cleanPath.split("/").filter(Boolean);
+
+  let html = `
+    <span onclick="loadSambaPickerDirectory('/', true)" style="cursor:pointer; padding:2px 6px; border-radius:4px; background:rgba(203,166,247,0.14); color:var(--mauve); font-weight:700;" title="Racine (/)">/</span>
+  `;
+
+  let acc = "";
+  parts.forEach((part, idx) => {
+    acc += "/" + part;
+    const isLast = idx === parts.length - 1;
+    const jsAcc = acc.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    html += `<span style="color:var(--overlay0);">›</span>`;
+    html += `
+      <span onclick="loadSambaPickerDirectory('${jsAcc}', true)" style="cursor:pointer; padding:2px 6px; border-radius:4px; ${isLast ? 'background:rgba(137,180,250,0.18); color:var(--blue); font-weight:700;' : 'color:var(--subtext1);'}" title="${escapeHtml(acc)}">
+        ${escapeHtml(part)}
+      </span>
+    `;
+  });
+
+  bcContainer.innerHTML = html;
+  bcContainer.scrollLeft = bcContainer.scrollWidth;
+}
+
+function renderSambaPickerEntries() {
+  const listEl = document.getElementById("samba-picker-list");
+  const statusEl = document.getElementById("samba-picker-status-text");
+  if (!listEl) return;
+
+  const showHidden = document.getElementById("samba-picker-show-hidden")?.checked || false;
+  const allDirs = sambaPickerEntries.filter(e => e.is_dir && (showHidden || !e.name.startsWith(".")));
+  const fileCount = sambaPickerEntries.filter(e => !e.is_dir && (showHidden || !e.name.startsWith("."))).length;
+
+  if (statusEl) {
+    statusEl.innerHTML = `📁 Dossier actuel : <strong style="color:var(--text); font-family:var(--font-mono);">${escapeHtml(sambaPickerCurrentPath)}</strong> (${allDirs.length} sous-dossier${allDirs.length > 1 ? "s" : ""}, ${fileCount} fichier${fileCount > 1 ? "s" : ""})`;
+  }
+
+  if (allDirs.length === 0) {
+    listEl.innerHTML = `
+      <div style="padding:18px 12px; text-align:center; color:var(--subtext0); font-size:0.8rem;">
+        <div>📂 Aucun sous-dossier dans <code style="color:var(--text);">${escapeHtml(sambaPickerCurrentPath)}</code></div>
+        <div style="margin-top:8px; display:flex; justify-content:center; gap:8px;">
+          <button type="button" class="btn btn-primary btn-xs" onclick="sambaPickerConfirmCurrent()">
+            ✓ Sélectionner ce dossier (${escapeHtml(sambaPickerCurrentPath)})
+          </button>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="sambaPickerCreateFolder()">
+            ➕ Créer un sous-dossier ici
+          </button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const currentSelectedPath = (document.getElementById("samba-share-path")?.value || "").trim().replace(/\/+$/, "") || "/";
+
+  listEl.innerHTML = allDirs.map(dir => {
+    const normDirPath = (dir.path || "").replace(/\/+$/, "") || "/";
+    const isSelected = normDirPath === currentSelectedPath;
+    const jsPath = (dir.path || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    const icon = dir.is_mount_point ? "💾" : "📁";
+    const mountBadge = dir.is_mount_point
+      ? `<span class="badge badge-warning" style="font-size:0.65rem; padding:1px 5px; margin-left:6px;">Disque monté</span>`
+      : "";
+
+    return `
+      <div onclick="loadSambaPickerDirectory('${jsPath}', true)"
+           style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:7px 10px; margin-bottom:3px; border-radius:6px; cursor:pointer; transition:background 0.15s; background:${isSelected ? 'rgba(203, 166, 247, 0.16)' : 'rgba(255,255,255,0.02)'}; border:1px solid ${isSelected ? 'rgba(203, 166, 247, 0.4)' : 'rgba(255,255,255,0.04)'};"
+           onmouseover="if(!${isSelected}) this.style.background='rgba(255,255,255,0.06)'"
+           onmouseout="if(!${isSelected}) this.style.background='rgba(255,255,255,0.02)'"
+           title="Cliquer pour ouvrir ${escapeHtml(dir.path)}">
+        <div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1;">
+          <span style="font-size:1.05rem; flex-shrink:0;">${icon}</span>
+          <span style="font-weight:600; color:var(--text); font-size:0.84rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(dir.name)}</span>
+          ${mountBadge}
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+          <code style="font-size:0.7rem; color:var(--subtext0);">${escapeHtml(dir.permissions || "755")}</code>
+          <button type="button" class="btn btn-primary btn-xs" onclick="event.stopPropagation(); sambaPickerSelectAndClose('${jsPath}')" style="padding:2px 8px; font-size:0.72rem;" title="Sélectionner ${escapeHtml(dir.path)} et fermer l'explorateur">
+            ✓ Choisir
+          </button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function sambaPickerNavigateUp() {
+  if (sambaPickerParentPath) {
+    loadSambaPickerDirectory(sambaPickerParentPath, true);
+  } else if (sambaPickerCurrentPath && sambaPickerCurrentPath !== "/") {
+    const parent = sambaPickerCurrentPath.replace(/\/+$/, "").split("/").slice(0, -1).join("/") || "/";
+    loadSambaPickerDirectory(parent, true);
+  }
+}
+
+function sambaPickerConfirmCurrent() {
+  const chosen = sambaPickerCurrentPath || (document.getElementById("samba-share-path")?.value || "").trim();
+  if (chosen) {
+    sambaPickerSelectAndClose(chosen);
+  }
+}
+
+function sambaPickerSelectAndClose(chosenPath) {
+  const pathInput = document.getElementById("samba-share-path");
+  if (pathInput && chosenPath) {
+    pathInput.value = chosenPath;
+    sambaPickerCurrentPath = chosenPath;
+    maybeSuggestSambaShareNameFromPath(chosenPath);
+  }
+  toggleSambaFolderPicker(false);
+}
+
+function maybeSuggestSambaShareNameFromPath(chosenPath) {
+  const idInput = document.getElementById("samba-share-id");
+  const nameInput = document.getElementById("samba-share-name");
+  if (!nameInput || nameInput.readOnly || (idInput && idInput.value)) return;
+
+  // Si le champ nom est vide, proposer automatiquement le nom du dossier sélectionné
+  if (!nameInput.value.trim() && chosenPath && chosenPath !== "/") {
+    const folderName = chosenPath.replace(/\/+$/, "").split("/").pop() || "";
+    const cleanName = folderName
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9_-]/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .toLowerCase();
+    if (cleanName && cleanName !== "home" && cleanName !== "mnt") {
+      nameInput.value = cleanName;
+    }
+  }
+}
+
+async function sambaPickerCreateFolder() {
+  const baseDir = sambaPickerCurrentPath || getUserHome() || "/";
+  const folderName = prompt(`Nom du nouveau dossier à créer dans ${baseDir} :`, "Nouveau_Partage");
+  if (!folderName || !folderName.trim()) return;
+
+  const clean = folderName.trim();
+  try {
+    const res = await fetch("/api/files/mkdir", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path: baseDir,
+        name: clean
+      })
+    });
+    const json = await res.json();
+    if (!json.success) {
+      throw new Error(json.message || "Impossible de créer le dossier");
+    }
+    showToast(json.message || `Dossier '${clean}' créé !`, "success");
+    const newPath = baseDir === "/" ? `/${clean}` : `${baseDir.replace(/\/+$/, "")}/${clean}`;
+    await loadSambaPickerDirectory(newPath, true);
+  } catch (err) {
+    showToast("Erreur création dossier : " + (err.message || err), "error");
   }
 }
 

@@ -183,80 +183,38 @@ fn target_user() -> String {
     crate::updates::target_user()
 }
 
+/// Identifie les anciens partages Samba générés par défaut (`data`, `media`, `backups` sous `/storage/*`)
+/// afin de les nettoyer automatiquement s'ils avaient été enregistrés dans `samba_shares.json`.
+fn is_legacy_default_samba_share(s: &SambaShare) -> bool {
+    (s.id == "data"
+        && s.path == "/storage/data"
+        && s.comment == "Partage Général NAS (Lecture & Écriture)")
+        || (s.id == "media"
+            && s.path == "/storage/media"
+            && s.comment == "Médiathèque (Films, Séries, Musique - Jellyfin & DLNA)")
+        || (s.id == "backups"
+            && s.path == "/storage/backups"
+            && s.comment == "Dépôt Sauvegardes & Snapshots (Accès Restreint)")
+}
+
 pub fn load_samba_shares() -> Vec<SambaShare> {
     for p in get_samba_shares_json_paths() {
         if p.exists() {
             if let Ok(c) = fs::read_to_string(&p) {
-                if let Ok(shares) = serde_json::from_str::<Vec<SambaShare>>(&c) {
+                if let Ok(mut shares) = serde_json::from_str::<Vec<SambaShare>>(&c) {
+                    let before_len = shares.len();
+                    shares.retain(|s| !is_legacy_default_samba_share(s));
+                    if shares.len() != before_len {
+                        let _ = save_samba_shares(&shares);
+                    }
                     return shares;
                 }
             }
         }
     }
 
-    // Partages par défaut sains pour un NAS moderne
-    vec![
-        SambaShare {
-            id: "data".into(),
-            name: "data".into(),
-            path: "/storage/data".into(),
-            comment: "Partage Général NAS (Lecture & Écriture)".into(),
-            read_only: false,
-            browseable: true,
-            guest_ok: false,
-            valid_users: vec![],
-            write_list: vec![],
-            read_list: vec![],
-            is_time_machine: false,
-            time_machine_max_size_gb: None,
-            recycle_bin: true,
-            shadow_copy: true,
-            smb_encrypt: false,
-            create_mask: "0664".into(),
-            directory_mask: "0775".into(),
-            exists: std::path::Path::new("/storage/data").exists(),
-        },
-        SambaShare {
-            id: "media".into(),
-            name: "media".into(),
-            path: "/storage/media".into(),
-            comment: "Médiathèque (Films, Séries, Musique - Jellyfin & DLNA)".into(),
-            read_only: false,
-            browseable: true,
-            guest_ok: true,
-            valid_users: vec![],
-            write_list: vec![],
-            read_list: vec![],
-            is_time_machine: false,
-            time_machine_max_size_gb: None,
-            recycle_bin: false,
-            shadow_copy: false,
-            smb_encrypt: false,
-            create_mask: "0664".into(),
-            directory_mask: "0775".into(),
-            exists: std::path::Path::new("/storage/media").exists(),
-        },
-        SambaShare {
-            id: "backups".into(),
-            name: "backups".into(),
-            path: "/storage/backups".into(),
-            comment: "Dépôt Sauvegardes & Snapshots (Accès Restreint)".into(),
-            read_only: false,
-            browseable: false,
-            guest_ok: false,
-            valid_users: vec![],
-            write_list: vec![],
-            read_list: vec![],
-            is_time_machine: false,
-            time_machine_max_size_gb: None,
-            recycle_bin: true,
-            shadow_copy: false,
-            smb_encrypt: true,
-            create_mask: "0660".into(),
-            directory_mask: "0770".into(),
-            exists: std::path::Path::new("/storage/backups").exists(),
-        },
-    ]
+    // Aucun partage défini par défaut : l'utilisateur crée uniquement les partages qu'il souhaite
+    Vec::new()
 }
 
 pub fn save_samba_shares(shares: &[SambaShare]) -> Result<(), String> {
