@@ -560,7 +560,7 @@ async function loadSystem() {
 
     // Header
     const hostEl = document.getElementById("header-hostname");
-    const cleanHostname = (sys.hostname || 'noos-nas').replace(/^steveos(-|$)/i, 'noos$1');
+    const cleanHostname = sys.hostname || 'noos-nas';
     if (hostEl) hostEl.textContent = `${cleanHostname} • ${sys.os_name}`;
 
     const uptimeEl = document.getElementById("header-uptime");
@@ -12261,10 +12261,10 @@ async function loadDockerContainers() {
     }
 
     const rawContainers = Array.isArray(json.data) ? json.data : [];
-    // Règle Noos : Masquer impérativement les conteneurs correspondant aux serveurs de jeux (noos-game* et legacy steveos-game*)
+    // Règle Noos : Masquer impérativement les conteneurs correspondant aux serveurs de jeux (noos-game*)
     allDockerContainers = rawContainers.filter(c => {
       const name = (c.name || "").replace(/^\//, "").toLowerCase();
-      return !name.startsWith("noos-game") && !name.startsWith("steveos-game");
+      return !name.startsWith("noos-game");
     });
 
     const runningCount = allDockerContainers.filter(c => c.is_running).length;

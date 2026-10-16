@@ -82,14 +82,14 @@
 
 ## 🔗 Règle n°7 : Propagation obligatoire du hash dans `noos-nas` (`flake.lock`)
 - **Dès la complétion du build Cachix sur GitHub Actions :**
-  1. **Mettre à jour immédiatement l'input dans le dépôt de configuration de l'OS (`../steveos-nas`) :**
+  1. **Mettre à jour immédiatement l'input dans le dépôt de configuration de l'OS (`../noos-nas`) :**
      ```bash
-     cd ../steveos-nas
+     cd ../noos-nas
      nix flake lock --update-input noos-nas-dashboard
      nix eval .#nixosConfigurations.noos-nas.config.system.build.toplevel.drvPath
      git commit -am "chore(flake): mise à jour de noos-nas-dashboard vers vX.Y.Z"
      git push origin main
      ```
-  2. **Alternative recommandée :** Utiliser le script automatisé [`scripts/release.sh`](file:///home/chomiam/Projects/steveos-nas-dashboard/scripts/release.sh) qui enchaîne l'intégralité du cycle sans risque d'omission.
+  2. **Alternative recommandée :** Utiliser le script automatisé [`scripts/release.sh`](file:///home/chomiam/Projects/noos-nas-dashboard/scripts/release.sh) qui enchaîne l'intégralité du cycle sans risque d'omission.
   3. **Principe fondamental :** Sans cette propagation sur GitHub, le NAS reconstruit l'ancien binaire verrouillé dans `flake.lock` et ne bascule jamais sur la nouvelle version.
 

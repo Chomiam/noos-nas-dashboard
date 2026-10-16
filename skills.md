@@ -36,7 +36,7 @@ Le tableau de bord est composé d'un backend asynchrone Rust (framework **Axum**
 ## 🚨 2. Matrice d'Audit des Failles de Sécurité (Vulnérabilités Identifiées)
 
 ### 🔴 Faille Critique 1 : Contournement de l'Authentification VNC
-- **Emplacement** : [`src/auth.rs:590`](file:///home/chomiam/Projects/steveos-nas-dashboard/src/auth.rs#L590)
+- **Emplacement** : [`src/auth.rs:590`](file:///home/chomiam/Projects/noos-nas-dashboard/src/auth.rs#L590)
 - **Mécanisme** :
   ```rust
   if path.ends_with("/auth/login") || path.ends_with("/auth/status") || path.ends_with("/auth/me") || path.ends_with("/vnc") {
@@ -50,7 +50,7 @@ Le tableau de bord est composé d'un backend asynchrone Rust (framework **Axum**
 ---
 
 ### 🔴 Faille Critique 2 : Absence de Contrôle d'Accès Basé sur les Rôles (RBAC / Élévation de Privilèges)
-- **Emplacement** : [`src/api.rs`](file:///home/chomiam/Projects/steveos-nas-dashboard/src/api.rs) (toutes les routes d'administration)
+- **Emplacement** : [`src/api.rs`](file:///home/chomiam/Projects/noos-nas-dashboard/src/api.rs) (toutes les routes d'administration)
 - **Mécanisme** : Le backend vérifie uniquement la présence d'un token valide dans `auth_middleware`. Bien que `Session.is_admin` soit calculé dans `auth.rs` et vérifié dans `src/users.rs`, **aucun autre module ne vérifie si l'utilisateur est admin**.
 - **Impact** : Un compte non-administrateur créé pour un simple accès Samba ou sFTP peut :
   - Exécuter des commandes root via le terminal (`/api/terminal/exec`).
@@ -62,7 +62,7 @@ Le tableau de bord est composé d'un backend asynchrone Rust (framework **Axum**
 ---
 
 ### 🔴 Faille Critique 3 : Injection de Commande Shell Root dans la Configuration DNS
-- **Emplacement** : [`src/dns.rs:395`](file:///home/chomiam/Projects/steveos-nas-dashboard/src/dns.rs#L395)
+- **Emplacement** : [`src/dns.rs:395`](file:///home/chomiam/Projects/noos-nas-dashboard/src/dns.rs#L395)
 - **Mécanisme** :
   ```rust
   let _ = Command::new("sudo").args(["bash", "-c", &format!("echo '{}' > /etc/resolv.conf", resolv_content)]).output();
@@ -76,7 +76,7 @@ Le tableau de bord est composé d'un backend asynchrone Rust (framework **Axum**
 ---
 
 ### 🔴 Faille Critique 4 : Injection de Commande Shell dans les Conteneurs de Jeux
-- **Emplacement** : [`src/games.rs:2473`](file:///home/chomiam/Projects/steveos-nas-dashboard/src/games.rs#L2473)
+- **Emplacement** : [`src/games.rs:2473`](file:///home/chomiam/Projects/noos-nas-dashboard/src/games.rs#L2473)
 - **Mécanisme** :
   ```rust
   Command::new("docker").args(["exec", "-i", &container_name, "sh", "-c", &format!("echo '{}'", clean_cmd)])
@@ -88,7 +88,7 @@ Le tableau de bord est composé d'un backend asynchrone Rust (framework **Axum**
 ---
 
 ### 🟠 Faille Majeure 5 : Traversée de Répertoire & Écrasement des Droits Système dans Docker Store
-- **Emplacement** : [`src/docker_store.rs:415-437`](file:///home/chomiam/Projects/steveos-nas-dashboard/src/docker_store.rs#L415-L437)
+- **Emplacement** : [`src/docker_store.rs:415-437`](file:///home/chomiam/Projects/noos-nas-dashboard/src/docker_store.rs#L415-L437)
 - **Mécanisme** :
   `req.data_dir` est accepté sans contrôle de confinement. Le code applique ensuite :
   `chown -R <user>:users <data_dir>` et `chmod -R 0775 <data_dir>`.
@@ -98,7 +98,7 @@ Le tableau de bord est composé d'un backend asynchrone Rust (framework **Axum**
 ---
 
 ### 🟠 Faille Majeure 6 : Fuite des Clés Privées VPN WireGuard
-- **Emplacement** : [`src/wireguard.rs:379-386`](file:///home/chomiam/Projects/steveos-nas-dashboard/src/wireguard.rs#L379-L386) & [`src/api.rs:325`](file:///home/chomiam/Projects/steveos-nas-dashboard/src/api.rs#L325)
+- **Emplacement** : [`src/wireguard.rs:379-386`](file:///home/chomiam/Projects/noos-nas-dashboard/src/wireguard.rs#L379-L386) & [`src/api.rs:325`](file:///home/chomiam/Projects/noos-nas-dashboard/src/api.rs#L325)
 - **Mécanisme** : La structure `WireguardClient` sérialise `private_key` et `config_text`. L'endpoint `GET /api/wireguard/clients` retourne la liste complète sans masquer les secrets.
 - **Impact** : Tout utilisateur connecté peut voler les clés privées des autres utilisateurs du VPN et usurper leur identité réseau.
 - **Remédiation** : Créer un DTO `WireguardClientSummary` sans `private_key` ni `config_text` pour la liste globale. La clé privée ne doit être accessible qu'à la création ou via un endpoint spécifique protégé.
@@ -106,7 +106,7 @@ Le tableau de bord est composé d'un backend asynchrone Rust (framework **Axum**
 ---
 
 ### 🟠 Faille Majeure 7 : Combinaison CorsLayer Permissif & Authentification Cookie
-- **Emplacement** : [`src/main.rs:147`](file:///home/chomiam/Projects/steveos-nas-dashboard/src/main.rs#L147) & [`src/auth.rs:398-403`](file:///home/chomiam/Projects/steveos-nas-dashboard/src/auth.rs#L398-L403)
+- **Emplacement** : [`src/main.rs:147`](file:///home/chomiam/Projects/noos-nas-dashboard/src/main.rs#L147) & [`src/auth.rs:398-403`](file:///home/chomiam/Projects/noos-nas-dashboard/src/auth.rs#L398-L403)
 - **Mécanisme** : Le serveur active `CorsLayer::permissive()`. Les requêtes API du frontend s'appuient principalement sur le cookie `noos_token`.
 - **Impact** : Vulnérabilité aux requêtes inter-origines (CSRF / fuite de données d'API) si un administrateur consulte une page web malveillante sur son navigateur alors que sa session NAS est ouverte.
 - **Remédiation** :
@@ -117,14 +117,14 @@ Le tableau de bord est composé d'un backend asynchrone Rust (framework **Axum**
 ---
 
 ### 🟡 Faille Moyenne 8 : Fuite de Mots de Passe en Ligne de Commande & Injection d'Options CIFS
-- **Emplacement** : [`src/remote_shares.rs:851-860`](file:///home/chomiam/Projects/steveos-nas-dashboard/src/remote_shares.rs#L851-L860)
+- **Emplacement** : [`src/remote_shares.rs:851-860`](file:///home/chomiam/Projects/noos-nas-dashboard/src/remote_shares.rs#L851-L860)
 - **Mécanisme** : `mount -t cifs -o vers=3.0,...,password=<pwd>` expose le mot de passe dans la table des processus `/proc`. Les caractères comme les virgules ne sont pas filtrés.
 - **Remédiation** : Passer les identifiants via un fichier temporaire de crédentiels sécurisé (`credentials=/tmp/...`, avec droits `0600`) ou via descripteur de fichier.
 
 ---
 
 ### 🟡 Faille Moyenne 9 : Argument Injection dans `yt-dlp` et `curl`
-- **Emplacement** : [`src/youtube.rs:126, 285`](file:///home/chomiam/Projects/steveos-nas-dashboard/src/youtube.rs#L126), [`src/vms.rs:635`](file:///home/chomiam/Projects/steveos-nas-dashboard/src/vms.rs#L635)
+- **Emplacement** : [`src/youtube.rs:126, 285`](file:///home/chomiam/Projects/noos-nas-dashboard/src/youtube.rs#L126), [`src/vms.rs:635`](file:///home/chomiam/Projects/noos-nas-dashboard/src/vms.rs#L635)
 - **Mécanisme** : L'URL transmise est ajoutée directement comme argument CLI sans séparateur `--`.
 - **Impact** : Si l'URL commence par des tirets (`--exec`, `-K`), l'outil l'interprète comme un commutateur d'options.
 - **Remédiation** : Toujours insérer l'argument séparateur `"--"` avant les arguments positionnels utilisateur, et valider que l'URL commence obligatoirement par `http://` ou `https://`.

@@ -165,7 +165,7 @@ fn test_integration_vars_nix_sanctuarization_simulation() {
     // Simulation d'un fichier altéré avec marqueurs git
     let vars_corrupted = r#"{
 <<<<<<< HEAD
-  hostName = "steveos-nas";
+  hostName = "old-nas";
 =======
   hostName = "noos-nas";
 >>>>>>> origin/testing
