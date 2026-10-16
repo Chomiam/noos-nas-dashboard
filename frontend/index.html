@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" media="print" onload="this.media='all'">
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"></noscript>
-  <link rel="stylesheet" href="/css/style.css?v=20261006_01">
+  <link rel="stylesheet" href="/css/style.css?v=20261016_02">
   <script>
     (function() {
       try {
@@ -26,6 +26,18 @@
         }
         if (target && target !== 'tab-overview') {
           document.documentElement.setAttribute('data-initial-tab', target);
+        }
+        var rawTheme = localStorage.getItem('noos_active_theme_data');
+        if (rawTheme) {
+          var t = JSON.parse(rawTheme);
+          if (t && t.palette) {
+            var root = document.documentElement;
+            Object.keys(t.palette).forEach(function(k) {
+              root.style.setProperty('--' + k, t.palette[k]);
+            });
+            root.setAttribute('data-theme', t.id || 'catppuccin-mocha');
+            root.setAttribute('data-theme-mode', t.mode || 'dark');
+          }
         }
       } catch (e) {}
     })();
@@ -140,14 +152,67 @@
         <span>🔄</span> Actualiser
       </button>
 
-      <!-- BADGE UTILISATEUR & DECONNEXION -->
-      <div class="user-pill" id="header-user-pill" style="display:none;">
-        <span>👤</span>
-        <span id="header-username">noos</span>
-        <span id="header-user-role" style="font-size:0.75rem; opacity:0.8;">(admin)</span>
-        <button type="button" class="btn-logout" id="header-logout-btn" onclick="logoutUser()" title="Se déconnecter de Noos">
-          <span>Déconnexion</span>
+      <!-- BADGE UTILISATEUR & MENU DÉROULANT (THÈMES & COMPTE) -->
+      <div class="user-profile-dropdown-wrap" id="header-user-pill" style="display:none; position:relative;">
+        <button type="button" class="user-pill user-pill-clickable" id="header-user-profile-btn" onclick="toggleUserProfileDropdown(event)" title="Menu du profil et Bibliothèque de thèmes">
+          <span>👤</span>
+          <span id="header-username">noos</span>
+          <span id="header-user-role" style="font-size:0.75rem; opacity:0.8;">(admin)</span>
+          <span class="user-pill-chevron" id="header-user-chevron">▾</span>
         </button>
+
+        <!-- MENU DÉROULANT DU PROFIL -->
+        <div class="user-profile-dropdown-menu" id="header-user-dropdown-menu" style="display:none;" onclick="event.stopPropagation()">
+          <div class="user-dropdown-header">
+            <div class="user-dropdown-avatar">👤</div>
+            <div style="min-width:0; flex:1;">
+              <div class="user-dropdown-name" id="dropdown-username-display">noos</div>
+              <div class="user-dropdown-role" id="dropdown-userrole-display">Administrateur</div>
+            </div>
+          </div>
+
+          <div class="user-dropdown-divider"></div>
+
+          <!-- OPTION PRINCIPALE : BIBLIOTHÈQUE DE THÈMES -->
+          <button type="button" class="user-dropdown-item user-dropdown-theme-item" onclick="openThemeLibraryModal()">
+            <div class="user-dropdown-item-left">
+              <span class="user-dropdown-item-icon">🎨</span>
+              <div>
+                <div class="user-dropdown-item-title">Thème & Bibliothèque</div>
+                <div class="user-dropdown-item-sub" id="dropdown-active-theme-label">🌙 Catppuccin Mocha</div>
+              </div>
+            </div>
+            <span class="user-dropdown-item-badge">Ouvrir ➔</span>
+          </button>
+
+          <!-- SÉLECTEUR RAPIDE DE THÈMES DANS LE MENU DÉROULANT -->
+          <div class="user-dropdown-quick-themes" id="dropdown-quick-themes-list">
+          </div>
+
+          <div class="user-dropdown-divider"></div>
+
+          <button type="button" class="user-dropdown-item" onclick="closeUserProfileDropdown(); switchTab('tab-users');">
+            <div class="user-dropdown-item-left">
+              <span class="user-dropdown-item-icon">👥</span>
+              <div>
+                <div class="user-dropdown-item-title">Utilisateurs & Droits</div>
+                <div class="user-dropdown-item-sub">Comptes, groupes et sessions</div>
+              </div>
+            </div>
+          </button>
+
+          <div class="user-dropdown-divider"></div>
+
+          <button type="button" class="user-dropdown-item user-dropdown-logout-item" id="header-logout-btn" onclick="logoutUser()">
+            <div class="user-dropdown-item-left">
+              <span class="user-dropdown-item-icon">🚪</span>
+              <div>
+                <div class="user-dropdown-item-title">Se déconnecter</div>
+                <div class="user-dropdown-item-sub">Fermer la session active</div>
+              </div>
+            </div>
+          </button>
+        </div>
       </div>
 
     </div>
@@ -9437,9 +9502,69 @@
     </div>
   </div>
 
+  <!-- ================= MODALE : BIBLIOTHÈQUE UNIVERSELLE DE THÈMES ================= -->
+  <div class="file-modal-overlay" id="modal-theme-library" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-theme-library')">
+    <div class="file-modal-window" style="max-width: 940px; width: 95%;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(203, 166, 247, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <span class="badge badge-mauve" style="font-size:0.75rem; font-weight:800;">🎨 APPARENCE</span>
+          <span class="file-modal-title">Bibliothèque de Thèmes Noos NAS</span>
+          <a href="https://github.com/Chomiam/noos-nas-theme" target="_blank" rel="noopener" style="font-size:0.76rem; color:var(--blue); text-decoration:none; padding:3px 9px; border-radius:999px; background:rgba(137, 180, 250, 0.12); border:1px solid rgba(137, 180, 250, 0.3);">
+            🔗 Dépôt GitHub noos-nas-theme ↗
+          </a>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeThemeLibraryModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:20px; max-height:78vh; overflow-y:auto;">
+        <!-- Barre d'outils de la bibliothèque de thèmes -->
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid rgba(255,255,255,0.07);">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="docker-pill-btn active" id="theme-filter-all" onclick="setThemeLibraryFilter('all')">
+              Tous (<span id="theme-count-all">6</span>)
+            </button>
+            <button type="button" class="docker-pill-btn" id="theme-filter-dark" onclick="setThemeLibraryFilter('dark')">
+              🌙 Sombres (<span id="theme-count-dark">5</span>)
+            </button>
+            <button type="button" class="docker-pill-btn" id="theme-filter-light" onclick="setThemeLibraryFilter('light')">
+              ☀️ Clairs (<span id="theme-count-light">1</span>)
+            </button>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <input type="file" id="theme-import-file-input" accept=".json,application/json" style="display:none;" onchange="handleImportThemeFile(event)">
+            <button type="button" class="btn btn-secondary btn-xs" onclick="downloadUniversalThemeTemplate()" title="Télécharger le modèle JSON universel pour créer votre propre thème">
+              <span>📄</span> Modèle JSON
+            </button>
+            <button type="button" class="btn btn-secondary btn-xs" onclick="document.getElementById('theme-import-file-input').click()" title="Importer et tester un fichier de thème au format universel (.json)">
+              <span>📥</span> Importer (.json)
+            </button>
+            <button type="button" class="btn btn-secondary btn-xs" id="btn-sync-themes-github" onclick="syncThemesFromGitHub()" title="Synchroniser les thèmes depuis le dépôt officiel GitHub">
+              <span id="btn-sync-themes-icon">🔄</span> Synchroniser GitHub
+            </button>
+          </div>
+        </div>
+
+        <!-- Grille des thèmes -->
+        <div class="theme-library-grid" id="theme-library-grid">
+        </div>
+
+        <!-- Encadré d'information pour les contributeurs -->
+        <div style="margin-top:18px; padding:12px 16px; border-radius:10px; background:var(--surface0); border:1px solid rgba(255,255,255,0.07); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; font-size:0.8rem; color:var(--subtext0);">
+          <div>
+            💡 <strong>Format universel v1.0 :</strong> Tout le monde peut proposer un nouveau thème sur le dépôt <a href="https://github.com/Chomiam/noos-nas-theme" target="_blank" rel="noopener" style="color:var(--mauve); text-decoration:underline;">Chomiam/noos-nas-theme</a> en utilisant le modèle JSON standardisé (24 variables de palette).
+          </div>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="selectAndApplyTheme('catppuccin-mocha')">
+            🌙 Réinitialiser par défaut (Catppuccin Mocha)
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /#app-shell -->
 
   <script src="/js/qrcode.min.js"></script>
-  <script src="/js/app.js?v=20261016_01"></script>
+  <script src="/js/app.js?v=20261016_02"></script>
 </body>
 </html>

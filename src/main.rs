@@ -64,6 +64,7 @@ mod terminal;  // Passerelle de terminal interactif sécurisé
 mod documents; // Lecteur contextuel de documentation intégrée
 mod youtube;   // Outil de téléchargement de médias multimédia (yt-dlp)
 mod immich_go; // Passerelle d'importation multimédia Immich-Go
+mod themes;    // Bibliothèque universelle de thèmes visuels (noos-nas-theme)
 mod api;       // Câblage centralisé des routes de l'API REST Axum
 
 // ============================================================================

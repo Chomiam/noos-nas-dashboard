@@ -16152,14 +16152,21 @@ function updateUserSessionUI(session) {
   const userPill = document.getElementById("header-user-pill");
   const usernameEl = document.getElementById("header-username");
   const userRoleEl = document.getElementById("header-user-role");
+  const dropdownNameEl = document.getElementById("dropdown-username-display");
+  const dropdownRoleEl = document.getElementById("dropdown-userrole-display");
   const homeTextEl = document.getElementById("fnav-home-text");
 
   if (session && session.username) {
-    if (userPill) userPill.style.display = "flex";
+    if (userPill) userPill.style.display = "inline-flex";
     if (usernameEl) usernameEl.textContent = session.username;
     if (userRoleEl) userRoleEl.textContent = session.is_admin ? "(Admin)" : "(Utilisateur)";
+    if (dropdownNameEl) dropdownNameEl.textContent = session.username;
+    if (dropdownRoleEl) dropdownRoleEl.textContent = session.is_admin ? "Administrateur Système" : "Utilisateur Standard";
     if (homeTextEl) homeTextEl.textContent = `personnel (~/${session.username})`;
     updateSftpQuickUrisWithUser(session.username);
+    if (typeof initThemesEngine === "function") {
+      initThemesEngine();
+    }
 
     if (!currentFolderPath || currentFolderPath === "/home/chomiam" || currentFolderPath.includes("/chomiam")) {
       currentFolderPath = getUserHome();
@@ -26947,4 +26954,450 @@ async function submitImportFromNasToKDrive() {
     if (btn) btn.disabled = false;
   }
 }
+
+// =========================================================================
+// MENU DÉROULANT DU PROFIL & BIBLIOTHÈQUE UNIVERSELLE DE THÈMES (NOOS-NAS-THEME)
+// =========================================================================
+
+let allNoosThemes = [];
+let activeNoosThemeId = localStorage.getItem("noos_active_theme_id") || "catppuccin-mocha";
+let themeLibraryFilterMode = "all"; // "all" | "dark" | "light"
+let isThemesEngineInitialized = false;
+
+function toggleUserProfileDropdown(event) {
+  if (event) event.stopPropagation();
+  const menu = document.getElementById("header-user-dropdown-menu");
+  const btn = document.getElementById("header-user-profile-btn");
+  if (!menu) return;
+
+  const isOpen = menu.style.display === "block";
+  if (isOpen) {
+    closeUserProfileDropdown();
+  } else {
+    menu.style.display = "block";
+    if (btn) btn.classList.add("is-open");
+    if (allNoosThemes.length === 0) {
+      loadThemesCatalog();
+    } else {
+      renderQuickThemesInDropdown();
+    }
+  }
+}
+
+function closeUserProfileDropdown() {
+  const menu = document.getElementById("header-user-dropdown-menu");
+  const btn = document.getElementById("header-user-profile-btn");
+  if (menu) menu.style.display = "none";
+  if (btn) btn.classList.remove("is-open");
+}
+
+document.addEventListener("click", (e) => {
+  const wrap = document.getElementById("header-user-pill");
+  if (wrap && !wrap.contains(e.target)) {
+    closeUserProfileDropdown();
+  }
+});
+
+async function initThemesEngine() {
+  if (isThemesEngineInitialized) return;
+  isThemesEngineInitialized = true;
+  await loadThemesCatalog();
+}
+
+async function loadThemesCatalog() {
+  try {
+    const res = await fetch("/api/themes");
+    const json = await res.json();
+    if (json.success && json.data && Array.isArray(json.data.themes)) {
+      allNoosThemes = json.data.themes;
+      const savedLocalId = localStorage.getItem("noos_active_theme_id");
+      const serverActiveId = json.data.active_theme_id || "catppuccin-mocha";
+      const chosenId = savedLocalId || serverActiveId;
+
+      const themeObj = allNoosThemes.find(t => t.id === chosenId)
+        || allNoosThemes.find(t => t.id === "catppuccin-mocha")
+        || allNoosThemes[0];
+
+      if (themeObj) {
+        activeNoosThemeId = themeObj.id;
+        applyThemeObjectToDOM(themeObj);
+      }
+
+      renderQuickThemesInDropdown();
+      updateThemeLibraryCounts();
+      const modal = document.getElementById("modal-theme-library");
+      if (modal && modal.style.display === "flex") {
+        renderThemeLibraryGrid();
+      }
+    }
+  } catch (err) {
+    console.error("Erreur chargement catalogue de thèmes :", err);
+  }
+}
+
+function applyThemeObjectToDOM(theme) {
+  if (!theme || !theme.palette) return;
+  const root = document.documentElement;
+
+  Object.entries(theme.palette).forEach(([key, val]) => {
+    if (val) {
+      root.style.setProperty(`--${key}`, val);
+    }
+  });
+
+  if (theme.ui) {
+    if (theme.ui.radius_sm) root.style.setProperty("--radius-sm", theme.ui.radius_sm);
+    if (theme.ui.radius_md) root.style.setProperty("--radius-md", theme.ui.radius_md);
+    if (theme.ui.radius_lg) root.style.setProperty("--radius-lg", theme.ui.radius_lg);
+    if (theme.ui.radius_xl) root.style.setProperty("--radius-xl", theme.ui.radius_xl);
+    if (theme.ui.shadow_card) root.style.setProperty("--shadow-card", theme.ui.shadow_card);
+  }
+
+  root.setAttribute("data-theme", theme.id);
+  root.setAttribute("data-theme-mode", theme.mode || "dark");
+
+  try {
+    localStorage.setItem("noos_active_theme_id", theme.id);
+    localStorage.setItem("noos_active_theme_data", JSON.stringify(theme));
+  } catch (e) {}
+
+  const activeLabelEl = document.getElementById("dropdown-active-theme-label");
+  if (activeLabelEl) {
+    activeLabelEl.textContent = `${theme.icon || "🎨"} ${theme.name}`;
+  }
+}
+
+async function selectAndApplyTheme(themeId) {
+  const themeObj = allNoosThemes.find(t => t.id === themeId);
+  if (!themeObj) {
+    showToast("Thème introuvable.", "error");
+    return;
+  }
+
+  activeNoosThemeId = themeObj.id;
+  applyThemeObjectToDOM(themeObj);
+  renderQuickThemesInDropdown();
+  renderThemeLibraryGrid();
+
+  showToast(`${themeObj.icon || "🎨"} Thème « ${themeObj.name} » appliqué !`, "success");
+
+  try {
+    await fetch("/api/themes/select", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ theme_id: themeObj.id })
+    });
+  } catch (e) {
+    console.warn("Persistance serveur du thème ignorée :", e);
+  }
+}
+
+function renderQuickThemesInDropdown() {
+  const container = document.getElementById("dropdown-quick-themes-list");
+  if (!container) return;
+
+  if (!allNoosThemes || allNoosThemes.length === 0) {
+    container.innerHTML = "";
+    return;
+  }
+
+  container.innerHTML = allNoosThemes.slice(0, 6).map(t => {
+    const isActive = t.id === activeNoosThemeId;
+    const primaryColor = (t.preview && t.preview.primary) || (t.palette && t.palette.mauve) || "#cba6f7";
+    return `
+      <button type="button" class="quick-theme-chip ${isActive ? 'is-active' : ''}" onclick="selectAndApplyTheme('${escapeHtml(t.id)}')" title="${escapeHtml(t.name)} — ${escapeHtml(t.description || '')}">
+        <span class="quick-theme-swatch" style="background:${escapeHtml(primaryColor)};"></span>
+        <span style="overflow:hidden; text-overflow:ellipsis;">${escapeHtml(t.icon || '🎨')} ${escapeHtml(t.name)}</span>
+      </button>
+    `;
+  }).join("");
+}
+
+function openThemeLibraryModal() {
+  closeUserProfileDropdown();
+  const modal = document.getElementById("modal-theme-library");
+  if (!modal) return;
+  modal.style.display = "flex";
+
+  if (allNoosThemes.length === 0) {
+    loadThemesCatalog();
+  } else {
+    updateThemeLibraryCounts();
+    renderThemeLibraryGrid();
+  }
+}
+
+function closeThemeLibraryModal() {
+  const modal = document.getElementById("modal-theme-library");
+  if (modal) modal.style.display = "none";
+}
+
+function setThemeLibraryFilter(mode) {
+  themeLibraryFilterMode = mode;
+  ["all", "dark", "light"].forEach(k => {
+    const btn = document.getElementById(`theme-filter-${k}`);
+    if (btn) btn.classList.toggle("active", k === mode);
+  });
+  renderThemeLibraryGrid();
+}
+
+function updateThemeLibraryCounts() {
+  const total = allNoosThemes.length;
+  const darkCount = allNoosThemes.filter(t => (t.mode || "dark") === "dark").length;
+  const lightCount = allNoosThemes.filter(t => t.mode === "light").length;
+
+  const allEl = document.getElementById("theme-count-all");
+  const darkEl = document.getElementById("theme-count-dark");
+  const lightEl = document.getElementById("theme-count-light");
+
+  if (allEl) allEl.textContent = total;
+  if (darkEl) darkEl.textContent = darkCount;
+  if (lightEl) lightEl.textContent = lightCount;
+}
+
+function renderThemeLibraryGrid() {
+  const grid = document.getElementById("theme-library-grid");
+  if (!grid) return;
+
+  const filtered = allNoosThemes.filter(t => {
+    if (themeLibraryFilterMode === "dark") return (t.mode || "dark") === "dark";
+    if (themeLibraryFilterMode === "light") return t.mode === "light";
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    grid.innerHTML = `<div style="grid-column: 1 / -1; text-align:center; padding:30px; color:var(--subtext0);">Aucun thème trouvé dans cette catégorie.</div>`;
+    return;
+  }
+
+  grid.innerHTML = filtered.map(t => {
+    const isActive = t.id === activeNoosThemeId;
+    const p = t.preview || {};
+    const pal = t.palette || {};
+    const bg = p.background || pal.crust || "#11111b";
+    const surf = p.surface || pal.base || "#1e1e2e";
+    const card = p.card || pal.surface0 || "#313244";
+    const txt = p.text || pal.text || "#cdd6f4";
+    const prim = p.primary || pal.mauve || "#cba6f7";
+    const sec = p.secondary || pal.blue || "#89b4fa";
+    const succ = p.success || pal.green || "#a6e3a1";
+    const warn = p.warning || pal.peach || "#fab387";
+    const dang = p.danger || pal.red || "#f38ba8";
+
+    const swatchColors = [
+      pal.crust || bg,
+      pal.base || surf,
+      pal.surface0 || card,
+      pal.text || txt,
+      pal.mauve || prim,
+      pal.blue || sec,
+      pal.teal || "#94e2d5",
+      pal.green || succ,
+      pal.peach || warn,
+      pal.red || dang
+    ];
+
+    const customDeleteBtn = t.is_custom
+      ? `<button type="button" class="btn btn-danger btn-xs" onclick="deleteCustomTheme('${escapeHtml(t.id)}', event)" title="Supprimer ce thème personnalisé">🗑️</button>`
+      : "";
+
+    const defaultBadge = t.is_default
+      ? `<span style="font-size:0.66rem; font-weight:800; padding:2px 7px; border-radius:999px; background:rgba(166, 227, 161, 0.16); color:var(--green); border:1px solid rgba(166, 227, 161, 0.35);">Par défaut</span>`
+      : (t.is_custom
+          ? `<span style="font-size:0.66rem; font-weight:800; padding:2px 7px; border-radius:999px; background:rgba(250, 179, 135, 0.16); color:var(--peach); border:1px solid rgba(250, 179, 135, 0.35);">Importé</span>`
+          : `<span style="font-size:0.66rem; font-weight:700; padding:2px 7px; border-radius:999px; background:var(--surface0); color:var(--subtext0);">${t.mode === "light" ? "☀️ Clair" : "🌙 Sombre"}</span>`);
+
+    return `
+      <div class="theme-card ${isActive ? 'is-active' : ''}" onclick="selectAndApplyTheme('${escapeHtml(t.id)}')">
+        <!-- Aperçu miniature du dashboard -->
+        <div class="theme-preview-mockup" style="background:${escapeHtml(bg)}; color:${escapeHtml(txt)};">
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:6px 10px; border-radius:7px; background:${escapeHtml(surf)}; border:1px solid rgba(128,128,128,0.18);">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="width:10px; height:10px; border-radius:3px; background:${escapeHtml(prim)}; display:inline-block;"></span>
+              <span style="font-size:0.7rem; font-weight:800; color:${escapeHtml(txt)};">Noos NAS</span>
+            </div>
+            <div style="display:flex; gap:4px;">
+              <span style="width:7px; height:7px; border-radius:50%; background:${escapeHtml(succ)};"></span>
+              <span style="width:7px; height:7px; border-radius:50%; background:${escapeHtml(warn)};"></span>
+              <span style="width:7px; height:7px; border-radius:50%; background:${escapeHtml(dang)};"></span>
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+            <div style="padding:8px; border-radius:7px; background:${escapeHtml(card)}; border:1px solid rgba(128,128,128,0.14);">
+              <div style="font-size:0.62rem; opacity:0.75;">CPU / Système</div>
+              <div style="font-size:0.82rem; font-weight:800; color:${escapeHtml(prim)}; margin-top:2px;">14%</div>
+              <div style="height:4px; border-radius:99px; background:rgba(128,128,128,0.25); margin-top:5px; overflow:hidden;">
+                <div style="width:62%; height:100%; background:${escapeHtml(prim)};"></div>
+              </div>
+            </div>
+            <div style="padding:8px; border-radius:7px; background:${escapeHtml(card)}; border:1px solid rgba(128,128,128,0.14);">
+              <div style="font-size:0.62rem; opacity:0.75;">Réseau & Stockage</div>
+              <div style="font-size:0.82rem; font-weight:800; color:${escapeHtml(sec)}; margin-top:2px;">1.2 Go/s</div>
+              <div style="height:4px; border-radius:99px; background:rgba(128,128,128,0.25); margin-top:5px; overflow:hidden;">
+                <div style="width:45%; height:100%; background:${escapeHtml(sec)};"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="theme-palette-strip">
+            ${swatchColors.map(col => `<span class="theme-palette-dot" style="background:${escapeHtml(col)};"></span>`).join("")}
+          </div>
+        </div>
+
+        <!-- Informations du thème -->
+        <div style="padding:14px; display:flex; flex-direction:column; flex:1; justify-content:space-between; gap:10px;">
+          <div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:4px;">
+              <div style="font-weight:800; font-size:0.95rem; color:var(--text); display:flex; align-items:center; gap:6px;">
+                <span>${escapeHtml(t.icon || "🎨")}</span>
+                <span>${escapeHtml(t.name)}</span>
+              </div>
+              ${defaultBadge}
+            </div>
+            <div style="font-size:0.73rem; color:var(--subtext0); margin-bottom:6px;">
+              Par <strong>${escapeHtml(t.author || "Noos NAS")}</strong> • v${escapeHtml(t.version || "1.0.0")}
+            </div>
+            <div style="font-size:0.78rem; color:var(--subtext1); line-height:1.4;">
+              ${escapeHtml(t.description || "")}
+            </div>
+          </div>
+
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding-top:8px; border-top:1px solid color-mix(in srgb, var(--text) 7%, transparent);">
+            ${isActive
+              ? `<span class="badge badge-success" style="width:100%; text-align:center; padding:6px 10px; font-weight:800;">✓ Thème actif</span>`
+              : `<button type="button" class="btn btn-primary btn-xs" style="flex:1; justify-content:center;">🎨 Appliquer ce thème</button>`
+            }
+            ${customDeleteBtn}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+async function syncThemesFromGitHub() {
+  const btn = document.getElementById("btn-sync-themes-github");
+  const icon = document.getElementById("btn-sync-themes-icon");
+  if (btn) btn.disabled = true;
+  if (icon) icon.textContent = "⏳";
+
+  try {
+    const res = await fetch("/api/themes/sync", { method: "POST" });
+    const json = await res.json();
+    if (json.success && json.data && Array.isArray(json.data.themes)) {
+      allNoosThemes = json.data.themes;
+      updateThemeLibraryCounts();
+      renderThemeLibraryGrid();
+      renderQuickThemesInDropdown();
+      showToast(`Bibliothèque synchronisée (${allNoosThemes.length} thèmes disponibles) !`, "success");
+    } else {
+      showToast(json.message || "Erreur lors de la synchronisation des thèmes.", "error");
+    }
+  } catch (err) {
+    showToast("Erreur réseau lors de la synchronisation GitHub.", "error");
+  } finally {
+    if (btn) btn.disabled = false;
+    if (icon) icon.textContent = "🔄";
+  }
+}
+
+function downloadUniversalThemeTemplate() {
+  const baseTheme = allNoosThemes.find(t => t.id === "catppuccin-mocha") || allNoosThemes[0] || {};
+  const templateObj = {
+    "$schema": "https://raw.githubusercontent.com/Chomiam/noos-nas-theme/main/schema/theme.schema.json",
+    "format_version": "1.0",
+    "id": "mon-nouveau-theme",
+    "name": "Mon Nouveau Thème",
+    "author": (currentUserSession && currentUserSession.username) || "Communauté Noos",
+    "version": "1.0.0",
+    "mode": "dark",
+    "is_default": false,
+    "icon": "🎨",
+    "description": "Description de votre thème personnalisé pour Noos NAS Dashboard.",
+    "tags": ["sombre", "communauté"],
+    "preview": baseTheme.preview || {
+      "background": "#11111b",
+      "surface": "#1e1e2e",
+      "card": "#313244",
+      "text": "#cdd6f4",
+      "primary": "#cba6f7",
+      "secondary": "#89b4fa",
+      "success": "#a6e3a1",
+      "warning": "#fab387",
+      "danger": "#f38ba8"
+    },
+    "palette": baseTheme.palette || {},
+    "ui": {
+      "radius_sm": "8px",
+      "radius_md": "12px",
+      "radius_lg": "16px",
+      "radius_xl": "20px",
+      "shadow_card": "0 8px 24px rgba(0, 0, 0, 0.35)"
+    }
+  };
+
+  const blob = new Blob([JSON.stringify(templateObj, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "mon-nouveau-theme.json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast("📄 Modèle JSON universel téléchargé !", "info");
+}
+
+async function handleImportThemeFile(event) {
+  const file = event.target && event.target.files && event.target.files[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+
+    const res = await fetch("/api/themes/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(parsed)
+    });
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      showToast(json.message || "Le fichier JSON ne respecte pas le format universel de thème.", "error");
+      return;
+    }
+
+    const importedTheme = json.data;
+    await loadThemesCatalog();
+    await selectAndApplyTheme(importedTheme.id);
+    showToast(`✨ Thème « ${importedTheme.name} » importé et activé !`, "success");
+  } catch (err) {
+    showToast("Fichier JSON invalide : " + err, "error");
+  } finally {
+    event.target.value = "";
+  }
+}
+
+async function deleteCustomTheme(themeId, event) {
+  if (event) event.stopPropagation();
+  try {
+    const res = await fetch(`/api/themes/custom/${encodeURIComponent(themeId)}`, {
+      method: "DELETE"
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast("Thème personnalisé supprimé.", "info");
+      if (activeNoosThemeId === themeId) {
+        await selectAndApplyTheme("catppuccin-mocha");
+      }
+      await loadThemesCatalog();
+    } else {
+      showToast(json.message || "Impossible de supprimer ce thème.", "error");
+    }
+  } catch (err) {
+    showToast("Erreur lors de la suppression du thème.", "error");
+  }
+}
+
 

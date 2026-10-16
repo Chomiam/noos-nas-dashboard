@@ -361,6 +361,11 @@ pub fn api_routes() -> Router {
         .route("/wireguard/server", get(handle_wireguard_server))
         .route("/wireguard/clients", get(handle_wireguard_clients).post(handle_create_wireguard_client))
         .route("/wireguard/clients/:id", delete(handle_delete_wireguard_client))
+        .route("/themes", get(handle_get_themes))
+        .route("/themes/sync", post(handle_sync_themes))
+        .route("/themes/select", post(handle_select_theme))
+        .route("/themes/import", post(handle_import_theme))
+        .route("/themes/custom/:id", delete(handle_delete_custom_theme))
 
         // --------------------------------------------------------------------
         // 11. MACHINES VIRTUELLES (KVM / QEMU / CONSOLE VNC)
@@ -4394,3 +4399,81 @@ async fn handle_kdrive_upload_file(
         message: Some("Aucun fichier reçu dans la requête multipart.".into()),
     })
 }
+
+// ============================================================================
+// CONTRÔLEURS : BIBLIOTHÈQUE UNIVERSELLE DE THÈMES (NOOS-NAS-THEME)
+// ============================================================================
+
+async fn handle_get_themes() -> Json<ApiResponse<crate::themes::ThemesOverview>> {
+    let overview = tokio::task::spawn_blocking(|| crate::themes::get_themes_overview(false))
+        .await
+        .unwrap_or_else(|_| crate::themes::get_themes_overview(false));
+    Json(ApiResponse {
+        success: true,
+        data: Some(overview),
+        message: None,
+    })
+}
+
+async fn handle_sync_themes() -> Json<ApiResponse<crate::themes::ThemesOverview>> {
+    let overview = tokio::task::spawn_blocking(|| crate::themes::get_themes_overview(true))
+        .await
+        .unwrap_or_else(|_| crate::themes::get_themes_overview(true));
+    Json(ApiResponse {
+        success: true,
+        data: Some(overview),
+        message: Some("Bibliothèque de thèmes synchronisée avec GitHub.".into()),
+    })
+}
+
+async fn handle_select_theme(
+    Json(payload): Json<crate::themes::SelectThemeRequest>,
+) -> Json<ApiResponse<String>> {
+    match crate::themes::set_active_theme_id(&payload.theme_id) {
+        Ok(id) => Json(ApiResponse {
+            success: true,
+            data: Some(id),
+            message: Some("Thème activé avec succès.".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_import_theme(
+    Json(payload): Json<crate::themes::NoosTheme>,
+) -> Json<ApiResponse<crate::themes::NoosTheme>> {
+    match crate::themes::import_custom_theme(payload) {
+        Ok(theme) => Json(ApiResponse {
+            success: true,
+            data: Some(theme),
+            message: Some("Thème personnalisé importé et validé avec succès.".into()),
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
+async fn handle_delete_custom_theme(
+    Path(id): Path<String>,
+) -> Json<ApiResponse<String>> {
+    match crate::themes::delete_custom_theme(&id) {
+        Ok(msg) => Json(ApiResponse {
+            success: true,
+            data: Some(msg),
+            message: None,
+        }),
+        Err(err) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+    }
+}
+
