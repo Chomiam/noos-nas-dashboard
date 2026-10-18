@@ -560,6 +560,7 @@ pub struct EggVariable {
     pub description: String,
     pub default_value: String,
     pub input_type: String, // "text", "number", "select", "password", "boolean"
+    #[serde(default)]
     pub options: Option<Vec<String>>,
 }
 
@@ -1367,10 +1368,25 @@ pub fn get_default_eggs() -> Vec<Egg> {
     ]
 }
 
-#[derive(Debug, Deserialize)]
-struct RemoteCatalogResponse {
-    #[serde(default)]
-    eggs: Vec<Egg>,
+/// Parse un catalogue d'Eggs en acceptant **les deux formats publiés** :
+///   - un **tableau** JSON `[ {…}, … ]` — format actuel de `noos_nas_eggs/catalog.json` ;
+///   - un **objet** `{"eggs":[ … ]}` — ancien format (scripts Python du dépôt d'Eggs).
+///
+/// Renvoie `None` si le contenu n'est ni l'un ni l'autre, ou si la liste est vide, afin
+/// de laisser l'appelant retomber sur un autre format ou sur les Eggs par défaut.
+fn parse_catalog_eggs(text: &str) -> Option<Vec<Egg>> {
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    let array = if value.is_array() {
+        value
+    } else {
+        value.get("eggs")?.clone()
+    };
+    let eggs: Vec<Egg> = serde_json::from_value(array).ok()?;
+    if eggs.is_empty() {
+        None
+    } else {
+        Some(eggs)
+    }
 }
 
 pub fn sync_remote_eggs() -> Option<Vec<Egg>> {
@@ -1391,12 +1407,10 @@ pub fn sync_remote_eggs() -> Option<Vec<Egg>> {
         {
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout);
-                if let Ok(catalog) = serde_json::from_str::<RemoteCatalogResponse>(&text) {
-                    if !catalog.eggs.is_empty() {
-                        let cache_file = get_games_base_dir().join("catalog_cache.json");
-                        let _ = fs::write(&cache_file, text.as_bytes());
-                        return Some(catalog.eggs);
-                    }
+                if let Some(eggs) = parse_catalog_eggs(&text) {
+                    let cache_file = get_games_base_dir().join("catalog_cache.json");
+                    let _ = fs::write(&cache_file, text.as_bytes());
+                    return Some(eggs);
                 }
             }
         }
@@ -1422,8 +1436,7 @@ pub fn load_all_eggs() -> Vec<Egg> {
     let base_eggs = if cache_file.exists() {
         fs::read_to_string(&cache_file)
             .ok()
-            .and_then(|t| serde_json::from_str::<RemoteCatalogResponse>(&t).ok().map(|c| c.eggs))
-            .filter(|e| !e.is_empty())
+            .and_then(|t| parse_catalog_eggs(&t))
             .unwrap_or_else(|| sync_remote_eggs().unwrap_or_else(get_default_eggs))
     } else {
         sync_remote_eggs().unwrap_or_else(get_default_eggs)
@@ -3120,6 +3133,48 @@ mod tests {
         // Cleanup
         CONSOLE_RESET_TIMESTAMPS.lock().unwrap().remove(server_id);
         STARTING_SERVERS.lock().unwrap().remove(server_id);
+    }
+
+    #[test]
+    fn test_parse_catalog_eggs_accepts_array_and_object() {
+        // Egg minimal : `options` est volontairement absent pour valider le #[serde(default)].
+        let egg = r#"{
+            "id": "minecraft-java",
+            "name": "Minecraft: Java Edition",
+            "author": "Noos",
+            "description": "desc",
+            "category": "Bac à sable",
+            "icon": "⛏️",
+            "docker_image": "ghcr.io/pterodactyl/yolks:java_21",
+            "default_port": 25565,
+            "port_protocol": "both",
+            "extra_ports": [],
+            "default_memory_mb": 4096,
+            "min_memory_mb": 2048,
+            "startup_cmd": "java -jar server.jar nogui",
+            "variables": [
+                {"name":"Version","env_variable":"MINECRAFT_VERSION","description":"x","default_value":"1.21.1","input_type":"text"}
+            ]
+        }"#;
+
+        // Format tableau (catalog.json publié par noos_nas_eggs)
+        let array = format!("[{}]", egg);
+        let parsed = parse_catalog_eggs(&array).expect("le format tableau doit être accepté");
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].id, "minecraft-java");
+        assert!(parsed[0].variables[0].options.is_none());
+        assert!(parsed[0].icon_url.is_none());
+
+        // Format objet {"eggs":[…]} (ancien format)
+        let object = format!(r#"{{"eggs":[{}]}}"#, egg);
+        let parsed = parse_catalog_eggs(&object).expect("le format objet doit être accepté");
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].id, "minecraft-java");
+
+        // Contenus inexploitables → None (repli sur les Eggs par défaut)
+        assert!(parse_catalog_eggs("{}").is_none());
+        assert!(parse_catalog_eggs("[]").is_none());
+        assert!(parse_catalog_eggs("pas du json").is_none());
     }
 }
 
