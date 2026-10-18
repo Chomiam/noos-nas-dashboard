@@ -6859,9 +6859,34 @@
               <label class="form-label" style="font-weight:600; margin:0;">Version Minecraft (Scrapée en direct) :</label>
               <span id="mc-version-status-hint" style="font-size:0.72rem; color:var(--mauve); font-family:var(--font-mono);">Chargement des versions...</span>
             </div>
-            <select id="mc-version-select" class="form-select" style="font-weight:700; font-family:var(--font-mono); font-size:0.95rem;">
+            <select id="mc-version-select" class="form-select" style="font-weight:700; font-family:var(--font-mono); font-size:0.95rem;" onchange="updateMinecraftJavaHint()">
               <option value="1.21.1">1.21.1 (Chargement...)</option>
             </select>
+          </div>
+
+          <!-- Sélecteur de Version Java (Runtime JVM) -->
+          <div class="form-group" style="margin-bottom:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <label class="form-label" style="font-weight:600; margin:0;">Version de Java (Runtime JVM) :</label>
+              <span id="mc-java-status-hint" style="font-size:0.72rem; color:var(--mauve); font-family:var(--font-mono);">Automatique</span>
+            </div>
+            <select id="mc-cfg-java-version" class="form-select" style="font-weight:700; font-family:var(--font-mono); font-size:0.95rem;" onchange="updateMinecraftJavaHint()">
+              <option value="auto" selected>Automatique (déduite de la version Minecraft)</option>
+              <option value="7">Java 7</option>
+              <option value="8">Java 8</option>
+              <option value="11">Java 11</option>
+              <option value="14">Java 14</option>
+              <option value="16">Java 16</option>
+              <option value="17">Java 17</option>
+              <option value="18">Java 18</option>
+              <option value="19">Java 19</option>
+              <option value="21">Java 21</option>
+              <option value="22">Java 22</option>
+              <option value="23">Java 23</option>
+              <option value="24">Java 24</option>
+              <option value="25">Java 25</option>
+            </select>
+            <span style="font-size:0.72rem; color:var(--subtext0);">JVM utilisée pour lancer le serveur. Recommandé : « Automatique » (ex: 1.12.2 → Java 8, 1.20.6+ → Java 21).</span>
           </div>
 
           <!-- Configuration server.properties assistée -->
@@ -7018,6 +7043,42 @@
             <span>🚀</span> Déployer le Serveur
           </button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL : VERSION DE JAVA D'UN SERVEUR MINECRAFT EXISTANT -->
+  <div class="file-modal-overlay" id="modal-game-java" style="display:none;" onclick="handleModalOverlayClick(event, 'modal-game-java')">
+    <div class="file-modal-window" style="max-width: 540px;">
+      <div class="file-modal-header" style="border-bottom:1px solid rgba(137, 180, 250, 0.25);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:1.4rem;">☕</span>
+          <div>
+            <span class="file-modal-title" style="display:block;">Version de Java (Runtime JVM)</span>
+            <span id="java-modal-server-name" style="font-size:0.78rem; color:var(--subtext0);"></span>
+          </div>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeJavaReconfigModal()">&times;</button>
+      </div>
+
+      <div class="storage-wizard-body" style="padding:22px; max-height:70vh; overflow-y:auto;">
+        <div class="form-group" style="margin-bottom:14px;">
+          <label class="form-label" style="font-weight:600;">Version de Java utilisée pour lancer le serveur :</label>
+          <select id="java-modal-select" class="form-select" style="font-family:var(--font-mono); font-weight:700;" onchange="updateJavaModalHint()"></select>
+          <span id="java-modal-hint" style="font-size:0.72rem; color:var(--subtext0);"></span>
+        </div>
+
+        <div style="display:flex; gap:8px; align-items:flex-start; padding:10px 12px; border-radius:8px; background:rgba(249,226,175,0.08); border:1px solid rgba(249,226,175,0.25);">
+          <span>⚠️</span>
+          <span style="font-size:0.78rem; color:var(--subtext1);">Le conteneur sera <b>recréé</b> avec la nouvelle JVM (arrêt puis redémarrage immédiat). Vos mondes, plugins et mods dans <code>/mnt/storage/games</code> sont conservés.</span>
+        </div>
+      </div>
+
+      <div class="file-modal-footer" style="padding:14px 22px; border-top:1px solid rgba(255,255,255,0.06); display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeJavaReconfigModal()">Annuler</button>
+        <button type="button" class="btn btn-primary" id="btn-apply-java" onclick="applyJavaVersionChange()">
+          <span>💾</span> Appliquer et redéployer
+        </button>
       </div>
     </div>
   </div>

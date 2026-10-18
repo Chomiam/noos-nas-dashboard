@@ -307,6 +307,7 @@ pub fn api_routes() -> Router {
         .route("/games/create", post(handle_games_create))
         .route("/games/:id/action", post(handle_games_action))
         .route("/games/:id/delete", post(handle_games_delete))
+        .route("/games/:id/java-version", post(handle_games_set_java_version))
         .route("/games/:id/logs", get(handle_games_logs))
         .route("/games/:id/logs/clear", post(handle_games_logs_clear))
         .route("/games/:id/deploy-status", get(handle_games_deploy_status))
@@ -315,6 +316,7 @@ pub fn api_routes() -> Router {
         .route("/games/eggs/:id", delete(handle_games_delete_egg))
         .route("/games/minecraft/loaders", get(handle_minecraft_loaders))
         .route("/games/minecraft/versions", get(handle_minecraft_versions))
+        .route("/games/minecraft/java-versions", get(handle_minecraft_java_versions))
         .route("/games/minecraft/resolve", post(handle_minecraft_resolve))
 
 
@@ -3292,6 +3294,33 @@ async fn handle_games_logs_clear(
     }
 }
 
+/// Change la version de Java (runtime JVM) d'un serveur Minecraft existant (recréation du conteneur).
+async fn handle_games_set_java_version(
+    Path(id): Path<String>,
+    Json(payload): Json<crate::games::SetJavaVersionRequest>,
+) -> Json<ApiResponse<crate::games::GameServer>> {
+    let res = tokio::task::spawn_blocking(move || {
+        crate::games::set_game_server_java_version(&id, &payload.java_version)
+    }).await;
+    match res {
+        Ok(Ok(server)) => Json(ApiResponse {
+            success: true,
+            data: Some(server),
+            message: Some("Version de Java mise à jour, le serveur est redéployé.".into()),
+        }),
+        Ok(Err(err)) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(err),
+        }),
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            message: Some(e.to_string()),
+        }),
+    }
+}
+
 /// Envoie une commande shell/RCON à la console interactive d'un serveur de jeu actif.
 async fn handle_games_command(
     Path(id): Path<String>,
@@ -3392,6 +3421,15 @@ async fn handle_minecraft_versions(
     Json(ApiResponse {
         success: true,
         data: Some(versions),
+        message: None,
+    })
+}
+
+/// Liste les runtimes JVM proposés pour les serveurs Minecraft (auto + versions Java).
+async fn handle_minecraft_java_versions() -> Json<ApiResponse<Vec<String>>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(crate::minecraft::available_java_versions()),
         message: None,
     })
 }

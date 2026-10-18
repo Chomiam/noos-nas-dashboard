@@ -19023,6 +19023,10 @@ function renderGameServers() {
                 <span>${escapeHtml(s.game_name)}</span>
                 <span class="row-dot-sep">•</span>
                 <span class="row-port-tag">${s.port} / ${protoUpper}</span>
+                ${isMinecraftServer(s) ? `
+                  <span class="row-dot-sep">•</span>
+                  <button type="button" onclick="openJavaReconfigModal('${s.id}')" title="Choisir la version de Java (runtime JVM)" style="background:none; border:none; color:var(--mauve); cursor:pointer; font-size:0.75rem; padding:0;">☕ Java ${(s.env && s.env.JAVA_VERSION && s.env.JAVA_VERSION !== 'auto') ? s.env.JAVA_VERSION : 'auto'}</button>
+                ` : ''}
                 ${s.status_detail && (isError || isStarting) ? `
                   <span class="row-dot-sep">•</span>
                   <span class="row-status-subtag ${isError ? 'subtag-error' : 'subtag-starting'}">${escapeHtml(s.status_detail)}</span>
@@ -19255,9 +19259,16 @@ function renderGameServers() {
           <!-- Raccourcis et métadonnées secondaires -->
           <div class="game-server-footer-info">
             <span class="text-subtext">📅 ${s.created_at || "Actif"}</span>
-            <button type="button" class="btn-link-files" onclick="openServerFolderInFiles('${escapeHtml(s.data_dir)}')" title="Explorer les fichiers du serveur">
-              <span>📁</span> Parcourir les fichiers
-            </button>
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              ${isMinecraftServer(s) ? `
+                <button type="button" class="btn-link-files" onclick="openJavaReconfigModal('${s.id}')" title="Choisir la version de Java (runtime JVM)">
+                  <span>☕</span> Java ${(s.env && s.env.JAVA_VERSION && s.env.JAVA_VERSION !== 'auto') ? s.env.JAVA_VERSION : 'auto'}
+                </button>
+              ` : ""}
+              <button type="button" class="btn-link-files" onclick="openServerFolderInFiles('${escapeHtml(s.data_dir)}')" title="Explorer les fichiers du serveur">
+                <span>📁</span> Parcourir les fichiers
+              </button>
+            </div>
           </div>
         </div>
 
@@ -19561,10 +19572,62 @@ async function deleteCustomEgg(eggId, eggName) {
 // ==========================================================================
 let selectedMinecraftLoader = 'paper';
 const mcVersionsCache = {};
+const MC_JAVA_FALLBACK = ['auto', '7', '8', '11', '14', '16', '17', '18', '19', '21', '22', '23', '24', '25'];
+let mcJavaVersionsCache = null;
+
+// Miroir d'affichage de l'heuristique backend (src/minecraft.rs::resolve_java_image).
+// Sert uniquement à prévisualiser la JVM déduite pour l'option « Automatique » ;
+// le backend reste la source de vérité pour l'image réellement déployée.
+function autoJavaForMcVersion(mcVersion) {
+  const parts = String(mcVersion || '').split('.').map(n => parseInt(n, 10));
+  const major = isNaN(parts[0]) ? 1 : parts[0];
+  const minor = isNaN(parts[1]) ? 0 : parts[1];
+  const patch = isNaN(parts[2]) ? 0 : parts[2];
+  if (major !== 1 || minor >= 21) return '21';
+  if (minor === 20) return patch >= 5 ? '21' : '17';
+  if (minor >= 17) return '17';
+  return '8';
+}
+
+function updateMinecraftJavaHint() {
+  const sel = document.getElementById('mc-cfg-java-version');
+  const hint = document.getElementById('mc-java-status-hint');
+  if (!sel || !hint) return;
+  if (sel.value === 'auto') {
+    const v = (document.getElementById('mc-version-select') || {}).value || '1.21.1';
+    hint.textContent = `Automatique → Java ${autoJavaForMcVersion(v)}`;
+  } else {
+    hint.textContent = `Java ${sel.value} (forcé)`;
+  }
+}
+
+async function loadJavaVersionOptions() {
+  if (mcJavaVersionsCache) return mcJavaVersionsCache;
+  try {
+    const res = await fetch('/api/games/minecraft/java-versions');
+    const json = await res.json();
+    if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+      mcJavaVersionsCache = json.data;
+      return mcJavaVersionsCache;
+    }
+  } catch (e) { /* repli silencieux sur la liste statique */ }
+  mcJavaVersionsCache = MC_JAVA_FALLBACK.slice();
+  return mcJavaVersionsCache;
+}
+
+function buildJavaOptionsHtml(selected) {
+  const list = mcJavaVersionsCache || MC_JAVA_FALLBACK;
+  return list.map(v => {
+    const label = v === 'auto' ? 'Automatique (déduite de la version Minecraft)' : `Java ${v}`;
+    return `<option value="${v}" ${v === selected ? 'selected' : ''}>${label}</option>`;
+  }).join('');
+}
 
 function initMinecraftWizard() {
   selectMinecraftLoader('paper');
   switchMinecraftConfigTab('general');
+  loadJavaVersionOptions();
+  updateMinecraftJavaHint();
 }
 
 function selectMinecraftLoader(loaderId) {
@@ -19619,6 +19682,7 @@ async function loadMinecraftVersions(loaderId) {
     select.innerHTML = '<option value="1.21.1">1.21.1</option><option value="1.20.4">1.20.4</option><option value="1.20.1">1.20.1</option>';
     if (hint) hint.textContent = 'Mode hors-ligne';
   }
+  updateMinecraftJavaHint();
 }
 
 function populateMinecraftVersionDropdown(versions, loaderId) {
@@ -19633,6 +19697,7 @@ function populateMinecraftVersionDropdown(versions, loaderId) {
   }).join('');
 
   if (hint) hint.textContent = `${versions.length} versions disponibles`;
+  updateMinecraftJavaHint();
 }
 
 function switchMinecraftConfigTab(tabName) {
@@ -19735,6 +19800,79 @@ function closeCreateGameModal() {
   selectedEggForCreate = null;
 }
 
+// --------------------------------------------------------------------------
+// CHANGEMENT DE LA VERSION DE JAVA D'UN SERVEUR MINECRAFT EXISTANT
+// --------------------------------------------------------------------------
+let javaReconfigServerId = null;
+
+async function openJavaReconfigModal(id) {
+  const server = Array.isArray(gameServersData) ? gameServersData.find(s => s.id === id) : null;
+  if (!server) return;
+  javaReconfigServerId = id;
+
+  await loadJavaVersionOptions();
+  const current = (server.env && server.env.JAVA_VERSION) || 'auto';
+
+  const nameEl = document.getElementById('java-modal-server-name');
+  if (nameEl) nameEl.textContent = `${server.name} • ${server.game_name || 'Minecraft'}`;
+  const sel = document.getElementById('java-modal-select');
+  if (sel) sel.innerHTML = buildJavaOptionsHtml(current);
+  updateJavaModalHint();
+
+  const modal = document.getElementById('modal-game-java');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeJavaReconfigModal() {
+  const modal = document.getElementById('modal-game-java');
+  if (modal) modal.style.display = 'none';
+  javaReconfigServerId = null;
+}
+
+function updateJavaModalHint() {
+  const sel = document.getElementById('java-modal-select');
+  const hint = document.getElementById('java-modal-hint');
+  if (!sel || !hint) return;
+  if (sel.value === 'auto') {
+    const server = javaReconfigServerId ? (gameServersData || []).find(s => s.id === javaReconfigServerId) : null;
+    const mcVersion = (server && server.env && server.env.MINECRAFT_VERSION) || '1.21.1';
+    hint.textContent = `Automatique → Java ${autoJavaForMcVersion(mcVersion)} (déduite de la version Minecraft ${mcVersion}).`;
+  } else {
+    hint.textContent = `Java ${sel.value} sera utilisée pour lancer le serveur.`;
+  }
+}
+
+async function applyJavaVersionChange() {
+  if (!javaReconfigServerId) return;
+  const sel = document.getElementById('java-modal-select');
+  const javaVersion = sel ? sel.value : 'auto';
+  const targetId = javaReconfigServerId;
+  const btn = document.getElementById('btn-apply-java');
+  const orig = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = `<span>⏳</span> Application...`; }
+
+  try {
+    const res = await fetch(`/api/games/${targetId}/java-version`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ java_version: javaVersion })
+    });
+    const json = await res.json();
+    if (json.success && json.data) {
+      const srv = json.data;
+      closeJavaReconfigModal();
+      await loadGameServers();
+      openGameDeployProgressModal(srv.id, srv.name, srv.game_name, srv.icon, srv.icon_url || "");
+    } else {
+      showToast(`Échec : ${json.message || "Erreur serveur"}`, "error");
+    }
+  } catch (e) {
+    showToast(`Erreur réseau : ${e.message}`, "error");
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = orig; }
+  }
+}
+
 async function submitCreateGameServer() {
   if (!selectedEggForCreate) return;
 
@@ -19758,6 +19896,7 @@ async function submitCreateGameServer() {
   if (selectedEggForCreate.id === "minecraft-java") {
     variables["LOADER"] = selectedMinecraftLoader;
     variables["MINECRAFT_VERSION"] = (document.getElementById("mc-version-select") || {}).value || "1.21.1";
+    variables["JAVA_VERSION"] = (document.getElementById("mc-cfg-java-version") || {}).value || "auto";
     variables["MOTD"] = (document.getElementById("mc-cfg-motd") || {}).value || "Noos Minecraft";
     variables["LEVEL_NAME"] = (document.getElementById("mc-cfg-level-name") || {}).value || "world";
     variables["LEVEL_SEED"] = (document.getElementById("mc-cfg-seed") || {}).value || "";

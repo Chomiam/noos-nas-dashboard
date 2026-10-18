@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::net::UdpSocket;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -664,6 +664,11 @@ pub struct GameServerCommandRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct SetJavaVersionRequest {
+    pub java_version: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ImportEggRequest {
     pub content: Option<String>,
     pub url: Option<String>,
@@ -843,6 +848,22 @@ pub fn get_default_eggs() -> Vec<Egg> {
                     default_value: "1.21.1".into(),
                     input_type: "text".into(),
                     options: None,
+                },
+                EggVariable {
+                    name: "Moteur / Loader".into(),
+                    env_variable: "LOADER".into(),
+                    description: "Type de serveur Minecraft (paper, purpur, fabric, forge, neoforge, vanilla)".into(),
+                    default_value: "paper".into(),
+                    input_type: "select".into(),
+                    options: Some(vec!["paper".into(), "purpur".into(), "fabric".into(), "forge".into(), "neoforge".into(), "vanilla".into()]),
+                },
+                EggVariable {
+                    name: "Version de Java (Runtime JVM)".into(),
+                    env_variable: "JAVA_VERSION".into(),
+                    description: "Version de la JVM utilisée pour lancer le serveur. « auto » déduit la version adaptée à la version Minecraft (1.12.2 → Java 8, 1.20.6+ → Java 21)".into(),
+                    default_value: "auto".into(),
+                    input_type: "select".into(),
+                    options: Some(crate::minecraft::available_java_versions()),
                 },
                 EggVariable {
                     name: "Message du jour (MOTD)".into(),
@@ -1789,6 +1810,96 @@ pub fn list_game_servers() -> Vec<GameServer> {
     servers
 }
 
+/// Construit les arguments `docker run …` d'un serveur de jeu.
+///
+/// Fonction partagée entre la création d'un serveur (`create_game_server`) et la
+/// reconfiguration d'un serveur existant (`set_game_server_java_version`), afin de
+/// garantir une ligne de commande identique dans les deux cas.
+pub fn build_docker_run_args(
+    egg: &Egg,
+    container_name: &str,
+    memory_mb: u64,
+    target_port: u16,
+    data_dir: &Path,
+    env_map: &HashMap<String, String>,
+    docker_image: &str,
+) -> Vec<String> {
+    let mut docker_args = vec![
+        "run".to_string(),
+        "-d".to_string(),
+        "--name".to_string(),
+        container_name.to_string(),
+        "--restart".to_string(),
+        "unless-stopped".to_string(),
+        "-m".to_string(),
+        format!("{}m", memory_mb),
+        "-v".to_string(),
+        format!("{}:/home/container", data_dir.display()),
+        "-w".to_string(),
+        "/home/container".to_string(),
+    ];
+
+    // Ports
+    let is_7dtd = egg.id == "7daystodie" || egg.startup_cmd.contains("7DaysToDieServer") || egg.id.contains("7day");
+
+    if is_7dtd {
+        docker_args.push("-p".to_string());
+        docker_args.push(format!("{}:{}/tcp", target_port, target_port));
+        docker_args.push("-p".to_string());
+        docker_args.push(format!("{}:{}/udp", target_port, target_port));
+        docker_args.push("-p".to_string());
+        docker_args.push(format!("{}:{}/udp", target_port + 1, target_port + 1));
+        docker_args.push("-p".to_string());
+        docker_args.push(format!("{}:{}/udp", target_port + 2, target_port + 2));
+
+        if let Some(telnet_port) = env_map.get("TELNET_PORT").and_then(|p| p.parse::<u16>().ok()) {
+            if telnet_port != target_port && telnet_port != target_port + 1 && telnet_port != target_port + 2 {
+                docker_args.push("-p".to_string());
+                docker_args.push(format!("{}:{}/tcp", telnet_port, telnet_port));
+            }
+        }
+    } else if egg.port_protocol == "udp" {
+        docker_args.push("-p".to_string());
+        docker_args.push(format!("{}:{}/udp", target_port, target_port));
+        if egg.id == "valheim" {
+            docker_args.push("-p".to_string());
+            docker_args.push(format!("{}:{}/udp", target_port + 1, target_port + 1));
+        }
+    } else if egg.port_protocol == "both" {
+        docker_args.push("-p".to_string());
+        docker_args.push(format!("{}:{}/tcp", target_port, target_port));
+        docker_args.push("-p".to_string());
+        docker_args.push(format!("{}:{}/udp", target_port, target_port));
+    } else {
+        docker_args.push("-p".to_string());
+        docker_args.push(format!("{}:{}/tcp", target_port, target_port));
+    }
+
+    // Mappage automatique des ports supplémentaires définis dans l'Egg
+    for ep in &egg.extra_ports {
+        let port_flag = format!("{}:{}/{}", ep.port, ep.port, ep.protocol);
+        let already_mapped = docker_args
+            .windows(2)
+            .any(|w| w[0] == "-p" && w[1] == port_flag);
+        if !already_mapped {
+            docker_args.push("-p".to_string());
+            docker_args.push(port_flag);
+        }
+    }
+
+    // Variables d'environnement
+    for (k, v) in env_map {
+        docker_args.push("-e".to_string());
+        docker_args.push(format!("{}={}", k, v));
+    }
+
+    docker_args.push(docker_image.to_string());
+    docker_args.push("bash".to_string());
+    docker_args.push("/home/container/entrypoint.sh".to_string());
+
+    docker_args
+}
+
 pub fn create_game_server(req: CreateGameServerRequest) -> Result<GameServer, String> {
     let eggs = load_all_eggs();
     let egg = eggs.iter().find(|e| e.id == req.egg_id).ok_or("Egg sélectionné introuvable")?;
@@ -1860,6 +1971,7 @@ pub fn create_game_server(req: CreateGameServerRequest) -> Result<GameServer, St
     if egg.id == "minecraft-java" {
         let loader = env_map.get("LOADER").cloned().unwrap_or_else(|| "paper".to_string());
         let version = env_map.get("MINECRAFT_VERSION").cloned().unwrap_or_else(|| "1.21.1".to_string());
+        let java_pref = env_map.get("JAVA_VERSION").cloned().unwrap_or_else(|| "auto".to_string());
 
         let resolved = crate::minecraft::resolve_minecraft_server(&loader, &version)
             .unwrap_or_else(|_| crate::minecraft::ResolvedMinecraftServer {
@@ -1867,11 +1979,12 @@ pub fn create_game_server(req: CreateGameServerRequest) -> Result<GameServer, St
                 version: version.clone(),
                 download_url: format!("https://api.purpurmc.org/v2/purpur/{}/latest/download", version),
                 is_installer: false,
-                docker_image: crate::minecraft::resolve_java_image(&version),
+                docker_image: crate::minecraft::resolve_java_image_for(&version, &java_pref),
                 startup_command: "java -Xms128M -XmxM -XX:+AlwaysPreTouch -XX:+UseG1GC -jar server.jar nogui".into(),
             });
 
-        final_docker_image = resolved.docker_image.clone();
+        // L'image JVM est choisie explicitement (JAVA_VERSION) ou déduite de la version Minecraft.
+        final_docker_image = crate::minecraft::resolve_java_image_for(&version, &java_pref);
 
         // 1. EULA et dossiers d'extensions
         let _ = fs::write(data_dir.join("eula.txt"), "eula=true
@@ -2474,82 +2587,15 @@ fi
     let _ = Command::new("docker").args(["rm", "-f", &container_name]).status();
 
     // Construction des arguments Docker Run
-    let mut docker_args = vec![
-        "run".to_string(),
-        "-d".to_string(),
-        "--name".to_string(),
-        container_name.clone(),
-        "--restart".to_string(),
-        "unless-stopped".to_string(),
-        "-m".to_string(),
-        format!("{}m", req.memory_mb),
-        "-v".to_string(),
-        format!("{}:/home/container", data_dir.display()),
-        "-w".to_string(),
-        "/home/container".to_string(),
-    ];
-
-    // Ports
-    let is_7dtd = egg.id == "7daystodie" || egg.startup_cmd.contains("7DaysToDieServer") || egg.id.contains("7day");
-
-    if is_7dtd {
-        docker_args.push("-p".to_string());
-        docker_args.push(format!("{}:{}/tcp", target_port, target_port));
-        docker_args.push("-p".to_string());
-        docker_args.push(format!("{}:{}/udp", target_port, target_port));
-        docker_args.push("-p".to_string());
-        docker_args.push(format!("{}:{}/udp", target_port + 1, target_port + 1));
-        docker_args.push("-p".to_string());
-        docker_args.push(format!("{}:{}/udp", target_port + 2, target_port + 2));
-
-        if let Some(telnet_port) = env_map.get("TELNET_PORT").and_then(|p| p.parse::<u16>().ok()) {
-            if telnet_port != target_port && telnet_port != target_port + 1 && telnet_port != target_port + 2 {
-                docker_args.push("-p".to_string());
-                docker_args.push(format!("{}:{}/tcp", telnet_port, telnet_port));
-            }
-        }
-    } else if egg.port_protocol == "udp" {
-        docker_args.push("-p".to_string());
-        docker_args.push(format!("{}:{}/udp", target_port, target_port));
-        if egg.id == "valheim" {
-            docker_args.push("-p".to_string());
-            docker_args.push(format!("{}:{}/udp", target_port + 1, target_port + 1));
-        }
-    } else if egg.port_protocol == "both" {
-        docker_args.push("-p".to_string());
-        docker_args.push(format!("{}:{}/tcp", target_port, target_port));
-        docker_args.push("-p".to_string());
-        docker_args.push(format!("{}:{}/udp", target_port, target_port));
-    } else {
-        docker_args.push("-p".to_string());
-        docker_args.push(format!("{}:{}/tcp", target_port, target_port));
-    }
-
-    // Mappage automatique des ports supplémentaires définis dans l'Egg
-    for ep in &egg.extra_ports {
-        let port_flag = format!("{}:{}/{}", ep.port, ep.port, ep.protocol);
-        let mut already_mapped = false;
-        for i in 0..docker_args.len() {
-            if docker_args[i] == "-p" && i + 1 < docker_args.len() && docker_args[i+1] == port_flag {
-                already_mapped = true;
-                break;
-            }
-        }
-        if !already_mapped {
-            docker_args.push("-p".to_string());
-            docker_args.push(port_flag);
-        }
-    }
-
-    // Variables d'environnement
-    for (k, v) in &env_map {
-        docker_args.push("-e".to_string());
-        docker_args.push(format!("{}={}", k, v));
-    }
-
-    docker_args.push(final_docker_image.clone());
-    docker_args.push("bash".to_string());
-    docker_args.push("/home/container/entrypoint.sh".to_string());
+    let docker_args = build_docker_run_args(
+        egg,
+        &container_name,
+        req.memory_mb,
+        target_port,
+        &data_dir,
+        &env_map,
+        &final_docker_image,
+    );
 
     let server = GameServer {
         id: slug.clone(),
@@ -2630,6 +2676,119 @@ fi
     });
 
     Ok(server)
+}
+
+/// Change la version de Java (runtime JVM) d'un serveur Minecraft existant.
+///
+/// La JVM étant fournie par l'image Docker, le changement impose de **recréer** le
+/// conteneur avec la nouvelle image (`yolks:java_XX`) tout en conservant le volume
+/// de données (`/mnt/storage/games/<id>`) : mondes, plugins et mods sont préservés.
+pub fn set_game_server_java_version(id: &str, java_version: &str) -> Result<GameServer, String> {
+    let eggs = load_all_eggs();
+    let mut servers = load_saved_servers();
+    let idx = servers
+        .iter()
+        .position(|s| s.id == id)
+        .ok_or("Serveur de jeu introuvable")?;
+
+    let egg_id = servers[idx].egg_id.clone();
+    if egg_id != "minecraft-java" {
+        return Err("Le choix de la version de Java n'est disponible que pour « Minecraft: Java Edition ».".into());
+    }
+
+    let egg = eggs
+        .iter()
+        .find(|e| e.id == egg_id)
+        .ok_or("Egg Minecraft introuvable")?
+        .clone();
+
+    let mc_version = servers[idx]
+        .env
+        .get("MINECRAFT_VERSION")
+        .cloned()
+        .unwrap_or_else(|| "1.21.1".into());
+
+    let pref = java_version.trim().to_lowercase();
+    let pref = if pref.is_empty() { "auto".to_string() } else { pref };
+    let image = crate::minecraft::resolve_java_image_for(&mc_version, &pref);
+    let label = if pref == "auto" {
+        format!("Automatique ({})", image.rsplit(':').next().unwrap_or("").replace("java_", "Java "))
+    } else {
+        format!("Java {}", pref)
+    };
+
+    // Mise à jour de l'environnement et de l'état du serveur
+    let mut env_map = servers[idx].env.clone();
+    env_map.insert("JAVA_VERSION".into(), pref.clone());
+    servers[idx].env = env_map.clone();
+    servers[idx].status = "deploying".into();
+    servers[idx].status_detail = Some("Reconfiguration de la JVM en cours...".into());
+    servers[idx].exit_code = None;
+    if servers[idx].container_name.is_empty() {
+        servers[idx].container_name = format!("noos-game-{}", id);
+    }
+    let container_name = servers[idx].container_name.clone();
+    let memory_mb = servers[idx].memory_mb;
+    let target_port = servers[idx].port;
+    let data_dir = PathBuf::from(&servers[idx].data_dir);
+    let snapshot = servers[idx].clone();
+    save_servers(&servers)?;
+
+    // Recréation du conteneur : suppression de l'ancien puis relance du pipeline (pull + run)
+    let _ = Command::new("docker").args(["rm", "-f", &container_name]).status();
+
+    // Réinitialisation de la console et du suivi de déploiement
+    {
+        let epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+        CONSOLE_RESET_TIMESTAMPS.lock().unwrap().insert(id.to_string(), epoch);
+    }
+    {
+        let mut tracker = DEPLOY_TRACKER.lock().unwrap();
+        tracker.insert(
+            id.to_string(),
+            GameDeployProgress {
+                server_id: id.to_string(),
+                server_name: snapshot.name.clone(),
+                egg_id: egg.id.clone(),
+                egg_name: egg.name.clone(),
+                icon: egg.icon.clone(),
+                step: "pulling_image".into(),
+                step_index: 2,
+                progress_percent: 15,
+                status_message: format!("Reconfiguration de la JVM ({})...", label),
+                detail: "".into(),
+                logs: vec![
+                    format!("☕ Runtime Java sélectionné : {}", label),
+                    format!("⚡ Préparation de l'image de conteneur : {}", image),
+                ],
+                is_complete: false,
+                is_error: false,
+                is_cancelled: false,
+            },
+        );
+    }
+
+    let docker_args = build_docker_run_args(
+        &egg,
+        &container_name,
+        memory_mb,
+        target_port,
+        &data_dir,
+        &env_map,
+        &image,
+    );
+
+    let slug_bg = id.to_string();
+    let name_bg = snapshot.name.clone();
+    let egg_id_bg = egg.id.clone();
+    let egg_name_bg = egg.name.clone();
+    let img_bg = image.clone();
+    let container_bg = container_name.clone();
+    std::thread::spawn(move || {
+        run_server_deployment_pipeline(slug_bg, name_bg, egg_id_bg, egg_name_bg, img_bg, container_bg, docker_args);
+    });
+
+    Ok(snapshot)
 }
 
 pub fn resolve_game_container_name(id: &str) -> String {

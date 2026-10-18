@@ -304,21 +304,62 @@ fn sort_versions(list: &mut [String]) {
     });
 }
 
+/// Liste blanche des runtimes JVM proposés dans l'interface (tags `yolks:java_XX` réels).
+pub fn available_java_versions() -> Vec<String> {
+    ["auto", "7", "8", "11", "14", "16", "17", "18", "19", "21", "22", "23", "24", "25"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// Déduit automatiquement la version de Java requise par une version Minecraft.
+///
+/// Règle officielle Mojang :
+///   - 1.20.5 et supérieur → Java 21
+///   - 1.18 à 1.20.4        → Java 17
+///   - 1.17                 → Java 16 (Java 17 reste compatible)
+///   - 1.16.5 et inférieur  → Java 8
 pub fn resolve_java_image(mc_version: &str) -> String {
     let parts: Vec<u32> = mc_version.split('.').filter_map(|p| p.parse::<u32>().ok()).collect();
-    if parts.len() >= 2 {
-        let major = parts[0];
-        let minor = parts[1];
-        let patch = parts.get(2).copied().unwrap_or(0);
+    let (major, minor, patch) = (
+        parts.first().copied().unwrap_or(1),
+        parts.get(1).copied().unwrap_or(0),
+        parts.get(2).copied().unwrap_or(0),
+    );
 
-        if major > 1 || (major == 1 && minor > 20) || (major == 1 && minor == 20 && patch >= 5) {
-            return "ghcr.io/pterodactyl/yolks:java_21".into();
-        }
-        if major == 1 && minor >= 17 {
-            return "ghcr.io/pterodactyl/yolks:java_17".into();
-        }
+    if major != 1 || minor >= 21 {
+        // Versions modernes (1.21+) et futures → Java 21
+        return "ghcr.io/pterodactyl/yolks:java_21".into();
     }
-    "ghcr.io/pterodactyl/yolks:java_17".into()
+    if minor == 20 {
+        // 1.20.5+ exige Java 21 ; 1.20.0 → 1.20.4 restent sur Java 17
+        return if patch >= 5 {
+            "ghcr.io/pterodactyl/yolks:java_21".into()
+        } else {
+            "ghcr.io/pterodactyl/yolks:java_17".into()
+        };
+    }
+    if minor >= 17 {
+        return "ghcr.io/pterodactyl/yolks:java_17".into();
+    }
+    // 1.16.5 et antérieures (1.7 → 1.16.5) → Java 8
+    "ghcr.io/pterodactyl/yolks:java_8".into()
+}
+
+/// Résout l'image JVM en tenant compte d'un choix explicite de l'utilisateur.
+///
+/// `java_pref` est soit `"auto"` (déduction depuis la version Minecraft), soit un
+/// numéro de version Java de la liste blanche (`available_java_versions`).
+pub fn resolve_java_image_for(mc_version: &str, java_pref: &str) -> String {
+    let pref = java_pref.trim().to_lowercase();
+    if pref.is_empty() || pref == "auto" {
+        return resolve_java_image(mc_version);
+    }
+    if available_java_versions().iter().any(|v| v == &pref) {
+        return format!("ghcr.io/pterodactyl/yolks:java_{}", pref);
+    }
+    // Valeur inconnue → repli sur la déduction automatique
+    resolve_java_image(mc_version)
 }
 
 pub fn resolve_minecraft_server(loader: &str, version: &str) -> Result<ResolvedMinecraftServer, String> {
