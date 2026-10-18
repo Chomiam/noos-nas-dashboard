@@ -7169,6 +7169,39 @@ let nvimIsDirty = false;
 let nvimCurrentLang = "text";
 let nvimSyntaxEnabled = true;
 
+// --------------------------------------------------------------------------
+// VERROUILLAGE DU DÉFILEMENT DE L'ARRIÈRE-PLAN (modales plein écran)
+// --------------------------------------------------------------------------
+// Empêche la page située derrière une modale (éditeur NVIM, etc.) de défiler
+// quand on utilise la molette ou les flèches. Un compteur gère l'empilement de
+// plusieurs modales : le défilement n'est rétabli qu'à la fermeture de la dernière.
+let backgroundScrollLockCount = 0;
+let backgroundScrollPreviousPadding = "";
+
+function lockBackgroundScroll() {
+  backgroundScrollLockCount++;
+  if (backgroundScrollLockCount > 1) return;
+
+  // Compense la largeur de la barre de défilement pour éviter un saut de mise en page.
+  const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+  backgroundScrollPreviousPadding = document.body.style.paddingRight;
+  if (scrollbarWidth > 0) {
+    document.body.style.paddingRight = `${scrollbarWidth}px`;
+  }
+
+  document.documentElement.style.overflow = "hidden";
+  document.body.style.overflow = "hidden";
+}
+
+function unlockBackgroundScroll() {
+  if (backgroundScrollLockCount > 0) backgroundScrollLockCount--;
+  if (backgroundScrollLockCount > 0) return;
+
+  document.documentElement.style.overflow = "";
+  document.body.style.overflow = "";
+  document.body.style.paddingRight = backgroundScrollPreviousPadding;
+}
+
 const NVIM_LANG_META = {
   fish: { name: "Fish Shell", icon: "🐟", tag: "fish", ext: [".fish"] },
   nix: { name: "NixOS", icon: "❄️", tag: "nix", ext: [".nix"] },
@@ -7484,6 +7517,7 @@ function openNvimViewerWithContent(titleText, contentText, lang = "yaml", pathHi
   updateNvimHighlighting();
   syncNvimEditorScroll();
 
+  lockBackgroundScroll();
   modal.style.display = "flex";
   textarea.focus();
 }
@@ -7516,6 +7550,7 @@ async function openNvimModal(path, fileName) {
 
   textarea.value = "Chargement en cours...";
   updateNvimHighlighting();
+  lockBackgroundScroll();
   modal.style.display = "flex";
 
   try {
@@ -7689,8 +7724,10 @@ function closeNvimModal() {
   }
   const modal = document.getElementById("nvim-modal");
   const textarea = document.getElementById("nvim-textarea");
+  const wasOpen = !!modal && modal.style.display !== "none";
   if (modal) modal.style.display = "none";
   if (textarea) textarea.readOnly = false;
+  if (wasOpen) unlockBackgroundScroll();
   nvimCurrentPath = null;
   nvimIsDirty = false;
 }
