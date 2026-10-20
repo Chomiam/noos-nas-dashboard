@@ -679,6 +679,8 @@ pub fn create_directory(base_dir: &str, dir_name: &str) -> Result<String, String
             .output();
     }
 
+    crate::games::normalize_permissions_if_game_path(&p);
+
     Ok(format!("Dossier '{}' créé avec succès.", name))
 }
 
@@ -753,6 +755,8 @@ pub fn rename_item(item_path: &str, new_name: &str) -> Result<String, String> {
     fs::rename(p, &target)
         .map_err(|e| format!("Erreur lors du renommage : {}", e))?;
 
+    crate::games::normalize_permissions_if_game_path(&target);
+
     Ok(format!("Renommé en '{}' avec succès.", new_name))
 }
 
@@ -825,6 +829,8 @@ pub fn copy_item(src: &str, dest_dir: &str) -> Result<String, String> {
             .map_err(|e| format!("Erreur lors de la copie du fichier : {}", e))?;
     }
 
+    crate::games::normalize_permissions_if_game_path(&target);
+
     Ok(format!("Élément copié avec succès sous '{}'.", target.file_name().and_then(|f| f.to_str()).unwrap_or(file_name)))
 }
 
@@ -876,6 +882,8 @@ pub fn move_item(src: &str, dest_dir: &str) -> Result<String, String> {
             let _ = fs::remove_file(&src_path);
         }
     }
+
+    crate::games::normalize_permissions_if_game_path(&target);
 
     Ok(format!("Élément déplacé avec succès sous '{}'.", target.file_name().and_then(|f| f.to_str()).unwrap_or(file_name)))
 }
@@ -1045,6 +1053,7 @@ pub fn write_file_content(path_str: &str, content: &str) -> Result<String, Strin
         return Err("Fichier cible introuvable.".into());
     }
     fs::write(&p, content).map_err(|e| format!("Échec d'enregistrement : {}", e))?;
+    crate::games::normalize_permissions_if_game_path(&p);
     Ok("Fichier enregistré avec succès.".into())
 }
 
@@ -1787,6 +1796,7 @@ pub fn extract_archive(req: ExtractRequest) -> Result<String, String> {
 
     let user = crate::updates::target_user();
     let _ = std::process::Command::new("chown").args(["-R", &format!("{}:users", user), dest_dir.to_str().unwrap_or_default()]).output();
+    crate::games::normalize_permissions_if_game_path(&dest_dir);
 
     Ok(format!("Archive extraite avec succès dans {}", dest_dir.display()))
 }

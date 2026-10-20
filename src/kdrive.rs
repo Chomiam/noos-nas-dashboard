@@ -893,6 +893,8 @@ pub fn copy_kdrive_file_to_nas(account_id: &str, file_id: u64, file_name: &str, 
         Some(&final_path_str),
     )?;
 
+    crate::games::normalize_permissions_if_game_path(&final_dest_path);
+
     Ok(final_path_str)
 }
 

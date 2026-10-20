@@ -1977,6 +1977,8 @@ async fn handle_files_upload(
         });
     }
 
+    crate::games::normalize_permissions_if_game_path(&target_dir);
+
     Json(ApiResponse {
         success: true,
         data: Some(uploaded),

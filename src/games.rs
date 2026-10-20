@@ -270,6 +270,12 @@ fn run_server_deployment_pipeline(
     });
     append_deploy_log(&server_id, &format!("🚀 Lancement du conteneur {}...", container_name));
 
+    if let Some(srv) = load_saved_servers().into_iter().find(|s| s.id == server_id) {
+        ensure_game_server_permissions(Path::new(&srv.data_dir));
+    } else {
+        ensure_game_server_permissions(&get_games_base_dir().join(&server_id));
+    }
+
     let _ = Command::new("docker").args(["rm", "-f", &container_name]).status();
 
     let run_res = Command::new("docker").args(&docker_args).output();
@@ -694,6 +700,68 @@ pub fn get_custom_eggs_dir() -> PathBuf {
     let p = get_games_base_dir().join("eggs");
     let _ = fs::create_dir_all(&p);
     p
+}
+
+/// Normalise récursivement les permissions POSIX et le propriétaire d'un répertoire de serveur de jeu
+/// (ou d'un fichier/dossier situé dans l'arborescence des serveurs de jeux).
+///
+/// Pourquoi :
+/// Les images Docker de serveurs de jeux (notamment Pterodactyl Yolks : `ghcr.io/pterodactyl/yolks:*`)
+/// s'exécutent avec un utilisateur non-privilégié interne (`container`, `uid=1001`, `gid=1001`), tandis
+/// que le Dashboard s'exécute en tant que `root` (avec `umask 022` créant des fichiers en `0644` et des
+/// dossiers en `0755`) et que les partages Samba/SFTP utilisent l'utilisateur hôte (`uid=1000`, `gid=100`).
+/// Sans normalisation explicite (`chown -R 1001:users`, `chmod -R 777` et bit `setgid` sur les dossiers),
+/// tout fichier ou dossier téléversé, copié, déplacé, édité ou extrait depuis le Dashboard devient
+/// inaccessible en écriture pour le conteneur (`Permission denied`, `AccessDeniedException`, `SQLITE_READONLY`).
+pub fn ensure_game_server_permissions(target_path: &Path) {
+    if !target_path.exists() {
+        return;
+    }
+    let path_str = target_path.to_string_lossy().to_string();
+
+    // 1. Attribuer la propriété à l'UID 1001 (utilisateur `container` des images Pterodactyl Yolks)
+    //    et au groupe `users` (GID 100) afin que le conteneur soit propriétaire POSIX direct des fichiers
+    //    (requis par certaines opérations Java NIO, SQLite WAL/journal, chmod et utimensat).
+    let chown_status = Command::new("chown")
+        .args(["-R", "1001:users", &path_str])
+        .status();
+    if chown_status.map(|s| !s.success()).unwrap_or(true) {
+        let _ = Command::new("chown")
+            .args(["-R", "1001:100", &path_str])
+            .status();
+    }
+
+    // 2. Accorder les permissions lecture/écriture/exécution complètes (777) pour que le conteneur
+    //    (quel que soit son UID interne : 1000, 1001, etc.), l'utilisateur hôte (Samba/SFTP) et le
+    //    Dashboard puissent lire, modifier et créer des fichiers sans conflit d'umask.
+    let _ = Command::new("chmod")
+        .args(["-R", "777", &path_str])
+        .status();
+
+    // 3. Positionner le bit setgid (g+s) sur les répertoires afin que les nouveaux fichiers/dossiers
+    //    héritent automatiquement du groupe partagé `users`.
+    if target_path.is_dir() {
+        let _ = Command::new("find")
+            .args([&path_str, "-type", "d", "-exec", "chmod", "g+s", "{}", "+"])
+            .status();
+    }
+}
+
+/// Vérifie si un chemin appartient à l'arborescence des serveurs de jeux (`/mnt/storage/games` ou `~/docker/games`)
+/// et applique automatiquement `ensure_game_server_permissions` le cas échéant.
+pub fn normalize_permissions_if_game_path(path: &Path) {
+    let path_str = path.to_string_lossy();
+    let base_dir = get_games_base_dir();
+    let base_str = base_dir.to_string_lossy();
+
+    let is_game_path = path.starts_with(&base_dir)
+        || path_str.starts_with(base_str.as_ref())
+        || path_str.starts_with("/mnt/storage/games")
+        || path_str.contains("/docker/games");
+
+    if is_game_path {
+        ensure_game_server_permissions(path);
+    }
 }
 
 static PUBLIC_IP_CACHE: Mutex<Option<(String, Instant)>> = Mutex::new(None);
@@ -2039,6 +2107,7 @@ touch .installed
 
         let entrypoint = format!(
 r#"#!/bin/bash
+umask 0000
 set -e
 cd /home/container
 echo "eula=true" > eula.txt
@@ -2566,6 +2635,7 @@ fi
 
         let entrypoint = format!(
             r#"#!/bin/bash
+umask 0000
 cd /home/container
 {steam_setup}
 {game_setup}
@@ -2591,8 +2661,8 @@ fi
         let _ = fs::write(data_dir.join("entrypoint.sh"), entrypoint);
     }
 
-    // Droits complets sur le dossier de données pour le conteneur
-    let _ = Command::new("chmod").args(["-R", "777", &data_dir.display().to_string()]).status();
+    // Droits complets et propriété normalisée sur le dossier de données pour le conteneur et l'hôte
+    ensure_game_server_permissions(&data_dir);
 
     let container_name = format!("noos-game-{}", slug);
 
@@ -2747,6 +2817,9 @@ pub fn set_game_server_java_version(id: &str, java_version: &str) -> Result<Game
     let snapshot = servers[idx].clone();
     save_servers(&servers)?;
 
+    // Normalisation préventive des permissions du dossier de données avant recréation du conteneur
+    ensure_game_server_permissions(&data_dir);
+
     // Recréation du conteneur : suppression de l'ancien puis relance du pipeline (pull + run)
     let _ = Command::new("docker").args(["rm", "-f", &container_name]).status();
 
@@ -2829,6 +2902,18 @@ pub fn control_game_server(id: &str, action: &str) -> Result<String, String> {
         "kill" => "kill",
         _ => return Err("Action invalide".into()),
     };
+
+    // Normaliser systématiquement les permissions POSIX du répertoire de données du serveur
+    // avant tout démarrage, redémarrage ou arrêt gracieux (afin que les plugins/mondes ajoutés
+    // via le gestionnaire de fichiers, Samba ou SFTP soient accessibles en lecture/écriture
+    // par l'utilisateur interne `container` du conteneur, y compris lors de la sauvegarde d'arrêt).
+    if action == "start" || action == "restart" || action == "stop" {
+        if let Some(srv) = load_saved_servers().into_iter().find(|s| s.id == id) {
+            ensure_game_server_permissions(Path::new(&srv.data_dir));
+        } else {
+            ensure_game_server_permissions(&get_games_base_dir().join(id));
+        }
+    }
 
     if action == "start" || action == "restart" {
         STARTING_SERVERS.lock().unwrap().insert(id.to_string(), Instant::now());
